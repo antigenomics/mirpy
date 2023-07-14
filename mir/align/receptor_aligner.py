@@ -1,27 +1,65 @@
-class AlignerCDR3:
-    def __init__(self, gap_positions = (3, 4, -4, -3)):
-        self.gap_positions = gap_positions
+from Bio import Align
 
-    @staticmethod
-    def __pad(s1, s2, i, d) -> tuple[str]:
-        if (d < 0):
-            return (s1[:i] + ('-' * d) + s1[i:], s2)
-        else:
-            return (s1, s2[:i] + ('-' * d) + s2[i:])
+
+class AlignCDR:
+    def __init__(self, 
+                 gap_positions = (3, 4, -4, -3),
+                 mat = Align.substitution_matrices.load("BLOSUM62"),
+                 gap_penalty = -5):
+        self.gap_positions = gap_positions
+        self.mat = mat
+        self.gap_penalty = gap_penalty
         
-    def pad(self, s1, s2) -> tuple[tuple[str]]:
+    def pad(self, s1, s2) -> tuple[tuple[str, str]]:
         d = len(s1) - len(s2)
-        if (d == 0):
-            return tuple(tuple(s1, s2))
+        if d == 0:
+            return tuple([(s1, s2)])
+        elif d < 0:
+            return tuple((s1[:p] + ('-' * d) + s1[p:], s2) for p in self.gap_positions)
         else:
-            return tuple(AlignerCDR3.__pad(s1, s2, p, d) for p in self.gap_positions)
+            return tuple((s1, s2[:p] + ('-' * d) + s2[p:]) for p in self.gap_positions)
         
     def __score(self, s1, s2) -> float:
-        if s1 != s2:
-            return 0.0
-        else:
-            return 1.0
-        
+        x = 0
+        for i in range(len(s1)):
+            c1 = s1[i]
+            c2 = s2[i]
+            if c1 == '-' or c2 == '-':
+                x = x + self.gap_penalty
+            else:
+                x = x + self.mat[c1, c2]
+        return x
+    
+    def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
+        return tuple((sp1, sp2, self.__score(sp1, sp2)) for (sp1, sp2) in self.pad(s1, s2))
+    
     def score(self, s1, s2) -> float:
-        return sum(self.__score(*x) for x in zip(s1, s2))
-        
+        return max(self.__score(sp1, sp2) for (sp1, sp2) in self.pad(s1, s2))
+    
+    def score_norm(self, s1, s2) -> float:
+        score1 = sum(self.mat[c, c] for c in s1)
+        score2 = sum(self.mat[c, c] for c in s2)
+        return self.score(s1, s2) - max(score1, score2)
+
+
+class AlignGermline:
+    def __init__(self, dist : dict[tuple[str, str], float]):
+        self.dist = dist
+    
+    def score(self, g1, g2) -> float:
+        return self.dist[tuple(g1, g2)]
+    
+    @classmethod
+    def from_seqs(cls,
+                  seqs : list[tuple[str, str]],
+                  aligner = Align.PairwiseAligner("blastp")):
+        dists = {}
+
+        for (g1, s1) in seqs:
+            for (g2, s2) in seqs:
+                score = aligner.align(s1, s2).score
+                if g1 >= g2:
+                    dists[(g1, g2)] = score
+                    dists[(g2, g1)] = score
+
+        return cls(dists)
