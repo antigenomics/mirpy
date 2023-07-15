@@ -31,16 +31,16 @@ class Library:
         self.segments = segments
         self.species = species
 
-    def get_or_create(self, s : str | Segment) -> Segment:        
+    def get_or_create(self, s : str | Segment, seqaa : str = None, seqnt : str = None) -> Segment:        
         if type(s) == "str":
             res = self.segments[s]
-            if res is None:
-                res = Segment(s)
+            if not res:
+                res = Segment(s, seqaa, seqnt)
                 self.segments[s] = res
             return res
         else:
             res = self.segments[s.id]
-            if res is None:
+            if not res:
                 res = s
                 self.segments[s.id] = s
             return res
@@ -48,13 +48,13 @@ class Library:
     @classmethod
     def load_default(cls,
                      genes = ["TRB"],
-                     species = ["HomoSapiens"]):
-        handle = mir.get_resource_path("segments.txt")
+                     species = ["HomoSapiens"],
+                     fname = "segments.txt"):
         try:
-            fp = open(handle)
-            lines = fp.readlines()
+            file = open(mir.get_resource_path(fname))
+            lines = file.readlines()
         finally:
-            fp.close()
+            file.close()
         header = lines[0].split()
         species_col = header.index("species")
         id_col = header.index("id")

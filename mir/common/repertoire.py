@@ -36,7 +36,7 @@ class ClonotypeR(ClonotypeJ):
         super().__init__(cdr3aa, v, j, id, cells)
         self.cdr3nt = cdr3nt
         self.junction = junction
-        if self.cdr3aa is None:
+        if not self.cdr3aa:
             self.cdr3aa = translate(self.cdr3nt) 
         self.v = v
         self.j = j

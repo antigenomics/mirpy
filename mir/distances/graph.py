@@ -1,43 +1,43 @@
+from multiprocessing import Pool
 import numpy as np
 import igraph as ig
-from scipy.spatial.distance import pdist, squareform
-import pandas as pd
 import textdistance
 #pip install -e git+https://github.com/life4/textdistance.git#egg=textdistance
 #pip install "textdistance[Hamming]"
 
 class HammingDistances:
-    def __init__(self, 
-                 seqs : list[str]):
-        seqs = np.array(seqs).astype("str")
-        # todo: optimize
-        dm = squareform(pdist(seqs.reshape(-1, 1), metric = lambda x, y: textdistance.hamming(x[0], y[0])))
-        self.__dmf = pd.DataFrame(dm, index=seqs, columns=seqs).stack().reset_index()
-        self.__dmf.columns = ['id1', 'id2', 'distance']
+    def __init__(self, seqs, seqs2 = None,
+                 nproc = 4, chunk_sz = 1024):
+        with Pool(nproc) as pool:
+            if not seqs2:
+                self.distances = pool.starmap(HammingDistances.__wrap_dist, 
+                                            ((s1, s2) for s1 in seqs for s2 in seqs2 if s1 > s2), chunk_sz)
+            else:
+                self.distances = pool.starmap(HammingDistances.__wrap_dist, 
+                                            ((s1, s2) for s1 in seqs for s2 in seqs2), chunk_sz)
 
-    def get_edges(self, threshold = 1) -> tuple[str, str]:
-        return self.__dmf[self.__dmf['distance'] <= threshold].apply(tuple, axis=1).tolist()
+    @staticmethod
+    def __wrap_dist(s1 : str, s2 : str):
+        return (s1, s2, textdistance.hamming(s1, s2))
+
+    def get_edges(self, threshold = 1):
+        return ((x[0], x[1]) for x in self.distances if x[2] <= threshold)
 
 
 class SequenceGraph:
-    def __init__(self, 
-                 edges : list[tuple[str, str, float]]):        
-        self.graph = ig.Graph.TupleList(edges, weights=True)
-        
-    def find_clusters(self):
-        self.clusters = self.graph.components()        
+    def __init__(self, edges):        
+        self.graph = ig.Graph.TupleList(edges)
+        self.clusters = self.graph.components()
+        self.layout = self.graph.layout('graphopt')
 
     def get_seqs(self):
         return self.graph.vs()['name']
-        
-    def do_layout(self):
-        self.layout = self.graph.layout('graphopt')
 
     def get_cluster_ids(self):
         return self.clusters.membership
     
     def get_coords(self):
-        return np.array(self.layout.coords)
+        return self.layout.coords
 
         #df_graph = pd.DataFrame(
         #    {'seq': graph.vs()['name'],

@@ -14,8 +14,13 @@ print(aln.alns("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 print(aln.score("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 print(aln.score_norm("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 
-print(aligner.AlignGermline.from_seqs({'trbv1': "AGGGA", 'trbv2': 'AEFGHHW', 'trbj1': 'FKLHW'}).dist)
+seqdict = {'trbv1': "AGGGA", 'trbv2': 'AEFGHHW', 'trbj1': 'FKLHW'}
+print(aligner.AlignGermline.from_seqs(seqdict).dist)
 
 print(mir.get_resource_path("segments.txt"))
 
 print(segments.Library.load_default())
+
+lib0 = segments.Library()
+print(lib0.get_seqaas())
+for 
