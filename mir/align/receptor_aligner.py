@@ -60,10 +60,11 @@ class AlignGermline:
         seqs = list(seqs.items())
         for (g1, s1) in seqs:
             for (g2, s2) in seqs:
-                score = aligner.align(s1, s2).score
-                if g1 >= g2:
-                    dists[(g1, g2)] = score
-                    dists[(g2, g1)] = score
+                if g1[0:4] == g2[0:4]: # same chain and type
+                    score = aligner.align(s1, s2).score
+                    if g1 >= g2:
+                        dists[(g1, g2)] = score
+                        dists[(g2, g1)] = score
         return cls(dists)
     
 
