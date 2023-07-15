@@ -54,10 +54,13 @@ class AlignGermline:
     
     @classmethod
     def from_seqs(cls,
-                  seqs : list[tuple[str, str]],
+                  seqs : dict[str, str] | list[tuple[str, str]],
                   aligner = Align.PairwiseAligner("blastp")):
         dists = {}
-        seqs = list(seqs.items())
+
+        if type(seqs) == dict:
+            seqs = list(seqs.items())
+
         for (g1, s1) in seqs:
             for (g2, s2) in seqs:
                 if g1[0:4] == g2[0:4]: # same chain and type
