@@ -12,4 +12,4 @@ print(aln.alns("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 print(aln.score("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 print(aln.score_norm("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 
-print(receptor_aligner.AlignGermline.from_seqs([('v1', "AGGGA"), ('v2', 'AEFGHHW')]).dist)
+print(receptor_aligner.AlignGermline.from_seqs({'v1': "AGGGA", 'v2': 'AEFGHHW'}).dist)

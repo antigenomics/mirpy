@@ -49,17 +49,30 @@ class AlignGermline:
     def score(self, g1, g2) -> float:
         return self.dist[tuple(g1, g2)]
     
+    def score_norm(self, g1, g2) -> float:
+        return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
+    
     @classmethod
     def from_seqs(cls,
-                  seqs : list[tuple[str, str]],
+                  seqs : dict[str, str],
                   aligner = Align.PairwiseAligner("blastp")):
         dists = {}
-
+        seqs = list(seqs.items())
         for (g1, s1) in seqs:
             for (g2, s2) in seqs:
                 score = aligner.align(s1, s2).score
                 if g1 >= g2:
                     dists[(g1, g2)] = score
                     dists[(g2, g1)] = score
-
         return cls(dists)
+    
+
+class AlignDefault:
+    def __init__(self, aligner = Align.PairwiseAligner("blastp")):
+        self.aligner = aligner
+
+    def score(self, s1, s2) -> float:
+        return self.aligner.align(s1, s2).score
+    
+    def score_norm(self, s1, s2) -> float:
+        return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
