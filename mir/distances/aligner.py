@@ -54,7 +54,7 @@ class AlignGermline:
     
     @classmethod
     def from_seqs(cls,
-                  seqs : dict[str, str],
+                  seqs : list[tuple[str, str]],
                   aligner = Align.PairwiseAligner("blastp")):
         dists = {}
         seqs = list(seqs.items())
