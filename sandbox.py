@@ -23,4 +23,3 @@ print(segments.Library.load_default())
 
 lib0 = segments.Library()
 print(lib0.get_seqaas())
-for 
