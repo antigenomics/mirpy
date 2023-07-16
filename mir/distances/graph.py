@@ -1,29 +1,45 @@
 from multiprocessing import Pool
 import numpy as np
 import igraph as ig
-import textdistance
+#for fast hamming
 #pip install -e git+https://github.com/life4/textdistance.git#egg=textdistance
 #pip install "textdistance[Hamming]"
+import textdistance
 
 class HammingDistances:
-    def __init__(self, seqs, seqs2 = None,
+    def __init__(self, seqs, seqs2 = None, indels = False, 
                  nproc = 4, chunk_sz = 1024):
-        with Pool(nproc) as pool:
+        # https://stackoverflow.com/questions/5442910/how-to-use-multiprocessing-pool-map-with-multiple-arguments
+        if indels:
+            dfun = HammingDistances.__wrap_dist_lv
+        else:
+            dfun = HammingDistances.__wrap_dist_h
+        if nproc == 1:
             if not seqs2:
-                self.distances = pool.starmap(HammingDistances.__wrap_dist, 
-                                            ((s1, s2) for s1 in seqs for s2 in seqs2 if s1 > s2), chunk_sz)
+                self.distances = map(dfun, ((s1, s2) for s1 in seqs for s2 in seqs if s1 > s2))
             else:
-                self.distances = pool.starmap(HammingDistances.__wrap_dist, 
-                                            ((s1, s2) for s1 in seqs for s2 in seqs2), chunk_sz)
+                self.distances = map(dfun, ((s1, s2) for s1 in seqs for s2 in seqs2))
+        else:           
+            with Pool(nproc) as pool:
+                if not seqs2:
+                    self.distances = pool.starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs if s1 > s2), 
+                                                chunk_sz)
+                else:
+                    self.distances = pool.starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs2), 
+                                                chunk_sz)
 
     @staticmethod
-    def __wrap_dist(s1 : str, s2 : str):
+    def __wrap_dist_h(s1 : str, s2 : str):
         return (s1, s2, textdistance.hamming(s1, s2))
+    
+    @staticmethod
+    def __wrap_dist_lv(s1 : str, s2 : str):
+        return (s1, s2, textdistance.levenshtein(s1, s2))
 
     def get_edges(self, threshold = 1):
         return ((x[0], x[1]) for x in self.distances if x[2] <= threshold)
 
-
+# todo: degree
 class SequenceGraph:
     def __init__(self, edges):        
         self.graph = ig.Graph.TupleList(edges)
