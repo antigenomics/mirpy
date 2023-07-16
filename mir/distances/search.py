@@ -36,8 +36,8 @@ class Trie(Set):
 
     def search(self, term):
         """Generate the elements of the set matching the search term, which
-        may include wildcards.
-
+        may include wildcards. Wildcards are: '.' for any symbol,
+        '-' for any string of symbols (arbitrary length)
         """
         def _add(indexes, i):
             # Add i to set of indexes into term, taking account of wildcards.
@@ -61,9 +61,9 @@ class Trie(Set):
                 for i in indexes_stack[-1]:
                     if i >= len(term):
                         continue
-                    elif term[i] == '*':
+                    elif term[i] == '.':
                         _add(new_indexes, i)
-                    elif term[i] == '?' or term[i] == k:
+                    elif term[i] == '-' or term[i] == k:
                         _add(new_indexes, i + 1)
                 if new_indexes:
                     element.append(k)
