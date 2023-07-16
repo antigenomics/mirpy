@@ -1,64 +1,77 @@
+from dataclasses import dataclass
 from multiprocessing import Pool
 from itertools import starmap
 import igraph as ig
-#for fast hamming
 #pip install -e git+https://github.com/life4/textdistance.git#egg=textdistance
 #pip install "textdistance[Hamming]"
 import textdistance
 
 
-class HammingDistances:
+class LvWrapper(object):
+    def __call__(self, s1, s2):
+        return (s1, s2, textdistance.levenshtein(s1, s2))
+
+
+class HWrapper(object):
+    def __call__(self, s1, s2):
+        return (s1, s2, textdistance.hamming(s1, s2))
+
+
+class EditDistances:
     def __init__(self, seqs, seqs2 = None, indels = False, 
                  nproc = 8, chunk_sz = 4096):
-        # https://stackoverflow.com/questions/5442910/how-to-use-multiprocessing-pool-map-with-multiple-arguments
-        if indels:
-            dfun = lambda s1, s2: (s1, s2, textdistance.levenshtein(s1, s2))
+        self.seqs = seqs
+        self.seqs2 = seqs2
+        self.indels = indels
+        self.nproc = nproc
+        self.chunk_sz = chunk_sz
+        if self.indels:
+            self.dfun = LvWrapper()
         else:
-            dfun = lambda s1, s2: (s1, s2, textdistance.hamming(s1, s2))
-        if nproc == 1:
-            if not seqs2:
-                self.distances = starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs if s1 > s2))
-            else:
-                self.distances = starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs2))
-        else:           
-            with Pool(nproc) as pool:
-                if not seqs2:
-                    self.distances = pool.starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs if s1 > s2), 
-                                                chunk_sz)
-                else:
-                    self.distances = pool.starmap(dfun, ((s1, s2) for s1 in seqs for s2 in seqs2), 
-                                                chunk_sz)
+            self.dfun = HWrapper()
 
     def get_edges(self, threshold = 1):
-        return ((x[0], x[1]) for x in self.distances if x[2] <= threshold)
+        if self.nproc == 1:
+            if not self.seqs2:
+                dist = starmap(self.dfun, 
+                               ((s1, s2) for s1 in self.seqs for s2 in self.seqs if s1 > s2))
+            else:
+                dist = starmap(self.dfun, 
+                               ((s1, s2) for s1 in self.seqs for s2 in self.seqs2))
+        else:
+            # https://stackoverflow.com/questions/5442910/how-to-use-multiprocessing-pool-map-with-multiple-arguments
+            with Pool(self.nproc) as pool:
+                if not self.seqs2:
+                    dist = pool.starmap(self.dfun, 
+                                        ((s1, s2) for s1 in self.seqs for s2 in self.seqs if s1 > s2),
+                                        self.chunk_sz)
+                else:
+                    dist = pool.starmap(self.dfun,
+                                        ((s1, s2) for s1 in self.seqs for s2 in self.seqs2), 
+                                        self.chunk_sz)                    
+        return ((x[0], x[1]) for x in dist if x[2] <= threshold)
 
-# todo: degree
+
+@dataclass
+class SequenceVertex:
+    seq : str
+    degree : int
+    cluster_id : int
+    pos : tuple[float, float]
+
+
 class SequenceGraph:
     def __init__(self, edges):        
         self.graph = ig.Graph.TupleList(edges)
-        self.clusters = self.graph.components()
-        # todo: optimize
-        self.layout = self.graph.layout('graphopt')
+        self.degree = ig.Graph.indegree(self.graph)
+        self.clusters = self.graph.components()       
 
-    def get_seqs(self):
-        return self.graph.vs()['name']
+    def do_layout(self, method = 'graphopt'):
+        self.layout = self.graph.layout(method)
 
-    def get_cluster_ids(self):
-        return self.clusters.membership
-    
-    def get_coords(self):
-        return self.layout.coords
-
-        #df_graph = pd.DataFrame(
-        #    {'seq': graph.vs()['name'],
-        #    'cluster': clusters.membership,
-        #    'x': coords[:,0],
-        #    'y': coords[:,1]
-        #})
-        
-        # summary
-        #df_graph_summary = df_graph.groupby(['cluster']).agg(
-        #    cluster_size = ('cluster', 'size'), 
-        #    x_mean = ('x', 'mean'), 
-        #    y_mean = ('y', 'mean')).reset_index()
-        #return pd.merge(df_graph, df_graph_summary)
+    def get_vertices(self):
+        return (SequenceVertex(s,
+                               self.degree[i],
+                               self.clusters.membership[i],
+                               self.layout.coords[i] if self.layout else (0, 0)
+                               ) for (i, s) in enumerate(self.graph.vs()['name']))
