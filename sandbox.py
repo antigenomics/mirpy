@@ -21,6 +21,4 @@ print(mir.get_resource_path("segments.txt"))
 
 libd = segments.Library.load_default()
 print(libd)
-
-lib0 = segments.Library()
-print([x for x in lib0.get_seqaas()][0:10])
+print(libd.get_summary())

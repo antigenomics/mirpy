@@ -1,4 +1,4 @@
-species	gene	segment	id	reference_point	sequence	cdr1.start	cdr1.end	cdr2.start	cdr2.end	cdr2.5.start	cdr2.5.end
+organism	gene	stype	id	refpoint	seqnt	cdr1_start	cdr1_end	cdr2_start	cdr2_end	cdr2.5_start	cdr2.5_end
 HomoSapiens	TRA	Joining	TRAJ10*01	29	ATACTCACGGGAGGAGGAAACAAACTCACCTTTGGGACAGGCACTCAGCTAAAAGTGGAACTCA	-1	-1	-1	-1	-1	-1
 HomoSapiens	TRA	Joining	TRAJ11*01	25	TGAATTCAGGATACAGCACCCTCACCTTTGGGAAGGGGACTATGCTTCTAGTCTCTCCAG	-1	-1	-1	-1	-1	-1
 HomoSapiens	TRA	Joining	TRAJ12*01	25	GGATGGATAGCAGCTATAAATTGATCTTCGGGAGTGGGACCAGACTGCTGGTCAGGCCTG	-1	-1	-1	-1	-1	-1
