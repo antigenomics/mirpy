@@ -19,7 +19,8 @@ print(aligner.AlignGermline.from_seqs(seqdict).dist)
 
 print(mir.get_resource_path("segments.txt"))
 
-print(segments.Library.load_default())
+libd = segments.Library.load_default()
+print(libd)
 
 lib0 = segments.Library()
-print(lib0.get_seqaas())
+print([x for x in lib0.get_seqaas()][0:10])

@@ -1,27 +1,49 @@
 mir = __import__(__name__.split('.')[0])
 DEFAULT_SEGMENTS = mir.get_resource_path("segments.txt")
 
+from typing import Iterable
+from Bio.Seq import Seq
 
 class Segment:
-    def __init__(self, id : str, seqaa : str = None, seqnt : str = None):
+    def __init__(self, 
+                 id : str, 
+                 gene : str = None,
+                 stype : str = None,
+                 seqnt : str = None,
+                 refpoint : int = -1, # 0-based right after Cys or right before F/W
+                 seqaa : str = None):
+        # todo: cdrs
         self.id = id
-        self.gene = id[0:3]
-        if "DV" in id:
-            self.gene = "TRD"
-        else:
+        if not gene:
             self.gene = id[0:3]
-        self.type = id[3]
-        self.seqaa = seqaa
+        else:
+            self.gene = gene
+        if not stype:
+            self.stype = id[3]
+        else:
+            self.stype = stype
         self.seqnt = seqnt
+        if not seqaa:
+            if seqnt:
+                if stype == 'J':
+                    offset = (refpoint + 1) % 3
+                    ss = seqnt[offset:]
+                else:
+                    ss = seqnt                
+                trim = len(ss) % 3
+                self.seqaa = str(Seq.translate(ss[:len(ss) - trim]))
+        else:
+            self.seqaa = seqaa
+        self.refpoint = refpoint
 
     def __repr__(self):
-        if self.type == "V":
+        if self.stype == "V":
             seq = ".." + self.seqaa[-10:]
-        elif self.type == "D":
-            seq = "..." + self.seqnt[3:-3] + "..."
+        elif self.stype == "D":
+            seq = "_" + self.seqaa + "_"
         else:
             seq = self.seqaa[:10] + ".."
-        return f"{self.id}:{seq}"
+        return f"{self.id}:{self.refpoint}:{seq}"
 
 
 class Library:
@@ -58,22 +80,28 @@ class Library:
         header = lines[0].split()
         species_col = header.index("species")
         id_col = header.index("id")
-        seqaa_col = header.index("seqaa")
-        seqnt_col = header.index("seqnt")
+        gene_col = header.index("gene")
+        stype_col = header.index("segment")
+        seqnt_col = header.index("sequence")        
+        refpoint_col = header.index("reference_point")
         segments = {}
         for line in lines[1:]:
             splitline = line.split()
             if splitline[species_col] in species:
-                segment = Segment(splitline[id_col], splitline[seqaa_col], splitline[seqnt_col])
-                if segment.gene in genes:
+                gene = splitline[gene_col]
+                if gene in genes:
+                    segment = Segment(splitline[id_col], gene,
+                                      splitline[stype_col][0], 
+                                      splitline[seqnt_col],
+                                      int(splitline[refpoint_col]))                
                     segments[segment.id] = segment
         return cls(segments, species)
     
-    def get_seqaas(self) -> list[tuple[str, str]]:
-        return [(s.id, s.seqaa) for s in self.segments.values]
+    def get_seqaas(self) -> Iterable[tuple[str, str]]:
+        return ((s.id, s.seqaa) for s in self.segments.values())
     
-    def get_seqnts(self) -> list[tuple[str, str]]:
-        return [(s.id, s.seqnt) for s in self.segments.values]
+    def get_seqnts(self) -> Iterable[tuple[str, str]]:
+        return ((s.id, s.seqnt) for s in self.segments.values())
     
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \

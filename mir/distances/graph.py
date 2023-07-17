@@ -1,3 +1,4 @@
+from typing import Iterable
 from dataclasses import dataclass
 from multiprocessing import Pool
 from itertools import starmap
@@ -8,18 +9,20 @@ import textdistance
 
 
 class LvWrapper(object):
-    def __call__(self, s1, s2):
+    def __call__(self, s1, s2) -> tuple[str, str, float]:
         return (s1, s2, textdistance.levenshtein(s1, s2))
 
 
 class HWrapper(object):
-    def __call__(self, s1, s2):
+    def __call__(self, s1, s2) -> tuple[str, str, float]:
         return (s1, s2, textdistance.hamming(s1, s2))
 
 
 class EditDistances:
-    def __init__(self, seqs, seqs2 = None, indels = False, 
-                 nproc = 8, chunk_sz = 4096):
+    def __init__(self, 
+                 seqs : Iterable[str], seqs2 : Iterable[str] = None, 
+                 indels = False, 
+                 nproc : int = 8, chunk_sz : int = 4096):
         self.seqs = seqs
         self.seqs2 = seqs2
         self.indels = indels
@@ -30,7 +33,7 @@ class EditDistances:
         else:
             self.dfun = HWrapper()
 
-    def get_edges(self, threshold = 1):
+    def get_edges(self, threshold : float = 1) -> Iterable[tuple[str, str]]:
         if self.nproc == 1:
             if not self.seqs2:
                 dist = starmap(self.dfun, 
@@ -61,7 +64,7 @@ class SequenceVertex:
 
 
 class SequenceGraph:
-    def __init__(self, edges):        
+    def __init__(self, edges : Iterable[tuple[str, str]]):        
         self.graph = ig.Graph.TupleList(edges)
         self.degree = ig.Graph.indegree(self.graph)
         self.clusters = self.graph.components()       
@@ -69,7 +72,7 @@ class SequenceGraph:
     def do_layout(self, method = 'graphopt'):
         self.layout = self.graph.layout(method)
 
-    def get_vertices(self):
+    def get_vertices(self) -> Iterable[SequenceVertex]:
         return (SequenceVertex(s,
                                self.degree[i],
                                self.clusters.membership[i],

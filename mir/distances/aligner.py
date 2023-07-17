@@ -1,11 +1,32 @@
+from abc import abstractmethod
 from Bio import Align
+from Bio.Align import substitution_matrices
+from typing import Iterable
 
 
-class AlignCDR:
+class Scoring:
+    @abstractmethod
+    def score(self, s1 : str, s2 : str) -> float:
+        pass
+
+    def score_norm(self, s1 : str, s2 : str) -> float:
+        return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
+
+
+class BioAlignerWrapper(Scoring):
+    def __init__(self, scoring : str = "blastp"):
+        self.aligner = Align.PairwiseAligner(scoring)
+
+    def score(self, s1, s2) -> float:
+        return self.aligner.align(s1, s2).score
+    
+# todo: substitution matrix wrapper to load from dict
+
+class AlignCDR(Scoring):
     def __init__(self, 
-                 gap_positions = (3, 4, -4, -3),
-                 mat = Align.substitution_matrices.load("BLOSUM62"),
-                 gap_penalty = -5):
+                 gap_positions : Iterable[int] = (3, 4, -4, -3),
+                 mat : substitution_matrices.Array = substitution_matrices.load("BLOSUM62"),
+                 gap_penalty : float = -5):
         self.gap_positions = gap_positions
         self.mat = mat
         self.gap_penalty = gap_penalty
@@ -55,7 +76,7 @@ class AlignGermline:
     @classmethod
     def from_seqs(cls,
                   seqs : dict[str, str] | list[tuple[str, str]],
-                  aligner = Align.PairwiseAligner("blastp")):
+                  aligner : Scoring = BioAlignerWrapper()):
         dists = {}
 
         if type(seqs) == dict:
@@ -64,19 +85,8 @@ class AlignGermline:
         for (g1, s1) in seqs:
             for (g2, s2) in seqs:
                 if g1[0:4] == g2[0:4]: # same chain and type
-                    score = aligner.align(s1, s2).score
+                    score = aligner.score(s1, s2)
                     if g1 >= g2:
                         dists[(g1, g2)] = score
                         dists[(g2, g1)] = score
         return cls(dists)
-    
-
-class AlignDefault:
-    def __init__(self, aligner = Align.PairwiseAligner("blastp")):
-        self.aligner = aligner
-
-    def score(self, s1, s2) -> float:
-        return self.aligner.align(s1, s2).score
-    
-    def score_norm(self, s1, s2) -> float:
-        return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
