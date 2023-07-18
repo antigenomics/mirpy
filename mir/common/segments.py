@@ -129,27 +129,27 @@ class Library:
                     segments[segment.id] = segment
         return cls(segments)
     
-    def get_segments(self, gene : str = None, stype : str = None) -> Iterable[Segment]:
-        return filter(lambda x: (not gene | x.gene == gene) & 
-                      (not stype | x.stype == stype), self.segments.values())
+    def get_segments(self, gene : str = None, stype : str = None) -> list[Segment]:
+        return [x for x in self.segments.values() if (not gene or x.gene == gene) & 
+                      (not stype or x.stype == stype)]
     
-    def get_seqaas(self, gene : str = None, stype : str = None) -> Iterable[tuple[str, str]]:
-        return ((s.id, s.seqaa) for s in self.get_segments(gene, stype))
+    def get_seqaas(self, gene : str = None, stype : str = None) -> list[tuple[str, str]]:
+        return [(s.id, s.seqaa) for s in self.get_segments(gene, stype)]
     
-    def get_seqnts(self, gene : str = None, stype : str = None) -> Iterable[tuple[str, str]]:
-        return ((s.id, s.seqnt) for s in self.get_segments(gene, stype))
+    def get_seqnts(self, gene : str = None, stype : str = None) -> list[tuple[str, str]]:
+        return [(s.id, s.seqnt) for s in self.get_segments(gene, stype)]
 
     def get_summary(self) -> Counter[tuple[str, str, str]]:
         return Counter(((s.organism, s.gene, s.stype) for s in self.segments.values()))
     
     def get_organisms(self) -> set[str]:
-        return {(s.organism for s in self.segments.values())}
+        return {s.organism for s in self.segments.values()}
     
     def get_genes(self) -> set[str]:
-        return {(s.gene for s in self.segments.values())}
+        return {s.gene for s in self.segments.values()}
     
     def get_stypes(self) -> set[str]:
-        return {(s.stype for s in self.segments.values())}
+        return {s.stype for s in self.segments.values()}
     
     def __getitem__(self, id : str) -> Segment:
         return self.segments[id]

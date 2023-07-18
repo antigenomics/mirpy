@@ -76,23 +76,24 @@ class _Scoring_Wrapper:
 class AlignGermline:
     def __init__(self, dist : dict[tuple[str, str], float]):
         self.dist = dist
-        for ((g1, g2), score) in dist:
-            self.dist[(g2, g1)] = score
+        self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
     
     def score(self, g1, g2) -> float:
-        return self.dist[tuple(g1, g2)]
+        return self.dist[(g1, g2)]
     
     def score_norm(self, g1, g2) -> float:
         return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
     
     @classmethod
     def from_seqs(cls,
-                  seqs : dict[str, str],
+                  seqs : dict[str, str] | Iterable[tuple[str, str]],
                   scoring : Scoring = BioAlignerWrapper(),
                   nproc = 8, chunk_sz = 4096):
         scoring_wrapper = _Scoring_Wrapper(scoring)
-        gen = ((gs1, gs2) for gs1 in seqs.items() for gs2 in seqs.items() if 
-                        gs1[0] > gs2[0])
+        if type(seqs) is dict:
+            seqs = seqs.items()
+        gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if 
+                        gs1[0] >= gs2[0])
         if nproc == 1:
             dist = starmap(scoring_wrapper, gen)            
         else:

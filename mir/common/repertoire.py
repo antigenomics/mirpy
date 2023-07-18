@@ -1,5 +1,11 @@
 from mir.common import translate
 from mir.common.segments import Segment
+from Bio import Seq
+import re
+
+
+_coding = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
+_canonical = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 
 class Clonotype:
@@ -17,12 +23,17 @@ class Clonotype:
 class ClonotypeJ(Clonotype):
     def __init__(self, cdr3aa : str,
                  v : Segment = None, j : Segment = None,
-                 id: int | str = -1,
-                 cells : int | list[str] = 1):
+                 id: int | str = -1, cells : int | list[str] = 1):
         super().__init__(id, cells)
         self.cdr3aa = cdr3aa
         self.v = v
         self.j = j
+
+    def is_coding(self):
+        return _coding.match(self.cdr3aa)
+    
+    def is_canonical(self):
+        return _canonical.match(self.cdr3aa)
 
 
 class ClonotypeR(ClonotypeJ):
@@ -31,12 +42,11 @@ class ClonotypeR(ClonotypeJ):
                  junction = (-1, -1, -1, -1), # vend, dstart, dend, jstart
                  cdr3aa : str = None,
                  v : Segment = None, j : Segment = None,
-                 id: int | str = -1,
-                 cells : int | list[str] = 1):
+                 id: int | str = -1, cells : int | list[str] = 1):
         super().__init__(cdr3aa, v, j, id, cells)
         self.cdr3nt = cdr3nt
         self.junction = junction
         if not self.cdr3aa:
-            self.cdr3aa = translate(self.cdr3nt) 
+            self.cdr3aa = str(Seq.translate(self.cdr3nt))
         self.v = v
         self.j = j
