@@ -1,4 +1,6 @@
 from abc import abstractmethod
+from itertools import starmap
+from multiprocessing import Pool
 from Bio import Align
 from Bio.Align import substitution_matrices
 from typing import Iterable
@@ -63,9 +65,19 @@ class AlignCDR(Scoring):
         return self.score(s1, s2) - max(score1, score2)
 
 
+class _Scoring_Wrapper:
+    def __init__(self, scoring : Scoring):
+        self.scoring = scoring
+
+    def __call__(self, gs1 : tuple[str, str], gs2 : tuple[str, str]):
+        return ((gs1[0], gs2[0]), self.scoring.score(gs1[1], gs2[1]))
+
+
 class AlignGermline:
     def __init__(self, dist : dict[tuple[str, str], float]):
         self.dist = dist
+        for ((g1, g2), score) in dist:
+            self.dist[(g2, g1)] = score
     
     def score(self, g1, g2) -> float:
         return self.dist[tuple(g1, g2)]
@@ -75,18 +87,15 @@ class AlignGermline:
     
     @classmethod
     def from_seqs(cls,
-                  seqs : dict[str, str] | list[tuple[str, str]],
-                  aligner : Scoring = BioAlignerWrapper()):
-        dists = {}
-
-        if type(seqs) == dict:
-            seqs = list(seqs.items())
-
-        for (g1, s1) in seqs:
-            for (g2, s2) in seqs:
-                if g1[0:4] == g2[0:4]: # same chain and type
-                    score = aligner.score(s1, s2)
-                    if g1 >= g2:
-                        dists[(g1, g2)] = score
-                        dists[(g2, g1)] = score
-        return cls(dists)
+                  seqs : dict[str, str],
+                  scoring : Scoring = BioAlignerWrapper(),
+                  nproc = 8, chunk_sz = 4096):
+        scoring_wrapper = _Scoring_Wrapper(scoring)
+        gen = ((gs1, gs2) for gs1 in seqs.items() for gs2 in seqs.items() if 
+                        gs1[0] > gs2[0])
+        if nproc == 1:
+            dist = starmap(scoring_wrapper, gen)            
+        else:
+            with Pool(nproc) as pool:
+                dist = pool.starmap(scoring_wrapper, gen, chunk_sz)  
+        return cls(dict(dist))

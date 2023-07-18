@@ -3,9 +3,11 @@ from typing import Iterable
 from Bio.Seq import Seq
 mir = __import__(__name__.split('.')[0])
 
+
 _ALL_AV2DV = True
 _ALLOWED_GENES = {'TRA', 'TRB', 'TRG', 'TRD', 'IGL', 'IGK', 'IGH'}
 _ALLOWED_STYPE = {'V', 'D', 'J', 'C'}
+
 
 class Segment:
     def __init__(self, 

@@ -34,24 +34,16 @@ class EditDistances:
             self.dfun = HWrapper()
 
     def get_edges(self, threshold : float = 1) -> Iterable[tuple[str, str]]:
+        if not self.seqs2:
+            gen = ((s1, s2) for s1 in self.seqs for s2 in self.seqs if s1 > s2)
+        else:
+            gen = ((s1, s2) for s1 in self.seqs for s2 in self.seqs2)
         if self.nproc == 1:
-            if not self.seqs2:
-                dist = starmap(self.dfun, 
-                               ((s1, s2) for s1 in self.seqs for s2 in self.seqs if s1 > s2))
-            else:
-                dist = starmap(self.dfun, 
-                               ((s1, s2) for s1 in self.seqs for s2 in self.seqs2))
+            dist = starmap(self.dfun, gen)            
         else:
             # https://stackoverflow.com/questions/5442910/how-to-use-multiprocessing-pool-map-with-multiple-arguments
             with Pool(self.nproc) as pool:
-                if not self.seqs2:
-                    dist = pool.starmap(self.dfun, 
-                                        ((s1, s2) for s1 in self.seqs for s2 in self.seqs if s1 > s2),
-                                        self.chunk_sz)
-                else:
-                    dist = pool.starmap(self.dfun,
-                                        ((s1, s2) for s1 in self.seqs for s2 in self.seqs2), 
-                                        self.chunk_sz)                    
+                dist = pool.starmap(self.dfun, gen, self.chunk_sz)                 
         return ((x[0], x[1]) for x in dist if x[2] <= threshold)
 
 
