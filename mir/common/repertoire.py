@@ -20,7 +20,7 @@ class Clonotype:
             return len(self.cells)
 
 
-class ClonotypeJ(Clonotype):
+class ClonotypeAA(Clonotype):
     def __init__(self, cdr3aa : str,
                  v : Segment = None, j : Segment = None,
                  id: int | str = -1, cells : int | list[str] = 1):
@@ -36,17 +36,28 @@ class ClonotypeJ(Clonotype):
         return _canonical.match(self.cdr3aa)
 
 
-class ClonotypeR(ClonotypeJ):
+class ClonotypeNT(ClonotypeAA):
     def __init__(self, 
                  cdr3nt : str,
-                 junction = (-1, -1, -1, -1), # vend, dstart, dend, jstart
+                 junction : tuple[int, int, int, int] = (-1, -1, -1, -1), # vend, dstart, dend, jstart
                  cdr3aa : str = None,
                  v : Segment = None, j : Segment = None,
                  id: int | str = -1, cells : int | list[str] = 1):
+        if not cdr3aa:
+            cdr3aa = str(Seq.translate(cdr3nt))
         super().__init__(cdr3aa, v, j, id, cells)
         self.cdr3nt = cdr3nt
         self.junction = junction
-        if not self.cdr3aa:
-            self.cdr3aa = str(Seq.translate(self.cdr3nt))
         self.v = v
         self.j = j
+
+
+class PairedChainClone:
+    def __init__(self, chainA : Clonotype, chainB : Clonotype):
+        self.chainA = chainA
+        self.chainB = chainB
+
+
+class ClonalLineage:
+    def __init__(self, clonotypes : list[Clonotype]):
+        self.clonotypes = clonotypes
