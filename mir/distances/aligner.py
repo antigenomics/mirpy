@@ -88,7 +88,7 @@ class AlignGermline:
     def from_seqs(cls,
                   seqs : dict[str, str] | Iterable[tuple[str, str]],
                   scoring : Scoring = BioAlignerWrapper(),
-                  nproc = 8, chunk_sz = 4096):
+                  nproc = 1, chunk_sz = 4096):
         scoring_wrapper = _Scoring_Wrapper(scoring)
         if type(seqs) is dict:
             seqs = seqs.items()
