@@ -1,5 +1,6 @@
-## Misc
+## Data
 notebooks/assets/*
+!notebooks/assets/samples
 
 ## VSCode
 
