@@ -1,9 +1,12 @@
 from abc import abstractmethod
+from collections import namedtuple
 from itertools import starmap
 from multiprocessing import Pool
 from Bio import Align
 from Bio.Align import substitution_matrices
 from typing import Iterable
+from mir.common.repertoire import ClonotypeAA
+from mir.common.segments import Segment
 
 
 class Scoring:
@@ -22,8 +25,8 @@ class BioAlignerWrapper(Scoring):
     def score(self, s1, s2) -> float:
         return self.aligner.align(s1, s2).score
     
-# todo: substitution matrix wrapper to load from dict
 
+# todo: substitution matrix wrapper to load from dict
 class AlignCDR(Scoring):
     def __init__(self, 
                  gap_positions : Iterable[int] = (3, 4, -4, -3),
@@ -78,12 +81,13 @@ class AlignGermline:
         self.dist = dist
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
     
-    def score(self, g1, g2) -> float:
+    def score(self, g1 : str | Segment, g2 : str | Segment) -> float:
         return self.dist[(g1, g2)]
     
-    def score_norm(self, g1, g2) -> float:
+    def score_norm(self, g1 : str | Segment, g2 : str | Segment) -> float:
         return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
     
+# todo: variant for Segment type input
     @classmethod
     def from_seqs(cls,
                   seqs : dict[str, str] | Iterable[tuple[str, str]],
@@ -100,3 +104,28 @@ class AlignGermline:
             with Pool(nproc) as pool:
                 dist = pool.starmap(scoring_wrapper, gen, chunk_sz)  
         return cls(dict(dist))
+
+
+ClonotypeScore = namedtuple('ClonotypeScore', 'v_score j_score cdr3_score')
+
+
+class ClonotypeAligner:
+    def __init__(self, 
+                 vAligner : AlignGermline, 
+                 jAligner : AlignGermline, 
+                 cdr3Aligner : AlignCDR):
+        self.vAligner = vAligner
+        self.jAligner = jAligner
+        self.cdr3Aligner = cdr3Aligner
+
+    def score(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
+        return ClonotypeScore(self.vAligner.score(cln1.v, cln2.v),
+                              self.jAligner.score(cln1.j, cln2.j),
+                              self.cdr3Aligner.score(cln1.cdr3aa, cln2.cdr3aa))
+    
+    def score_norm(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
+        return ClonotypeScore(self.vAligner.score_norm(cln1.v, cln2.v),
+                              self.jAligner.score_norm(cln1.j, cln2.j),
+                              self.cdr3Aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+
+    

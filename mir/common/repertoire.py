@@ -1,11 +1,10 @@
-from mir.common import translate
 from mir.common.segments import Segment
 from Bio import Seq
 import re
 
 
-_coding = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
-_canonical = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
+_CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
+_CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 
 class Clonotype:
@@ -14,7 +13,7 @@ class Clonotype:
         self.cells = cells
 
     def size(self):
-        if type(self.cells) == int:
+        if type(self.cells) is int:
             return self.cells
         else:
             return len(self.cells)
@@ -30,10 +29,10 @@ class ClonotypeAA(Clonotype):
         self.j = j
 
     def is_coding(self):
-        return _coding.match(self.cdr3aa)
+        return _CODING_AA.match(self.cdr3aa)
     
     def is_canonical(self):
-        return _canonical.match(self.cdr3aa)
+        return _CANONICAL_AA.match(self.cdr3aa)
 
 
 class ClonotypeNT(ClonotypeAA):
@@ -61,3 +60,29 @@ class PairedChainClone:
 class ClonalLineage:
     def __init__(self, clonotypes : list[Clonotype]):
         self.clonotypes = clonotypes
+
+
+class Repertoire:
+    def __init__(self, 
+                 clonotypes : list[Clonotype],
+                 sorted : bool = False):
+        self.clonotypes = clonotypes
+        self.sorted = sorted
+
+    def sort(self):
+        self.sorted = True
+        self.clonotypes.sort(key = lambda x: x.size(), reverse = True)
+
+    def top(self, n : int = 100):
+        if not sorted:
+            self.sort()
+        return self.clonotypes[0:n]
+
+    def diversity(self):
+        return len(self.clonotypes)
+    
+    def total(self):
+        return sum(c.size() for c in self.clonotypes)
+    
+    def __len__(self):
+        return self.diversity()
