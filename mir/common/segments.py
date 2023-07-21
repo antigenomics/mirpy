@@ -1,6 +1,5 @@
 from collections import Counter
-from typing import Iterable
-from Bio.Seq import Seq
+from Bio.Seq import translate
 mir = __import__(__name__.split('.')[0])
 
 
@@ -20,7 +19,6 @@ class Segment:
                  refpoint : int = -1, # 0-based right after Cys or right before F/W
                  featnt : dict[str, tuple[int, int]] = {},
                  feataa : dict[str, tuple[int, int]] = {}):
-        # todo: cdrs
         self.id = id
         self.organism = organism
         if not gene:
@@ -43,7 +41,7 @@ class Segment:
                 else:
                     ss = seqnt                
                 trim = len(ss) % 3
-                self.seqaa = str(Seq.translate(ss[:len(ss) - trim]))
+                self.seqaa = translate(ss[:len(ss) - trim])
         else:
             self.seqaa = seqaa
         self.refpoint = refpoint
@@ -52,6 +50,9 @@ class Segment:
         if not feataa and self.featnt:
             self.feataa = dict([(k, (i[0]//3, i[1]//3)) for (k, i) in 
                        featnt.items()])
+            
+    def __str__(self):
+        return self.id
 
     def __repr__(self):
         if self.seqaa:
@@ -66,7 +67,7 @@ class Segment:
         return f"{self.organism} {self.id}:{self.refpoint}:{seq}"
 
 
-class Library:
+class SegmentLibrary:
     def __init__(self, 
                  segments : dict[str, Segment] = {}):
         self.segments = segments

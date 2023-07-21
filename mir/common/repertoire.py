@@ -1,6 +1,8 @@
+from collections import namedtuple
 from mir.common.segments import Segment
-from Bio import Seq
+from Bio.Seq import translate
 import re
+import typing as t
 
 
 _CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
@@ -8,9 +10,13 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 
 class Clonotype:
-    def __init__(self, id: int | str, cells : int | list[str] = 1):
+    def __init__(self, 
+                 id: int | str, 
+                 cells : int | list[str] = 1, 
+                 payload = t.Any):
         self.id = id
         self.cells = cells
+        self.payload = payload
 
     def size(self):
         if type(self.cells) is int:
@@ -21,9 +27,12 @@ class Clonotype:
 
 class ClonotypeAA(Clonotype):
     def __init__(self, cdr3aa : str,
-                 v : Segment = None, j : Segment = None,
-                 id: int | str = -1, cells : int | list[str] = 1):
-        super().__init__(id, cells)
+                 v : Segment = None, 
+                 j : Segment = None,
+                 id: int | str = -1, 
+                 cells : int | list[str] = 1, 
+                 payload = t.Any):
+        super().__init__(id, cells, payload)
         self.cdr3aa = cdr3aa
         self.v = v
         self.j = j
@@ -35,16 +44,23 @@ class ClonotypeAA(Clonotype):
         return _CANONICAL_AA.match(self.cdr3aa)
 
 
+JunctionMarkup = namedtuple('JunctionMarkup', 'vend dstart dend jstart')
+_DUMMY_JUNCTION = JunctionMarkup(-1, -1, -1, -1)
+
+
 class ClonotypeNT(ClonotypeAA):
     def __init__(self, 
                  cdr3nt : str,
-                 junction : tuple[int, int, int, int] = (-1, -1, -1, -1), # vend, dstart, dend, jstart
+                 junction : JunctionMarkup = _DUMMY_JUNCTION,
                  cdr3aa : str = None,
-                 v : Segment = None, j : Segment = None,
-                 id: int | str = -1, cells : int | list[str] = 1):
+                 v : Segment = None, 
+                 j : Segment = None,
+                 id: int | str = -1, 
+                 cells : int | list[str] = 1, 
+                 payload = t.Any):
         if not cdr3aa:
-            cdr3aa = str(Seq.translate(cdr3nt))
-        super().__init__(cdr3aa, v, j, id, cells)
+            cdr3aa = translate(cdr3nt)
+        super().__init__(cdr3aa, v, j, id, cells, payload)
         self.cdr3nt = cdr3nt
         self.junction = junction
         self.v = v
