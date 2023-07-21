@@ -1,5 +1,7 @@
 '''MIR library in python'''
 
+# todo: consider importing from modules in all init
+
 import os
 
 def get_resource_path(name=None):

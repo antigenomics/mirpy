@@ -1,6 +1,8 @@
 ## Data
 notebooks/assets/*
 !notebooks/assets/samples
+!notebooks/assets/olga_humanTRB.txt
+!notebooks/assets/vdjdb.slim.txt
 
 ## VSCode
 
