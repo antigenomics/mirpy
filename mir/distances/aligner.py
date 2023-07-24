@@ -5,8 +5,7 @@ from multiprocessing import Pool
 from Bio import Align
 from Bio.Align import substitution_matrices
 from typing import Iterable
-from mir.common.repertoire import ClonotypeAA
-from mir.common.segments import Segment
+from mir.common import ClonotypeAA, Segment
 
 
 class Scoring:

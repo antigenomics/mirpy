@@ -10,6 +10,8 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 
 class Clonotype:
+    __slots__ = 'id', 'cells', 'payload'
+
     def __init__(self, 
                  id: int | str, 
                  cells : int | list[str] = 1, 
@@ -26,6 +28,8 @@ class Clonotype:
 
 
 class ClonotypeAA(Clonotype):
+    __slots__ = 'cdr3aa', 'v', 'j'
+
     def __init__(self, cdr3aa : str,
                  v : Segment = None, 
                  j : Segment = None,
@@ -49,6 +53,8 @@ _DUMMY_JUNCTION = JunctionMarkup(-1, -1, -1, -1)
 
 
 class ClonotypeNT(ClonotypeAA):
+    __slots__ = 'cdr3nt', 'junction'
+
     def __init__(self, 
                  cdr3nt : str,
                  junction : JunctionMarkup = _DUMMY_JUNCTION,

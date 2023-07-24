@@ -26,13 +26,13 @@ class Segment:
         else:
             self.gene = gene
         if not self.gene in _ALLOWED_GENES:
-            raise ValueError
+            raise ValueError(f'Bad gene {self.gene}')
         if not stype:
             self.stype = id[3]
         else:
             self.stype = stype
         if not self.stype in _ALLOWED_STYPE:
-            raise ValueError
+            raise ValueError(f'Bad segment type {self.stype}')
         self.seqnt = seqnt
         if not seqaa and self.seqnt:
                 if stype == 'J':
@@ -157,17 +157,18 @@ class SegmentLibrary:
     
     def get_or_create(self, s : str | Segment,
                       seqaa : str = None, 
-                      seqnt : str = None) -> Segment:        
-        if type(s) == str:
-            res = self.segments[s]
-            if not res:
-                res = Segment(s, seqnt = seqnt, seqaa = seqaa)
-                self.segments[s] = res
-        else:
-            res = self.segments[s.id]
+                      seqnt : str = None) -> Segment:                
+        if isinstance(s, Segment):
+            res = self.segments.get(s.id)
             if not res:
                 res = s
                 self.segments[s.id] = s
+        else:
+            s = str(s)
+            res = self.segments.get(s)
+            if not res:
+                res = Segment(s, seqnt = seqnt, seqaa = seqaa)
+                self.segments[s] = res
         return res
     
     def __repr__(self):
