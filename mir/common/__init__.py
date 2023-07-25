@@ -1,4 +1,4 @@
 '''Common classes and routines'''
 
 from .segments import Segment, SegmentLibrary
-from .repertoire import Clonotype, ClonotypeAA, ClonotypeNT
+from .repertoire import Clonotype, ClonotypeAA, ClonotypeNT, Repertoire

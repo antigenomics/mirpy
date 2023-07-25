@@ -81,6 +81,10 @@ class AlignGermline:
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
     
     def score(self, g1 : str | Segment, g2 : str | Segment) -> float:
+        if isinstance(g1, Segment):
+            g1 = g1.id
+        if isinstance(g2, Segment):
+            g2 = g2.id
         return self.dist[(g1, g2)]
     
     def score_norm(self, g1 : str | Segment, g2 : str | Segment) -> float:
@@ -110,21 +114,21 @@ ClonotypeScore = namedtuple('ClonotypeScore', 'v_score j_score cdr3_score')
 
 class ClonotypeAligner:
     def __init__(self, 
-                 vAligner : AlignGermline, 
-                 jAligner : AlignGermline, 
-                 cdr3Aligner : AlignCDR):
-        self.vAligner = vAligner
-        self.jAligner = jAligner
-        self.cdr3Aligner = cdr3Aligner
+                 v_aligner : AlignGermline, 
+                 j_aligner : AlignGermline, 
+                 cdr3_aligner : AlignCDR = AlignCDR()):
+        self.v_aligner = v_aligner
+        self.j_aligner = j_aligner
+        self.cdr3_aligner = cdr3_aligner
 
     def score(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(self.vAligner.score(cln1.v, cln2.v),
-                              self.jAligner.score(cln1.j, cln2.j),
-                              self.cdr3Aligner.score(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(self.v_aligner.score(cln1.v, cln2.v),
+                              self.j_aligner.score(cln1.j, cln2.j),
+                              self.cdr3_aligner.score(cln1.cdr3aa, cln2.cdr3aa))
     
     def score_norm(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(self.vAligner.score_norm(cln1.v, cln2.v),
-                              self.jAligner.score_norm(cln1.j, cln2.j),
-                              self.cdr3Aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(self.v_aligner.score_norm(cln1.v, cln2.v),
+                              self.j_aligner.score_norm(cln1.j, cln2.j),
+                              self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
 
     

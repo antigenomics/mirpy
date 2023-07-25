@@ -69,8 +69,10 @@ class Segment:
 
 class SegmentLibrary:
     def __init__(self, 
-                 segments : dict[str, Segment] = {}):
+                 segments : dict[str, Segment] = {},
+                 complete : bool = False):
         self.segments = segments
+        self.complete = complete
         
     @classmethod
     def load_default(cls,
@@ -128,7 +130,7 @@ class SegmentLibrary:
                                       refpoint=refpoint,
                                       featnt=featnt)              
                     segments[segment.id] = segment
-        return cls(segments)
+        return cls(segments, True)
     
     def get_segments(self, gene : str = None, stype : str = None) -> list[Segment]:
         return [x for x in self.segments.values() if (not gene or x.gene == gene) & 
@@ -161,12 +163,16 @@ class SegmentLibrary:
         if isinstance(s, Segment):
             res = self.segments.get(s.id)
             if not res:
+                if self.complete:
+                    raise ValueError(f'Segment {s} not found in a complete library')
                 res = s
                 self.segments[s.id] = s
         else:
             s = str(s)
             res = self.segments.get(s)
             if not res:
+                if self.complete:
+                    raise ValueError(f'Segment {s} not found in a complete library')
                 res = Segment(s, seqnt = seqnt, seqaa = seqaa)
                 self.segments[s] = res
         return res
@@ -174,3 +180,6 @@ class SegmentLibrary:
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \
             f"{[x[1] for x in self.segments.items()][:10]}"
+    
+
+_SEGMENT_CACHE = SegmentLibrary()

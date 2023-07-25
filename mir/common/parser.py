@@ -5,9 +5,10 @@ from . import ClonotypeAA, ClonotypeNT, SegmentLibrary
 
 VdjdbPayload = namedtuple('VdjdbPayload', 'mhc_a mhc_b mhc_class epitope pathogen')
 
-def parse_vdjdb_slim(fname : str, lib : SegmentLibrary,
-                     species : str = "HomoSapiens", gene : str = "TRB") -> list[ClonotypeAA]:
-    df = pd.read_csv(fname, sep = '\t')
+def parse_vdjdb_slim(fname : str, lib : SegmentLibrary = SegmentLibrary(),
+                     species : str = "HomoSapiens", gene : str = "TRB", 
+                     warn : bool = False, n : int = None) -> list[ClonotypeAA]:
+    df = pd.read_csv(fname, sep = '\t', nrows = n)
     df = df[(df['species'] == species) & (df['gene'] == gene)]
     res = []
     for index, row in df.iterrows():
@@ -22,12 +23,14 @@ def parse_vdjdb_slim(fname : str, lib : SegmentLibrary,
                                                row['antigen.epitope'],
                                                row['antigen.species'])))
         except Exception as e:
-            warnings.warn(f'Error parsing VDJdb line {row} - {e}')
+            if warn:
+                warnings.warn(f'Error parsing VDJdb line {row} - {e}')
     return res
 
 
-def parse_olga(fname : str, lib : SegmentLibrary) -> list[ClonotypeAA]:
-    df = pd.read_csv(fname, header = None, names = ['cdr3nt', 'cdr3aa', 'v', 'j'], sep = '\t')
+def parse_olga(fname : str, lib : SegmentLibrary = SegmentLibrary(), n : int = None) -> list[ClonotypeAA]:
+    df = pd.read_csv(fname, header = None, names = ['cdr3nt', 'cdr3aa', 'v', 'j'], sep = '\t',
+                     nrows = n)
     return [ClonotypeNT(cdr3nt = row['cdr3nt'], 
                         cdr3aa = row['cdr3aa'], 
                         v = lib.get_or_create(row['v'] + "*01"),
