@@ -1,6 +1,7 @@
 from collections import defaultdict
 from collections.abc import Set
 
+
 class Trie(Set):
     """Taken from https://codereview.stackexchange.com/a/142903
     A set of strings implemented using a trie."""

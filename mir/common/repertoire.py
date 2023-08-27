@@ -132,3 +132,8 @@ class Repertoire:
     def __str__(self):
         return f'Repertoire of {self.__len__()} clonotypes and {self.total} cells:\n' + \
             '\n'.join(map(str, self.clonotypes[0:5])) + '\n...'
+    
+    def __iter__(self):
+        return iter(self.clonotypes)
+    
+    # todo: subsample

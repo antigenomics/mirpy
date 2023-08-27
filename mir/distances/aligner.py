@@ -23,17 +23,21 @@ class BioAlignerWrapper(Scoring):
 
     def score(self, s1, s2) -> float:
         return self.aligner.align(s1, s2).score
-    
+
 
 # todo: substitution matrix wrapper to load from dict
 class AlignCDR(Scoring):
     def __init__(self, 
                  gap_positions : Iterable[int] = (3, 4, -4, -3),
-                 mat : substitution_matrices.Array = substitution_matrices.load("BLOSUM62"),
-                 gap_penalty : float = -5):
+                 mat : substitution_matrices.Array = substitution_matrices.load('BLOSUM62'),
+                 gap_penalty : float = -5,
+                 v_offset : int = 3,
+                 j_offset : int = 3):
         self.gap_positions = gap_positions
         self.mat = mat
         self.gap_penalty = gap_penalty
+        self.v_offset = v_offset
+        self.j_offset = j_offset
         
     def pad(self, s1, s2) -> tuple[tuple[str, str]]:
         d = len(s1) - len(s2)
@@ -46,7 +50,7 @@ class AlignCDR(Scoring):
         
     def __score(self, s1, s2) -> float:
         x = 0
-        for i in range(len(s1)):
+        for i in range(self.v_offset, len(s1) - self.j_offset):
             c1 = s1[i]
             c2 = s2[i]
             if c1 == '-' or c2 == '-':
@@ -93,12 +97,14 @@ class AlignGermline:
 # todo: variant for Segment type input
     @classmethod
     def from_seqs(cls,
-                  seqs : dict[str, str] | Iterable[tuple[str, str]],
+                  seqs : dict[str, str] | Iterable[tuple[str, str]] | list[Segment],
                   scoring : Scoring = BioAlignerWrapper(),
                   nproc = 1, chunk_sz = 4096):
         scoring_wrapper = _Scoring_Wrapper(scoring)
         if type(seqs) is dict:
             seqs = seqs.items()
+        elif isinstance(seqs, list) and isinstance(seqs[0], Segment):
+            seqs = dict({s.id, s.seqaa} for s in seqs)
         gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if 
                         gs1[0] >= gs2[0])
         if nproc == 1:
@@ -109,7 +115,13 @@ class AlignGermline:
         return cls(dict(dist))
 
 
-ClonotypeScore = namedtuple('ClonotypeScore', 'v_score j_score cdr3_score')
+class ClonotypeScore:
+    __scores__ = ['v_score', 'j_score', 'cdr3_score']
+
+    def __init__(self, v_score : float, j_score : float, cdr3_score : float):
+        self.v_score = v_score
+        self.j_score = j_score
+        self.cdr3_score = cdr3_score
 
 
 class ClonotypeAligner:
@@ -122,13 +134,13 @@ class ClonotypeAligner:
         self.cdr3_aligner = cdr3_aligner
 
     def score(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(self.v_aligner.score(cln1.v, cln2.v),
-                              self.j_aligner.score(cln1.j, cln2.j),
-                              self.cdr3_aligner.score(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v, cln2.v),
+                              j_score=self.j_aligner.score(cln1.j, cln2.j),
+                              cdr3_score=self.cdr3_aligner.score(cln1.cdr3aa, cln2.cdr3aa))
     
     def score_norm(self, cln1 : ClonotypeAA, cln2 : ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(self.v_aligner.score_norm(cln1.v, cln2.v),
-                              self.j_aligner.score_norm(cln1.j, cln2.j),
-                              self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v, cln2.v),
+                              j_score=self.j_aligner.score_norm(cln1.j, cln2.j),
+                              cdr3_score=self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
 
     
