@@ -27,6 +27,8 @@ class BioAlignerWrapper(Scoring):
 
 # todo: substitution matrix wrapper to load from dict
 class AlignCDR(Scoring):
+    _factor = 100
+
     def __init__(self, 
                  gap_positions : Iterable[int] = (3, 4, -4, -3),
                  mat : substitution_matrices.Array = substitution_matrices.load('BLOSUM62'),
@@ -57,7 +59,7 @@ class AlignCDR(Scoring):
                 x = x + self.gap_penalty
             else:
                 x = x + self.mat[c1, c2]
-        return x
+        return self._factor * x
     
     def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
         return tuple((sp1, sp2, self.__score(sp1, sp2)) for (sp1, sp2) in self.pad(s1, s2))
