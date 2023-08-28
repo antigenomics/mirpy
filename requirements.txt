@@ -1,0 +1,16 @@
+Bio==1.5.9
+biopython==1.81
+cartopy==0.22.0
+matplotlib==3.7.2
+mayavi==4.8.1
+networkx==3.1
+numpy==1.25.1
+olga==1.2.4
+pandas==2.0.3
+Pillow==10.0.0
+Pillow==10.0.0
+pyparsing==3.1.1
+python_igraph==0.10.6
+scipy==1.11.2
+seaborn==0.12.2
+textdistance==4.5.0
