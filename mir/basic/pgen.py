@@ -33,3 +33,5 @@ class OlgaModel:
         return p1 - p0 * (l - 1)
     
     # todo: v usage correction
+
+    # todo: generate

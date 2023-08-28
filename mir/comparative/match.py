@@ -64,7 +64,7 @@ class DenseMatch:
         return matches
     
     def match_to_df(self, clonotypes : list[ClonotypeAA],
-                    nproc = 1, chunk_sz = 1) -> pd.DataFrame:
+                    nproc = 1, chunk_sz = 16) -> pd.DataFrame:
         return pd.DataFrame.from_records([m.__dict__() for m in self.match(clonotypes, 
                                                                            nproc,
                                                                            chunk_sz)])
