@@ -27,12 +27,12 @@ class BioAlignerWrapper(Scoring):
 
 # todo: substitution matrix wrapper to load from dict
 class AlignCDR(Scoring):
-    _factor = 100
+    _factor = 10
 
     def __init__(self, 
                  gap_positions : Iterable[int] = (3, 4, -4, -3),
                  mat : substitution_matrices.Array = substitution_matrices.load('BLOSUM62'),
-                 gap_penalty : float = -5,
+                 gap_penalty : float = -3,
                  v_offset : int = 3,
                  j_offset : int = 3):
         self.gap_positions = gap_positions
