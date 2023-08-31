@@ -1,0 +1,5 @@
+file.name	donor	age
+A6-I200ob.txt.gz	donor1	27
+A6-I201ob.txt.gz	donor1	30
+A6-I202ob.txt.gz	donor2	47
+A5-S23.txt.gz	donor2	50
