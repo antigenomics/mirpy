@@ -1,3 +1,4 @@
+from collections import namedtuple
 import math
 from typing import Iterable
 from mir.common.repertoire import Clonotype
@@ -59,16 +60,46 @@ class DiversityIndices:
             return math.exp(self.shannon())
         else:
             return sum(species * (count / self.total) ** q for
-                       (count, species) in self.table.items()) ** (1 / (1 - q))
-        
+                       (count, species) in self.table.items()) ** (1. / (1 - q))
+
     def unseen(self) -> float:
-        return self.table.singletons() ** 2 / 2.0 / max(self.table.doubletons(), 1)
+        return (self.table.singletons() + 1.) * (self.table.singletons() - 1.) / \
+            2. / (self.table.doubletons() + 1)
 
     def chao(self) -> float:
         return self.table.unique() + self.unseen()
-    
+
+
+RarefactionPoint = namedtuple(
+    'RarefactionPoint', 'count_star species var_species interpolation')
+
 
 class Rarefaction:
     def __init__(self, table: FrequencyTable) -> None:
         self.table = table
+        div_indices = DiversityIndices(self.table)
+        self.total = div_indices.total
+        self.species_obs = div_indices.species
+        self.singletons = div_indices.singletons
+        self.species_unseen = div_indices.unseen()
+        self.species_est = self.species_obs + self.species_unseen
 
+    def rarefy(self, count_star: int) -> RarefactionPoint:
+        phi = count_star / self.total
+        if phi <= 1:
+            species_star = 0
+            species_star_sq = 0
+            for (count, species) in self.table.items():
+                species_star += species * (1. - (1. - phi) ** count)
+                species_star_sq += species * (1. - (1. - phi) ** count) ** 2
+            return RarefactionPoint(count_star,
+                                    species_star,
+                                    species_star_sq - species_star * species_star / self.species_est,
+                                    True)
+        else:
+            return RarefactionPoint(count_star,
+                                    self.species_obs + self.species_unseen *
+                                    (1. - math.exp(-(phi - 1.) *
+                                     self.singletons / self.species_unseen)),
+                                    -1., # TODO: revise error bars
+                                    False)
