@@ -3,8 +3,7 @@ from typing import Callable
 import pandas as pd
 import warnings
 
-from mir.common.repertoire import JunctionMarkup
-from . import ClonotypeAA, ClonotypeNT, SegmentLibrary
+from . import JunctionMarkup, ClonotypeAA, ClonotypeNT, SegmentLibrary
 
 VdjdbPayload = namedtuple(
     'VdjdbPayload', 'mhc_a mhc_b mhc_class epitope pathogen')

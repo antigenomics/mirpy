@@ -1,7 +1,8 @@
 from collections import namedtuple
+from functools import cached_property, lru_cache
 import math
 from typing import Iterable
-from mir.common.repertoire import Clonotype
+from ..common import Clonotype
 
 
 class FrequencyTable:
@@ -18,23 +19,29 @@ class FrequencyTable:
         for x in arr:
             self.update(x)
 
+    @cached_property
     def singletons(self) -> int:
         return self.table.get(1, 0)
 
+    @cached_property
     def doubletons(self) -> int:
         return self.table.get(2, 0)
 
+    @cached_property
     def tripletons(self) -> int:
         return self.table.get(3, 0)
 
+    @cached_property
     def large(self) -> int:
         return sum(species for (count, species) in self.table.items() if count > 3)
 
     # TODO: quantiles
 
+    @cached_property
     def unique(self) -> int:
         return sum(self.table.values())
 
+    @cached_property
     def total(self) -> int:
         return sum(count * species for (count, species) in self.table.items())
 
@@ -47,14 +54,17 @@ class DiversityIndices:
         self.doubletons = self.table.doubletons()
         self.species = self.table.unique()
 
+    @cached_property
     def shannon(self) -> float:
         return -sum(species * count / self.total * math.log(count / self.total) for
                     (count, species) in self.table.items())
 
+    @cached_property
     def simpson(self) -> float:
         return -sum(species * (count / self.total) ** 2 for
                     (count, species) in self.table.items())
 
+    @lru_cache(maxsize=10000)
     def hill(self, q) -> float:
         if q == 1:
             return math.exp(self.shannon())
@@ -62,10 +72,12 @@ class DiversityIndices:
             return sum(species * (count / self.total) ** q for
                        (count, species) in self.table.items()) ** (1. / (1 - q))
 
+    @cached_property
     def unseen(self) -> float:
         return (self.table.singletons() + 1.) * (self.table.singletons() - 1.) / \
             2. / (self.table.doubletons() + 1)
 
+    @cached_property
     def chao(self) -> float:
         return self.table.unique() + self.unseen()
 
@@ -84,6 +96,7 @@ class Rarefaction:
         self.species_unseen = div_indices.unseen()
         self.species_est = self.species_obs + self.species_unseen
 
+    @lru_cache(maxsize=10000)
     def rarefy(self, count_star: int) -> RarefactionPoint:
         phi = count_star / self.total
         if phi <= 1:
@@ -101,5 +114,5 @@ class Rarefaction:
                                     self.species_obs + self.species_unseen *
                                     (1. - math.exp(-(phi - 1.) *
                                      self.singletons / self.species_unseen)),
-                                    -1., # TODO: revise error bars
+                                    -1.,  # TODO: revise error bars
                                     False)

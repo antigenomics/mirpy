@@ -2,7 +2,7 @@ from mir.distances import aligner
 from mir.common import segments
 import mir
 
-aln = aligner.AlignCDR()
+aln = aligner.CDRAligner()
 
 print(aln.pad("CASSLAPGATNEKLFF", "CASSLATNEKLFF")[0] == ("CASSLAPGATNEKLFF", "CAS---SLATNEKLFF"))
 print(aln.pad("CELFF", "CFF"))
@@ -15,7 +15,7 @@ print(aln.score("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 print(aln.score_norm("CASSLAPGATNEKLFF", "CASSLATNEKLFF"))
 
 seqdict = {'trbv1': "AGGGA", 'trbv2': 'AEFGHHW', 'trbj1': 'FKLHW'}
-print(aligner.AlignGermline.from_seqs(seqdict).dist)
+print(aligner.GermlineAligner.from_seqs(seqdict).dist)
 
 print(mir.get_resource_path("segments.txt"))
 

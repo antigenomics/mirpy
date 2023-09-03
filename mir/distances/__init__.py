@@ -1,2 +1,2 @@
 ''' '''
-from .aligner import AlignGermline, ClonotypeAligner
+from .aligner import GermlineAligner, ClonotypeAligner, ClonotypeScore

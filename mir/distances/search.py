@@ -6,7 +6,7 @@ class Trie(Set):
     """Taken from https://codereview.stackexchange.com/a/142903
     A set of strings implemented using a trie."""
 
-    #https://habr.com/ru/articles/681940/
+    # https://habr.com/ru/articles/681940/
 
     def __init__(self, iterable=()):
         self._children = defaultdict(Trie)
@@ -20,7 +20,7 @@ class Trie(Set):
         for s in element:
             node = node._children[s]
         if not node._end:
-            node._end = True 
+            node._end = True
             node._len += 1
             node = self
             for s in element:
@@ -52,9 +52,9 @@ class Trie(Set):
         if self._end and len(term) in indexes:
             yield ''
 
-        indexes_stack = [indexes] # Stack of sets of indexes into term.
+        indexes_stack = [indexes]  # Stack of sets of indexes into term.
         element = ['']            # Current element reached in search.
-        iter_stack = [iter(self._children.items())] # Stack of iterators.
+        iter_stack = [iter(self._children.items())]  # Stack of iterators.
 
         while iter_stack:
             for k, node in iter_stack[-1]:

@@ -1,2 +1,2 @@
 '''Repertoire/clonotype lists matching, comparison and overlap'''
-from .match import DenseMatch
+from .match import DenseMatcher
