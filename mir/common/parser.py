@@ -1,5 +1,5 @@
 from collections import namedtuple
-from typing import Callable
+import typing as t
 import pandas as pd
 import warnings
 
@@ -11,8 +11,8 @@ VdjdbPayload = namedtuple(
 
 def parse_vdjdb_slim(fname: str, lib: SegmentLibrary = SegmentLibrary(),
                      species: str = "HomoSapiens", gene: str = "TRB",
-                     filter: Callable[[pd.DataFrame],
-                                      pd.DataFrame] = lambda x: x,
+                     filter: t.Callable[[pd.DataFrame],
+                                        pd.DataFrame] = lambda x: x,
                      warn: bool = False, n: int = None) -> list[ClonotypeAA]:
     df = pd.read_csv(fname, sep='\t', nrows=n)
     df = df[(df['species'] == species) & (df['gene'] == gene)]
@@ -40,21 +40,52 @@ def parse_olga(fname: str, lib: SegmentLibrary = SegmentLibrary(), n: int = None
                      nrows=n)
     return [ClonotypeNT(cdr3nt=row['cdr3nt'],
                         cdr3aa=row['cdr3aa'],
-                        v=lib.get_or_create(row['v'] + '*01'),
-                        j=lib.get_or_create(row['j'] + '*01'),
+                        v=lib.get_or_create_noallele(row['v'] + '*01'),
+                        j=lib.get_or_create_noallele(row['j'] + '*01'),
                         id=index)
             for index, row in df.iterrows()]
-# todo: fix segment name TCRB -> TRB and without *01 -> *01
+
+
+def parse_vdjtools(fname: str, lib: SegmentLibrary = SegmentLibrary(), 
+                   n: int = None, mock_allele: bool = True) -> list[ClonotypeAA]:
+    df = pd.read_csv(fname, sep='\t', nrows=n)
+
+    if len(df.columns) == 7:
+        get_junction = lambda _: JunctionMarkup()
+    else:
+        get_junction = lambda r: JunctionMarkup(r[7], r[8], r[9], r[10])
+
+    if mock_allele:
+        lgc = lambda x: lib.get_or_create_noallele(x)
+    else:
+        lgc = lambda x: lib.get_or_create(x)
+
+    def lgcd(d): # vdjtools allow '' and '.' for missing D
+        if len(d) < 5:
+            return None
+        else:
+            return lgc(d)
+
+    return [ClonotypeNT(cells=row[0],
+                        cdr3nt=row[2],
+                        cdr3aa=row[3],
+                        v=lgc(row[4]),
+                        d=lgcd(row[5]),
+                        j=lgc(row[6]),
+                        junction=get_junction(row),
+                        id=index)
+            for index, row in df.iterrows()]
 
 
 def from_df(df: pd.DataFrame, lib: SegmentLibrary = SegmentLibrary(), n: int = None):
     # todo: payload
     if {'cdr3aa', 'v', 'j'}.issubset(df.columns):
         if 'cdr3nt' in df.columns:
-            if {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(df.columns):
+            if {'d', 'v_end', 'd_start', 'd_end', 'j_start'}.issubset(df.columns):
                 return [ClonotypeNT(cdr3nt=row['cdr3nt'],
                                     cdr3aa=row['cdr3aa'],
                                     v=lib.get_or_create(row['v']),
+                                    d=lib.get_or_create(row['d']),
                                     j=lib.get_or_create(row['j']),
                                     junction=JunctionMarkup(row['v_end'],
                                                             row['d_start'],

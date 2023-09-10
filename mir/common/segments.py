@@ -1,4 +1,5 @@
 from collections import Counter
+import typing as t
 from Bio.Seq import translate
 from .. import get_resource_path
 
@@ -72,9 +73,11 @@ class Segment:
 class SegmentLibrary:
     def __init__(self,
                  segments: dict[str, Segment] = {},
-                 complete: bool = False):
+                 complete: bool = False,
+                 id_extractor: t.Callable[[t.Any], str] = lambda x: str(x)):
         self.segments = segments
         self.complete = complete
+        self.id_extractor = id_extractor
 
     @classmethod
     def load_default(cls,
@@ -171,7 +174,7 @@ class SegmentLibrary:
                 res = s
                 self.segments[s.id] = s
         else:
-            s = str(s)
+            s = self.id_extractor(s)
             res = self.segments.get(s)
             if not res:
                 if self.complete:
@@ -180,6 +183,12 @@ class SegmentLibrary:
                 res = Segment(s, seqnt=seqnt, seqaa=seqaa)
                 self.segments[s] = res
         return res
+    
+    def get_or_create_noallele(self, id : str) -> Segment:
+        if '*' in id:
+            return self.get_or_create(id)
+        else:
+            return self.get_or_create(id + '*01')
 
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \

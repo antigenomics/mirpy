@@ -58,6 +58,10 @@ class DiversityIndices:
     def shannon(self) -> float:
         return -sum(species * count / self.total * math.log(count / self.total) for
                     (count, species) in self.table.items())
+    
+    @cached_property
+    def pielou(self) -> float:
+        return self.shannon() / math.log(self.species)
 
     @cached_property
     def simpson(self) -> float:

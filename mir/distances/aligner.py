@@ -97,7 +97,6 @@ class GermlineAligner:
     def score_norm(self, g1: str | Segment, g2: str | Segment) -> float:
         return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
 
-# todo: variant for Segment type input
     @classmethod
     def from_seqs(cls,
                   seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[Segment],

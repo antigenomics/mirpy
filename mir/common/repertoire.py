@@ -1,6 +1,5 @@
 import re
 import typing as t
-from collections import namedtuple
 from functools import cached_property
 from . import Segment
 from .segments import _SEGMENT_CACHE
@@ -69,16 +68,26 @@ class ClonotypeAA(Clonotype):
         return f'Clonotype {self.id} {self.cdr3aa}'
 
 
-JunctionMarkup = namedtuple('JunctionMarkup', 'vend dstart dend jstart')
-_DUMMY_JUNCTION = JunctionMarkup(-1, -1, -1, -1)
+class JunctionMarkup:
+    __slots__ = 'vend', 'dstart', 'dend', 'jstart'
+
+    def __init__(self, vend : int = -1, dstart : int = -1, dend : int = -1, jstart : int = -1):
+        self.vend = vend
+        self.dstart = dstart
+        self.dend = dend
+        self.jstart = jstart
+
+
+# TODO ClonotypeKey
 
 
 class ClonotypeNT(ClonotypeAA):
-    __slots__ = 'cdr3nt', 'junction'
+    __slots__ = 'cdr3nt', 'd', 'junction'
 
     def __init__(self,
                  cdr3nt: str,
-                 junction: JunctionMarkup = _DUMMY_JUNCTION,
+                 d: str | Segment = None,
+                 junction: JunctionMarkup = JunctionMarkup(),
                  cdr3aa: str = None,
                  v: str | Segment = None,
                  j: str | Segment = None,
@@ -89,6 +98,7 @@ class ClonotypeNT(ClonotypeAA):
             cdr3aa = translate(cdr3nt)
         super().__init__(cdr3aa, v, j, id, cells, payload)
         self.cdr3nt = cdr3nt
+        self.d = d
         self.junction = junction
 
     def __str__(self):
@@ -138,4 +148,5 @@ class Repertoire:
     def __iter__(self):
         return iter(self.clonotypes)
 
-    # todo: subsample
+    # TODO subsample
+    # TODO group my and aggregate
