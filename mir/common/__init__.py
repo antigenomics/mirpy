@@ -1,5 +1,6 @@
 '''Common classes and routines'''
 
 from .segments import Segment, SegmentLibrary
-from .repertoire import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, Repertoire
+from .clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT
+from .repertoire import Repertoire
 from .parser import *

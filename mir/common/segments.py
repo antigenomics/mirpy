@@ -1,5 +1,4 @@
 from collections import Counter
-import typing as t
 from Bio.Seq import translate
 from .. import get_resource_path
 
@@ -73,17 +72,15 @@ class Segment:
 class SegmentLibrary:
     def __init__(self,
                  segments: dict[str, Segment] = {},
-                 complete: bool = False,
-                 id_extractor: t.Callable[[t.Any], str] = lambda x: str(x)):
+                 complete: bool = False):
         self.segments = segments
         self.complete = complete
-        self.id_extractor = id_extractor
 
     @classmethod
     def load_default(cls,
                      genes: set[str] = {'TRB'},
                      organisms: set[str] = {'HomoSapiens'},
-                     fname: str = "segments.txt"):
+                     fname: str = 'segments.txt'):
         try:
             file = open(get_resource_path(fname))
             lines = file.readlines()
@@ -170,21 +167,21 @@ class SegmentLibrary:
             if not res:
                 if self.complete:
                     raise ValueError(
-                        f'Segment {s} not found in a complete library')
+                        f"Segment {s} not found in a complete library")
                 res = s
                 self.segments[s.id] = s
         else:
-            s = self.id_extractor(s)
+            s = str(s)
             res = self.segments.get(s)
             if not res:
                 if self.complete:
                     raise ValueError(
-                        f'Segment {s} not found in a complete library')
+                        f"Segment {s} not found in a complete library")
                 res = Segment(s, seqnt=seqnt, seqaa=seqaa)
                 self.segments[s] = res
         return res
-    
-    def get_or_create_noallele(self, id : str) -> Segment:
+
+    def get_or_create_noallele(self, id: str) -> Segment:
         if '*' in id:
             return self.get_or_create(id)
         else:
