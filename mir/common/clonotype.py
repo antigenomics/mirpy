@@ -13,7 +13,7 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 class ClonotypePayload:
     def __init__(self) -> None:
         pass
-# todo: tcrnet payload etc
+# TODO tcrnet payload etc / consider moving to separate module
 
 
 class Clonotype:
@@ -34,7 +34,7 @@ class Clonotype:
             return len(self.cells)
 
     def __str__(self):
-        return f'Clonotype {self.id}'
+        return 'κ' + str(self.id)
 
     def __repr__(self):
         return self.__str__()
@@ -69,7 +69,10 @@ class ClonotypeAA(Clonotype):
         return _CANONICAL_AA.match(self.cdr3aa)
 
     def __str__(self):
-        return f'Clonotype {self.id} {self.cdr3aa}'
+        return super().__str__() + ' ' + self.cdr3aa
+    
+    def __repr__(self):
+        return self.__str__()
 
 
 class JunctionMarkup:
@@ -106,15 +109,20 @@ class ClonotypeNT(ClonotypeAA):
         self.junction = junction
 
     def __str__(self):
-        return f'Clonotype {self.id} {self.cdr3aa} {self.cdr3nt}'
+        return super().__str__() + ' ' + self.cdr3nt
+    
+    def __repr__(self):
+        return self.__str__()
 
 
+# TODO
 class PairedChainClone:
     def __init__(self, chainA: Clonotype, chainB: Clonotype):
         self.chainA = chainA
         self.chainB = chainB
 
 
+# TODO
 class ClonalLineage:
     def __init__(self, clonotypes: list[Clonotype]):
         self.clonotypes = clonotypes

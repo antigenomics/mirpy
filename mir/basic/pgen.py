@@ -32,6 +32,6 @@ class OlgaModel:
             p1 = p1 + self.pgen_model.compute_regex_CDR3_template_pgen(s)
         return p1 - p0 * (l - 1)
     
-    # todo: v usage correction
+    #TODO: v usage correction
 
-    # todo: generate
+    #TODO: generate, -> Iterable[Clonotype]

@@ -24,7 +24,7 @@ class BioAlignerWrapper(Scoring):
         return self.aligner.align(s1, s2).score
 
 
-# todo: substitution matrix wrapper to load from dict
+# TODO substitution matrix wrapper to load from dict
 class CDRAligner(Scoring):
     _factor = 10.
 

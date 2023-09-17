@@ -2,5 +2,5 @@
 
 from .segments import Segment, SegmentLibrary
 from .clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT
-from .repertoire import Repertoire
-from .parser import *
+from .parser import ClonotypeTableParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser
+from .repertoire import Repertoire, RepertoireDataset
