@@ -17,7 +17,7 @@ class FrequencyTable:
         for clonotype in repertoire:
             tbl[clonotype.cells] = tbl.get(clonotype.cells, 0) + 1
         return cls(tbl)
-    
+
     def items(self) -> t.ItemsView[int, int]:
         return self._table.items()
 
@@ -56,16 +56,16 @@ class FrequencyTable:
 HillCurvePoint = namedtuple(
     'HillCurvePoint', 'q H_q')
 
+_QVAL = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.5,
+         1.,
+         2., 10., 20., 50., 100., 200., 500., 1000.]
+
 
 class DiversityIndices:
-    def __init__(self, table: FrequencyTable) -> None:
-        self._table = table
-
-    @staticmethod
-    def for_dataset(dataset: RepertoireDataset):
-        return pd.DataFrame([dict(repertoire.metadata) | 
-                             DiversityIndices(FrequencyTable.from_repertoire(repertoire)).as_dict() 
-                             for repertoire in dataset])
+    def __init__(self, source: FrequencyTable | Repertoire) -> None:
+        if isinstance(source, Repertoire):
+            source = FrequencyTable.from_repertoire(source)
+        self._table = source
 
     def obs(self) -> int:
         return self._table.species
@@ -97,12 +97,29 @@ class DiversityIndices:
             return math.exp(self.shannon())
         else:
             return sum(species * (count / self._table.individuals) ** q for
-                       (count, species) in self._table.items()) ** (1. / (1 - q))
+                       (count, species) in self._table.items()) ** (1. / (1. - q))
 
-    def hill_curve(self) -> list[HillCurvePoint]:
-        return [HillCurvePoint(x, self.hill(x)) for x in [0.005, 0.01, 0.05, 0.1, 0.5,
-                                                          1.,
-                                                          2., 10., 20., 100., 200.]]
+    def hill_curve(self, q_values: list[float] = _QVAL) -> list[HillCurvePoint]:
+        return [HillCurvePoint(x, self.hill(x)) for x in q_values]
+
+    @staticmethod
+    def for_dataset(dataset: RepertoireDataset):
+        return pd.DataFrame([dict(repertoire.metadata) |
+                             DiversityIndices(
+                                 FrequencyTable.from_repertoire(repertoire)).as_dict()
+                             for repertoire in dataset])
+
+    @staticmethod
+    def hill_curve_for_dataset(dataset: RepertoireDataset,
+                               q_values: list[float] = _QVAL):
+        rows = []
+        for repertoire in dataset:
+            meta = dict(repertoire.metadata)
+            div = DiversityIndices(repertoire)
+            hc = div.hill_curve(q_values)
+            for hqp in hc:
+                rows.append(meta | hqp._asdict())
+        return pd.DataFrame(rows)
 
     def __str__(self) -> str:
         return f'Diversity indices for {self._table.species} species and ' + \
