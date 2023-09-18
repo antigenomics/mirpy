@@ -19,7 +19,8 @@ class SegmentParser:
         if self.remove_allele:
             id = id.split('*', 1)[0]
         if self.mock_allele:
-            id += '*01'
+            if not '*' in id:
+                id += '*01'
         return self.lib.get_or_create(id)
 
 
@@ -38,7 +39,7 @@ class ClonotypeTableParser:
     def read_table(self, path: str, n: int = None) -> pd.DataFrame:
         return pd.read_csv(path, sep='\t', nrows=n)
 
-    def parse_inner(self, source: str | pd.DataFrame) -> list[Clonotype]:
+    def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
         if {'cells'}.issubset(source.columns):
             def get_cells(r): return r['cells']
         else:
@@ -85,7 +86,8 @@ VdjdbPayload = namedtuple(
 class VDJdbSlimParser(ClonotypeTableParser):
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
-                 species: str = "HomoSapiens", gene: str = "TRB",
+                 species: str = 'HomoSapiens',
+                 gene: str = 'TRB',
                  filter: t.Callable[[pd.DataFrame],
                                     pd.DataFrame] = lambda x: x,
                  warn: int = 0) -> None:
@@ -97,9 +99,9 @@ class VDJdbSlimParser(ClonotypeTableParser):
 
     def parse_inner(self, source: pd.DataFrame) -> list[ClonotypeAA]:
         if self.species:
-            source = source[(source['species'] == self.species)]
+            source = source[source['species'] == self.species]
         if self.gene:
-            source = source[(source['gene'] == self.gene)]
+            source = source[source['gene'] == self.gene]
         if self.filter:
             source = self.filter(source)
         res = []

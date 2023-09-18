@@ -1,13 +1,23 @@
 from collections import namedtuple
 from functools import cached_property
 import typing as t
+import pandas as pd
 import math
+
+from ..common import Repertoire, RepertoireDataset
 
 
 class FrequencyTable:
     def __init__(self, table: dict[int, int]) -> None:
         self._table = table
 
+    @classmethod
+    def from_repertoire(cls, repertoire: Repertoire):
+        tbl = dict()
+        for clonotype in repertoire:
+            tbl[clonotype.cells] = tbl.get(clonotype.cells, 0) + 1
+        return cls(tbl)
+    
     def items(self) -> t.ItemsView[int, int]:
         return self._table.items()
 
@@ -50,6 +60,12 @@ HillCurvePoint = namedtuple(
 class DiversityIndices:
     def __init__(self, table: FrequencyTable) -> None:
         self._table = table
+
+    @staticmethod
+    def for_dataset(dataset: RepertoireDataset):
+        return pd.DataFrame([dict(repertoire.metadata) | 
+                             DiversityIndices(FrequencyTable.from_repertoire(repertoire)).as_dict() 
+                             for repertoire in dataset])
 
     def obs(self) -> int:
         return self._table.species

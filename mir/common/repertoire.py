@@ -1,4 +1,3 @@
-from ..basic import FrequencyTable
 from . import Clonotype, ClonotypeTableParser
 import pandas as pd
 import typing as t
@@ -28,7 +27,7 @@ class Repertoire:
         return cls(clonotypes=parser.parse(path, n=n), metadata=metadata)
 
     def __copy__(self):
-        return type(Repertoire)(self.clonotypes, self.sorted, self.metadata)
+        return Repertoire(self.clonotypes, self.sorted, self.metadata)
 
     def sort(self):
         self.sorted = True
@@ -39,12 +38,6 @@ class Repertoire:
         if not sorted:
             self.sort()
         return self.clonotypes[0:n]
-
-    def frequency_table(self) -> FrequencyTable:
-        tbl = dict()
-        for cc in self.clonotypes:
-            tbl[cc.cells] = tbl.get(cc.cells, 0) + 1
-        return FrequencyTable(tbl)
 
     def total(self):
         return sum(c.size() for c in self.clonotypes)
@@ -57,8 +50,8 @@ class Repertoire:
 
     def __str__(self):
         return f'Repertoire of {self.__len__()} clonotypes and {self.total()} cells:\n' + \
-                '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
-                '\n' + str(self.metadata) + '\n...'
+            '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
+            '\n' + str(self.metadata) + '\n...'
 
     def __repr__(self):
         return self.__str__()
@@ -67,7 +60,8 @@ class Repertoire:
         return iter(self.clonotypes)
 
     # TODO subsample
-    # TODO group my and aggregate
+    # TODO aggregate redundant
+    # TODO group by and aggregate
 
 
 class RepertoireDataset:
@@ -78,7 +72,7 @@ class RepertoireDataset:
         # not to alter metadata
         self.repertoires = [r.__copy__() for r in repertoires]
         # will overwrite metadata if specified
-        if metadata:
+        if not metadata.empty:
             if len(metadata.index) != len(repertoires):
                 raise ValueError(
                     "Metadata length doesn't match number of repertoires")
@@ -116,3 +110,6 @@ class RepertoireDataset:
 
     def __iter__(self):
         return iter(self.repertoires)
+
+    def __getitem__(self, idx):
+        return self.repertoires[idx]

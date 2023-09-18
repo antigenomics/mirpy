@@ -4,7 +4,8 @@ from multiprocessing import Pool
 from Bio import Align
 from Bio.Align import substitution_matrices
 import typing as t
-from ..common import ClonotypeAA, Segment
+
+from ..common import ClonotypeAA, Segment, SegmentLibrary
 
 
 class Scoring:
@@ -134,6 +135,15 @@ class ClonotypeAligner:
         self.v_aligner = v_aligner
         self.j_aligner = j_aligner
         self.cdr3_aligner = cdr3_aligner
+
+    @classmethod
+    def from_library(cls,
+                  lib: SegmentLibrary = SegmentLibrary.load_default(),
+                  gene: str = None,
+                  cdr3_aligner: CDRAligner = CDRAligner()):
+        v_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='V'))
+        j_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='J'))
+        return cls(v_aligner, j_aligner, cdr3_aligner)
 
     def score(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
         return ClonotypeScore(v_score=self.v_aligner.score(cln1.v, cln2.v),
