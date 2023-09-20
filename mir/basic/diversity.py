@@ -2,6 +2,7 @@ from collections import namedtuple
 from functools import cached_property
 import typing as t
 import pandas as pd
+import numpy as np
 import math
 
 from ..common import Repertoire, RepertoireDataset
@@ -56,10 +57,6 @@ class FrequencyTable:
 HillCurvePoint = namedtuple(
     'HillCurvePoint', 'q H_q')
 
-_QVAL = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.5,
-         1.,
-         2., 10., 20., 50., 100., 200., 500., 1000.]
-
 
 class DiversityIndices:
     def __init__(self, source: FrequencyTable | Repertoire) -> None:
@@ -86,7 +83,7 @@ class DiversityIndices:
                     (count, species) in self._table.items())
 
     def unseen(self) -> float:
-        return (self._table.singletons() + 1.) * (self._table.singletons() - 1.) / \
+        return self._table.singletons() * (self._table.singletons() - 1.) / \
             2. / (self._table.doubletons() + 1.)
 
     def chao(self) -> float:
@@ -99,7 +96,8 @@ class DiversityIndices:
             return sum(species * (count / self._table.individuals) ** q for
                        (count, species) in self._table.items()) ** (1. / (1. - q))
 
-    def hill_curve(self, q_values: list[float] = _QVAL) -> list[HillCurvePoint]:
+    def hill_curve(self, q_values: list[float] = [0., 1., 2.] +
+                   [2 ** x for x in np.linspace(-5, 5, 100)]) -> list[HillCurvePoint]:
         return [HillCurvePoint(x, self.hill(x)) for x in q_values]
 
     @staticmethod
@@ -111,14 +109,14 @@ class DiversityIndices:
 
     @staticmethod
     def hill_curve_for_dataset(dataset: RepertoireDataset,
-                               q_values: list[float] = _QVAL):
+                               q_values: list[float] = [0., 1., 2.] +
+                               [2 ** x for x in np.linspace(-5, 5, 100)]):
         rows = []
         for repertoire in dataset:
             meta = dict(repertoire.metadata)
             div = DiversityIndices(repertoire)
-            hc = div.hill_curve(q_values)
-            for hqp in hc:
-                rows.append(meta | hqp._asdict())
+            for point in div.hill_curve(q_values):
+                rows.append(meta | point._asdict())
         return pd.DataFrame(rows)
 
     def __str__(self) -> str:
@@ -145,12 +143,18 @@ RarefactionPoint = namedtuple(
 
 
 class RarefactionCurve:
-    def __init__(self, table: FrequencyTable) -> None:
-        self._table = table
-        self._div_indices = DiversityIndices(table)
+    def __init__(self, source: FrequencyTable | Repertoire) -> None:
+        if isinstance(source, Repertoire):
+            source = FrequencyTable.from_repertoire(source)
+        self._table = source
+        self._div_indices = DiversityIndices(source)
 
-    def rarefy(self, count_star: int) -> RarefactionPoint:
-        phi = count_star / self._table.individuals
+    def span(self) -> int:
+        return self._table.individuals
+
+    def rarefy(self,
+               count_star: int) -> RarefactionPoint:
+        phi = count_star / self.span()
         if phi <= 1:
             species_star = 0
             species_star_sq = 0
@@ -163,12 +167,55 @@ class RarefactionCurve:
                                     species_star * species_star / self._div_indices.chao(),
                                     True)
         else:
+            # differentiate byurselves lads, don't steal the code it had a mismatch in vdjtools;)
+            n = self.span()
+            x = count_star - n
+            s = self._div_indices.obs()
+            s0 = self._div_indices.unseen()
+            s1 = self._table.singletons()
+            s2 = self._table.doubletons()
+            dsds1 = (2. * s1 - 1.) / 2. / (s2 + 1.)
+            dsds2 = -s1 * (s1 - 1.) / 2. / (s2 + 1.) / (s2 + 1.)
+            b = 1. - (1. - s1 / n / s0) ** x
+            db = -x * (1. - s1 / n / s0) ** (x - 1.)
+            jac1 = dsds1 * b + s0 * db * \
+                (-1. / n / s0 + s1 / n / s0 / s0 * dsds1)
+            jac2 = dsds2 * b + s0 * db * (s1 / n / s0 / s0 * dsds2)
+            cov12 = -s1 * s2 / (s + s0)
+            cov11 = s1 * (1. - s1 / (s + s0))
+            cov22 = s2 * (1. - s2 / (s + s0))
             return RarefactionPoint(count_star,
-                                    self._table.species + self._div_indices.unseen() *
-                                    (1. - math.exp(-(phi - 1.) *
-                                     self._table.singletons() / self._div_indices.unseen())),
-                                    -1.,  # TODO: revise error bars
+                                    s + s0 * b,
+                                    s * (1. - s / (s + s0)) +
+                                              jac1 * jac1 * cov11 +
+                                              jac2 * jac2 * cov22 +
+                                              2. * jac1 * jac2 * cov12,
                                     False)
+
+    def rarefy_points(self,
+                      counts_star: list[int] = [],
+                      n_points: int = 30, extrapolate_factor: float = 1.) -> list[RarefactionPoint]:
+        if not counts_star.any():
+            counts_star = np.linspace(
+                0., self.span() * extrapolate_factor, n_points)
+        return [self.rarefy(cc) for cc in counts_star]
+
+    @staticmethod
+    def for_dataset(dataset: RepertoireDataset,
+                    counts_star: list[int] = [],
+                    n_points: int = 30, extrapolate_factor: float = 1.):
+        curves = [(repertoire, RarefactionCurve(repertoire))
+                  for repertoire in dataset]
+        if not counts_star:
+            max_span = max([curve.span() for _, curve in curves])
+            counts_star = np.linspace(
+                0., max_span * extrapolate_factor, n_points)
+        rows = []
+        for repertoire, curve in curves:
+            meta = dict(repertoire.metadata)
+            for point in curve.rarefy_points(counts_star=counts_star):
+                rows.append(meta | point._asdict())
+        return pd.DataFrame(rows)
 
     def __str__(self) -> str:
         return f'Rarefaction curve={[self.rarefy(x) for x in range(0, 1000, 100)]}'
