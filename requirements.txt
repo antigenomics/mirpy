@@ -9,3 +9,4 @@ seaborn==0.12.2
 umap-learn==0.5.3
 scikit-learn==1.3.0
 textdistance==4.5.0
+plotnine==0.12.3

@@ -1,6 +1,10 @@
-from . import Clonotype, ClonotypeTableParser
-import pandas as pd
 import typing as t
+from collections import defaultdict
+from multiprocessing import Pool, Manager
+
+import pandas as pd
+
+from . import Clonotype, ClonotypeTableParser
 
 
 class Repertoire:
@@ -11,6 +15,7 @@ class Repertoire:
         self.clonotypes = clonotypes
         self.sorted = sorted
         self.metadata = metadata
+        self.segment_usage = None
 
     @classmethod
     def load(cls,
@@ -42,6 +47,15 @@ class Repertoire:
     def total(self):
         return sum(c.size() for c in self.clonotypes)
 
+    def evaluate_segment_usage(self):
+        if self.segment_usage is None:
+            self.segment_usage = defaultdict(int)
+            for c in self.clonotypes:
+                # TODO add type of clonotype assertion
+                self.segment_usage[c.v.id] += 1
+                self.segment_usage[c.j.id] += 1
+        return self.segment_usage
+
     def __getitem__(self, idx):
         return self.clonotypes[idx]
 
@@ -50,8 +64,8 @@ class Repertoire:
 
     def __str__(self):
         return f'Repertoire of {self.__len__()} clonotypes and {self.total()} cells:\n' + \
-            '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
-            '\n' + str(self.metadata) + '\n...'
+               '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
+               '\n' + str(self.metadata) + '\n...'
 
     def __repr__(self):
         return self.__str__()
@@ -81,29 +95,41 @@ class RepertoireDataset:
         else:
             metadata = pd.DataFrame([r.metadata for r in repertoires])
         self.metadata = metadata
+        self.segment_usage_matrix = None
 
     @classmethod
     def load(cls,
              parser: ClonotypeTableParser,
              metadata: pd.DataFrame,
              paths: list[str] = None,
-             n: int = None):
+             n: int = None,
+             threads: int = 1):
+        global inner_repertoire_load
         metadata = metadata.copy()
         if paths:
             metadata['path'] = paths
         elif 'path' not in metadata.columns:
             raise ValueError("'path' column missing in metadata")
-        repertoires = [Repertoire.load(parser, metadata=dict(row), n=n)
-                       for _, row in metadata.iterrows()]
-        return cls(repertoires, metadata)
 
-    # TODO load parallel
+        repertoires_dct = Manager().dict()
+
+        def inner_repertoire_load(row):
+            row_dict = dict(row)
+            path = row_dict['path']
+            repertoires_dct[path] = Repertoire.load(parser, metadata=row_dict, n=n)
+
+        repertoire_jobs = [row for _, row in metadata.iterrows()]
+        with Pool(threads) as p:
+            p.map(inner_repertoire_load, repertoire_jobs)
+
+        repertoires = [repertoires_dct[path] for path in metadata.path]
+        return cls(repertoires, metadata)
 
     def __len__(self):
         return len(self.repertoires)
 
     def __str__(self):
-        return str(self.metadata)
+        return f'There are {len(self.metadata)} repertoires in the dataset\n' + str(self.metadata.head(5))
 
     def __repr__(self):
         return self.__str__()
@@ -113,3 +139,15 @@ class RepertoireDataset:
 
     def __getitem__(self, idx):
         return self.repertoires[idx]
+
+    def evaluate_segment_usage(self):
+        if self.segment_usage_matrix is None:
+            rep_to_usage = {}
+            segment_names = set()
+            for rep in self.repertoires:
+                rep_segment_dict = rep.evaluate_segment_usage()
+                segment_names = segment_names.union(set(rep_segment_dict.keys()))
+                rep_to_usage[rep] = rep_segment_dict
+            self.segment_usage_matrix = pd.DataFrame(
+                {k: [rep_to_usage[r][k] for r in self.repertoires] for k in segment_names})
+        return self.segment_usage_matrix
