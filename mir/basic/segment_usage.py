@@ -38,7 +38,6 @@ class SegmentUsageTable:
 
     def plot_pca_results_colored_by(self, target: pd.Series, method=PCA, n_components: int = 2,
                                     plot_gradient: bool = False, ax=None):
-        print('here')
         def plot_results(pca_results, target, ax):
             pca_results['target'] = target
             if ax is None:
@@ -69,7 +68,6 @@ class SegmentUsageTable:
 
         pca = method(n_components=n_components, random_state=42)
         usage_matrix_genes = self.segment_usage_matrix.copy()
-        print('res')
         pca_results = pca.fit_transform(usage_matrix_genes)
         pca_results = pd.DataFrame(data=pca_results[:, :], columns=[f'PC{i + 1}' for i in range(n_components)])
 
