@@ -4,6 +4,8 @@ from multiprocessing import Pool, Manager
 
 import pandas as pd
 
+from mir.basic.sampling import RepertoireSampling
+from mir.basic.segment_usage import SegmentUsageTable, NormalizedSegmentUsageTable
 from . import Clonotype, ClonotypeTableParser
 
 
@@ -16,6 +18,8 @@ class Repertoire:
         self.sorted = sorted
         self.metadata = metadata
         self.segment_usage = None
+        self.number_of_clones = len(self.clonotypes)
+        self.number_of_reads = sum([x.size() for x in self.clonotypes])
 
     @classmethod
     def load(cls,
@@ -36,7 +40,16 @@ class Repertoire:
 
     def sort(self):
         self.sorted = True
+        self.sorted_by = 'cells'
         self.clonotypes.sort(key=lambda x: x.size(), reverse=True)
+
+    def sort_by_clone_metadata(self, sort_by: str, reverse=False):
+        self.sorted = True
+        self.sorted_by = sort_by
+        for clone in self.clonotypes:
+            if sort_by not in clone.clone_metadata:
+                raise Exception(f'Cannot sort by {sort_by}, {clone} has no such metadata!')
+        self.clonotypes.sort(key=lambda x: x.clone_metadata[sort_by], reverse=reverse)
 
     def top(self,
             n: int = 100):
@@ -76,6 +89,7 @@ class Repertoire:
     # TODO subsample
     # TODO aggregate redundant
     # TODO group by and aggregate
+    # TODO serialization into csv
 
 
 class RepertoireDataset:
@@ -151,3 +165,33 @@ class RepertoireDataset:
             self.segment_usage_matrix = pd.DataFrame(
                 {k: [rep_to_usage[r][k] for r in self.repertoires] for k in segment_names})
         return self.segment_usage_matrix
+
+    def resample(self, updated_segment_usage_tables: list[SegmentUsageTable] = None, n: int=None, threads: int = 1):
+        pass
+        #TODO
+        # global resampling_repertoire
+        # repertoires_dct = Manager().dict()
+        # def resampling_repertoire(idx):
+        #     repertoires_dct[idx] = RepertoireSampling().sample(repertoire=self.repertoires[idx],
+        #                                                        old_usage_matrix=initial_segment_usage_tables,
+        #                                                        new_usage_matrix=updated_segment_usage_tables,
+        #                                                        n=n)
+        # initial_segment_usage_tables = []
+        # if updated_segment_usage_tables is None:
+        #     initial_segment_usage_tables = [NormalizedSegmentUsageTable.load_from_repertoire_dataset(
+        #         repertoire_dataset=self,
+        #         gene=,
+        #         segment_type=um.segment_type)]
+        # for um in updated_segment_usage_tables:
+        #     initial_segment_usage_tables.append(NormalizedSegmentUsageTable.load_from_repertoire_dataset(
+        #         repertoire_dataset=self,
+        #         gene=um.gene,
+        #         segment_type=um.segment_type))
+        #
+        # metadata = self.metadata.copy()
+        # repertoire_jobs = [i for i in range(len(self.repertoires))]
+        # with Pool(threads) as p:
+        #     p.map(inner_repertoire_load, repertoire_jobs)
+        #
+        # repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
+        # return RepertoireDataset(repertoires, metadata)

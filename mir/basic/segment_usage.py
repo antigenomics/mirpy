@@ -10,17 +10,18 @@ from sklearn.preprocessing import StandardScaler
 from scipy.stats import zscore
 from scipy.cluster.hierarchy import linkage, fcluster
 
-from mir.common import RepertoireDataset
+from mir.common import RepertoireDataset, Repertoire
 
 epsilon = 0.000001
 
 
 class SegmentUsageTable:
-    def __init__(self, segment_usage_matrix: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V'):
+    def __init__(self, segment_usage_matrix: pd.DataFrame, metadata: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V'):
         self.gene = gene
         self.segment_type = segment_type
         self.gene_mask = self.gene + self.segment_type
         self.segment_usage_matrix = segment_usage_matrix
+        self.metadata = metadata
 
     @staticmethod
     def preprocess_usage_table(matrix):
@@ -33,7 +34,7 @@ class SegmentUsageTable:
         gene_mask = gene + segment_type
         matrix = matrix[[x for x in matrix.columns if gene_mask in x]]
 
-        return cls(cls.preprocess_usage_table(matrix),
+        return cls(cls.preprocess_usage_table(matrix), repertoire_dataset.metadata,
                    gene=gene, segment_type=segment_type)
 
     def plot_pca_results_colored_by(self, target: pd.Series, method=PCA, n_components: int = 2,
@@ -46,7 +47,6 @@ class SegmentUsageTable:
                 if len(target.unique()) == 1:
                     print('Bad gene:(')
                     return
-                # ax = plt.axes()
                 if n_components > 2:
                     sns.pairplot(pca_results, plot_kws=dict(
                         hue=target,
@@ -57,7 +57,7 @@ class SegmentUsageTable:
                                     vmax=max(target))
                     plt.colorbar(sc, ax=ax)
             else:
-                if n_components > 2:
+                if n_components > 21:
                     sns.pairplot(pca_results, hue='target')
                 else:
                     sns.scatterplot(x='PC1', y='PC2', data=pca_results, hue='target', ax=ax)
@@ -92,13 +92,20 @@ class SegmentUsageTable:
                          linewidth=0.5)
         ax.get_xaxis().set_visible(False)
 
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            return self.segment_usage_matrix.loc[i, :].to_dict()
+        if i not in list(self.metadata.run):
+            raise Exception(f'{i} not found in metadata!')
+        return self.segment_usage_matrix.loc[self.metadata[self.metadata.run == i].index[0], :].to_dict()
+
     def __repr__(self):
         return repr(self.segment_usage_matrix)
 
 
 class NormalizedSegmentUsageTable(SegmentUsageTable):
-    def __init__(self, segment_usage_matrix: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V'):
-        super().__init__(segment_usage_matrix, gene, segment_type)
+    def __init__(self, segment_usage_matrix: pd.DataFrame, metadata: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V'):
+        super().__init__(segment_usage_matrix, metadata, gene, segment_type)
 
     @staticmethod
     def preprocess_usage_table(matrix):
@@ -123,9 +130,9 @@ class NormalizedSegmentUsageTable(SegmentUsageTable):
 
 
 class StandardizedSegmentUsageTable(NormalizedSegmentUsageTable):
-    def __init__(self, segment_usage_matrix: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V',
+    def __init__(self, segment_usage_matrix: pd.DataFrame, metadata: pd.DataFrame, gene: str = 'TRA', segment_type: str = 'V',
                  standardization_method: str = 'z_score'):
-        super().__init__(segment_usage_matrix, gene, segment_type)
+        super().__init__(segment_usage_matrix, metadata, gene, segment_type)
         if standardization_method not in ['z_score', 'log_exp']:
             raise NotImplementedError('No such standardization method!')
         self.standardization_method = standardization_method
@@ -149,7 +156,7 @@ class StandardizedSegmentUsageTable(NormalizedSegmentUsageTable):
                 group_to_df_mapping[k] = matrix.loc[repertoire_dataset.metadata[
                                                         repertoire_dataset.metadata.run.apply(lambda x: x in v)].index,
                                          :]
-        return cls(cls.preprocess_usage_table(group_to_df_mapping, standardization_method),
+        return cls(cls.preprocess_usage_table(group_to_df_mapping, standardization_method), repertoire_dataset.metadata,
                    gene=gene, segment_type=segment_type)
 
 

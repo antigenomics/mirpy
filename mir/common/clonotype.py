@@ -1,10 +1,10 @@
 import re
 import typing as t
 
-from . import Segment
-from .segments import _SEGMENT_CACHE
 from Bio.Seq import translate
 
+from . import Segment
+from .segments import _SEGMENT_CACHE
 
 _CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
 _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
@@ -13,11 +13,13 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 class ClonotypePayload:
     def __init__(self) -> None:
         pass
+
+
 # TODO tcrnet payload etc / consider moving to separate module
 
 
 class Clonotype:
-    __slots__ = 'id', 'cells', 'payload'
+    __slots__ = 'id', 'cells', 'payload', 'clone_metadata'
 
     def __init__(self,
                  id: int | str,
@@ -26,6 +28,7 @@ class Clonotype:
         self.id = id
         self.cells = cells
         self.payload = payload
+        self.clone_metadata = {}
 
     def size(self) -> int:
         if isinstance(self.cells, int):
@@ -38,6 +41,9 @@ class Clonotype:
 
     def __repr__(self):
         return self.__str__()
+
+    def __copy__(self):
+        return Clonotype(self.id, self.cells, self.payload)
 
 
 class ClonotypeAA(Clonotype):
@@ -70,9 +76,22 @@ class ClonotypeAA(Clonotype):
 
     def __str__(self):
         return super().__str__() + ' ' + self.cdr3aa
-    
+
     def __repr__(self):
         return self.__str__()
+
+    def __copy__(self):
+        return ClonotypeAA(self.cdr3aa, self.v, self.d, self.j, self.id, self.cells, self.payload)
+
+    def __getitem__(self, segment):
+        if segment == 'v':
+            return self.v
+        elif segment == 'd':
+            return self.d
+        elif segment == 'j':
+            return self.j
+        else:
+            raise Exception('You can get only v/d/j gene by itemization')
 
 
 class JunctionMarkup:
@@ -110,9 +129,13 @@ class ClonotypeNT(ClonotypeAA):
 
     def __str__(self):
         return super().__str__() + ' ' + self.cdr3nt
-    
+
     def __repr__(self):
         return self.__str__()
+
+    def __copy__(self):
+        return ClonotypeNT(self.cdr3nt, self.junction, self.cdr3aa, self.v, self.d, self.j, self.id, self.cells,
+                           self.payload)
 
 
 # TODO
