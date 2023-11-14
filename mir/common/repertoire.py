@@ -51,8 +51,7 @@ class Repertoire:
                 raise Exception(f'Cannot sort by {sort_by}, {clone} has no such metadata!')
         self.clonotypes.sort(key=lambda x: x.clone_metadata[sort_by], reverse=reverse)
 
-    def top(self,
-            n: int = 100):
+    def top(self, n: int = 100):
         if not sorted:
             self.sort()
         return self.clonotypes[0:n]
@@ -68,6 +67,18 @@ class Repertoire:
                 self.segment_usage[c.v.id] += 1
                 self.segment_usage[c.j.id] += 1
         return self.segment_usage
+
+    def serialize(self):
+        serialization_dct = defaultdict(list)
+        for i, clonotype in enumerate(self.clonotypes):
+            serialization_res = clonotype.serialize()
+            keys_to_process = set(serialization_res.keys()).union(serialization_dct.keys())
+            for k in keys_to_process:
+                if k in serialization_res:
+                    serialization_dct[k].append(serialization_res[k])
+                else:
+                    serialization_dct[k].append(None)
+        return pd.DataFrame(serialization_dct)
 
     def __getitem__(self, idx):
         return self.clonotypes[idx]
@@ -89,7 +100,6 @@ class Repertoire:
     # TODO subsample
     # TODO aggregate redundant
     # TODO group by and aggregate
-    # TODO serialization into csv
 
 
 class RepertoireDataset:
@@ -154,7 +164,16 @@ class RepertoireDataset:
     def __getitem__(self, idx):
         return self.repertoires[idx]
 
-    def evaluate_segment_usage(self):
+    def serialize(self, threads: int = 1) -> list[pd.DataFrame]:
+        global inner_serialize
+        serialized_dict = {}
+        def inner_serialize(x):
+            serialized_dict[x] = self.repertoires[x].serialize()
+        with Pool(threads) as p:
+            p.map(inner_serialize, [x for x in range(len(self.repertoires))])
+        return [serialized_dict[x] for x in range(len(self.repertoires))]
+
+    def evaluate_segment_usage(self) -> pd.DataFrame:
         if self.segment_usage_matrix is None:
             rep_to_usage = {}
             segment_names = set()

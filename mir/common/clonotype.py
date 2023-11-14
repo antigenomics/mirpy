@@ -36,6 +36,10 @@ class Clonotype:
         else:
             return len(self.cells)
 
+    def serialize(self) -> dict:
+        return {'id': self.id,
+                'cells': self.cells}
+
     def __str__(self):
         return 'κ' + str(self.id)
 
@@ -73,6 +77,14 @@ class ClonotypeAA(Clonotype):
 
     def is_canonical(self):
         return _CANONICAL_AA.match(self.cdr3aa)
+
+    def serialize(self) -> dict:
+        return {'id': self.id,
+                'cells': self.cells,
+                'cdr3aa': self.cdr3aa,
+                'v': self.v,
+                'd': self.d,
+                'j': self.j}
 
     def __str__(self):
         return super().__str__() + ' ' + self.cdr3aa
@@ -126,6 +138,15 @@ class ClonotypeNT(ClonotypeAA):
         super().__init__(cdr3aa, v, d, j, id, cells, payload)
         self.cdr3nt = cdr3nt
         self.junction = junction
+
+    def serialize(self) -> dict:
+        return {'id': self.id,
+                'cells': self.cells,
+                'cdr3aa': self.cdr3aa,
+                'cdr3nt': self.cdr3nt,
+                'v': self.v,
+                'd': self.d,
+                'j': self.j}
 
     def __str__(self):
         return super().__str__() + ' ' + self.cdr3nt

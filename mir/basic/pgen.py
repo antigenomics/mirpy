@@ -2,6 +2,7 @@ import olga.load_model as load_model
 import olga.generation_probability as pgen
 import olga.sequence_generation as seq_gen
 
+
 class OlgaModel:
     def __init__(self, model : str = 'default_models/human_T_beta'):
         # Define the files for loading in generative model/data
