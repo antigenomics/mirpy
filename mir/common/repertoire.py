@@ -4,8 +4,8 @@ from multiprocessing import Pool, Manager
 
 import pandas as pd
 
-from mir.basic.sampling import RepertoireSampling
-from mir.basic.segment_usage import SegmentUsageTable, NormalizedSegmentUsageTable
+# from mir.basic.sampling import RepertoireSampling
+# from mir.basic.segment_usage import SegmentUsageTable, NormalizedSegmentUsageTable
 from . import Clonotype, ClonotypeTableParser
 
 
@@ -26,14 +26,15 @@ class Repertoire:
              parser: ClonotypeTableParser,
              metadata: dict[str, str] | pd.Series = dict(),
              path: str = None,
-             n: int = None):
+             n: int = None,
+             sample: bool = False):
         if not path:
             if 'path' not in metadata:
                 raise ValueError("'path' is missing in metadata")
             path = metadata['path']
         else:
             metadata['path'] = path
-        return cls(clonotypes=parser.parse(path, n=n), metadata=metadata)
+        return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata)
 
     def __copy__(self):
         return Repertoire(self.clonotypes, self.sorted, self.metadata)
@@ -185,8 +186,8 @@ class RepertoireDataset:
                 {k: [rep_to_usage[r][k] for r in self.repertoires] for k in segment_names})
         return self.segment_usage_matrix
 
-    def resample(self, updated_segment_usage_tables: list[SegmentUsageTable] = None, n: int=None, threads: int = 1):
-        pass
+    # def resample(self, updated_segment_usage_tables: list[SegmentUsageTable] = None, n: int=None, threads: int = 1):
+    #     pass
         #TODO
         # global resampling_repertoire
         # repertoires_dct = Manager().dict()

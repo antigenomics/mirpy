@@ -160,10 +160,25 @@ class ClonotypeNT(ClonotypeAA):
 
 
 # TODO
-class PairedChainClone:
-    def __init__(self, chainA: Clonotype, chainB: Clonotype):
+class PairedChainClone(Clonotype):
+    def __init__(self,
+                 chainA: Clonotype,
+                 chainB: Clonotype,
+                 id: int | str = -1,
+                 cells: int | list[str] = 1,
+                 payload: t.Any = None):
+        super().__init__(id, cells, payload)
         self.chainA = chainA
         self.chainB = chainB
+
+    def __str__(self):
+        return 'alpha ' + self.chainA.__str__() + ' beta ' + self.chainB.__str__()
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __copy__(self):
+        return PairedChainClone(self.chainA, self.chainB)
 
 
 # TODO

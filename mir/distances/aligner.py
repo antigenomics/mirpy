@@ -5,7 +5,7 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 import typing as t
 
-from ..common import ClonotypeAA, Segment, SegmentLibrary
+from ..common import ClonotypeAA, Segment, SegmentLibrary, PairedChainClone
 
 
 class Scoring:
@@ -127,6 +127,16 @@ class ClonotypeScore:
         self.cdr3_score = cdr3_score
 
 
+class PairedCloneScore:
+    def __init__(self, alpha_chain_score: ClonotypeScore, beta_chain_score: ClonotypeScore):
+        self.alpha_chain_score = alpha_chain_score
+        self.beta_chain_score = beta_chain_score
+
+    def get_flatten_score(self):
+        return [self.alpha_chain_score.v_score, self.alpha_chain_score.j_score, self.alpha_chain_score.cdr3_score,
+                self.beta_chain_score.v_score, self.beta_chain_score.j_score, self.beta_chain_score.cdr3_score]
+
+
 class ClonotypeAligner:
     def __init__(self,
                  v_aligner: GermlineAligner,
@@ -155,3 +165,11 @@ class ClonotypeAligner:
                               j_score=self.j_aligner.score_norm(
                                   cln1.j, cln2.j),
                               cdr3_score=self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+
+    def score_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
+        return PairedCloneScore(self.score(cln1.chainA, cln2.chainA),
+                                self.score(cln1.chainB, cln2.chainB))
+
+    def score_norm_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
+        return PairedCloneScore(self.score_norm(cln1.chainA, cln2.chainA),
+                                self.score_norm(cln1.chainB, cln2.chainB))

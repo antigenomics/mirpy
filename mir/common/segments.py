@@ -1,7 +1,9 @@
+import urllib
 from collections import Counter
-from Bio.Seq import translate
-from .. import get_resource_path
 
+from Bio.Seq import translate
+
+from .. import get_resource_path
 
 _ALL_AV2DV = True
 _ALLOWED_GENES = {'TRA', 'TRB', 'TRG', 'TRD', 'IGL', 'IGK', 'IGH'}
@@ -46,11 +48,11 @@ class Segment:
             self.seqaa = seqaa
         self.refpoint = refpoint
         self.featnt = dict([(k, i)
-                           for (k, i) in featnt.items() if i[1] > i[0]])
+                            for (k, i) in featnt.items() if i[1] > i[0]])
         self.feataa = dict([(k, i)
-                           for (k, i) in feataa.items() if i[1] > i[0]])
+                            for (k, i) in feataa.items() if i[1] > i[0]])
         if not feataa and self.featnt:
-            self.feataa = dict([(k, (i[0]//3, i[1]//3)) for (k, i) in
+            self.feataa = dict([(k, (i[0] // 3, i[1] // 3)) for (k, i) in
                                 featnt.items()])
 
     def __str__(self):
@@ -78,7 +80,7 @@ class SegmentLibrary:
 
     @classmethod
     def load_default(cls,
-                     genes: set[str] = {'TRB'},
+                     genes: set[str] = {'TRB', 'TRA'},
                      organisms: set[str] = {'HomoSapiens'},
                      fname: str = 'segments.txt'):
         try:
@@ -132,6 +134,27 @@ class SegmentLibrary:
                                       refpoint=refpoint,
                                       featnt=featnt)
                     segments[segment.id] = segment
+        return cls(segments, True)
+
+    @classmethod
+    def load_from_imgt(cls,
+                       genes: set[str] = {'TRA', 'TRB'},
+                       organisms: set[str] = {'Homo_sapiens'}):
+        segments = {}
+        for organism in organisms:
+            for gene_type in genes:
+                gene_prefix = gene_type[:2]
+                for segment_type in ['V', 'J']:
+                    data = urllib.request.urlopen(
+                        f'https://www.imgt.org/download/V-QUEST/IMGT_V-QUEST_reference_directory/{organism}/{gene_prefix}/{gene_type}{segment_type}.fasta')
+                    fasta_parsed = data.read().decode("utf-8").replace('\n', '').split('>')
+                    segments_list = [Segment(id=x.split('|')[1],
+                                        organism=organism,
+                                        gene=gene_type,
+                                        stype=segment_type,
+                                        seqnt=x.split('|')[15].replace('.', '').upper()) for x in fasta_parsed[1:]]
+                    for segment in segments_list:
+                        segments[segment.id] = segment
         return cls(segments, True)
 
     def get_segments(self, gene: str = None, stype: str = None) -> list[Segment]:
@@ -189,7 +212,7 @@ class SegmentLibrary:
 
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \
-            f"{[x[1] for x in self.segments.items()][:10]}"
+               f"{[x[1] for x in self.segments.items()][:10]}"
 
 
 _SEGMENT_CACHE = SegmentLibrary()
