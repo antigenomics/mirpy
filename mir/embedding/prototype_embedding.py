@@ -20,7 +20,7 @@ class PrototypeEmbedding(Embedding):
                 for anchor in self.prototype_repertoire:
                     embedding.append(self.aligner.score_paired(anchor, clonotype))
         except Exception as e:
-            print(clonotype)
+            print(clonotype, e)
         return embedding
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):

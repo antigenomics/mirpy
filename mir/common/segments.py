@@ -148,7 +148,7 @@ class SegmentLibrary:
                     data = urllib.request.urlopen(
                         f'https://www.imgt.org/download/V-QUEST/IMGT_V-QUEST_reference_directory/{organism}/{gene_prefix}/{gene_type}{segment_type}.fasta')
                     fasta_parsed = data.read().decode("utf-8").replace('\n', '').split('>')
-                    segments_list = [Segment(id=x.split('|')[1],
+                    segments_list = [Segment(id=x.split('|')[1] + ('*01' if '*' not in x.split('|')[1] else ''),
                                         organism=organism,
                                         gene=gene_type,
                                         stype=segment_type,
