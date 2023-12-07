@@ -13,9 +13,11 @@ class FastClust:
         self.cdr_aas = cdr_aas
         self.clustered_sequences = None
         self.clustered_series = None
+        self.unclustered_dropout = 20
+        self.lengths_sample_size_dropout = 100
 
     @staticmethod
-    def __generate_masks(seq: str) -> set[str]:
+    def _generate_masks(seq: str) -> set[str]:
         """
         Generate masked sequences with 1 masked with X aa
         :param seq: cdr3 sequence to be masked
@@ -28,7 +30,7 @@ class FastClust:
         return masks
 
     @staticmethod
-    def __process_one_length(masks_series: pd.Series) -> list[set]:
+    def _process_one_length(masks_series: pd.Series) -> list[set]:
         """
         Clusters cdrs of one length
         :param masks_series: pd.Series with cdr as index and the set of its masks as values
@@ -62,16 +64,16 @@ class FastClust:
         len_dist = self.cdr_aas.apply(len).value_counts()
 
         lengths_dfs = []
-        for i in len_dist[len_dist > 100].index:
+        for i in len_dist[len_dist > self.lengths_sample_size_dropout].index:
             top_cdr_i = self.cdr_aas[self.cdr_aas.apply(lambda x: len(x) == i)]
 
-            top_cdr_i_masks = top_cdr_i.apply(lambda x: self.__generate_masks(x))
+            top_cdr_i_masks = top_cdr_i.apply(lambda x: self._generate_masks(x))
             top_cdr_i_masks.index = top_cdr_i
             lengths_dfs.append(top_cdr_i_masks)
 
         print('Start processing')
         with Pool(len(lengths_dfs)) as p:
-            res_list = list(p.map(self.__process_one_length, lengths_dfs))
+            res_list = list(p.map(self._process_one_length, lengths_dfs))
 
         self.clustered_sequences = sum(res_list, [])
         return sum(res_list, [])
@@ -87,8 +89,9 @@ class FastClust:
             res_exploded = pd.DataFrame(exploded_series).reset_index()
             res_exploded.rename(columns={0: 'sequence', 'index': 'cluster_id'}, inplace=True)
             res_exploded.set_index('sequence', inplace=True)
+            self.clustered_series = res_exploded
             return res_exploded
 
         else:
             self.cluster()
-            self.make_clusters_series()
+            return self.make_clusters_series()
