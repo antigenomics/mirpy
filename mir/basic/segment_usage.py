@@ -3,14 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib import cm
+from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.stats import logistic
+from scipy.stats import zscore
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-from scipy.stats import zscore
-from scipy.cluster.hierarchy import linkage, fcluster
 
-from mir.common import RepertoireDataset, Repertoire
+from mir.common.repertoire_dataset import RepertoireDataset
 
 epsilon = 0.000001
 

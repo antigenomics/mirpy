@@ -4,7 +4,8 @@ from collections import namedtuple
 
 import pandas as pd
 
-from . import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, SegmentLibrary, Segment, PairedChainClone
+from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, PairedChainClone
+from mir.common.segments import SegmentLibrary, Segment
 
 
 class SegmentParser:

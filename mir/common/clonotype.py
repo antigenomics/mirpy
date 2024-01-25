@@ -3,8 +3,7 @@ import typing as t
 
 from Bio.Seq import translate
 
-from . import Segment
-from .segments import _SEGMENT_CACHE
+from mir.common.segments import Segment, _SEGMENT_CACHE
 
 _CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
 _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
@@ -12,7 +11,8 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 class ClonotypePayload:
     def __init__(self) -> None:
-        pass
+        self.number_of_reads = None
+        self.number_of_samples = None
 
 
 # TODO tcrnet payload etc / consider moving to separate module
@@ -184,4 +184,8 @@ class PairedChainClone(Clonotype):
 # TODO
 class ClonalLineage:
     def __init__(self, clonotypes: list[Clonotype]):
+        self.clonotypes = clonotypes
+
+class ClonotypeDatset:
+    def __init__(self, clonotypes):
         self.clonotypes = clonotypes
