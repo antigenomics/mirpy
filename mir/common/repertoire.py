@@ -1,6 +1,9 @@
-from . import Clonotype, ClonotypeTableParser
+from collections import defaultdict
+
 import pandas as pd
-import typing as t
+
+from mir.common.clonotype import Clonotype
+from mir.common.parser import ClonotypeTableParser
 
 
 class Repertoire:
@@ -11,36 +14,69 @@ class Repertoire:
         self.clonotypes = clonotypes
         self.sorted = sorted
         self.metadata = metadata
+        self.segment_usage = None
+        self.number_of_clones = len(self.clonotypes)
+        self.number_of_reads = sum([x.size() for x in self.clonotypes])
 
     @classmethod
     def load(cls,
              parser: ClonotypeTableParser,
              metadata: dict[str, str] | pd.Series = dict(),
              path: str = None,
-             n: int = None):
+             n: int = None,
+             sample: bool = False):
         if not path:
             if 'path' not in metadata:
                 raise ValueError("'path' is missing in metadata")
             path = metadata['path']
         else:
             metadata['path'] = path
-        return cls(clonotypes=parser.parse(path, n=n), metadata=metadata)
+        return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata)
 
     def __copy__(self):
         return Repertoire(self.clonotypes, self.sorted, self.metadata)
 
     def sort(self):
         self.sorted = True
+        self.sorted_by = 'cells'
         self.clonotypes.sort(key=lambda x: x.size(), reverse=True)
 
-    def top(self,
-            n: int = 100):
+    def sort_by_clone_metadata(self, sort_by: str, reverse=False):
+        self.sorted = True
+        self.sorted_by = sort_by
+        for clone in self.clonotypes:
+            if sort_by not in clone.clone_metadata:
+                raise Exception(f'Cannot sort by {sort_by}, {clone} has no such metadata!')
+        self.clonotypes.sort(key=lambda x: x.clone_metadata[sort_by], reverse=reverse)
+
+    def top(self, n: int = 100):
         if not sorted:
             self.sort()
         return self.clonotypes[0:n]
 
     def total(self):
         return sum(c.size() for c in self.clonotypes)
+
+    def evaluate_segment_usage(self):
+        if self.segment_usage is None:
+            self.segment_usage = defaultdict(int)
+            for c in self.clonotypes:
+                # TODO add type of clonotype assertion
+                self.segment_usage[c.v.id] += 1
+                self.segment_usage[c.j.id] += 1
+        return self.segment_usage
+
+    def serialize(self):
+        serialization_dct = defaultdict(list)
+        for i, clonotype in enumerate(self.clonotypes):
+            serialization_res = clonotype.serialize()
+            keys_to_process = set(serialization_res.keys()).union(serialization_dct.keys())
+            for k in keys_to_process:
+                if k in serialization_res:
+                    serialization_dct[k].append(serialization_res[k])
+                else:
+                    serialization_dct[k].append(None)
+        return pd.DataFrame(serialization_dct)
 
     def __getitem__(self, idx):
         return self.clonotypes[idx]
@@ -50,8 +86,8 @@ class Repertoire:
 
     def __str__(self):
         return f'Repertoire of {self.__len__()} clonotypes and {self.total()} cells:\n' + \
-            '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
-            '\n' + str(self.metadata) + '\n...'
+               '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
+               '\n' + str(self.metadata) + '\n...'
 
     def __repr__(self):
         return self.__str__()
@@ -59,57 +95,16 @@ class Repertoire:
     def __iter__(self):
         return iter(self.clonotypes)
 
+    def __add__(self, other):
+        if not isinstance(other, Repertoire):
+            raise ValueError('Can only sum objects of class Repertoire')
+        new_metadata = dict(self.metadata)  # or orig.copy()
+        new_metadata.update(dict(other.metadata))
+        new_clonotypes = self.clonotypes + other.clonotypes
+        return Repertoire(
+            clonotypes=new_clonotypes,
+            sorted=False,
+            metadata=new_metadata)
     # TODO subsample
     # TODO aggregate redundant
     # TODO group by and aggregate
-
-
-class RepertoireDataset:
-    def __init__(self,
-                 repertoires: t.Iterable[Repertoire],
-                 metadata: pd.DataFrame = None) -> None:
-        # TODO: lazy read files for large cross-sample comparisons
-        # not to alter metadata
-        self.repertoires = [r.__copy__() for r in repertoires]
-        # will overwrite metadata if specified
-        if not metadata.empty:
-            if len(metadata.index) != len(repertoires):
-                raise ValueError(
-                    "Metadata length doesn't match number of repertoires")
-            for idx, row in metadata.iterrows():
-                self.repertoires[idx].metadata = row
-        else:
-            metadata = pd.DataFrame([r.metadata for r in repertoires])
-        self.metadata = metadata
-
-    @classmethod
-    def load(cls,
-             parser: ClonotypeTableParser,
-             metadata: pd.DataFrame,
-             paths: list[str] = None,
-             n: int = None):
-        metadata = metadata.copy()
-        if paths:
-            metadata['path'] = paths
-        elif 'path' not in metadata.columns:
-            raise ValueError("'path' column missing in metadata")
-        repertoires = [Repertoire.load(parser, metadata=dict(row), n=n)
-                       for _, row in metadata.iterrows()]
-        return cls(repertoires, metadata)
-
-    # TODO load parallel
-
-    def __len__(self):
-        return len(self.repertoires)
-
-    def __str__(self):
-        return str(self.metadata)
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __iter__(self):
-        return iter(self.repertoires)
-
-    def __getitem__(self, idx):
-        return self.repertoires[idx]

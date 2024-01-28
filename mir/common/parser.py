@@ -1,21 +1,28 @@
-from collections import namedtuple
 import typing as t
-import pandas as pd
 import warnings
-from . import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, SegmentLibrary, Segment
+from collections import namedtuple
+
+import pandas as pd
+
+from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, PairedChainClone
+from mir.common.segments import SegmentLibrary, Segment
 
 
 class SegmentParser:
     def __init__(self, lib: SegmentLibrary,
+                 select_most_probable=True,
                  mock_allele: bool = True,
                  remove_allele: bool = False) -> None:
         self.lib = lib
         self.mock_allele = mock_allele
         self.remove_allele = remove_allele
+        self.select_most_probable = select_most_probable
 
     def parse(self, id: str) -> Segment:
         if not id or len(id) < 5:
             return None
+        if self.select_most_probable:
+            id = id.split(',')[0]
         if self.remove_allele:
             id = id.split('*', 1)[0]
         if self.mock_allele:
@@ -26,31 +33,40 @@ class SegmentParser:
 
 class ClonotypeTableParser:
     def __init__(self,
-                 lib: SegmentLibrary = SegmentLibrary()) -> None:
+                 lib: SegmentLibrary = SegmentLibrary(),
+                 sep='\t') -> None:
         self.segment_parser = SegmentParser(lib)
+        self.sep = sep
 
-    def parse(self, source: str | pd.DataFrame, n: int = None) -> list[Clonotype]:
+    def parse(self, source: str | pd.DataFrame, n: int = None, sample: bool = False) -> list[Clonotype]:
         if isinstance(source, str):
-            source = self.read_table(source, n)
+            if n is None or not sample:
+                source = pd.read_csv(source, sep=self.sep, nrows=n)
+            else:
+                source = pd.read_csv(source, sep=self.sep).sample(n=n, random_state=42)
         else:
-            source = source.head(n)
+            if not sample:
+                source = source.head(n)
+            elif sample and n is not None:
+                source = source.sample(n=n, random_state=42)
         return self.parse_inner(source)
-
-    def read_table(self, path: str, n: int = None) -> pd.DataFrame:
-        return pd.read_csv(path, sep='\t', nrows=n)
 
     def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
         if {'cells'}.issubset(source.columns):
-            def get_cells(r): return r['cells']
+            def get_cells(r):
+                return r['cells']
         else:
-            def get_cells(_): return 1
+            def get_cells(_):
+                return 1
         if {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(source.columns):
-            def get_junction(r): return JunctionMarkup(r['v_end'],
-                                                       r['d_start'],
-                                                       r['d_end'],
-                                                       r['j_start'])
+            def get_junction(r):
+                return JunctionMarkup(r['v_end'],
+                                      r['d_start'],
+                                      r['d_end'],
+                                      r['j_start'])
         else:
-            def get_junction(_): return None
+            def get_junction(_):
+                return None
         if {'cdr3aa', 'v', 'j'}.issubset(source.columns):
             if 'cdr3nt' in source.columns:
                 return [ClonotypeNT(cells=get_cells(row),
@@ -148,129 +164,67 @@ class OlgaParser(ClonotypeTableParser):
 
 class VDJtoolsParser(ClonotypeTableParser):
     def __init__(self,
-                 lib: SegmentLibrary = SegmentLibrary()) -> None:
-        super().__init__(lib)
+                 lib: SegmentLibrary = SegmentLibrary(),
+                 sep='\t') -> None:
+        super().__init__(lib, sep)
 
-    def parse_inner(self, source: pd.DataFrame) -> list[ClonotypeNT]:
-        if len(source.columns) == 7:
-            def get_junction(_): return JunctionMarkup()
+    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
+        if len(df.columns) == 7:
+            def get_junction(_):
+                return JunctionMarkup()
         else:
-            def get_junction(r): return JunctionMarkup(r[7], r[8], r[9], r[10])
-        return [ClonotypeNT(cells=row[0],
-                            cdr3nt=row[2],
-                            cdr3aa=row[3],
-                            v=self.segment_parser.parse(row[4]),
-                            d=self.segment_parser.parse(row[5]),
-                            j=self.segment_parser.parse(row[6]),
-                            junction=get_junction(row),
-                            id=index)
-                for index, row in source.iterrows()]
+            def get_junction(r):
+                return JunctionMarkup(r['VEnd'], r['DStart'], r['DEnd'], r['JStart'])
+        return list(df.apply(lambda x: ClonotypeNT(cells=x['count'],
+                                                   cdr3nt=x['cdr3nt'],
+                                                   cdr3aa=x['cdr3aa'],
+                                                   v=self.segment_parser.parse(x['v']),
+                                                   d=self.segment_parser.parse(x['d']),
+                                                   j=self.segment_parser.parse(x['j']),
+                                                   junction=get_junction(x),
+                                                   id=x.index
+                                                   ), axis=1))
 
 
-# ---- legacy
+class ImmrepParser(ClonotypeTableParser):
+    def __init__(self,
+                 column_mapping=None,
+                 lib: SegmentLibrary = SegmentLibrary(),
+                 sep='\t'
+                 ):
+        super().__init__(lib, sep)
+        if column_mapping is None:
+            column_mapping = {
+                'epitope': 'Peptide',
+                'mhc.a': 'HLA',
+                'Va': 'Va',
+                'Ja': 'Ja',
+                'cdr3a': 'CDR3a_extended',
+                'Vb': 'Vb',
+                'Jb': 'Jb',
+                'cdr3b': 'CDR3b_extended',
+            }
+        self.column_mapping = column_mapping
 
-
-def parse_vdjdb_slim(fname: str,
-                     lib: SegmentLibrary = SegmentLibrary(),
-                     species: str = "HomoSapiens", gene: str = "TRB",
-                     filter: t.Callable[[pd.DataFrame],
-                                        pd.DataFrame] = lambda x: x,
-                     warn: bool = False,
-                     n: int = None) -> list[ClonotypeAA]:
-    df = pd.read_csv(fname, sep='\t', nrows=n)
-    df = df[(df['species'] == species) & (df['gene'] == gene)]
-    df = filter(df)
-    segment_parser = SegmentParser(lib)
-    res = []
-    for index, row in df.iterrows():
-        try:
-            res.append(ClonotypeAA(cdr3aa=row['cdr3'],
-                                   v=segment_parser.parse(row['v.segm']),
-                                   j=segment_parser.parse(row['j.segm']),
-                                   id=index,
-                                   payload={'vdjdb': VdjdbPayload(row['mhc.a'],
-                                                                  row['mhc.b'],
-                                                                  row['mhc.class'],
-                                                                  row['antigen.epitope'],
-                                                                  row['antigen.species'])}))
-        except Exception as e:
-            if warn:
-                warnings.warn(f'Error parsing VDJdb line {row} - {e}')
-    return res
-
-
-def parse_olga(fname: str,
-               lib: SegmentLibrary = SegmentLibrary(),
-               n: int = None) -> list[ClonotypeAA]:
-    df = pd.read_csv(fname,
-                     header=None,
-                     names=['cdr3nt', 'cdr3aa', 'v', 'j'], sep='\t',
-                     nrows=n)
-    segment_parser = SegmentParser(lib)
-    return [ClonotypeNT(cdr3nt=row['cdr3nt'],
-                        cdr3aa=row['cdr3aa'],
-                        v=segment_parser.parse(row['v']),
-                        j=segment_parser.parse(row['j']),
-                        id=index)
-            for index, row in df.iterrows()]
-
-
-def parse_vdjtools(fname: str,
-                   lib: SegmentLibrary = SegmentLibrary(),
-                   n: int = None) -> list[ClonotypeAA]:
-    df = pd.read_csv(fname, sep='\t', nrows=n)
-    if len(df.columns) == 7:
-        def get_junction(_): return JunctionMarkup()
-    else:
-        def get_junction(r): return JunctionMarkup(r[7], r[8], r[9], r[10])
-    segment_parser = SegmentParser(lib)
-    return [ClonotypeNT(cells=row[0],
-                        cdr3nt=row[2],
-                        cdr3aa=row[3],
-                        v=segment_parser.parse(row[4]),
-                        d=segment_parser.parse(row[5]),
-                        j=segment_parser.parse(row[6]),
-                        junction=get_junction(row),
-                        id=index)
-            for index, row in df.iterrows()]
-
-
-# TODO payload
-def from_df(df: pd.DataFrame,
-            lib: SegmentLibrary = SegmentLibrary(),
-            n: int = None) -> list[ClonotypeAA]:
-    if n:
-        df = df.head(n)
-    if {'cells'}.issubset(df.columns):
-        def get_cells(r): return r['cells']
-    else:
-        def get_cells(_): return 1
-    if {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(df.columns):
-        def get_junction(r): return JunctionMarkup(r['v_end'],
-                                                   r['d_start'],
-                                                   r['d_end'],
-                                                   r['j_start'])
-    else:
-        def get_junction(_): return None
-    segment_parser = SegmentParser(lib)
-    if {'cdr3aa', 'v', 'j'}.issubset(df.columns):
-        if 'cdr3nt' in df.columns:
-            return [ClonotypeNT(cells=get_cells(row),
-                                cdr3aa=row['cdr3aa'],
-                                v=segment_parser.parse(row['v']),
-                                d=segment_parser.parse(row['d']),
-                                j=segment_parser.parse(row['j']),
-                                cdr3nt=row['cdr3nt'],
-                                junction=get_junction(row),
-                                id=index)
-                    for index, row in df.iterrows()]
-        else:
-            return [ClonotypeAA(cells=get_cells(row),
-                                cdr3aa=row['cdr3aa'],
-                                v=segment_parser.parse(row['v']),
-                                d=segment_parser.parse(row['d']),
-                                j=segment_parser.parse(row['j']),
-                                id=index)
-                    for index, row in df.iterrows()]
-    else:
-        raise ValueError(f'Critical columns missing in df {df.columns}')
+    def parse_inner(self, source: pd.DataFrame) -> list[PairedChainClone]:
+        alpha_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3a']],
+                                                              v=self.segment_parser.parse(x[self.column_mapping['Va']]),
+                                                              j=self.segment_parser.parse(x[self.column_mapping['Ja']]),
+                                                              payload={'HLA': x[self.column_mapping['mhc.a']] if
+                                                                            self.column_mapping[
+                                                                                'mhc.a'] is not None else None,
+                                                                       'epitope': x[self.column_mapping['epitope']] if
+                                                                            self.column_mapping[
+                                                                                'epitope'] is not None else None}),
+                                        axis=1)
+        beta_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3b']],
+                                                             v=self.segment_parser.parse(x[self.column_mapping['Vb']]),
+                                                             j=self.segment_parser.parse(x[self.column_mapping['Jb']]),
+                                                             payload={'HLA': x[self.column_mapping['mhc.a']] if
+                                                             self.column_mapping[
+                                                                 'mhc.a'] is not None else None,
+                                                                      'epitope': x[self.column_mapping['epitope']] if
+                                                                      self.column_mapping[
+                                                                          'epitope'] is not None else None}),
+                                       axis=1)
+        return [PairedChainClone(chainA=alpha, chainB=beta) for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]

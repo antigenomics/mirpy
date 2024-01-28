@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import math
 
-from ..common import Repertoire, RepertoireDataset
+from mir.common import Repertoire, RepertoireDataset
 
 
 class FrequencyTable:
