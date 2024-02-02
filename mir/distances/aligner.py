@@ -5,7 +5,8 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 import typing as t
 
-from ..common import ClonotypeAA, Segment, SegmentLibrary, PairedChainClone
+from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.common.segments import Segment, SegmentLibrary
 
 
 class Scoring:

@@ -5,7 +5,7 @@ from pyparsing import Iterable
 import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
 from mir.common.repertoire_dataset import RepertoireDataset
-from ..distances import ClonotypeAligner, ClonotypeScore
+from mir.distances.aligner import ClonotypeAligner, ClonotypeScore
 
 
 class DatabaseMatch:
@@ -109,7 +109,7 @@ class MultipleRepertoireDenseMatcher:
         def process_one_file(x):
             run, i = x
             res = []
-            cur_cdrs = Counter([x.cdr3aa for x in run.clonotypes])
+            cur_cdrs = Counter([x for x in run.clonotypes])
             length_to_clones = defaultdict(set)
             for clonotype in cur_cdrs:
                 length_to_clones[len(clonotype.cdr3aa)].add(clonotype.cdr3aa)
@@ -126,7 +126,7 @@ class MultipleRepertoireDenseMatcher:
                         length_to_mismatch_clones[length][i].add(mismatch_clone)
                         mismatch_clone_to_cdr3aa[mismatch_clone].add(clone)
 
-            for clone in most_common_clonotypes['cdr3aa']:
+            for clone in most_common_clonotypes:
                 if len(clone) in length_to_mismatch_clones:
                     mismatch_clones = MultipleRepertoireDenseMatcher.check_mismatch_clone(
                         clone,
@@ -143,7 +143,7 @@ class MultipleRepertoireDenseMatcher:
                     res.append(0)
             run_to_presence_of_clonotypes[x] = pd.Series(res)
 
-        run_to_presence_of_clonotypes['cdr3aa'] = pd.Series(most_common_clonotypes['cdr3aa'])
+        run_to_presence_of_clonotypes['cdr3aa'] = pd.Series(most_common_clonotypes)
         runs = [(x, i) for i, x in enumerate(repertoire_dataset.repertoires)]
         with Pool(threads) as p:
             p.map(process_one_file, runs)
