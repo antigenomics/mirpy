@@ -3,7 +3,9 @@ import pandas as pd
 
 
 class FastClust:
-
+    """
+    A piece of code written by *Daniil Luppov*
+    """
     def __init__(self, cdr_aas: pd.Series) -> None:
         """
         Class for fast clustering o

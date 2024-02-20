@@ -2,21 +2,26 @@ from collections import defaultdict
 
 import pandas as pd
 
-from mir.common.clonotype import Clonotype
+from mir.common.clonotype import ClonotypeAA
 from mir.common.parser import ClonotypeTableParser
 
 
 class Repertoire:
     def __init__(self,
-                 clonotypes: list[Clonotype],
+                 clonotypes: list[ClonotypeAA],
                  sorted: bool = False,
-                 metadata: dict[str, str] | pd.Series = dict()):
-        self.clonotypes = clonotypes
+                 metadata: dict[str, str] | pd.Series = dict(),
+                 gene: str = None):
+        if gene is not None:
+            self.clonotypes = [x for x in clonotypes if gene in x.v.gene]
+        else:
+            self.clonotypes = clonotypes
         self.sorted = sorted
         self.metadata = metadata
         self.segment_usage = None
         self.number_of_clones = len(self.clonotypes)
         self.number_of_reads = sum([x.size() for x in self.clonotypes])
+        self.gene = gene
 
     @classmethod
     def load(cls,
@@ -24,14 +29,15 @@ class Repertoire:
              metadata: dict[str, str] | pd.Series = dict(),
              path: str = None,
              n: int = None,
-             sample: bool = False):
+             sample: bool = False,
+             gene: str = None):
         if not path:
             if 'path' not in metadata:
                 raise ValueError("'path' is missing in metadata")
             path = metadata['path']
         else:
             metadata['path'] = path
-        return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata)
+        return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata, gene=gene)
 
     def __copy__(self):
         return Repertoire(self.clonotypes, self.sorted, self.metadata)
@@ -64,6 +70,8 @@ class Repertoire:
                 # TODO add type of clonotype assertion
                 self.segment_usage[c.v.id] += 1
                 self.segment_usage[c.j.id] += 1
+                if c.d is not None:
+                    self.segment_usage[c.d.id] += 1
         return self.segment_usage
 
     def serialize(self):

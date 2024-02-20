@@ -1,10 +1,18 @@
 import olga.load_model as load_model
 import olga.generation_probability as pgen
-import olga.sequence_generation as seq_gen
 
 
 class OlgaModel:
-    def __init__(self, model : str = 'default_models/human_T_beta'):
+    """A class to work with OLGA model for
+    generation probability inference. You can generate repertoires using this class or identify
+    the probability of any clone to be assembled."""
+
+    def __init__(self, model: str = 'default_models/human_T_beta'):
+        """
+        A function which creates the model
+
+        :param model: a path to the directory where the OLGA model is stored
+        """
         # Define the files for loading in generative model/data
         params_file_name = f'{model}/model_params.txt'
         marginals_file_name = f'{model}/model_marginals.txt'
@@ -19,20 +27,39 @@ class OlgaModel:
         # Process model/data for pgen computation by instantiating GenerationProbabilityVDJ
         self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
 
-    def compute_pgen_cdr3nt(self, cdr3nt : str):
+    def compute_pgen_cdr3nt(self, cdr3nt: str):
+        """
+        A function to compute the TCR generation probability for the nucleotide sequence
+
+        :param cdr3nt: a nucleotide sequence string
+        :return:
+        """
         return self.pgen_model.compute_nt_CDR3_pgen(cdr3nt)
-    
-    def compute_pgen_cdr3aa(self, cdr3aa : str):
+
+    def compute_pgen_cdr3aa(self, cdr3aa: str):
+        """
+        A function to compute the TCR generation probability for the amino acid sequence
+
+        :param cdr3aa: an amino acid sequence string
+        :return:
+        """
         return self.pgen_model.compute_aa_CDR3_pgen(cdr3aa)
-    
-    def compute_pgen_cdr3aa_1mm(self, cdr3aa : str):
+
+    def compute_pgen_cdr3aa_1mm(self, cdr3aa: str):
+        """
+        A function to compute the TCR generation probability for the amino acid sequence allowing to have \
+        one amino acid change
+
+        :param cdr3aa: an amino acid sequence string
+        :return:
+        """
         l = len(cdr3aa)
         p0 = self.compute_pgen_cdr3aa(cdr3aa)
         for i in range(l):
             s = cdr3aa[:i] + 'X' + cdr3aa[i + 1:]
             p1 = p1 + self.pgen_model.compute_regex_CDR3_template_pgen(s)
         return p1 - p0 * (l - 1)
-    
-    #TODO: v usage correction
 
-    #TODO: generate, -> Iterable[Clonotype]
+    # TODO: v usage correction
+
+    # TODO: generate, -> Iterable[Clonotype]
