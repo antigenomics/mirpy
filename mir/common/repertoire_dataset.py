@@ -10,7 +10,8 @@ from mir.common.parser import ClonotypeTableParser
 class RepertoireDataset:
     def __init__(self,
                  repertoires: t.Iterable[Repertoire],
-                 metadata: pd.DataFrame = None) -> None:
+                 metadata: pd.DataFrame = None,
+                 gene=None) -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
         self.repertoires = [r.__copy__() for r in repertoires]
@@ -27,6 +28,7 @@ class RepertoireDataset:
         self.segment_usage_matrix = None
         self.joint_number_of_clones = sum([x.number_of_clones for x in self.repertoires])
         self.clonotype_usage_matrix = ClonotypeUsageTable.load_from_repertoire_dataset(repertoire_dataset=self)
+        self.gene = gene
 
     @classmethod
     def load(cls,
@@ -34,7 +36,8 @@ class RepertoireDataset:
              metadata: pd.DataFrame,
              paths: list[str] = None,
              n: int = None,
-             threads: int = 1):
+             threads: int = 1,
+             gene=None):
         global inner_repertoire_load
         metadata = metadata.copy()
         if paths:
@@ -47,14 +50,14 @@ class RepertoireDataset:
         def inner_repertoire_load(row):
             row_dict = dict(row)
             path = row_dict['path']
-            repertoires_dct[path] = Repertoire.load(parser, metadata=row_dict, n=n)
+            repertoires_dct[path] = Repertoire.load(parser, metadata=row_dict, n=n, gene=gene)
 
         repertoire_jobs = [row for _, row in metadata.iterrows()]
         with Pool(threads) as p:
             p.map(inner_repertoire_load, repertoire_jobs)
 
         repertoires = [repertoires_dct[path] for path in metadata.path]
-        return cls(repertoires, metadata)
+        return cls(repertoires, metadata, gene=gene)
 
     def __len__(self):
         return len(self.repertoires)
