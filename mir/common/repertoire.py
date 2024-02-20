@@ -13,7 +13,7 @@ class Repertoire:
                  metadata: dict[str, str] | pd.Series = dict(),
                  gene: str = None):
         if gene is not None:
-            self.clonotypes = [x for x in clonotypes if gene in x.v.gene]
+            self.clonotypes = [x for x in clonotypes if gene in x.v.gene and gene in x.j.gene]
         else:
             self.clonotypes = clonotypes
         self.sorted = sorted
