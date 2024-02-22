@@ -111,9 +111,14 @@ class RepertoireDataset:
         repertoires_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_passed.index)]
         repertoires_not_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_not_passed.index)]
         return RepertoireDataset(repertoires_passed, metadata_passed), \
-               RepertoireDataset(repertoires_not_passed, metadata_not_passed)
+            RepertoireDataset(repertoires_not_passed, metadata_not_passed)
 
-    def resample(self, updated_segment_usage_tables: list = None, n: int=None, threads: int = 1):
+    def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
+        selected_repertoire_indices = [i for i in range(len(self.repertoires)) if selection_method(self.repertoires[i])]
+        return RepertoireDataset([x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
+                                 self.metadata.loc[selected_repertoire_indices])
+
+    def resample(self, updated_segment_usage_tables: list = None, n: int = None, threads: int = 1):
         global resampling_repertoire
         repertoires_dct = Manager().dict()
 
