@@ -19,7 +19,7 @@ class SegmentParser:
         self.select_most_probable = select_most_probable
 
     def parse(self, id: str) -> Segment:
-        if not id or len(id) < 5:
+        if pd.isna(id) or len(id) < 5:
             return None
         if self.select_most_probable:
             id = id.split(',')[0]
