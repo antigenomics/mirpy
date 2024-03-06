@@ -90,7 +90,7 @@ class RepertoireDataset:
             rep_to_usage = {}
             segment_names = set()
             for rep in self.repertoires:
-                rep_segment_dict = rep.evaluate_segment_usage()
+                rep_segment_dict = rep.evaluate_segment_usage
                 segment_names = segment_names.union(set(rep_segment_dict.keys()))
                 rep_to_usage[rep] = rep_segment_dict
             self.segment_usage_matrix = pd.DataFrame(

@@ -1,12 +1,14 @@
 from multiprocessing import Pool
 
-from mir.common import Repertoire, ClonotypeAA, PairedChainClone
-from mir.distances import ClonotypeAligner
+from mir.common.repertoire import Repertoire
+from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.distances.aligner import ClonotypeAligner
 from mir.embedding.repertoire_embedding import Embedding
 
 
 class PrototypeEmbedding(Embedding):
     def __init__(self, prototype_repertoire: Repertoire, aligner: ClonotypeAligner = ClonotypeAligner.from_library()):
+        super().__init__()
         self.prototype_repertoire = prototype_repertoire
         self.aligner = aligner
 

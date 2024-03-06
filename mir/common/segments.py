@@ -1,5 +1,6 @@
 import urllib
 from collections import Counter
+import pandas as pd
 
 from Bio.Seq import translate
 
@@ -136,6 +137,45 @@ class SegmentLibrary:
                     segments[segment.id] = segment
         return cls(segments, True)
 
+    def load_default_new(cls,
+                         genes: set[str] = {'TRB', 'TRA'},
+                         organisms: set[str] = {'HomoSapiens'},
+                         fname: str = 'segments.txt'
+                         ):
+        df = pd.read_csv(get_resource_path(fname), sep=' ')
+        segments = {}
+        for row in df.iterrows():
+            organism = row['organism']
+            if organism in organisms:
+                id = row['id']
+                gene = row['gene']
+                stype = row['stype'][0]
+                seqnt = row['seqnt']
+                refpoint = int(row['refpoint'])
+                featnt = {
+                    'cdr1': (int(row['cdr1_start']), int(row['cdr1_end'])),
+                    'cdr2': (int(row['cdr2_start']), int(row['cdr2_end'])),
+                    'cdr2.5': (int(row['cdr2.5_start']), int(row['cdr2.5_end'])),
+                }
+                if gene in genes:
+                    segment = Segment(id=id,
+                                      organism=organism,
+                                      gene=gene,
+                                      stype=stype,
+                                      seqnt=seqnt,
+                                      refpoint=refpoint,
+                                      featnt=featnt)
+                    segments[segment.id] = segment
+                if _ALL_AV2DV and gene == 'TRA' and 'TRD' in genes and stype == 'V':
+                    segment = Segment(id=id + 'd',
+                                      organism=organism,
+                                      gene='TRD',
+                                      stype=stype,
+                                      seqnt=seqnt,
+                                      refpoint=refpoint,
+                                      featnt=featnt)
+                    segments[segment.id] = segment
+        return cls(segments, True)
     @classmethod
     def load_from_imgt(cls,
                        genes: set[str] = {'TRA', 'TRB'},

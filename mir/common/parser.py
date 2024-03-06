@@ -9,16 +9,31 @@ from mir.common.segments import SegmentLibrary, Segment
 
 
 class SegmentParser:
+    """
+    A parser which processes the segment. It uses the segment library as input and has some other parameters
+    """
     def __init__(self, lib: SegmentLibrary,
                  select_most_probable=True,
                  mock_allele: bool = True,
                  remove_allele: bool = False) -> None:
+        """
+        The initialization function for the `SegmentParser`.
+        :param lib: the `SegmentLibrary` object which stores the info about the segments to map to
+        :param select_most_probable: whether to select the most probable segment out of a sequence or not
+        :param mock_allele: whether to substitute the allele with *01 or not
+        :param remove_allele: whether to remove the allele from a segment name or not
+        """
         self.lib = lib
         self.mock_allele = mock_allele
         self.remove_allele = remove_allele
         self.select_most_probable = select_most_probable
 
     def parse(self, id: str) -> Segment:
+        """
+        creates the `Segment` object
+        :param id: the name of a segment. should be a string. if the name cannot be parsed would return None
+        :return: a `Segment` object. if the name cannot be parsed would return None
+        """
         if pd.isna(id) or len(id) < 5:
             return None
         if self.select_most_probable:
@@ -32,6 +47,10 @@ class SegmentParser:
 
 
 class ClonotypeTableParser:
+    """
+    The object which parses clonotype tables.
+    Creates a list of clonotypes
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t') -> None:
@@ -39,6 +58,13 @@ class ClonotypeTableParser:
         self.sep = sep
 
     def parse(self, source: str | pd.DataFrame, n: int = None, sample: bool = False) -> list[Clonotype]:
+        """
+        Parses the dataset.
+        :param source: Should be either a `pd.DataFrame` or a string with filename
+        :param n: either None or number of rows to parse
+        :param sample: whether the file should be sampled into a smaller one or not
+        :return: a list of clonotypes in a file
+        """
         if isinstance(source, str):
             if n is None or not sample:
                 source = pd.read_csv(source, sep=self.sep, nrows=n)
@@ -52,6 +78,11 @@ class ClonotypeTableParser:
         return self.parse_inner(source)
 
     def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
+        """
+        Reads the file and clonotypes in it. Takes counts and junction in account.
+        :param source: the dataframe to perform the parsing on
+        :return: list of clonotypes
+        """
         if {'cells'}.issubset(source.columns):
             def get_cells(r):
                 return r['cells']
@@ -100,6 +131,11 @@ VdjdbPayload = namedtuple(
 
 
 class VDJdbSlimParser(ClonotypeTableParser):
+    """
+    The parser which is made to parse VDJdb.
+    Has a filtering parameter which can be a lambda function.
+    It has also got a parameter `warn` which is made to skip a number of exceptions in reading the file
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  species: str = 'HomoSapiens',
@@ -107,6 +143,14 @@ class VDJdbSlimParser(ClonotypeTableParser):
                  filter: t.Callable[[pd.DataFrame],
                                     pd.DataFrame] = lambda x: x,
                  warn: int = 0) -> None:
+        """
+        The initializing function for the parser
+        :param lib: the segment library object to parse with
+        :param species: by default HomoSapiens, can also be MusMusculus
+        :param gene: TRB by default; can be None if you want to parse all the rows in a file
+        :param filter: the lambda function to perform file filtering on; should return the boolean
+        :param warn: the number of errors to skip while reading a file
+        """
         super().__init__(lib)
         self.species = species
         self.gene = gene
@@ -143,6 +187,9 @@ class VDJdbSlimParser(ClonotypeTableParser):
 
 
 class OlgaParser(ClonotypeTableParser):
+    """
+    An object to parse the OLGA software generated data. Only accepts the `SegmentLibrary` as input
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary()) -> None:
         super().__init__(lib)
@@ -163,9 +210,18 @@ class OlgaParser(ClonotypeTableParser):
 
 
 class VDJtoolsParser(ClonotypeTableParser):
+    """
+    A parser to process the result of VDJtools. It is one of the most common formats which includes the following \
+    columns: `cdr3aa, cdr3nt, count, v, d, j, VEnd, DStart, DEnd, JStart`.
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t') -> None:
+        """
+        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
+        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
+        :param sep: either tabulation or comma usually
+        """
         super().__init__(lib, sep)
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
@@ -186,12 +242,35 @@ class VDJtoolsParser(ClonotypeTableParser):
                                                    ), axis=1))
 
 
-class ImmrepParser(ClonotypeTableParser):
+class DoubleChainVDJtoolsParser(ClonotypeTableParser):
+    """
+    A parser which is used if you need to rename columns in `VDJtoolsParser`. \
+    You can pass the name mapping as a parameter. The file should contain HLA information \
+    (parameter `mhc.a` in `column_mapping`) and should have both chains information for each row \
+    (parameters `cdr3a` and `cdr3b` in `column_mapping`)
+    """
     def __init__(self,
                  column_mapping=None,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t'
                  ):
+        """
+        The initializing function of the parser. Important to put the correct SegmentLibrary and separator. You should \
+        also specify column mapping information
+        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
+        :param sep: either tabulation or comma usually
+        :param column_mapping: the dictionary which maps the columns names to the column names in the initial file.\
+        The default mapping is the following: {
+                'epitope': 'Peptide',
+                'mhc.a': 'HLA',
+                'Va': 'Va',
+                'Ja': 'Ja',
+                'cdr3a': 'CDR3a_extended',
+                'Vb': 'Vb',
+                'Jb': 'Jb',
+                'cdr3b': 'CDR3b_extended',
+            }
+        """
         super().__init__(lib, sep)
         if column_mapping is None:
             column_mapping = {

@@ -1,4 +1,4 @@
-from mir.common import Repertoire
+from mir.common.repertoire import Repertoire
 
 
 class Embedding:
