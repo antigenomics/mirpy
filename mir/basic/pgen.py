@@ -7,7 +7,7 @@ class OlgaModel:
     generation probability inference. You can generate repertoires using this class or identify
     the probability of any clone to be assembled."""
 
-    def __init__(self, model: str = 'default_models/human_T_beta'):
+    def __init__(self, model: str = 'resources/olga/default_models/human_T_beta'):
         """
         A function which creates the model
 
