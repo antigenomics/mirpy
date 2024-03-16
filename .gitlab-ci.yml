@@ -1,0 +1,14 @@
+stages:
+  - deploy
+
+default:
+  image: python:3.7-alpine
+pages:
+  stage: deploy
+  script:
+  - pip install -U sphinx pydata_sphinx_theme
+  - sphinx-build -b html ./mir/docs public
+  artifacts:
+    paths:
+    - public
+
