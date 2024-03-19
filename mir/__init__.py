@@ -11,7 +11,7 @@ def get_resource_path(name=None):
     if name is None:
         filenames = os.listdir(subdirectory)
         return sorted(filenames)
-    
+
     path = os.path.join(subdirectory, name)
-    assert os.path.isfile(path), "Missing resource"
+    assert os.path.isfile(path) or os.path.isdir(path), "Missing resource"
     return path
