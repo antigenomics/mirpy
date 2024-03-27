@@ -55,6 +55,7 @@ class OlgaModel:
         """
         l = len(cdr3aa)
         p0 = self.compute_pgen_cdr3aa(cdr3aa)
+        p1 = 0
         for i in range(l):
             s = cdr3aa[:i] + 'X' + cdr3aa[i + 1:]
             p1 = p1 + self.pgen_model.compute_regex_CDR3_template_pgen(s)
@@ -63,3 +64,4 @@ class OlgaModel:
     # TODO: v usage correction
 
     # TODO: generate, -> Iterable[Clonotype]
+
