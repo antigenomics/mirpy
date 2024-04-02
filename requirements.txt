@@ -1,6 +1,5 @@
-biopython==1.81
-matplotlib==3.7.2
 numpy==1.25.1
+matplotlib==3.7.2
 olga==1.2.4
 pandas==2.0.3
 python_igraph==0.10.6
@@ -10,3 +9,4 @@ umap-learn==0.5.3
 scikit-learn==1.3.0
 textdistance==4.5.0
 plotnine==0.12.3
+biopython==1.81
