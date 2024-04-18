@@ -1,3 +1,5 @@
+from multiprocessing import Pool
+
 import olga.load_model as load_model
 import olga.generation_probability as pgen
 
@@ -50,16 +52,18 @@ class OlgaModel:
         A function to compute the TCR generation probability for the amino acid sequence allowing to have \
         one amino acid change
 
+        :param threads: number of threads to perform parallelizing in
         :param cdr3aa: an amino acid sequence string
-        :return:
+        :return: the probability to generate cdr3aa allowing for 1 amino acid mismatch
         """
-        l = len(cdr3aa)
-        p0 = self.compute_pgen_cdr3aa(cdr3aa)
-        p1 = 0
-        for i in range(l):
-            s = cdr3aa[:i] + 'X' + cdr3aa[i + 1:]
-            p1 = p1 + self.pgen_model.compute_regex_CDR3_template_pgen(s)
-        return p1 - p0 * (l - 1)
+
+        cdr3_length = len(cdr3aa)
+        pgen_exact = self.compute_pgen_cdr3aa(cdr3aa)
+        # with Pool(threads) as p:
+        probas = map(self.pgen_model.compute_regex_CDR3_template_pgen,
+                           [cdr3aa[:i] + 'X' + cdr3aa[i + 1:] for i in range(cdr3_length)])
+        sum_pgen_1mm = sum(probas)
+        return sum_pgen_1mm - pgen_exact * (cdr3_length - 1)
 
     # TODO: v usage correction
 

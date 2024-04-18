@@ -59,6 +59,26 @@ class RepertoireDataset:
         repertoires = [repertoires_dct[path] for path in metadata.path]
         return cls(repertoires, metadata, gene=gene)
 
+    @classmethod
+    def load_from_single_df(cls, dataset_df,
+                            metadata_columns=['severity', 'disease_status', 'study'],
+                            cdr3_column='cdr3_b_aa',
+                            sample_column='sample_id',
+                            v_gene_column='v_b_gene',
+                            j_gene_column='j_b_column',
+                            d_gene_column=None,
+                            gene=None):
+        sample_order = dataset_df[sample_column].drop_duplicates()
+        metadata = dataset_df[[sample_column] + metadata_columns].drop_duplicates().set_index(sample_column).loc[
+            sample_order, :].reset_index(drop=True)
+        repertoires = [Repertoire.load_from_df(df=dataset_df[dataset_df[sample_column] == sample],
+                                               cdr3_column=cdr3_column,
+                                               v_gene_column=v_gene_column,
+                                               j_gene_column=j_gene_column,
+                                               d_gene_column=d_gene_column,
+                                               gene=gene) for sample in sample_order]
+        return cls(repertoires, metadata, gene)
+
     def __len__(self):
         return len(self.repertoires)
 
@@ -110,13 +130,17 @@ class RepertoireDataset:
         metadata_not_passed = self.metadata[~self.metadata.apply(splitting_method, axis=1)]
         repertoires_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_passed.index)]
         repertoires_not_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_not_passed.index)]
-        return RepertoireDataset(repertoires_passed, metadata_passed), \
-            RepertoireDataset(repertoires_not_passed, metadata_not_passed)
+        return RepertoireDataset(repertoires_passed, metadata_passed.reset_index(drop=True)), \
+            RepertoireDataset(repertoires_not_passed, metadata_not_passed.reset_index(drop=True))
 
     def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
         selected_repertoire_indices = [i for i in range(len(self.repertoires)) if selection_method(self.repertoires[i])]
         return RepertoireDataset([x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
                                  self.metadata.loc[selected_repertoire_indices])
+
+    def merge_with_another_dataset(self, other):
+        return RepertoireDataset(repertoires=self.repertoires + other.repertoires,
+                                 metadata=pd.concat([self.metadata, other.metadata]))
 
     def resample(self, updated_segment_usage_tables: list = None, n: int = None, threads: int = 1):
         global resampling_repertoire

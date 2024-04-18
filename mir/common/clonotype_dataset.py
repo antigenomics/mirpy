@@ -7,7 +7,8 @@ import igraph as ig
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class ClonotypeDataset:
     """
@@ -24,6 +25,9 @@ class ClonotypeDataset:
         self.clusters = None
         self.pgen = None
         self.cluster_pgen = None
+        self.graph_object = None
+        self.graph_coords = None
+        self.cluster_payload = None
 
     def get_number_of_samples_for_clonotype(self, clonotype_seqaa):
         pass
@@ -38,14 +42,17 @@ class ClonotypeDataset:
                 self.masks_to_clonotypes[c[:i] + 'X' + c[i + 1:]].add(c)
         return self.masks
 
-    def get_matching_clonotypes(self, clonotype_of_interest: str, return_clusters=False):
+    def get_matching_clonotypes(self, clonotype_of_interest: str, return_clusters=False, threshold=1):
         found_matches = set()
         if self.masks is None:
             self.get_masked_clonotypes_set()
-        for i in range(len(clonotype_of_interest)):
-            current_mask = clonotype_of_interest[:i] + 'X' + clonotype_of_interest[i + 1:]
-            if current_mask in self.masks:
-                found_matches = found_matches.union(self.masks_to_clonotypes[current_mask])
+        if threshold == 1:
+            for i in range(len(clonotype_of_interest)):
+                current_mask = clonotype_of_interest[:i] + 'X' + clonotype_of_interest[i + 1:]
+                if current_mask in self.masks:
+                    found_matches = found_matches.union(self.masks_to_clonotypes[current_mask])
+        elif threshold == 0:
+            found_matches = [clonotype_of_interest] if clonotype_of_interest in self.clonotypes else []
         if return_clusters:
             return set(self.clonotype_clustering[self.clonotype_clustering.cdr3aa.isin(found_matches)].cluster)
         return found_matches
@@ -58,17 +65,24 @@ class ClonotypeDataset:
             return sum(c1 != c2 for c1, c2 in zip(s1, s2))
 
     @property
-    def clonotype_clustering(self, threshold=1):
-        if self.clusters is not None:
-            return self.clusters
+    def graph(self, threshold=1):
+        if self.graph_object is not None:
+            return self.graph_object
         seqs = np.array(list(self.clonotypes.keys())).astype("str")
         dm = squareform(pdist(seqs.reshape(-1, 1), metric=lambda x, y: ClonotypeDataset.hdist(x[0], y[0])))
         dmf = pd.DataFrame(dm, index=seqs, columns=seqs).stack().reset_index()
         dmf.columns = ['id1', 'id2', 'distance']
         dmf = dmf[dmf['distance'] <= threshold]
 
+        self.graph_object = ig.Graph.TupleList(dmf[['id1', 'id2']].itertuples(index=False))
+        return self.graph_object
+
+    @property
+    def clonotype_clustering(self, threshold=1):
+        if self.clusters is not None:
+            return self.clusters
         # graph
-        graph = ig.Graph.TupleList(dmf[['id1', 'id2']].itertuples(index=False))
+        graph = self.graph
         # clusters
         self.clusters = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
                                            'cluster': graph.components().membership})
@@ -93,3 +107,43 @@ class ClonotypeDataset:
             self.cluster_pgen[cluster_index] = sum(
                 [self.pgens[x] for x in self.clusters[self.clusters.cluster == cluster_index].cdr3aa])
         return self.cluster_pgen
+    @property
+    def clonotype_coords(self, viz_method='graphopt'):
+        if self.graph_coords is not None:
+            return self.graph_coords
+        layout = self.graph.layout(viz_method)
+        coords = np.array(layout.coords)
+
+        self.graph_coords = pd.DataFrame(
+            {'cdr3': self.graph.vs()['name'],
+             'cluster': self.graph.components().membership,
+             'x': coords[:, 0],
+             'y': coords[:, 1]
+             })
+        self.graph_coords['cluster_size'] = self.graph_coords.cluster.apply(lambda x: self.graph_coords.cluster.value_counts()[x])
+        return  self.graph_coords
+
+    def update_cluster_payload(self, cluster_to_feature: dict, feature_name: str):
+        if self.cluster_payload is None:
+            self.cluster_payload = pd.DataFrame(cluster_to_feature, index=[0]).T.reset_index().rename(
+                columns={'index': 'cluster', 0: feature_name})
+        else:
+            self.cluster_payload[feature_name] = self.cluster_payload.cluster.apply(lambda x: cluster_to_feature[x])
+    def plot_clonotype_clustering(self, color_by: str, ax=None):
+        if self.cluster_payload is not None:
+            plotting_df = self.clonotype_coords.merge(self.cluster_payload)
+        else:
+            plotting_df = self.graph_coords
+
+        if ax is None:
+            fig, (ax) = plt.subplots(1, 1)
+
+        if len(plotting_df[color_by].unique()) > 10:
+            palette = sns.color_palette("tab20b", 100)
+        else:
+            palette = sns.color_palette("tab10")
+        sns.scatterplot(plotting_df[plotting_df.cluster_size > 1], x='x', y='y', hue=color_by,
+                        palette=palette, ax=ax)
+        sns.scatterplot(plotting_df[plotting_df.cluster_size == 1], x='x', y='y', hue=color_by,
+                        palette=['grey'],
+                        legend=False, ax=ax)

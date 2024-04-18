@@ -14,6 +14,7 @@ class Repertoire:
     You can read the info, subsample, filter, resample, sort, evaluate segment usage and so on for the `Repertoire` \
     object.
     """
+
     def __init__(self,
                  clonotypes: list[ClonotypeAA],
                  sorted: bool = False,
@@ -31,7 +32,7 @@ class Repertoire:
         a single gene data.
         """
         if gene is not None:
-            self.clonotypes = [x for x in clonotypes if gene in x.v.gene and gene in x.j.gene  and (
+            self.clonotypes = [x for x in clonotypes if gene in x.v.gene and gene in x.j.gene and (
                     x.d is None or gene in x.d.gene)]
         else:
             self.clonotypes = clonotypes
@@ -71,6 +72,29 @@ class Repertoire:
             metadata['path'] = path
         return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata, gene=gene)
 
+    @classmethod
+    def load_from_df(cls,
+                     df: pd.DataFrame,
+                     metadata: dict[str, str] | pd.Series = dict(),
+                     cdr3_column='cdr3_b_aa',
+                     v_gene_column='v_b_gene',
+                     j_gene_column='j_b_column',
+                     d_gene_column=None,
+                     gene: str = None
+                     ):
+        cur_df = df.copy()
+        cur_df['cells'] = 1
+        columns_to_use = ['cells'] + [cdr3_column, v_gene_column, j_gene_column]
+        if d_gene_column:
+            columns_to_use.append(d_gene_column)
+        cur_df = cur_df[columns_to_use].groupby(columns_to_use[1:], as_index=False).sum()
+        clonotypes = cur_df.apply(lambda x: ClonotypeAA(cdr3aa=x[cdr3_column],
+                                                    v=x[v_gene_column],
+                                                    d=x[d_gene_column] if d_gene_column else None,
+                                                    j=x[j_gene_column],
+                                                    cells=x['cells']), axis=1)
+        return cls(clonotypes=clonotypes, metadata=metadata, gene=gene)
+
     def __copy__(self):
         return Repertoire(self.clonotypes, self.sorted, self.metadata)
 
@@ -101,7 +125,7 @@ class Repertoire:
         :param n: number of clonotypes
         :return: a list of top clonotypes
         """
-        #TODO should we change to return the Repertoire with sampled clonotypes?
+        # TODO should we change to return the Repertoire with sampled clonotypes?
         if not sorted:
             self.sort()
         return self.clonotypes[0:n]
@@ -156,8 +180,8 @@ class Repertoire:
 
     def __str__(self):
         return f'Repertoire of {self.__len__()} clonotypes and {self.total} cells:\n' + \
-               '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
-               '\n' + str(self.metadata) + '\n...'
+            '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
+            '\n' + str(self.metadata) + '\n...'
 
     def __repr__(self):
         return self.__str__()

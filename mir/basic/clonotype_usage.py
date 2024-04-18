@@ -100,4 +100,4 @@ class ClonotypeUsageTable:
             clonotype = clonotype.cdr3aa
         if clonotype not in self.public_clonotypes:
             return 0
-        return self.clonotype_matrix[clonotype].sum()
+        return self.clonotype_matrix.loc[clonotype, :].sum()

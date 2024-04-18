@@ -36,6 +36,10 @@ class FisherBiomarkersDetector:
         :param clonotype: a clonotype to assess
         :return: the Fisher exact test p-value result
         """
+        if clonotype in self.clonotype_to_p_value:
+            return
+        if len(self.clonotype_to_p_value) % 5000 == 0:
+            print(f'processed {len(self.clonotype_to_p_value)} clonotypes')
         ill_data_clonotype_usage = self.ill_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(clonotype)
         control_data_clonotype_usage = self.control_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(clonotype)
         res = fisher_exact([[ill_data_clonotype_usage,
@@ -45,17 +49,16 @@ class FisherBiomarkersDetector:
                            alternative='greater')
         self.clonotype_to_p_value[clonotype] = res[1]
 
-    def detect_biomarkers(self):
+    def detect_biomarkers(self, adjusted_p_value=None):
         """
         A function which runs the biomarker detection procedure
 
         :return: a list of significant clonotypes (cdr3aa sequences), without objects
         """
         # TODO change to return objects?
-        all_clonotypes_to_consider = list(
-            set(self.control_repertoire_dataset.clonotype_usage_matrix.public_clonotypes).union(
-                set(self.ill_repertoire_dataset.clonotype_usage_matrix.public_clonotypes)))
-
+        all_clonotypes_to_consider = set(self.control_repertoire_dataset.merge_with_another_dataset(
+            self.ill_repertoire_dataset).clonotype_usage_matrix.public_clonotypes)
+        print(f'there are {len(all_clonotypes_to_consider)} public clonotypes')
         with Pool(self.threads, maxtasksperchild=2) as p:
             p.map(self.get_p_value_for_one_clonotype, all_clonotypes_to_consider)
             print('finished testing')
@@ -63,7 +66,7 @@ class FisherBiomarkersDetector:
         pvals = []
         for clone in all_clonotypes_to_consider:
             pvals.append(self.clonotype_to_p_value[clone])
-        significant_pvals = lsu(np.array(pvals), q=self.adjusted_p_value)
+        significant_pvals = lsu(np.array(pvals), q=adjusted_p_value if adjusted_p_value else self.adjusted_p_value)
         self.significant_clones = []
         for pval, clone in zip(significant_pvals, all_clonotypes_to_consider):
             if pval:

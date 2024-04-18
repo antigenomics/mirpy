@@ -107,12 +107,12 @@ class MultipleRepertoireDenseMatcher:
         from mir.common.repertoire import Repertoire
 
         def process_one_file(x):
-            run, i = x
+            run = repertoire_dataset.repertoires[x]
             res = []
-            cur_cdrs = Counter([x for x in run.clonotypes])
+            cur_cdrs = Counter([x.cdr3aa for x in run.clonotypes])
             length_to_clones = defaultdict(set)
             for clonotype in cur_cdrs:
-                length_to_clones[len(clonotype.cdr3aa)].add(clonotype.cdr3aa)
+                length_to_clones[len(clonotype)].add(clonotype)
 
             length_to_mismatch_clones = {}
             mismatch_clone_to_cdr3aa = defaultdict(set)
@@ -144,9 +144,9 @@ class MultipleRepertoireDenseMatcher:
             run_to_presence_of_clonotypes[x] = pd.Series(res)
 
         run_to_presence_of_clonotypes['cdr3aa'] = pd.Series(most_common_clonotypes)
-        runs = [(x, i) for i, x in enumerate(repertoire_dataset.repertoires)]
+        runs = [i for i in range(len(repertoire_dataset.repertoires))]
         with Pool(threads) as p:
             p.map(process_one_file, runs)
         data = {x: y for x, y in run_to_presence_of_clonotypes.items()}
-        return pd.DataFrame.from_dict(data=data)
+        return pd.DataFrame.from_dict(data=data).set_index('cdr3aa')
 
