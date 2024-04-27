@@ -10,6 +10,7 @@ from scipy.spatial.distance import pdist, squareform
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+
 class ClonotypeDataset:
     """
     The dataset of clonotypes is stored in this object. To be used to store a set of clonotypes with specific features
@@ -107,8 +108,13 @@ class ClonotypeDataset:
             self.cluster_pgen[cluster_index] = sum(
                 [self.pgens[x] for x in self.clusters[self.clusters.cluster == cluster_index].cdr3aa])
         return self.cluster_pgen
+
     @property
-    def clonotype_coords(self, viz_method='graphopt'):
+    def clonotype_coords(self):
+        if len(self.clonotypes) < 1000:
+            viz_method = 'graphopt'
+        else:
+            viz_method = 'drl'
         if self.graph_coords is not None:
             return self.graph_coords
         layout = self.graph.layout(viz_method)
@@ -120,8 +126,9 @@ class ClonotypeDataset:
              'x': coords[:, 0],
              'y': coords[:, 1]
              })
-        self.graph_coords['cluster_size'] = self.graph_coords.cluster.apply(lambda x: self.graph_coords.cluster.value_counts()[x])
-        return  self.graph_coords
+        self.graph_coords['cluster_size'] = self.graph_coords.cluster.apply(
+            lambda x: self.graph_coords.cluster.value_counts()[x])
+        return self.graph_coords
 
     def update_cluster_payload(self, cluster_to_feature: dict, feature_name: str):
         if self.cluster_payload is None:
@@ -129,11 +136,12 @@ class ClonotypeDataset:
                 columns={'index': 'cluster', 0: feature_name})
         else:
             self.cluster_payload[feature_name] = self.cluster_payload.cluster.apply(lambda x: cluster_to_feature[x])
-    def plot_clonotype_clustering(self, color_by: str, ax=None):
+
+    def plot_clonotype_clustering(self, color_by: str, ax=None, plot_unclustered=True):
         if self.cluster_payload is not None:
             plotting_df = self.clonotype_coords.merge(self.cluster_payload)
         else:
-            plotting_df = self.graph_coords
+            plotting_df = self.clonotype_coords
 
         if ax is None:
             fig, (ax) = plt.subplots(1, 1)
@@ -144,6 +152,11 @@ class ClonotypeDataset:
             palette = sns.color_palette("tab10")
         sns.scatterplot(plotting_df[plotting_df.cluster_size > 1], x='x', y='y', hue=color_by,
                         palette=palette, ax=ax)
-        sns.scatterplot(plotting_df[plotting_df.cluster_size == 1], x='x', y='y', hue=color_by,
-                        palette=['grey'],
-                        legend=False, ax=ax)
+        if plot_unclustered:
+            sns.scatterplot(plotting_df[plotting_df.cluster_size == 1], x='x', y='y', hue=color_by,
+                            palette=['grey'],
+                            legend=False, ax=ax)
+
+    def __repr__(self):
+        return f'A dataset of {len(self.clonotypes)} clonotypes ' + \
+                    f'and {len(self.clonotype_clustering.cluster.unique())} clusters'

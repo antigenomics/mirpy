@@ -59,7 +59,7 @@ class FisherBiomarkersDetector:
         all_clonotypes_to_consider = set(self.control_repertoire_dataset.merge_with_another_dataset(
             self.ill_repertoire_dataset).clonotype_usage_matrix.public_clonotypes)
         print(f'there are {len(all_clonotypes_to_consider)} public clonotypes')
-        with Pool(self.threads, maxtasksperchild=2) as p:
+        with Pool(self.threads, maxtasksperchild=10) as p:
             p.map(self.get_p_value_for_one_clonotype, all_clonotypes_to_consider)
             print('finished testing')
 
