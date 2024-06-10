@@ -5,6 +5,7 @@ from mir.basic.clonotype_usage import ClonotypeUsageTable
 from mir.common.repertoire import Repertoire
 import pandas as pd
 from mir.common.parser import ClonotypeTableParser
+from tqdm.contrib.concurrent import process_map, thread_map
 
 
 class RepertoireDataset:
@@ -174,8 +175,9 @@ class RepertoireDataset:
 
         metadata = self.metadata.copy()
         repertoire_jobs = [i for i in range(len(self.repertoires))]
-        with Pool(threads) as p:
-            p.map(resampling_repertoire, repertoire_jobs)
+        process_map(resampling_repertoire, repertoire_jobs,
+                    max_workers=threads,
+                    desc='repertoire resampling in progress')
 
         repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
         return RepertoireDataset(repertoires, metadata)

@@ -52,7 +52,6 @@ class OlgaModel:
         A function to compute the TCR generation probability for the amino acid sequence allowing to have \
         one amino acid change
 
-        :param threads: number of threads to perform parallelizing in
         :param cdr3aa: an amino acid sequence string
         :return: the probability to generate cdr3aa allowing for 1 amino acid mismatch
         """

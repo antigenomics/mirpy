@@ -10,7 +10,7 @@ class ClonotypeUsageTable:
     The class stores the matrix, public clonotypes and the link to the repertoire dataset it was created from.
 
     """
-    def __init__(self, clonotype_matrix, repertoire_dataset, public_clonotypes):
+    def __init__(self, clonotype_database_usage, public_clonotypes):
         """
         Creating a new clonotypeUsageMatrix object
 
@@ -18,8 +18,7 @@ class ClonotypeUsageTable:
         :param repertoire_dataset: a repertoire dataset the matrix was derived from
         :param public_clonotypes: a Python list of public clonotypes (by default which are met in at least two samples)
         """
-        self.clonotype_matrix = clonotype_matrix
-        self.repertoire_dataset = repertoire_dataset
+        self.clonotype_database_usage = clonotype_database_usage
         self.public_clonotypes = public_clonotypes
 
     @classmethod
@@ -28,6 +27,8 @@ class ClonotypeUsageTable:
                                      method_for_public_extraction='unique-occurence',
                                      mismatch_max=1, threads=32):
         """
+        TODO make this method different in order to pass the method which assimes two clonotypes are similar
+        TODO currently it is lambda x, y: hamming(x, y) <= 1
         A function which creates a ClonotypeUsageMatrix object from repertoire dataset
 
         :param repertoire_dataset: a repertoire dataset the matrix was derived from
@@ -48,15 +49,17 @@ class ClonotypeUsageTable:
 
         from mir.comparative.match import MultipleRepertoireDenseMatcher
         dense_repertoire_matcher = MultipleRepertoireDenseMatcher(mismatch_max=mismatch_max)
-        clonotype_matrix = dense_repertoire_matcher.create_clonotype_matrix_for_clones(
-            public_clonotypes, repertoire_dataset, threads)
+        clonotype_database_usage = dense_repertoire_matcher.get_clonotype_database_usage_for_cohort(public_clonotypes,
+                                                                                                    repertoire_dataset,
+                                                                                                    threads)
 
-        return cls(clonotype_matrix, repertoire_dataset, public_clonotypes)
+        return cls(clonotype_database_usage, public_clonotypes)
 
     @staticmethod
     def extract_public_clonotypes_for_dataset(repertoire_dataset,
                                               method='unique-occurence',
                                               count_of_clones=2,
+                                              clonotype_representation=lambda x: x.cdr3aa
                                               ):
         """
         A function which searches for the public clonotypes within a given dataset
@@ -71,11 +74,10 @@ class ClonotypeUsageTable:
         """
         datasets_to_concat = []
         for run in repertoire_dataset:
-            cur_data = pd.DataFrame({'cdr3aa': [x.cdr3aa for x in run.clonotypes], 'count': 1})
+            cur_data = pd.DataFrame({'cdr3aa': [clonotype_representation(x) for x in run.clonotypes], 'count': 1})
             datasets_to_concat.append(cur_data)
         full_data = pd.concat(datasets_to_concat)
         full_data = full_data[full_data.cdr3aa.str.isalpha()]
-        print(len(full_data))
         top = full_data.groupby(['cdr3aa'], as_index=False).count()
 
         if method == 'top':
@@ -86,6 +88,7 @@ class ClonotypeUsageTable:
             top = top.sample(n=count_of_clones, random_state=42)
         elif method == 'unique-occurence':
             top = top[top['count'] >= count_of_clones]
+        print(f'there are {len(top)} public clonotypes')
         return list(top.cdr3aa)
 
     def get_clone_usage(self, clonotype):
@@ -96,8 +99,9 @@ class ClonotypeUsageTable:
         :param clonotype: a string representing the CDR3 amino acid sequence or a `ClonotypeAA` object
         :return: A `float` number of occurences for the given clonotype
         """
+
         if isinstance(clonotype, ClonotypeAA):
             clonotype = clonotype.cdr3aa
         if clonotype not in self.public_clonotypes:
             return 0
-        return self.clonotype_matrix.loc[clonotype, :].sum()
+        return self.clonotype_database_usage[:,[self.public_clonotypes.index(clonotype)]].sum()

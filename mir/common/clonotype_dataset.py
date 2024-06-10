@@ -6,7 +6,6 @@ from mir.common.clonotype import ClonotypeAA
 import igraph as ig
 import numpy as np
 import pandas as pd
-from scipy.spatial.distance import pdist, squareform
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -69,22 +68,22 @@ class ClonotypeDataset:
     def graph(self, threshold=1):
         if self.graph_object is not None:
             return self.graph_object
-        seqs = np.array(list(self.clonotypes.keys())).astype("str")
-        dm = squareform(pdist(seqs.reshape(-1, 1), metric=lambda x, y: ClonotypeDataset.hdist(x[0], y[0])))
-        dmf = pd.DataFrame(dm, index=seqs, columns=seqs).stack().reset_index()
-        dmf.columns = ['id1', 'id2', 'distance']
-        dmf = dmf[dmf['distance'] <= threshold]
+        edges = []
+        for c1 in self.clonotypes.keys():
+            for c2  in self.clonotypes.keys():
+                if len(c1) == len(c2):
+                    dist = sum(c1 != c2 for c1, c2 in zip(c1, c2))
+                    if dist <= threshold:
+                        edges.append((c1, c2))
 
-        self.graph_object = ig.Graph.TupleList(dmf[['id1', 'id2']].itertuples(index=False))
+        self.graph_object = ig.Graph.TupleList(edges)
         return self.graph_object
 
     @property
-    def clonotype_clustering(self, threshold=1):
+    def clonotype_clustering(self):
         if self.clusters is not None:
             return self.clusters
-        # graph
         graph = self.graph
-        # clusters
         self.clusters = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
                                            'cluster': graph.components().membership})
         return self.clusters

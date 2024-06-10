@@ -6,6 +6,8 @@ import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
 from mir.common.repertoire_dataset import RepertoireDataset
 from mir.distances.aligner import ClonotypeAligner, ClonotypeScore
+from tqdm.contrib.concurrent import process_map
+from scipy.sparse import lil_array, vstack
 
 
 class DatabaseMatch:
@@ -76,15 +78,35 @@ class SparseMatcher:
     pass
 
 
-class MultipleRepertoireDenseMatcher:
-    def __init__(self, mismatch_max=1):
-        self.mismatch_max = mismatch_max
+class XEncodedRepertoire:
+    def __init__(self, repertoire):
+        self.exact_cdr3_seqs = Counter([x.cdr3aa for x in repertoire.clonotypes])
+        self.length_to_clones = defaultdict(set)
+        for clonotype in self.exact_cdr3_seqs:
+            self.length_to_clones[len(clonotype)].add(clonotype)
         self.length_to_mismatch_clones = {}
         self.mismatch_clone_to_cdr3aa = defaultdict(set)
+        for length, cdr_set in self.length_to_clones.items():
+            self.length_to_mismatch_clones[length] = defaultdict(set)
+            for clone in cdr_set:
+                if not clone.isalpha():
+                    continue
+                for i in range(len(clone)):
+                    mismatch_clone = clone[:i] + 'X' + clone[i + 1:]
+                    self.length_to_mismatch_clones[length][i].add(mismatch_clone)
+                    self.mismatch_clone_to_cdr3aa[mismatch_clone].add(clone)
 
     @staticmethod
-    def check_mismatch_clone(cur_clone, mismatch_clones):
+    def check_distance(clone1, clone2):
+        ans = 0
+        for c1, c2 in zip(clone1, clone2):
+            if c1 != c2:
+                ans += 1
+        return ans <= 1
+
+    def check_mismatch_clone(self, cur_clone):
         occurences = set()
+        mismatch_clones = self.length_to_mismatch_clones[len(cur_clone)]
         for i in range(len(cur_clone)):
             clone_to_search = cur_clone[: i] + 'X' + cur_clone[i + 1:]
             cur_clones_set = mismatch_clones[i]
@@ -92,61 +114,56 @@ class MultipleRepertoireDenseMatcher:
                 occurences.add(clone_to_search)
         return occurences
 
-    def check(self, clone1, clone2):
-        ans = 0
-        for c1, c2 in zip(clone1, clone2):
-            if c1 != c2:
-                ans += 1
-        return ans <= self.mismatch_max
+    def find_one_mismatch_matches_in_database(self, clonotype):
+        if len(clonotype) in self.length_to_mismatch_clones:
+            mismatch_clones = self.check_mismatch_clone(clonotype)
+            cdr3aa_found_clones = set()
+            for mismatch_clone in mismatch_clones:
+                cdr3aa_found_clones.update(self.mismatch_clone_to_cdr3aa[mismatch_clone])
+            sum_occurences = 0
+            for cdr3_mismatch_clone in cdr3aa_found_clones:
+                if XEncodedRepertoire.check_distance(clonotype, cdr3_mismatch_clone):
+                    sum_occurences += self.exact_cdr3_seqs[cdr3_mismatch_clone]
+            return sum_occurences
+        else:
+            return 0
 
-    def create_clonotype_matrix_for_clones(self, most_common_clonotypes, repertoire_dataset: RepertoireDataset, threads=32):
-        global run_to_presence_of_clonotypes
-        run_to_presence_of_clonotypes = Manager().dict()
-        global process_one_file
 
-        from mir.common.repertoire import Repertoire
+class MultipleRepertoireDenseMatcher:
+    def __init__(self, mismatch_max=1):
+        self.mismatch_max = mismatch_max
+        self.length_to_mismatch_clones = {}
+        self.mismatch_clone_to_cdr3aa = defaultdict(set)
+        self.clonotypes_to_choose_from = None
 
-        def process_one_file(x):
-            run = repertoire_dataset.repertoires[x]
-            res = []
-            cur_cdrs = Counter([x.cdr3aa for x in run.clonotypes])
-            length_to_clones = defaultdict(set)
-            for clonotype in cur_cdrs:
-                length_to_clones[len(clonotype)].add(clonotype)
+    def get_clonotype_database_usage_for_cohort(self,
+                                                most_common_clonotypes,
+                                                repertoire_dataset: RepertoireDataset,
+                                                threads=32):
+        global get_clonotypes_usage_for_repertoire_chunk
+        global clone_to_cohort_usage
 
-            length_to_mismatch_clones = {}
-            mismatch_clone_to_cdr3aa = defaultdict(set)
-            for length, cdr_set in length_to_clones.items():
-                length_to_mismatch_clones[length] = defaultdict(set)
-                for clone in cdr_set:
-                    if not clone.isalpha():
-                        continue
-                    for i in range(len(clone)):
-                        mismatch_clone = clone[:i] + 'X' + clone[i + 1:]
-                        length_to_mismatch_clones[length][i].add(mismatch_clone)
-                        mismatch_clone_to_cdr3aa[mismatch_clone].add(clone)
+        def get_clonotypes_usage_for_repertoire_chunk(reps):
+            current_matrix = lil_array((len(reps), len(self.clonotypes_to_choose_from)))
+            for i, x in enumerate(reps):
+                encoded_repertoire = XEncodedRepertoire(x)
+                for j, clone in enumerate(self.clonotypes_to_choose_from):
+                    found_matches_count = encoded_repertoire.find_one_mismatch_matches_in_database(clone)
+                    if found_matches_count > 0:
+                        current_matrix[i, j] += found_matches_count
+            return current_matrix
 
-            for clone in most_common_clonotypes:
-                if len(clone) in length_to_mismatch_clones:
-                    mismatch_clones = MultipleRepertoireDenseMatcher.check_mismatch_clone(
-                        clone,
-                        length_to_mismatch_clones[len(clone)])
-                    cdr3aa_found_clones = set()
-                    for mismatch_clone in mismatch_clones:
-                        cdr3aa_found_clones.update(mismatch_clone_to_cdr3aa[mismatch_clone])
-                    sum_occurences = 0
-                    for cdr3_mismatch_clone in cdr3aa_found_clones:
-                        if self.check(clone, cdr3_mismatch_clone):
-                            sum_occurences += cur_cdrs[cdr3_mismatch_clone]
-                    res.append(sum_occurences)
-                else:
-                    res.append(0)
-            run_to_presence_of_clonotypes[x] = pd.Series(res)
-
-        run_to_presence_of_clonotypes['cdr3aa'] = pd.Series(most_common_clonotypes)
-        runs = [i for i in range(len(repertoire_dataset.repertoires))]
-        with Pool(threads) as p:
-            p.map(process_one_file, runs)
-        data = {x: y for x, y in run_to_presence_of_clonotypes.items()}
-        return pd.DataFrame.from_dict(data=data).set_index('cdr3aa')
-
+        clone_to_cohort_usage = {}
+        self.clonotypes_to_choose_from = most_common_clonotypes
+        dct = {}
+        for c in most_common_clonotypes:
+            dct[c] = 0
+        clone_to_cohort_usage.update(dct)
+        data_size = len(repertoire_dataset.repertoires)
+        chunk_size = data_size // threads + 1
+        resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
+                    [repertoire_dataset.repertoires[chunk_size * i: min(chunk_size * (i + 1), data_size)] for i in
+                     range(threads)],
+                    max_workers=threads, desc='clonotype usage matrix preparation')
+        clonotype_usage_matrix = vstack(resulting_values).tocsc()
+        return clonotype_usage_matrix
