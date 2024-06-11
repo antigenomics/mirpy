@@ -141,7 +141,6 @@ class MultipleRepertoireDenseMatcher:
                                                 repertoire_dataset: RepertoireDataset,
                                                 threads=32):
         global get_clonotypes_usage_for_repertoire_chunk
-        global clone_to_cohort_usage
 
         def get_clonotypes_usage_for_repertoire_chunk(reps):
             current_matrix = lil_array((len(reps), len(self.clonotypes_to_choose_from)))
@@ -153,12 +152,7 @@ class MultipleRepertoireDenseMatcher:
                         current_matrix[i, j] += found_matches_count
             return current_matrix
 
-        clone_to_cohort_usage = {}
         self.clonotypes_to_choose_from = most_common_clonotypes
-        dct = {}
-        for c in most_common_clonotypes:
-            dct[c] = 0
-        clone_to_cohort_usage.update(dct)
         data_size = len(repertoire_dataset.repertoires)
         chunk_size = data_size // threads + 1
         resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
