@@ -22,7 +22,7 @@ class ClonotypeDataset:
         self.clonotypes = {x.cdr3aa: x for x in clonotypes}
         self.masks = None
         self.masks_to_clonotypes = defaultdict(set)
-        self.__clusters_dict = None
+        self.__clusters_df = None
         self.__pgen_dict = None
         self.__cluster_pgen_dict = None
         self.__graph_object = None
@@ -31,12 +31,16 @@ class ClonotypeDataset:
 
 
     def serialize(self, file_name='biomarkers.csv'):
-        marker_df = pd.DataFrame({'cdr3aa': pd.Series(list(self.clonotypes.keys()))})
-        for column_name, dict_obj in [('pgen', self.__pgen_dict), ('cluster', self.__clusters_dict)]:
-            if dict_obj is not None:
-                marker_df[column_name] = pd.Series(dict_obj[cdr3] for cdr3 in marker_df.cdr3aa)
-        if self.__graph_object is not None:
-            marker_df = marker_df.merge(self.__graph_object)
+        marker_df = pd.DataFrame({'cdr3': pd.Series(list(self.clonotypes.keys()))})
+
+        if self.__clusters_df is not None:
+            marker_df = marker_df.merge(self.__clusters_df)
+
+        if self.__pgen_dict is not None:
+            marker_df['pgen'] = pd.Series(self.__pgen_dict[cdr3] for cdr3 in marker_df.cdr3)
+
+        if self.__graph_coords is not None:
+            marker_df = marker_df.merge(self.__graph_coords)
         marker_df.to_csv(file_name)
 
 
@@ -92,12 +96,12 @@ class ClonotypeDataset:
 
     @property
     def clonotype_clustering(self):
-        if self.__clusters_dict is not None:
-            return self.__clusters_dict
+        if self.__clusters_df is not None:
+            return self.__clusters_df
         graph = self.graph
-        self.__clusters_dict = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
+        self.__clusters_df = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
                                            'cluster': graph.components().membership})
-        return self.__clusters_dict
+        return self.__clusters_df
 
     @property
     def pgens(self):
@@ -116,7 +120,7 @@ class ClonotypeDataset:
         self.__cluster_pgen_dict = {}
         for cluster_index in self.clonotype_clustering.cluster.unique():
             self.__cluster_pgen_dict[cluster_index] = sum(
-                [self.pgens[x] for x in self.__clusters_dict[self.__clusters_dict.cluster == cluster_index].cdr3aa])
+                [self.pgens[x] for x in self.__clusters_df[self.__clusters_df.cluster == cluster_index].cdr3aa])
         return self.__cluster_pgen_dict
 
     @property

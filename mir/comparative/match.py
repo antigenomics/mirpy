@@ -170,9 +170,11 @@ class MultipleRepertoireDenseMatcher:
                                                 threads=4):
         self.clonotypes_to_choose_from = most_common_clonotypes
         print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
+
         data_size = len(repertoire_dataset.repertoires)
-        chunk_size = 8
+        chunk_size = min(8, math.ceil(data_size / threads))
         iters = max(1, data_size // chunk_size + math.ceil(data_size / chunk_size - data_size // chunk_size))
+
         print(f'all in all {data_size} reps, chunk size is {chunk_size}, number of batches {iters}')
         resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
                                        [(repertoire_dataset.repertoires[
