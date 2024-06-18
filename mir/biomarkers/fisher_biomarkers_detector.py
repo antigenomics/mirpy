@@ -7,7 +7,7 @@ from scipy.stats import fisher_exact
 from mir.common.repertoire_dataset import RepertoireDataset
 from pympler.asizeof import asizeof
 from tqdm.contrib.concurrent import process_map, thread_map
-
+from datetime import datetime
 
 def get_p_value_for_one_clonotype(args):
     """
@@ -17,16 +17,12 @@ def get_p_value_for_one_clonotype(args):
     :return: the Fisher exact test p-value result
     """
     clonotype, ill_data_clonotype_usage, control_data_clonotype_usage, ill_joint_number_of_clones, healthy_joint_number_of_clones = args
-    if clonotype in clonotype_to_p_value:
-        return
-    # ill_data_clonotype_usage = self.ill_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(clonotype)
-    # control_data_clonotype_usage = self.control_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(clonotype)
     res = fisher_exact([[ill_data_clonotype_usage,
-                         ill_joint_number_of_clones - ill_data_clonotype_usage],
-                        [control_data_clonotype_usage,
+                         control_data_clonotype_usage],
+                        [ill_joint_number_of_clones - ill_data_clonotype_usage,
                          healthy_joint_number_of_clones - control_data_clonotype_usage]],
                        alternative='greater')
-    clonotype_to_p_value[clonotype] = res[1]
+    return res[1]
 
 
 class FisherBiomarkersDetector:
@@ -48,7 +44,7 @@ class FisherBiomarkersDetector:
         self.adjusted_p_value = adjusted_p_value
         self.control_repertoire_dataset = control_repertoire_dataset
         self.ill_repertoire_dataset = ill_repertoire_dataset
-        self.clonotype_to_p_value = Manager().dict()
+        self.clonotype_to_p_value = None
         self.threads = threads
         print(f'created a fisher biomarker detector with {self.threads} threads')
 
@@ -59,28 +55,26 @@ class FisherBiomarkersDetector:
         :return: a list of significant clonotypes (cdr3aa sequences), without objects
         """
         # TODO change to return objects?
-        global clonotype_to_p_value
-        clonotype_to_p_value = Manager().dict()
         all_clonotypes_to_consider = set(self.ill_repertoire_dataset.clonotype_usage_matrix.public_clonotypes).union(
             set(self.control_repertoire_dataset.clonotype_usage_matrix.public_clonotypes)
         )
-        print(f'there are {len(all_clonotypes_to_consider)} public clonotypes in ill repertoire')
+        print(f'[{datetime.now()}]: there are {len(all_clonotypes_to_consider)} public clonotypes in ill repertoire')
 
+        print(f'[{datetime.now()}]: started creating func arguments')
         all_clonotypes_to_consider = [(x, self.ill_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(x),
                                        self.control_repertoire_dataset.clonotype_usage_matrix.get_clone_usage(x),
                                        self.ill_repertoire_dataset.joint_number_of_clones,
                                        self.control_repertoire_dataset.joint_number_of_clones) for x in
                                       all_clonotypes_to_consider]
+        print(f'[{datetime.now()}]: finished creating func arguments')
+        print(f'[{datetime.now()}]: chunksize is {len(all_clonotypes_to_consider) // 1000}')
 
-        process_map(get_p_value_for_one_clonotype,
+        pvals = process_map(get_p_value_for_one_clonotype,
                     all_clonotypes_to_consider,
                     max_workers=self.threads,
-                    desc='fisher testing in progress')
-
-        pvals = []
-        self.clonotype_to_p_value = {x: y for x, y in clonotype_to_p_value.items()}
-        for clone in all_clonotypes_to_consider:
-            pvals.append(self.clonotype_to_p_value[clone[0]])
+                    desc='fisher testing in progress',
+                    chunksize=max(1, len(all_clonotypes_to_consider) // 1000))
+        self.clonotype_to_p_value = {clonotype[0]: pval for clonotype, pval in zip(all_clonotypes_to_consider, pvals)}
         significant_pvals = lsu(np.array(pvals), q=adjusted_p_value if adjusted_p_value else self.adjusted_p_value)
         self.significant_clones = []
         for pval, clone in zip(significant_pvals, all_clonotypes_to_consider):

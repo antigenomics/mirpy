@@ -12,7 +12,9 @@ class RepertoireDataset:
     def __init__(self,
                  repertoires: t.Iterable[Repertoire],
                  metadata: pd.DataFrame = None,
-                 gene=None) -> None:
+                 gene=None,
+                 threads=4,
+                 public_clonotypes=None) -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
         self.repertoires = [r.__copy__() for r in repertoires]
@@ -26,10 +28,22 @@ class RepertoireDataset:
         else:
             metadata = pd.DataFrame([r.metadata for r in repertoires])
         self.metadata = metadata
-        self.segment_usage_matrix = None
+        self.__segment_usage_matrix = None
         self.joint_number_of_clones = sum([x.number_of_clones for x in self.repertoires])
-        self.clonotype_usage_matrix = ClonotypeUsageTable.load_from_repertoire_dataset(repertoire_dataset=self)
+        self.__clonotype_matrix = None
         self.gene = gene
+        self.threads=threads
+        self.repertoire_matrix_public_clonotypes = public_clonotypes
+
+    @property
+    def clonotype_usage_matrix(self):
+        if self.__clonotype_matrix is not None:
+            return self.__clonotype_matrix
+        print(f'clonotype usage matrix should be calculated. it would take a while')
+        self.__clonotype_matrix = ClonotypeUsageTable.load_from_repertoire_dataset(repertoire_dataset=self,
+                                                                                   threads=self.threads,
+                                                                                   public_clonotypes=self.repertoire_matrix_public_clonotypes)
+        return self.__clonotype_matrix
 
     @classmethod
     def load(cls,
@@ -46,19 +60,21 @@ class RepertoireDataset:
         elif 'path' not in metadata.columns:
             raise ValueError("'path' column missing in metadata")
 
-        repertoires_dct = Manager().dict()
 
         def inner_repertoire_load(row):
             row_dict = dict(row)
-            path = row_dict['path']
-            repertoires_dct[path] = Repertoire.load(parser, metadata=row_dict, n=n, gene=gene)
+            return Repertoire.load(parser, metadata=row_dict, n=n, gene=gene)
 
         repertoire_jobs = [row for _, row in metadata.iterrows()]
-        with Pool(threads) as p:
-            p.map(inner_repertoire_load, repertoire_jobs)
-
-        repertoires = [repertoires_dct[path] for path in metadata.path]
-        return cls(repertoires, metadata, gene=gene)
+        repertoires = process_map(inner_repertoire_load,
+                    repertoire_jobs,
+                    chunksize=1,
+                    max_workers=threads,
+                    desc='loading Repertoire objects')
+        # with Pool(threads) as p:
+        #     p.map(inner_repertoire_load, repertoire_jobs)
+        # repertoires = [repertoires_dct[path] for path in metadata.path]
+        return cls(repertoires, metadata, gene=gene, threads=threads)
 
     @classmethod
     def load_from_single_df(cls, dataset_df,
@@ -78,7 +94,9 @@ class RepertoireDataset:
                                                j_gene_column=j_gene_column,
                                                d_gene_column=d_gene_column,
                                                gene=gene) for sample in sample_order]
-        return cls(repertoires, metadata, gene)
+        return cls(repertoires=repertoires,
+                   metadata=metadata,
+                   gene=gene, )
 
     def __len__(self):
         return len(self.repertoires)
@@ -107,16 +125,16 @@ class RepertoireDataset:
         return [serialized_dict[x] for x in range(len(self.repertoires))]
 
     def evaluate_segment_usage(self) -> pd.DataFrame:
-        if self.segment_usage_matrix is None:
+        if self.__segment_usage_matrix is None:
             rep_to_usage = {}
             segment_names = set()
             for rep in self.repertoires:
                 rep_segment_dict = rep.evaluate_segment_usage
                 segment_names = segment_names.union(set(rep_segment_dict.keys()))
                 rep_to_usage[rep] = rep_segment_dict
-            self.segment_usage_matrix = pd.DataFrame(
+            self.__segment_usage_matrix = pd.DataFrame(
                 {k: [rep_to_usage[r][k] for r in self.repertoires] for k in segment_names})
-        return self.segment_usage_matrix
+        return self.__segment_usage_matrix
 
     def get_gene_types_in_repertoire_dataset(self):
         segment_usage = self.evaluate_segment_usage()
@@ -131,13 +149,21 @@ class RepertoireDataset:
         metadata_not_passed = self.metadata[~self.metadata.apply(splitting_method, axis=1)]
         repertoires_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_passed.index)]
         repertoires_not_passed = [x for i, x in enumerate(self.repertoires) if i in list(metadata_not_passed.index)]
-        return RepertoireDataset(repertoires_passed, metadata_passed.reset_index(drop=True)), \
-            RepertoireDataset(repertoires_not_passed, metadata_not_passed.reset_index(drop=True))
+        return RepertoireDataset(repertoires=repertoires_passed,
+                                 metadata=metadata_passed.reset_index(drop=True),
+                                 gene=self.gene,
+                                 threads=self.threads,
+                                 public_clonotypes=self.clonotype_usage_matrix.public_clonotypes), \
+            RepertoireDataset(repertoires=repertoires_not_passed,
+                              metadata=metadata_not_passed.reset_index(drop=True),
+                              gene=self.gene,
+                              threads=self.threads,
+                              public_clonotypes=self.clonotype_usage_matrix.public_clonotypes)
 
     def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
         selected_repertoire_indices = [i for i in range(len(self.repertoires)) if selection_method(self.repertoires[i])]
         return RepertoireDataset([x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
-                                 self.metadata.loc[selected_repertoire_indices])
+                                 self.metadata.loc[selected_repertoire_indices].reset_index(drop=True))
 
     def merge_with_another_dataset(self, other):
         return RepertoireDataset(repertoires=self.repertoires + other.repertoires,
@@ -145,11 +171,10 @@ class RepertoireDataset:
 
     def resample(self, updated_segment_usage_tables: list = None, n: int = None, threads: int = 1):
         global resampling_repertoire
-        repertoires_dct = Manager().dict()
 
         def resampling_repertoire(idx):
             from mir.basic.sampling import RepertoireSampling
-            repertoires_dct[idx] = RepertoireSampling().sample(repertoire=self.repertoires[idx],
+            return RepertoireSampling().sample(repertoire=self.repertoires[idx],
                                                                old_usage_matrix=initial_segment_usage_tables,
                                                                new_usage_matrix=updated_segment_usage_tables,
                                                                n=n)
@@ -158,7 +183,6 @@ class RepertoireDataset:
         gene_type = self.get_gene_types_in_repertoire_dataset()
         if len(gene_type) > 1:
             raise Exception(f'Repertoire dataset can only contain one chain, but contains {gene_type}')
-        gene_type = gene_type[0]
         initial_segment_usage_tables = []
         if updated_segment_usage_tables is None:
             initial_segment_usage_tables = [NormalizedSegmentUsageTable.load_from_repertoire_dataset(
@@ -175,9 +199,9 @@ class RepertoireDataset:
 
         metadata = self.metadata.copy()
         repertoire_jobs = [i for i in range(len(self.repertoires))]
-        process_map(resampling_repertoire, repertoire_jobs,
+        repertoires = process_map(resampling_repertoire, repertoire_jobs,
                     max_workers=threads,
                     desc='repertoire resampling in progress')
 
-        repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
-        return RepertoireDataset(repertoires, metadata)
+        # repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
+        return RepertoireDataset(repertoires, metadata, gene=self.gene, threads=self.threads)

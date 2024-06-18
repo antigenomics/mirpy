@@ -1,4 +1,6 @@
 # todo: vdjmatch
+import math
+import sys
 from collections import defaultdict, Counter
 from multiprocessing import Pool, Manager
 from pyparsing import Iterable
@@ -8,7 +10,10 @@ from mir.common.repertoire_dataset import RepertoireDataset
 from mir.distances.aligner import ClonotypeAligner, ClonotypeScore
 from tqdm.contrib.concurrent import process_map
 from scipy.sparse import lil_array, vstack
-
+import time
+from pympler.asizeof import asizeof
+from datetime import datetime
+from memory_profiler import profile
 
 class DatabaseMatch:
     __slots__ = ['db_clonotype', 'scores']
@@ -128,6 +133,28 @@ class XEncodedRepertoire:
         else:
             return 0
 
+# @profile
+def get_clonotypes_usage_for_repertoire_chunk(args):
+    reps, clonotypes_for_analysis, chunk_idx = args
+    # print(
+    #     f'chunk num {chunk_idx}, reps in chunk {len(reps)}, chunk size is {asizeof(reps) / 1024 ** 2}, clonotypes object size is {asizeof(clonotypes_for_analysis) / 1024 ** 2}')
+    current_matrix = lil_array((len(reps), len(clonotypes_for_analysis)))
+    for i, x in enumerate(reps):
+        # print(f'[{datetime.now()}, {chunk_idx}]: started {i} rep in chunk')
+        t0 = time.time()
+        encoded_repertoire = XEncodedRepertoire(x)
+        t1 = time.time()
+        # print(f'[{datetime.now()}, {chunk_idx}]: created XEncoded in {t1 - t0}, size {asizeof(encoded_repertoire) / 1024 ** 2}')
+        for j, clone in enumerate(clonotypes_for_analysis):
+            found_matches_count = encoded_repertoire.find_one_mismatch_matches_in_database(clone)
+            if found_matches_count > 0:
+                current_matrix[i, j] += found_matches_count
+        # print(
+        #     f'[{datetime.now()}, {chunk_idx}]: browsed through all the clones in {time.time() - t1}, matrix size {asizeof(current_matrix) / 1024 ** 2}')
+        del encoded_repertoire
+        # del reps[i]
+    return current_matrix
+
 
 class MultipleRepertoireDenseMatcher:
     def __init__(self, mismatch_max=1):
@@ -136,28 +163,22 @@ class MultipleRepertoireDenseMatcher:
         self.mismatch_clone_to_cdr3aa = defaultdict(set)
         self.clonotypes_to_choose_from = None
 
+    # @profile
     def get_clonotype_database_usage_for_cohort(self,
                                                 most_common_clonotypes,
                                                 repertoire_dataset: RepertoireDataset,
-                                                threads=32):
-        global get_clonotypes_usage_for_repertoire_chunk
-
-        def get_clonotypes_usage_for_repertoire_chunk(reps):
-            current_matrix = lil_array((len(reps), len(self.clonotypes_to_choose_from)))
-            for i, x in enumerate(reps):
-                encoded_repertoire = XEncodedRepertoire(x)
-                for j, clone in enumerate(self.clonotypes_to_choose_from):
-                    found_matches_count = encoded_repertoire.find_one_mismatch_matches_in_database(clone)
-                    if found_matches_count > 0:
-                        current_matrix[i, j] += found_matches_count
-            return current_matrix
-
+                                                threads=4):
         self.clonotypes_to_choose_from = most_common_clonotypes
+        print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
         data_size = len(repertoire_dataset.repertoires)
-        chunk_size = data_size // threads + 1
+        chunk_size = 8
+        iters = max(1, data_size // chunk_size + math.ceil(data_size / chunk_size - data_size // chunk_size))
+        print(f'all in all {data_size} reps, chunk size is {chunk_size}, number of batches {iters}')
         resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
-                    [repertoire_dataset.repertoires[chunk_size * i: min(chunk_size * (i + 1), data_size)] for i in
-                     range(threads)],
-                    max_workers=threads, desc='clonotype usage matrix preparation')
+                                       [(repertoire_dataset.repertoires[
+                                         chunk_size * i: min(chunk_size * (i + 1), data_size)],
+                                         most_common_clonotypes, i) for i in
+                                        range(iters)],
+                                       max_workers=threads, desc='clonotype usage matrix preparation')
         clonotype_usage_matrix = vstack(resulting_values).tocsc()
         return clonotype_usage_matrix

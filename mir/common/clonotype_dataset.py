@@ -22,12 +22,23 @@ class ClonotypeDataset:
         self.clonotypes = {x.cdr3aa: x for x in clonotypes}
         self.masks = None
         self.masks_to_clonotypes = defaultdict(set)
-        self.clusters = None
-        self.pgen = None
-        self.cluster_pgen = None
-        self.graph_object = None
-        self.graph_coords = None
+        self.__clusters_dict = None
+        self.__pgen_dict = None
+        self.__cluster_pgen_dict = None
+        self.__graph_object = None
+        self.__graph_coords = None
         self.cluster_payload = None
+
+
+    def serialize(self, file_name='biomarkers.csv'):
+        marker_df = pd.DataFrame({'cdr3aa': pd.Series(list(self.clonotypes.keys()))})
+        for column_name, dict_obj in [('pgen', self.__pgen_dict), ('cluster', self.__clusters_dict)]:
+            if dict_obj is not None:
+                marker_df[column_name] = pd.Series(dict_obj[cdr3] for cdr3 in marker_df.cdr3aa)
+        if self.__graph_object is not None:
+            marker_df = marker_df.merge(self.__graph_object)
+        marker_df.to_csv(file_name)
+
 
     def get_number_of_samples_for_clonotype(self, clonotype_seqaa):
         pass
@@ -66,8 +77,8 @@ class ClonotypeDataset:
 
     @property
     def graph(self, threshold=1):
-        if self.graph_object is not None:
-            return self.graph_object
+        if self.__graph_object is not None:
+            return self.__graph_object
         edges = []
         for c1 in self.clonotypes.keys():
             for c2  in self.clonotypes.keys():
@@ -76,37 +87,37 @@ class ClonotypeDataset:
                     if dist <= threshold:
                         edges.append((c1, c2))
 
-        self.graph_object = ig.Graph.TupleList(edges)
-        return self.graph_object
+        self.__graph_object = ig.Graph.TupleList(edges)
+        return self.__graph_object
 
     @property
     def clonotype_clustering(self):
-        if self.clusters is not None:
-            return self.clusters
+        if self.__clusters_dict is not None:
+            return self.__clusters_dict
         graph = self.graph
-        self.clusters = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
+        self.__clusters_dict = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
                                            'cluster': graph.components().membership})
-        return self.clusters
+        return self.__clusters_dict
 
     @property
     def pgens(self):
-        if self.pgen is not None:
-            return self.pgen
-        self.pgen = {}
+        if self.__pgen_dict is not None:
+            return self.__pgen_dict
+        self.__pgen_dict = {}
         olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
         for clonotype in self.clonotypes.keys():
-            self.pgen[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
-        return self.pgen
+            self.__pgen_dict[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
+        return self.__pgen_dict
 
     @property
     def cluster_pgens(self):
-        if self.cluster_pgen is not None:
-            return self.cluster_pgen
-        self.cluster_pgen = {}
+        if self.__cluster_pgen_dict is not None:
+            return self.__cluster_pgen_dict
+        self.__cluster_pgen_dict = {}
         for cluster_index in self.clonotype_clustering.cluster.unique():
-            self.cluster_pgen[cluster_index] = sum(
-                [self.pgens[x] for x in self.clusters[self.clusters.cluster == cluster_index].cdr3aa])
-        return self.cluster_pgen
+            self.__cluster_pgen_dict[cluster_index] = sum(
+                [self.pgens[x] for x in self.__clusters_dict[self.__clusters_dict.cluster == cluster_index].cdr3aa])
+        return self.__cluster_pgen_dict
 
     @property
     def clonotype_coords(self):
@@ -114,20 +125,20 @@ class ClonotypeDataset:
             viz_method = 'graphopt'
         else:
             viz_method = 'drl'
-        if self.graph_coords is not None:
-            return self.graph_coords
+        if self.__graph_coords is not None:
+            return self.__graph_coords
         layout = self.graph.layout(viz_method)
         coords = np.array(layout.coords)
 
-        self.graph_coords = pd.DataFrame(
+        self.__graph_coords = pd.DataFrame(
             {'cdr3': self.graph.vs()['name'],
              'cluster': self.graph.components().membership,
              'x': coords[:, 0],
              'y': coords[:, 1]
              })
-        self.graph_coords['cluster_size'] = self.graph_coords.cluster.apply(
-            lambda x: self.graph_coords.cluster.value_counts()[x])
-        return self.graph_coords
+        self.__graph_coords['cluster_size'] = self.__graph_coords.cluster.apply(
+            lambda x: self.__graph_coords.cluster.value_counts()[x])
+        return self.__graph_coords
 
     def update_cluster_payload(self, cluster_to_feature: dict, feature_name: str):
         if self.cluster_payload is None:

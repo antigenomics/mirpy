@@ -1,0 +1,5 @@
+,sample_id,file_name,status
+0,id_1,test_repertoire_1.csv,healthy
+0,id_2,test_repertoire_2.csv,healthy
+0,id_3,test_repertoire_3.csv,ill
+0,id_4,test_repertoire_4.csv,ill
