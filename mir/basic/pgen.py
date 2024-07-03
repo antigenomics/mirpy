@@ -2,6 +2,7 @@ from multiprocessing import Pool
 
 import olga.load_model as load_model
 import olga.generation_probability as pgen
+import olga.sequence_generation as seq_gen
 
 
 class OlgaModel:
@@ -28,6 +29,7 @@ class OlgaModel:
         generative_model.load_and_process_igor_model(marginals_file_name)
         # Process model/data for pgen computation by instantiating GenerationProbabilityVDJ
         self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
+        self.seq_gen_model = seq_gen.SequenceGenerationVDJ(generative_model, genomic_data)
 
     def compute_pgen_cdr3nt(self, cdr3nt: str):
         """
@@ -63,6 +65,12 @@ class OlgaModel:
                            [cdr3aa[:i] + 'X' + cdr3aa[i + 1:] for i in range(cdr3_length)])
         sum_pgen_1mm = sum(probas)
         return sum_pgen_1mm - pgen_exact * (cdr3_length - 1)
+
+    def generate_sequences(self, n=1000):
+        res = []
+        for i in range(n):
+            res.append(self.seq_gen_model.gen_rnd_prod_CDR3()[1])
+        return res
 
     # TODO: v usage correction
 

@@ -4,6 +4,7 @@ import pandas as pd
 
 # class PublicClonotypesSelectionMethod(Enum):
 from mir.common.clonotype import ClonotypeAA
+from mir.comparative.pair_matcher import PairMatcher
 
 
 class ClonotypeUsageTable:
@@ -12,7 +13,10 @@ class ClonotypeUsageTable:
     The class stores the matrix, public clonotypes and the link to the repertoire dataset it was created from.
 
     """
-    def __init__(self, public_clonotypes, repertoire_dataset, mismatch_max=1, threads=32):
+    def __init__(self, public_clonotypes, repertoire_dataset,
+                 mismatch_max=1,
+                 threads=32,
+                 pair_matcher=PairMatcher()):
         """
         Creating a new clonotypeUsageMatrix object
 
@@ -26,6 +30,7 @@ class ClonotypeUsageTable:
         self.__clonotype_database_usage = None
         self.public_clonotypes = public_clonotypes
         self.clonotype_to_matrix_index = {x: i for i, x in enumerate(self.public_clonotypes)}
+        self.pair_matcher = pair_matcher
 
     @property
     def clonotype_database_usage(self):
@@ -35,14 +40,17 @@ class ClonotypeUsageTable:
             self.__clonotype_database_usage = dense_repertoire_matcher.get_clonotype_database_usage_for_cohort(
                 self.public_clonotypes,
                 self.repertoire_dataset,
-                self.threads)
+                self.threads,
+                self.pair_matcher
+            )
         return self.__clonotype_database_usage
 
     @classmethod
     def load_from_repertoire_dataset(cls, repertoire_dataset,
                                      clonotypes_count_for_public_extraction=2,
                                      method_for_public_extraction='unique-occurence',
-                                     mismatch_max=1, threads=32, public_clonotypes=None):
+                                     mismatch_max=1, threads=32, public_clonotypes=None,
+                                     pair_matcher=PairMatcher()):
         """
         TODO make this method different in order to pass the method which assimes two clonotypes are similar
         TODO currently it is lambda x, y: hamming(x, y) <= 1
@@ -66,17 +74,20 @@ class ClonotypeUsageTable:
             public_clonotypes = ClonotypeUsageTable.extract_public_clonotypes_for_dataset(
                 repertoire_dataset=repertoire_dataset,
                 method=method_for_public_extraction,
-                count_of_clones=clonotypes_count_for_public_extraction)
+                count_of_clones=clonotypes_count_for_public_extraction,
+                pair_matcher=pair_matcher
+            )
             print(f'finished public clonotypes extraction at {datetime.now()}')
         print(f'there are {len(public_clonotypes)} public clonotypes')
 
-        return cls(public_clonotypes, repertoire_dataset, mismatch_max, threads)
+        return cls(public_clonotypes, repertoire_dataset, mismatch_max,
+                   threads, pair_matcher)
 
     @staticmethod
     def extract_public_clonotypes_for_dataset(repertoire_dataset,
                                               method='unique-occurence',
                                               count_of_clones=2,
-                                              clonotype_representation=lambda x: x.cdr3aa
+                                              pair_matcher=PairMatcher()
                                               ):
         """
         A function which searches for the public clonotypes within a given dataset
@@ -91,10 +102,10 @@ class ClonotypeUsageTable:
         """
         datasets_to_concat = []
         for run in repertoire_dataset:
-            cur_data = pd.DataFrame({'cdr3aa': [clonotype_representation(x) for x in run.clonotypes], 'count': 1})
+            cur_data = pd.DataFrame({'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes_cdr3aa if x.cdr3aa.isalpha()], 'count': 1})
             datasets_to_concat.append(cur_data)
         full_data = pd.concat(datasets_to_concat)
-        full_data = full_data[full_data.cdr3aa.str.isalpha()]
+        # full_data = full_data[full_data.cdr3aa.str.isalpha()]
         top = full_data.groupby(['cdr3aa'], as_index=False).count()
 
         if method == 'top':
@@ -118,7 +129,7 @@ class ClonotypeUsageTable:
         """
 
         if isinstance(clonotype, ClonotypeAA):
-            clonotype = clonotype.cdr3aa
+            clonotype = self.pair_matcher.get_clonotype_repr(clonotype)
         if clonotype not in self.clonotype_to_matrix_index:
             return 0
         return self.clonotype_database_usage[:,[self.clonotype_to_matrix_index[clonotype]]].sum()

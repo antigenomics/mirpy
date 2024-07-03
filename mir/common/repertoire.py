@@ -172,6 +172,28 @@ class Repertoire:
                     serialization_dct[k].append(None)
         return pd.DataFrame(serialization_dct)
 
+    def subtract_background(self, other, odds_ratio_threshold=2):
+        pre_seq = set([(x.cdr3aa, x.v.id) for x in other.clonotypes_cdr3aa])
+        post_seq = set([(x.cdr3aa, x.v.id) for x in self.clonotypes])
+        intersected = pre_seq.intersection(post_seq)
+
+        old_clone_to_freq = {}
+        for i, clonotype in enumerate(other):
+            if (clonotype.cdr3aa, clonotype.v.id) in intersected:
+                old_clone_to_freq[clonotype.cdr3aa, clonotype.v.id] = clonotype.cells / other.number_of_reads
+
+        clonotypes = []
+        for clonotype in self:
+            if (clonotype.cdr3aa, clonotype.v.id) in intersected:
+                current_fraction = clonotype.cells / self.number_of_reads
+                old_fraction = old_clone_to_freq[clonotype.cdr3aa, clonotype.v.id]
+                if current_fraction / old_fraction > odds_ratio_threshold:
+                    clonotypes.append(clonotype)
+            else:
+                clonotypes.append(clonotype)
+
+        return Repertoire(clonotypes=clonotypes, metadata=self.metadata, gene=self.gene)
+
     def __getitem__(self, idx):
         return self.clonotypes[idx]
 

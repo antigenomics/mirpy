@@ -2,12 +2,14 @@ from collections import defaultdict
 
 from mir import get_resource_path
 from mir.basic.pgen import OlgaModel
-from mir.common.clonotype import ClonotypeAA
+from mir.common.clonotype import ClonotypeAA, ClonotypeNT
 import igraph as ig
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from mir.comparative.pair_matcher import ClonotypeRepresentation
 
 
 class ClonotypeDataset:
@@ -19,28 +21,46 @@ class ClonotypeDataset:
         for clonotype in clonotypes:
             if not isinstance(clonotype, ClonotypeAA):
                 raise Exception('You must have cdr3aa sequence for ClonotypeDataset creation')
-        self.clonotypes = {x.cdr3aa: x for x in clonotypes}
+        self.clonotypes_cdr3aa = {x.cdr3aa: x for x in clonotypes}
+        self.additional_info = pd.DataFrame([x.serialize() for x in clonotypes])
         self.masks = None
         self.masks_to_clonotypes = defaultdict(set)
         self.__clusters_df = None
-        self.__pgen_dict = None
+        self.__pgen_df = None
         self.__cluster_pgen_dict = None
         self.__graph_object = None
         self.__graph_coords = None
         self.cluster_payload = None
 
+    @classmethod
+    def from_representations(cls, clonotype_reprs: list[ClonotypeRepresentation]):
+        clonotypes = []
+        for representation in clonotype_reprs:
+            if representation.cdr3nt is not None:
+                clonotypes.append(ClonotypeNT(cdr3nt=representation.cdr3nt,
+                                              cdr3aa=representation.cdr3aa,
+                                              v=representation.v,
+                                              j=representation.j))
+            else:
+                clonotypes.append(ClonotypeAA(cdr3aa=representation.cdr3aa,
+                                              v=representation.v,
+                                              j=representation.j))
+        return cls(clonotypes)
 
     def serialize(self, file_name='biomarkers.csv'):
-        marker_df = pd.DataFrame({'cdr3': pd.Series(list(self.clonotypes.keys()))})
+        marker_df = self.additional_info
 
-        if self.__clusters_df is not None:
-            marker_df = marker_df.merge(self.__clusters_df)
-
-        if self.__pgen_dict is not None:
-            marker_df['pgen'] = pd.Series(self.__pgen_dict[cdr3] for cdr3 in marker_df.cdr3)
+        if self.__pgen_df is not None:
+            marker_df = marker_df.merge(self.__pgen_df).drop_duplicates()
 
         if self.__graph_coords is not None:
-            marker_df = marker_df.merge(self.__graph_coords)
+            marker_df = marker_df.merge(self.__graph_coords).drop_duplicates()
+        elif self.__clusters_df is not None:
+            marker_df = marker_df.merge(self.__clusters_df).drop_duplicates()
+
+        if file_name is None:
+            return marker_df
+
         marker_df.to_csv(file_name)
 
 
@@ -51,7 +71,7 @@ class ClonotypeDataset:
         if self.masks is not None:
             return self.masks
         self.masks = set()
-        for c in self.clonotypes.keys():
+        for c in self.clonotypes_cdr3aa.keys():
             for i in range(len(c)):
                 self.masks.add(c[:i] + 'X' + c[i + 1:])
                 self.masks_to_clonotypes[c[:i] + 'X' + c[i + 1:]].add(c)
@@ -67,7 +87,7 @@ class ClonotypeDataset:
                 if current_mask in self.masks:
                     found_matches = found_matches.union(self.masks_to_clonotypes[current_mask])
         elif threshold == 0:
-            found_matches = [clonotype_of_interest] if clonotype_of_interest in self.clonotypes else []
+            found_matches = [clonotype_of_interest] if clonotype_of_interest in self.clonotypes_cdr3aa else []
         if return_clusters:
             return set(self.clonotype_clustering[self.clonotype_clustering.cdr3aa.isin(found_matches)].cluster)
         return found_matches
@@ -84,8 +104,8 @@ class ClonotypeDataset:
         if self.__graph_object is not None:
             return self.__graph_object
         edges = []
-        for c1 in self.clonotypes.keys():
-            for c2  in self.clonotypes.keys():
+        for c1 in self.clonotypes_cdr3aa.keys():
+            for c2  in self.clonotypes_cdr3aa.keys():
                 if len(c1) == len(c2):
                     dist = sum(c1 != c2 for c1, c2 in zip(c1, c2))
                     if dist <= threshold:
@@ -105,13 +125,15 @@ class ClonotypeDataset:
 
     @property
     def pgens(self):
-        if self.__pgen_dict is not None:
-            return self.__pgen_dict
-        self.__pgen_dict = {}
+        if self.__pgen_df is not None:
+            return self.__pgen_df
+        self.__pgen_df = {}
         olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
-        for clonotype in self.clonotypes.keys():
-            self.__pgen_dict[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
-        return self.__pgen_dict
+        for clonotype in self.clonotypes_cdr3aa.keys():
+            self.__pgen_df[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
+        self.__pgen_df = pd.DataFrame(data={'cdr3aa': self.__pgen_df.keys(),
+                                           'pgen': self.__pgen_df.values()})
+        return self.__pgen_df
 
     @property
     def cluster_pgens(self):
@@ -125,7 +147,7 @@ class ClonotypeDataset:
 
     @property
     def clonotype_coords(self):
-        if len(self.clonotypes) < 1000:
+        if len(self.clonotypes_cdr3aa) < 1000:
             viz_method = 'graphopt'
         else:
             viz_method = 'drl'
@@ -135,7 +157,7 @@ class ClonotypeDataset:
         coords = np.array(layout.coords)
 
         self.__graph_coords = pd.DataFrame(
-            {'cdr3': self.graph.vs()['name'],
+            {'cdr3aa': self.graph.vs()['name'],
              'cluster': self.graph.components().membership,
              'x': coords[:, 0],
              'y': coords[:, 1]
@@ -172,5 +194,5 @@ class ClonotypeDataset:
                             legend=False, ax=ax)
 
     def __repr__(self):
-        return f'A dataset of {len(self.clonotypes)} clonotypes ' + \
+        return f'A dataset of {len(self.clonotypes_cdr3aa)} clonotypes ' + \
                     f'and {len(self.clonotype_clustering.cluster.unique())} clusters'

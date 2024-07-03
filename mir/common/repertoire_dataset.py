@@ -7,6 +7,8 @@ import pandas as pd
 from mir.common.parser import ClonotypeTableParser
 from tqdm.contrib.concurrent import process_map, thread_map
 
+from mir.comparative.pair_matcher import PairMatcher
+
 
 class RepertoireDataset:
     def __init__(self,
@@ -14,12 +16,13 @@ class RepertoireDataset:
                  metadata: pd.DataFrame = None,
                  gene=None,
                  threads=4,
-                 public_clonotypes=None) -> None:
+                 public_clonotypes=None,
+                 pair_matcher=PairMatcher()) -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
-        self.repertoires = [r.__copy__() for r in repertoires]
+        self.repertoires = [r for r in repertoires]
         # will overwrite metadata if specified
-        if not metadata.empty:
+        if not (metadata is None or metadata.empty):
             if len(metadata.index) != len(repertoires):
                 raise ValueError(
                     "Metadata length doesn't match number of repertoires")
@@ -34,15 +37,18 @@ class RepertoireDataset:
         self.gene = gene
         self.threads=threads
         self.repertoire_matrix_public_clonotypes = public_clonotypes
+        self.clonotype_pair_matcher = pair_matcher
 
     @property
     def clonotype_usage_matrix(self):
         if self.__clonotype_matrix is not None:
             return self.__clonotype_matrix
         print(f'clonotype usage matrix should be calculated. it would take a while')
-        self.__clonotype_matrix = ClonotypeUsageTable.load_from_repertoire_dataset(repertoire_dataset=self,
-                                                                                   threads=self.threads,
-                                                                                   public_clonotypes=self.repertoire_matrix_public_clonotypes)
+        self.__clonotype_matrix = ClonotypeUsageTable.load_from_repertoire_dataset(
+            repertoire_dataset=self,
+            threads=self.threads,
+            public_clonotypes=self.repertoire_matrix_public_clonotypes,
+            pair_matcher=self.clonotype_pair_matcher)
         return self.__clonotype_matrix
 
     @classmethod
@@ -52,7 +58,8 @@ class RepertoireDataset:
              paths: list[str] = None,
              n: int = None,
              threads: int = 1,
-             gene=None):
+             gene=None,
+             clonotype_pair_matcher=PairMatcher()):
         global inner_repertoire_load
         metadata = metadata.copy()
         if paths:
@@ -74,7 +81,7 @@ class RepertoireDataset:
         # with Pool(threads) as p:
         #     p.map(inner_repertoire_load, repertoire_jobs)
         # repertoires = [repertoires_dct[path] for path in metadata.path]
-        return cls(repertoires, metadata, gene=gene, threads=threads)
+        return cls(repertoires, metadata, gene=gene, threads=threads, pair_matcher=clonotype_pair_matcher)
 
     @classmethod
     def load_from_single_df(cls, dataset_df,
@@ -84,7 +91,8 @@ class RepertoireDataset:
                             v_gene_column='v_b_gene',
                             j_gene_column='j_b_column',
                             d_gene_column=None,
-                            gene=None):
+                            gene=None,
+                            clonotype_pair_matcher=PairMatcher()):
         sample_order = dataset_df[sample_column].drop_duplicates()
         metadata = dataset_df[[sample_column] + metadata_columns].drop_duplicates().set_index(sample_column).loc[
             sample_order, :].reset_index(drop=True)
@@ -96,7 +104,8 @@ class RepertoireDataset:
                                                gene=gene) for sample in sample_order]
         return cls(repertoires=repertoires,
                    metadata=metadata,
-                   gene=gene, )
+                   gene=gene,
+                   pair_matcher=clonotype_pair_matcher)
 
     def __len__(self):
         return len(self.repertoires)
@@ -153,21 +162,28 @@ class RepertoireDataset:
                                  metadata=metadata_passed.reset_index(drop=True),
                                  gene=self.gene,
                                  threads=self.threads,
-                                 public_clonotypes=self.clonotype_usage_matrix.public_clonotypes), \
+                                 public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
+                                 pair_matcher=self.clonotype_pair_matcher), \
             RepertoireDataset(repertoires=repertoires_not_passed,
                               metadata=metadata_not_passed.reset_index(drop=True),
                               gene=self.gene,
                               threads=self.threads,
-                              public_clonotypes=self.clonotype_usage_matrix.public_clonotypes)
+                              public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
+                              pair_matcher=self.clonotype_pair_matcher)
 
     def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
         selected_repertoire_indices = [i for i in range(len(self.repertoires)) if selection_method(self.repertoires[i])]
-        return RepertoireDataset([x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
-                                 self.metadata.loc[selected_repertoire_indices].reset_index(drop=True))
+        return RepertoireDataset(repertoires=[x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
+                                 metadata=self.metadata.loc[selected_repertoire_indices].reset_index(drop=True),
+                                 threads=self.threads,
+                                 pair_matcher=self.clonotype_pair_matcher)
 
     def merge_with_another_dataset(self, other):
         return RepertoireDataset(repertoires=self.repertoires + other.repertoires,
-                                 metadata=pd.concat([self.metadata, other.metadata]))
+                                 metadata=pd.concat([self.metadata, other.metadata]),
+                                 threads=self.threads,
+                                 pair_matcher=self.clonotype_pair_matcher
+                                 )
 
     def resample(self, updated_segment_usage_tables: list = None, n: int = None, threads: int = 1):
         global resampling_repertoire
@@ -204,4 +220,5 @@ class RepertoireDataset:
                     desc='repertoire resampling in progress')
 
         # repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
-        return RepertoireDataset(repertoires, metadata, gene=self.gene, threads=self.threads)
+        return RepertoireDataset(repertoires, metadata, gene=self.gene, threads=self.threads,
+                                 pair_matcher=self.clonotype_pair_matcher)
