@@ -94,6 +94,7 @@ class ClonotypeDataset:
         if self.pgen is not None:
             return self.pgen
         self.pgen = {}
+        # TODO fix beta into varying
         olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
         for clonotype in self.clonotypes.keys():
             self.pgen[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
