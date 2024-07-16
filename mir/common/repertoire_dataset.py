@@ -17,6 +17,7 @@ class RepertoireDataset:
                  gene=None,
                  threads=4,
                  public_clonotypes=None,
+                 mismatch_max=1,
                  pair_matcher=PairMatcher()) -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
@@ -38,6 +39,7 @@ class RepertoireDataset:
         self.threads=threads
         self.repertoire_matrix_public_clonotypes = public_clonotypes
         self.clonotype_pair_matcher = pair_matcher
+        self.mismatch_max = mismatch_max
 
     @property
     def clonotype_usage_matrix(self):
@@ -48,6 +50,7 @@ class RepertoireDataset:
             repertoire_dataset=self,
             threads=self.threads,
             public_clonotypes=self.repertoire_matrix_public_clonotypes,
+            mismatch_max=self.mismatch_max,
             pair_matcher=self.clonotype_pair_matcher)
         return self.__clonotype_matrix
 
@@ -59,6 +62,7 @@ class RepertoireDataset:
              n: int = None,
              threads: int = 1,
              gene=None,
+             mismatch_max=1,
              clonotype_pair_matcher=PairMatcher()):
         global inner_repertoire_load
         metadata = metadata.copy()
@@ -81,7 +85,11 @@ class RepertoireDataset:
         # with Pool(threads) as p:
         #     p.map(inner_repertoire_load, repertoire_jobs)
         # repertoires = [repertoires_dct[path] for path in metadata.path]
-        return cls(repertoires, metadata, gene=gene, threads=threads, pair_matcher=clonotype_pair_matcher)
+        return cls(repertoires, metadata,
+                   gene=gene,
+                   threads=threads,
+                   mismatch_max=mismatch_max,
+                   pair_matcher=clonotype_pair_matcher)
 
     @classmethod
     def load_from_single_df(cls, dataset_df,
@@ -92,6 +100,8 @@ class RepertoireDataset:
                             j_gene_column='j_b_column',
                             d_gene_column=None,
                             gene=None,
+                            mismatch_max=1,
+                            threads: int = 1,
                             clonotype_pair_matcher=PairMatcher()):
         sample_order = dataset_df[sample_column].drop_duplicates()
         metadata = dataset_df[[sample_column] + metadata_columns].drop_duplicates().set_index(sample_column).loc[
@@ -105,6 +115,8 @@ class RepertoireDataset:
         return cls(repertoires=repertoires,
                    metadata=metadata,
                    gene=gene,
+                   mismatch_max=mismatch_max,
+                   threads=threads,
                    pair_matcher=clonotype_pair_matcher)
 
     def __len__(self):
@@ -163,12 +175,14 @@ class RepertoireDataset:
                                  gene=self.gene,
                                  threads=self.threads,
                                  public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
+                                 mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher), \
             RepertoireDataset(repertoires=repertoires_not_passed,
                               metadata=metadata_not_passed.reset_index(drop=True),
                               gene=self.gene,
                               threads=self.threads,
                               public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
+                              mismatch_max=self.mismatch_max,
                               pair_matcher=self.clonotype_pair_matcher)
 
     def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
@@ -176,12 +190,14 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires=[x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
                                  metadata=self.metadata.loc[selected_repertoire_indices].reset_index(drop=True),
                                  threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
 
     def merge_with_another_dataset(self, other):
         return RepertoireDataset(repertoires=self.repertoires + other.repertoires,
                                  metadata=pd.concat([self.metadata, other.metadata]),
                                  threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher
                                  )
 
@@ -220,5 +236,8 @@ class RepertoireDataset:
                     desc='repertoire resampling in progress')
 
         # repertoires = [repertoires_dct[idx] for idx in range(len(self.repertoires))]
-        return RepertoireDataset(repertoires, metadata, gene=self.gene, threads=self.threads,
+        return RepertoireDataset(repertoires, metadata,
+                                 gene=self.gene,
+                                 threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)

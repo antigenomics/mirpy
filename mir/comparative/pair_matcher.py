@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from mir.distances.aligner import Scoring
+
 
 @dataclass
 class ClonotypeRepresentation:
@@ -39,9 +41,13 @@ class ClonotypeRepresentation:
 class PairMatcher:
     def __init__(self,
                  clonotype_representation_method='cdr3aa',
-                 clonotype_comparison_method='any'):
+                 clonotype_comparison_method='any',
+                 aligner: Scoring=None,
+                 scoring_threshold: dict=None):
         self.__clonotype_representation_method = clonotype_representation_method
         self.__clonotype_comparison_method = clonotype_comparison_method
+        self._aligner = aligner
+        self._scoring_threshold = scoring_threshold
 
     def get_clonotype_repr(self, x):
         if self.__clonotype_representation_method == 'cdr3aa':
@@ -61,7 +67,7 @@ class PairMatcher:
         elif self.__clonotype_representation_method == 'cdr3nt,vj':
             return PairMatcher.repr_cdr3_vj(x, seq_type='nt')
         else:
-            raise Exception(f'Clonotype representation mathod {self.__clonotype_representation_method} is unknown!')
+            raise Exception(f'Clonotype representation method {self.__clonotype_representation_method} is unknown!')
 
     def check_repr_similar(self, x:ClonotypeRepresentation, y: ClonotypeRepresentation):
         if self.__clonotype_comparison_method == 'any':
@@ -72,8 +78,12 @@ class PairMatcher:
             return x.j == y.j
         elif self.__clonotype_comparison_method == 'vj':
             return x.v == y.v and x.j == y.j
+        elif self.__clonotype_comparison_method == 'substitution':
+            if len(x.cdr3aa) not in self._scoring_threshold:
+                return False
+            return self._aligner.score_norm(x.cdr3aa, y.cdr3aa) > self._scoring_threshold[len(x.cdr3aa)]
         else:
-            raise Exception(f'Clonotype comparison mathod {self.__clonotype_comparison_method} is unknown!')
+            raise Exception(f'Clonotype comparison method {self.__clonotype_comparison_method} is unknown!')
 
     @staticmethod
     def repr_cdr3(x, seq_type='aa'):

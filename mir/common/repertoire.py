@@ -173,7 +173,8 @@ class Repertoire:
         return pd.DataFrame(serialization_dct)
 
     def subtract_background(self, other, odds_ratio_threshold=2):
-        pre_seq = set([(x.cdr3aa, x.v.id) for x in other.clonotypes_cdr3aa])
+        # TODO update with representations!!!
+        pre_seq = set([(x.cdr3aa, x.v.id) for x in other.clonotypes])
         post_seq = set([(x.cdr3aa, x.v.id) for x in self.clonotypes])
         intersected = pre_seq.intersection(post_seq)
 
