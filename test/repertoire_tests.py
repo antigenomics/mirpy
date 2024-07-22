@@ -48,12 +48,13 @@ class TestRepertoireDataset(unittest.TestCase):
     def test_fisher_correctness(self):
         markers = self.fisher.detect_biomarkers(adjusted_p_value=0.05*5)
         print(self.fisher.clonotype_to_p_value)
-        assert 'CGGGF' in markers
-        assert self.fisher.clonotype_to_p_value['CGGGF'] - 0.04830917874396135 < 0.0001
+        assert 'CGGGF' in [x.cdr3aa for x in markers]
+        pval = [self.fisher.clonotype_to_p_value[x] for x in self.fisher.clonotype_to_p_value if x.cdr3aa == 'CGGGF'][0]
+        assert pval - 0.04830917874396135 < 0.0001
 
     def test_clustering(self):
         markers = self.fisher.detect_biomarkers(adjusted_p_value=0.05 * 5)
-        cd = ClonotypeDataset([ClonotypeAA(cdr3aa=x) for x in markers])
+        cd = ClonotypeDataset.from_representations(markers)
         assert len(cd.clonotype_clustering.cluster.unique()) == 1
         cd.serialize()
 

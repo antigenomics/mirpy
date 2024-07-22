@@ -1,4 +1,6 @@
 # todo: vdjmatch
+import math
+import sys
 from collections import defaultdict, Counter
 from multiprocessing import Pool, Manager
 from pyparsing import Iterable
@@ -183,35 +185,30 @@ def get_clonotypes_usage_for_repertoire_chunk(args):
 
 class MultipleRepertoireDenseMatcher:
     def __init__(self, mismatch_max=1):
+        print('created MultipleRepertoireDenseMatcher')
         self.mismatch_max = mismatch_max
         self.length_to_mismatch_clones = {}
         self.mismatch_clone_to_cdr3aa = defaultdict(set)
+        self.clonotypes_to_choose_from = None
 
-    @staticmethod
-    def check_mismatch_clone(cur_clone, mismatch_clones):
-        occurences = set()
-        for i in range(len(cur_clone)):
-            clone_to_search = cur_clone[: i] + 'X' + cur_clone[i + 1:]
-            cur_clones_set = mismatch_clones[i]
-            if clone_to_search in cur_clones_set:
-                occurences.add(clone_to_search)
-        return occurences
+    # @profile
+    def get_clonotype_database_usage_for_cohort(self,
+                                                most_common_clonotypes,
+                                                repertoire_dataset,
+                                                threads=4,
+                                                pair_matcher=PairMatcher()):
+        print(f'started with {threads} threads')
+        self.clonotypes_to_choose_from = most_common_clonotypes
+        print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
 
         data_size = len(repertoire_dataset.repertoires)
         chunk_size = min(8, math.ceil(data_size / threads))
         iters = max(1, data_size // chunk_size + math.ceil(data_size / chunk_size - data_size // chunk_size))
-        from copy import deepcopy
-
-        res = [repertoire_dataset.repertoires[
-          chunk_size * i: min(chunk_size * (i + 1), data_size)] for i in range(iters)]
-        res1 = []
-        for rep_list in res:
-            new_rep_list = [deepcopy(r) for r in rep_list]
-            res1.append(new_rep_list)
 
         print(f'all in all {data_size} reps, chunk size is {chunk_size}, number of batches {iters}')
         resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
-                                       [(res1[i],
+                                       [(repertoire_dataset.repertoires[
+                                         chunk_size * i: min(chunk_size * (i + 1), data_size)],
                                          most_common_clonotypes,
                                          pair_matcher,
                                          self.mismatch_max,

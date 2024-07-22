@@ -241,3 +241,19 @@ class RepertoireDataset:
                                  threads=self.threads,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
+
+    def subsample_functional(self):
+        return RepertoireDataset(repertoires=[x.subsample_functional() for x in self.repertoires],
+                                 metadata=self.metadata,
+                                 gene=self.gene,
+                                 threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
+                                 pair_matcher=self.clonotype_pair_matcher)
+
+    def subsample_nonfunctional(self):
+        return RepertoireDataset(repertoires=[x.subsample_nonfunctional() for x in self.repertoires],
+                                 metadata=self.metadata,
+                                 gene=self.gene,
+                                 threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
+                                 pair_matcher=self.clonotype_pair_matcher)

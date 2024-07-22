@@ -195,6 +195,14 @@ class Repertoire:
 
         return Repertoire(clonotypes=clonotypes, metadata=self.metadata, gene=self.gene)
 
+    def subsample_functional(self):
+        return Repertoire(clonotypes=[x for x in self.clonotypes if x.cdr3aa.isalpha()],
+                          metadata=self.metadata,
+                          gene=self.gene)
+    def subsample_nonfunctional(self):
+        return Repertoire(clonotypes=[x for x in self.clonotypes if not x.cdr3aa.isalpha()],
+                          metadata=self.metadata,
+                          gene=self.gene)
     def __getitem__(self, idx):
         return self.clonotypes[idx]
 
