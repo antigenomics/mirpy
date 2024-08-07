@@ -8,8 +8,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from multipy.fdr import lsu
+from tqdm import tqdm
 
 from mir.comparative.pair_matcher import ClonotypeRepresentation
+from scipy.stats import fisher_exact
 
 
 class ClonotypeDataset:
@@ -65,6 +68,7 @@ class ClonotypeDataset:
 
 
     def get_number_of_samples_for_clonotype(self, clonotype_seqaa):
+        # todo
         pass
 
     def get_masked_clonotypes_set(self):
@@ -91,6 +95,12 @@ class ClonotypeDataset:
         if return_clusters:
             return set(self.clonotype_clustering[self.clonotype_clustering.cdr3aa.isin(found_matches)].cluster)
         return found_matches
+
+    def get_matching_clonotypes_for_set(self, clonotypes_of_interest):
+        set_of_matches = set()
+        for clonotype in clonotypes_of_interest:
+            set_of_matches = set_of_matches.union(self.get_matching_clonotypes(clonotype))
+        return set_of_matches
 
     @staticmethod
     def hdist(s1, s2):
@@ -192,6 +202,46 @@ class ClonotypeDataset:
             sns.scatterplot(plotting_df[plotting_df.cluster_size == 1], x='x', y='y', hue=color_by,
                             palette=['grey'],
                             legend=False, ax=ax)
+
+
+    def test_cluster_usage_significance_for_comparison(self, cluster_idx, database_records_for_comparison):
+        matched_clonotypes = pd.Series(list(self.get_matching_clonotypes_for_set(database_records_for_comparison)))
+        matched_clonotypes_within_cluster = pd.DataFrame({'cdr3aa': matched_clonotypes}).merge(
+            self.clonotype_clustering[self.clonotype_clustering.cluster == cluster_idx])
+
+        num_positive_within_cluster = len(matched_clonotypes_within_cluster)
+        num_positive_outside_cluster = len(matched_clonotypes) - num_positive_within_cluster
+        num_negative_within_cluster = len(self.clonotype_clustering[self.clonotype_clustering.cluster == cluster_idx]) - num_positive_within_cluster
+        num_negative_outside_cluster = len(self.clonotype_clustering[self.clonotype_clustering.cluster != cluster_idx]) - num_positive_outside_cluster
+
+        return fisher_exact([[num_negative_within_cluster, num_negative_outside_cluster],
+                             [num_positive_within_cluster, num_positive_outside_cluster]], alternative='less')[1]
+
+
+    def annotate_with_database(self, database, comparison_by='antigen.epitope', cdr3aa_col='cdr3',
+                               return_significant=True, alpha=0.05):
+        pvals = {}
+        unique_comparisons = database[comparison_by].unique()
+        for comp in tqdm(unique_comparisons):
+            pvals[comp] = {}
+            for cluster in range(self.clonotype_clustering.cluster.max()+1):
+                pvals[comp][cluster] = self.test_cluster_usage_significance_for_comparison(
+                    cluster, database[database[comparison_by] == comp][cdr3aa_col])
+        if not return_significant:
+            return pvals
+
+        sign_cluster = []
+        sign_epi = []
+        sign_pval = []
+        for comp in unique_comparisons:
+            epitope_results = list(pvals[comp].values())
+            is_significant = lsu(np.array(epitope_results), q=alpha)
+            for i, res in enumerate(is_significant):
+                if res:
+                    sign_cluster.append(i)
+                    sign_epi.append(comp)
+                    sign_pval.append(pvals[comp][i])
+        return pd.DataFrame({'cluster': sign_cluster, comparison_by: sign_epi, 'pval': sign_pval})
 
     def __repr__(self):
         return f'A dataset of {len(self.clonotypes_cdr3aa)} clonotypes ' + \
