@@ -1,4 +1,6 @@
 # todo: vdjmatch
+from typing import Set
+
 import math
 import sys
 from collections import defaultdict, Counter
@@ -100,9 +102,14 @@ class SubstitutionMatrixSearchRepertoire:
 
 class XEncodedRepertoire:
     def __init__(self, repertoire,
-                 pair_matcher: PairMatcher):
-        # todo update this line to take counts into consideration
-        self.exact_cdr3_seqs = Counter([pair_matcher.get_clonotype_repr(x) for x in repertoire.clonotypes])
+                 pair_matcher: PairMatcher,
+                 with_counts=True):
+        if with_counts:
+            self.exact_cdr3_seqs = defaultdict(int)
+            for x in repertoire:
+                self.exact_cdr3_seqs[pair_matcher.get_clonotype_repr(x)] += x.cells
+        else:
+            self.exact_cdr3_seqs = Counter([pair_matcher.get_clonotype_repr(x) for x in repertoire.clonotypes])
         self.length_to_clones = defaultdict(set)
         for clonotype in repertoire:
             self.length_to_clones[len(clonotype.cdr3aa)].add(clonotype)
@@ -143,7 +150,7 @@ class XEncodedRepertoire:
     def find_matches_count_in_database(self, clonotype):
         if len(clonotype.cdr3aa) in self.length_to_mismatch_clones:
             mismatch_clones = self.check_mismatch_clone(clonotype.cdr3aa)
-            found_mismatch_representations = set()
+            found_mismatch_representations: set[set] = set()
             for mismatch_clone in mismatch_clones:
                 found_mismatch_representations.update(self.mismatch_clone_to_clono_representation[mismatch_clone])
             sum_occurences = 0
@@ -157,7 +164,7 @@ class XEncodedRepertoire:
 
 # @profile
 def get_clonotypes_usage_for_repertoire_chunk(args):
-    reps, clonotypes_for_analysis, pair_matcher, mismatch_max, chunk_idx = args
+    reps, clonotypes_for_analysis, pair_matcher, mismatch_max, with_counts, chunk_idx = args
     # print(
     #     f'chunk num {chunk_idx}, reps in chunk {len(reps)}, chunk size is {asizeof(reps) / 1024 ** 2}, clonotypes object size is {asizeof(clonotypes_for_analysis) / 1024 ** 2}')
     current_matrix = lil_array((len(reps), len(clonotypes_for_analysis)))
@@ -166,7 +173,8 @@ def get_clonotypes_usage_for_repertoire_chunk(args):
         t0 = time.time()
         if mismatch_max == 1: # TODO fix the mismatches and substitutions changes
             encoded_repertoire = XEncodedRepertoire(x,
-                                                    pair_matcher=pair_matcher)
+                                                    pair_matcher=pair_matcher,
+                                                    with_counts=with_counts)
         else:
             encoded_repertoire = SubstitutionMatrixSearchRepertoire(repertoire=x,
                                                                     pair_matcher=pair_matcher)
@@ -196,7 +204,8 @@ class MultipleRepertoireDenseMatcher:
                                                 most_common_clonotypes,
                                                 repertoire_dataset,
                                                 threads=4,
-                                                pair_matcher=PairMatcher()):
+                                                pair_matcher=PairMatcher(),
+                                                with_counts=True):
         print(f'started with {threads} threads')
         self.clonotypes_to_choose_from = most_common_clonotypes
         print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
@@ -212,6 +221,7 @@ class MultipleRepertoireDenseMatcher:
                                          most_common_clonotypes,
                                          pair_matcher,
                                          self.mismatch_max,
+                                         with_counts,
                                          i) for i in
                                         range(iters)],
                                        max_workers=threads, desc='clonotype usage matrix preparation')

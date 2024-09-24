@@ -18,6 +18,7 @@ class RepertoireDataset:
                  threads=4,
                  public_clonotypes=None,
                  mismatch_max=1,
+                 with_counts=False,
                  pair_matcher=PairMatcher()) -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
@@ -40,6 +41,7 @@ class RepertoireDataset:
         self.repertoire_matrix_public_clonotypes = public_clonotypes
         self.clonotype_pair_matcher = pair_matcher
         self.mismatch_max = mismatch_max
+        self.with_counts=with_counts
 
     @property
     def clonotype_usage_matrix(self):
@@ -51,6 +53,7 @@ class RepertoireDataset:
             threads=self.threads,
             public_clonotypes=self.repertoire_matrix_public_clonotypes,
             mismatch_max=self.mismatch_max,
+            with_counts=self.with_counts,
             pair_matcher=self.clonotype_pair_matcher)
         return self.__clonotype_matrix
 
@@ -62,6 +65,7 @@ class RepertoireDataset:
              n: int = None,
              threads: int = 1,
              gene=None,
+             with_counts=False,
              mismatch_max=1,
              clonotype_pair_matcher=PairMatcher()):
         global inner_repertoire_load
@@ -89,6 +93,7 @@ class RepertoireDataset:
                    gene=gene,
                    threads=threads,
                    mismatch_max=mismatch_max,
+                   with_counts=with_counts,
                    pair_matcher=clonotype_pair_matcher)
 
     @classmethod
@@ -100,6 +105,7 @@ class RepertoireDataset:
                             j_gene_column='j_b_column',
                             d_gene_column=None,
                             gene=None,
+                            with_counts=False,
                             mismatch_max=1,
                             threads: int = 1,
                             clonotype_pair_matcher=PairMatcher()):
@@ -117,6 +123,7 @@ class RepertoireDataset:
                    gene=gene,
                    mismatch_max=mismatch_max,
                    threads=threads,
+                   with_counts=with_counts,
                    pair_matcher=clonotype_pair_matcher)
 
     def __len__(self):
@@ -176,6 +183,7 @@ class RepertoireDataset:
                                  threads=self.threads,
                                  public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
                                  mismatch_max=self.mismatch_max,
+                                 with_counts=self.with_counts,
                                  pair_matcher=self.clonotype_pair_matcher), \
             RepertoireDataset(repertoires=repertoires_not_passed,
                               metadata=metadata_not_passed.reset_index(drop=True),
@@ -183,6 +191,7 @@ class RepertoireDataset:
                               threads=self.threads,
                               public_clonotypes=self.clonotype_usage_matrix.public_clonotypes,
                               mismatch_max=self.mismatch_max,
+                              with_counts=self.with_counts,
                               pair_matcher=self.clonotype_pair_matcher)
 
     def create_sub_repertoire_by_field_function(self, selection_method=lambda x: x.number_of_reads > 10000):
@@ -190,6 +199,7 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires=[x for i, x in enumerate(self.repertoires) if i in selected_repertoire_indices],
                                  metadata=self.metadata.loc[selected_repertoire_indices].reset_index(drop=True),
                                  threads=self.threads,
+                                 with_counts=self.with_counts,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
 
@@ -197,6 +207,7 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires=self.repertoires + other.repertoires,
                                  metadata=pd.concat([self.metadata, other.metadata]),
                                  threads=self.threads,
+                                 with_counts=self.with_counts,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher
                                  )
@@ -239,6 +250,7 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires, metadata,
                                  gene=self.gene,
                                  threads=self.threads,
+                                 with_counts=self.with_counts,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
 
@@ -246,6 +258,7 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires=[x.subsample_functional() for x in self.repertoires],
                                  metadata=self.metadata,
                                  gene=self.gene,
+                                 with_counts=self.with_counts,
                                  threads=self.threads,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
@@ -254,6 +267,7 @@ class RepertoireDataset:
         return RepertoireDataset(repertoires=[x.subsample_nonfunctional() for x in self.repertoires],
                                  metadata=self.metadata,
                                  gene=self.gene,
+                                 with_counts=self.with_counts,
                                  threads=self.threads,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)

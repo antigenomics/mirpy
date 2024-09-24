@@ -63,7 +63,7 @@ class RepertoireSampling:
             new_clone = copy(clone)
             new_clone.cells = new_count
             copy_clonotypes.append(new_clone)
-        return Repertoire(copy_clonotypes, sorted=False, metadata=repertoire.metadata)
+        return Repertoire(copy_clonotypes, is_sorted=False, metadata=repertoire.metadata)
 
     @staticmethod
     def __preprocess_frequencies(usage_matrix, sample_name):

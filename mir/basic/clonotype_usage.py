@@ -13,16 +13,21 @@ class ClonotypeUsageTable:
     The class stores the matrix, public clonotypes and the link to the repertoire dataset it was created from.
 
     """
+
     def __init__(self, public_clonotypes, repertoire_dataset,
                  mismatch_max=1,
                  threads=32,
+                 with_counts=True,
                  pair_matcher=PairMatcher()):
         """
         Creating a new clonotypeUsageMatrix object
 
-        :param clonotype_matrix: a clonotype matrix itself, should be a pd.DataFrame where each line represents a sample, each column is a clonotype
+        :type pair_matcher: PairMatcher
+        :param public_clonotypes: a list of ClonotypeRepresentation for the clonotypes which should be included into usage table
         :param repertoire_dataset: a repertoire dataset the matrix was derived from
-        :param public_clonotypes: a Python list of public clonotypes (by default which are met in at least two samples)
+        :param mismatch_max: a parameter which specifies the number of mismatches to search within (TODO add description for blosum62)
+        :param threads: number of python processes to perform multiprocessing with
+        :param with_counts: whether to consider counts for clonotypes (number of reads the clonotype is represented with) or not
         """
         self.repertoire_dataset = repertoire_dataset
         self.mismatch_max = mismatch_max
@@ -31,9 +36,14 @@ class ClonotypeUsageTable:
         self.public_clonotypes = public_clonotypes
         self.clonotype_to_matrix_index = {x: i for i, x in enumerate(self.public_clonotypes)}
         self.pair_matcher = pair_matcher
+        self.with_counts = with_counts
 
     @property
     def clonotype_database_usage(self):
+        """
+        a property method which created the usage database
+        :return: the clonotype database object
+        """
         if self.__clonotype_database_usage is None:
             from mir.comparative.match import MultipleRepertoireDenseMatcher
             dense_repertoire_matcher = MultipleRepertoireDenseMatcher(mismatch_max=self.mismatch_max)
@@ -41,7 +51,8 @@ class ClonotypeUsageTable:
                 self.public_clonotypes,
                 self.repertoire_dataset,
                 self.threads,
-                self.pair_matcher
+                self.pair_matcher,
+                self.with_counts
             )
         return self.__clonotype_database_usage
 
@@ -50,17 +61,20 @@ class ClonotypeUsageTable:
                                      clonotypes_count_for_public_extraction=2,
                                      method_for_public_extraction='unique-occurence',
                                      mismatch_max=1, threads=32, public_clonotypes=None,
+                                     with_counts=True,
                                      pair_matcher=PairMatcher()):
         """
         TODO make this method different in order to pass the method which assimes two clonotypes are similar
         TODO currently it is lambda x, y: hamming(x, y) <= 1
         A function which creates a ClonotypeUsageMatrix object from repertoire dataset
 
+        :param pair_matcher: the PairMatcher object, needed to perform difficult comparisons
+        :param with_counts: whether to consider counts for clonotypes (number of reads the clonotype is represented with) or not
         :param public_clonotypes: the list of clonotypes which usage should be calculated in the clonotype matrix. \
         if None all public clonotypes would be found in the given dataset
         :param repertoire_dataset: a repertoire dataset the matrix was derived from
         :param clonotypes_count_for_public_extraction: the number of top clones to be chosen to be considered \
-        as public for ['top', 'rnadom-uniform', 'random-roulette'] methods; the number of samples where the clone should \
+        as public for ['top', 'random-uniform', 'random-roulette'] methods; the number of samples where the clone should \
         be found to be called public for 'unique-occurence method'
         :param method_for_public_extraction: the method for extracting public clonotypes; can be one of \
         ['top',  'random-roulette', 'random-uniform', 'unique-occurence']
@@ -81,7 +95,7 @@ class ClonotypeUsageTable:
         print(f'there are {len(public_clonotypes)} public clonotypes')
 
         return cls(public_clonotypes, repertoire_dataset, mismatch_max,
-                   threads, pair_matcher)
+                   threads, with_counts, pair_matcher)
 
     @staticmethod
     def extract_public_clonotypes_for_dataset(repertoire_dataset,
@@ -92,6 +106,7 @@ class ClonotypeUsageTable:
         """
         A function which searches for the public clonotypes within a given dataset
 
+        :param pair_matcher: the PairMatcher object, needed to perform difficult comparisons
         :param repertoire_dataset:  repertoire dataset the clonotypes should be derived from
         :param method: the method for extracting public clonotypes; can be one of \
         ``['top',  'random-roulette', 'random-uniform', 'unique-occurence']``
@@ -102,7 +117,9 @@ class ClonotypeUsageTable:
         """
         datasets_to_concat = []
         for run in repertoire_dataset:
-            cur_data = pd.DataFrame({'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.cdr3aa.isalpha()], 'count': 1})
+            cur_data = pd.DataFrame(
+                {'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.cdr3aa.isalpha()],
+                 'count': 1})
             datasets_to_concat.append(cur_data)
         full_data = pd.concat(datasets_to_concat)
         # full_data = full_data[full_data.cdr3aa.str.isalpha()]
@@ -134,4 +151,4 @@ class ClonotypeUsageTable:
             clonotype = self.pair_matcher.get_clonotype_repr(clonotype)
         if clonotype not in self.clonotype_to_matrix_index:
             return 0
-        return self.clonotype_database_usage[:,[self.clonotype_to_matrix_index[clonotype]]].sum()
+        return self.clonotype_database_usage[:, [self.clonotype_to_matrix_index[clonotype]]].sum()

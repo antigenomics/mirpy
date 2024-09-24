@@ -10,11 +10,20 @@ from mir.common.repertoire_dataset import RepertoireDataset
 
 
 class FrequencyTable:
+    """
+    A frequency table which stores the frequency of clonotype expansion in repertoire
+    """
+
     def __init__(self, table: dict[int, int]) -> None:
         self._table = table
 
     @classmethod
     def from_repertoire(cls, repertoire: Repertoire):
+        """
+        creates the FrequencyTable object for a repertoire
+        :param repertoire: repertoire object
+        :return: FrequencyTable object with a dictionary
+        """
         tbl = dict()
         for clonotype in repertoire:
             tbl[clonotype.cells] = tbl.get(clonotype.cells, 0) + 1
@@ -24,30 +33,51 @@ class FrequencyTable:
         return self._table.items()
 
     def singletons(self) -> int:
+        """
+
+        :return: number of clonotypes which are supported with one read
+        """
         return self._table.get(1, 0)
 
     def doubletons(self) -> int:
+        """
+        :return: number of clonotypes which are supported with two reads
+        """
         return self._table.get(2, 0)
 
     def tripletons(self) -> int:
+        """
+        :return: number of clonotypes which are supported with three reads
+        """
         return self._table.get(3, 0)
 
     def large(self) -> int:
+        """
+        :return: number of clonotypes which are supported with more than three reads
+        """
         return sum(species for (count, species) in self._table.items() if count > 3)
 
     # TODO: quantiles
 
     @cached_property
     def species(self) -> int:
+        """
+
+        :return: number of unique objects
+        """
         return sum(self._table.values())
 
     @cached_property
     def individuals(self) -> int:
+        """
+
+        :return: number of unique objects with its expansion
+        """
         return sum(count * species for (count, species) in self._table.items())
 
     def __str__(self) -> str:
         return f'Frequency table of {self.species} species and ' \
-            f'{self.individuals} individuals:\n' + \
+               f'{self.individuals} individuals:\n' + \
             f's1={self.singletons()}\ns2={self.doubletons()}\n' + \
             f's3={self.tripletons()}\ns4+={self.large()}\n'
 
@@ -98,7 +128,7 @@ class DiversityIndices:
                        (count, species) in self._table.items()) ** (1. / (1. - q))
 
     def hill_curve(self, q_values: list[float] = [0., 1., 2.] +
-                   [2 ** x for x in np.linspace(-5, 5, 100)]) -> list[HillCurvePoint]:
+                                                 [2 ** x for x in np.linspace(-5, 5, 100)]) -> list[HillCurvePoint]:
         return [HillCurvePoint(x, self.hill(x)) for x in q_values]
 
     @staticmethod
@@ -111,7 +141,7 @@ class DiversityIndices:
     @staticmethod
     def hill_curve_for_dataset(dataset: RepertoireDataset,
                                q_values: list[float] = [0., 1., 2.] +
-                               [2 ** x for x in np.linspace(-5, 5, 100)]):
+                                                       [2 ** x for x in np.linspace(-5, 5, 100)]):
         rows = []
         for repertoire in dataset:
             meta = dict(repertoire.metadata)
@@ -180,7 +210,7 @@ class RarefactionCurve:
             b = 1. - (1. - s1 / n / s0) ** x
             db = -x * (1. - s1 / n / s0) ** (x - 1.)
             jac1 = dsds1 * b + s0 * db * \
-                (-1. / n / s0 + s1 / n / s0 / s0 * dsds1)
+                   (-1. / n / s0 + s1 / n / s0 / s0 * dsds1)
             jac2 = dsds2 * b + s0 * db * (s1 / n / s0 / s0 * dsds2)
             cov12 = -s1 * s2 / (s + s0)
             cov11 = s1 * (1. - s1 / (s + s0))
@@ -188,9 +218,9 @@ class RarefactionCurve:
             return RarefactionPoint(count_star,
                                     s + s0 * b,
                                     s * (1. - s / (s + s0)) +
-                                              jac1 * jac1 * cov11 +
-                                              jac2 * jac2 * cov22 +
-                                              2. * jac1 * jac2 * cov12,
+                                    jac1 * jac1 * cov11 +
+                                    jac2 * jac2 * cov22 +
+                                    2. * jac1 * jac2 * cov12,
                                     False)
 
     def rarefy_points(self,

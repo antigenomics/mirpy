@@ -1,12 +1,9 @@
-from multiprocessing import Pool, Manager
-
 import numpy as np
 from multipy.fdr import lsu
 from scipy.stats import fisher_exact
 
 from mir.common.repertoire_dataset import RepertoireDataset
-from pympler.asizeof import asizeof
-from tqdm.contrib.concurrent import process_map, thread_map
+from tqdm.contrib.concurrent import process_map
 from datetime import datetime
 
 def get_p_value_for_one_clonotype(args):
@@ -52,9 +49,8 @@ class FisherBiomarkersDetector:
         """
         A function which runs the biomarker detection procedure
 
-        :return: a list of significant clonotypes (cdr3aa sequences), without objects
+        :return: a list of significant clonotypes (``ClonotypeRepresentation`` objects)
         """
-        # TODO change to return objects?
         all_clonotypes_to_consider = set(self.ill_repertoire_dataset.clonotype_usage_matrix.public_clonotypes).union(
             set(self.control_repertoire_dataset.clonotype_usage_matrix.public_clonotypes)
         )

@@ -66,13 +66,16 @@ class OlgaModel:
         sum_pgen_1mm = sum(probas)
         return sum_pgen_1mm - pgen_exact * (cdr3_length - 1)
 
-    def generate_sequences(self, n=1000):
+    def generate_sequences(self, n: int = 1000) -> list[str]:
+        """
+        generates `n` random CDR3 sequences according to given model
+        :param n:
+        :return: list of generates CDR3 sequences
+        """
         res = []
         for i in range(n):
             res.append(self.seq_gen_model.gen_rnd_prod_CDR3()[1])
         return res
 
     # TODO: v usage correction
-
-    # TODO: generate, -> Iterable[Clonotype]
 
