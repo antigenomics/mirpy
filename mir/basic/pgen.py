@@ -10,7 +10,7 @@ class OlgaModel:
     generation probability inference. You can generate repertoires using this class or identify
     the probability of any clone to be assembled."""
 
-    def __init__(self, model: str = 'resources/olga/default_models/human_T_beta'):
+    def __init__(self, model: str = 'resources/olga/default_models/human_T_beta', is_d_present=True):
         """
         A function which creates the model
 
@@ -22,15 +22,21 @@ class OlgaModel:
         V_anchor_pos_file = f'{model}/V_gene_CDR3_anchors.csv'
         J_anchor_pos_file = f'{model}/J_gene_CDR3_anchors.csv'
         # Load data
-        genomic_data = load_model.GenomicDataVDJ()
+        if is_d_present:
+            genomic_data = load_model.GenomicDataVDJ()
+            generative_model = load_model.GenerativeModelVDJ()
+        else:
+            genomic_data = load_model.GenomicDataVJ()
+            generative_model = load_model.GenerativeModelVJ()
         genomic_data.load_igor_genomic_data(params_file_name, V_anchor_pos_file, J_anchor_pos_file)
-        # Load model
-        generative_model = load_model.GenerativeModelVDJ()
         generative_model.load_and_process_igor_model(marginals_file_name)
-        # Process model/data for pgen computation by instantiating GenerationProbabilityVDJ
-        self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
-        self.seq_gen_model = seq_gen.SequenceGenerationVDJ(generative_model, genomic_data)
-
+        if is_d_present:
+            self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
+            self.seq_gen_model = seq_gen.SequenceGenerationVDJ(generative_model, genomic_data)
+        else:
+            self.pgen_model = pgen.GenerationProbabilityVJ(generative_model, genomic_data)
+            self.seq_gen_model = seq_gen.SequenceGenerationVJ(generative_model, genomic_data)
+        
     def compute_pgen_cdr3nt(self, cdr3nt: str):
         """
         A function to compute the TCR generation probability for the nucleotide sequence
