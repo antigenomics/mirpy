@@ -220,7 +220,8 @@ class StandardizedSegmentUsageTable(NormalizedSegmentUsageTable):
 
     @classmethod
     def load_from_repertoire_dataset(cls, repertoire_dataset: RepertoireDataset, gene: str, segment_type: str,
-                                     group_mapping: dict, standardization_method: str):
+                                     group_mapping: dict,
+                                     metadata_column_for_group_mapping_name: str, standardization_method: str):
         """
         A function which creates the `StandardizedSegmentUsageMatrix` object from `RepertoireDataset` with a given \
         standardization method.
@@ -247,8 +248,10 @@ class StandardizedSegmentUsageTable(NormalizedSegmentUsageTable):
         group_to_df_mapping = {}
         if group_mapping is not None:
             for k, v in group_mapping.items():
-                group_to_df_mapping[k] = matrix.loc[repertoire_dataset.metadata[
-                                                        repertoire_dataset.metadata.run.apply(lambda x: x in v)].index,
+                group_to_df_mapping[k] = matrix.loc[
+                                         repertoire_dataset.metadata[
+                                            repertoire_dataset.metadata[metadata_column_for_group_mapping_name].apply(
+                                                lambda x: x in v)].index,
                                          :]
         return cls(cls.preprocess_usage_table(group_to_df_mapping, standardization_method), repertoire_dataset.metadata,
                    gene=gene, segment_type=segment_type)

@@ -2,6 +2,7 @@ from multiprocessing import Pool
 
 import olga.load_model as load_model
 import olga.generation_probability as pgen
+import olga.sequence_generation as seq_gen
 
 from mir import get_resource_path
 
@@ -11,7 +12,7 @@ class OlgaModel:
     generation probability inference. You can generate repertoires using this class or identify
     the probability of any clone to be assembled."""
 
-    def __init__(self, model: str = get_resource_path('olga/default_models/human_T_beta')):
+    def __init__(self, model: str = get_resource_path('olga/default_models/human_T_beta'), is_d_present=True):
         """
         A function which creates the model
 
@@ -23,14 +24,21 @@ class OlgaModel:
         V_anchor_pos_file = f'{model}/V_gene_CDR3_anchors.csv'
         J_anchor_pos_file = f'{model}/J_gene_CDR3_anchors.csv'
         # Load data
-        genomic_data = load_model.GenomicDataVDJ()
+        if is_d_present:
+            genomic_data = load_model.GenomicDataVDJ()
+            generative_model = load_model.GenerativeModelVDJ()
+        else:
+            genomic_data = load_model.GenomicDataVJ()
+            generative_model = load_model.GenerativeModelVJ()
         genomic_data.load_igor_genomic_data(params_file_name, V_anchor_pos_file, J_anchor_pos_file)
-        # Load model
-        generative_model = load_model.GenerativeModelVDJ()
         generative_model.load_and_process_igor_model(marginals_file_name)
-        # Process model/data for pgen computation by instantiating GenerationProbabilityVDJ
-        self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
-
+        if is_d_present:
+            self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
+            self.seq_gen_model = seq_gen.SequenceGenerationVDJ(generative_model, genomic_data)
+        else:
+            self.pgen_model = pgen.GenerationProbabilityVJ(generative_model, genomic_data)
+            self.seq_gen_model = seq_gen.SequenceGenerationVJ(generative_model, genomic_data)
+        
     def compute_pgen_cdr3nt(self, cdr3nt: str):
         """
         A function to compute the TCR generation probability for the nucleotide sequence
@@ -54,7 +62,6 @@ class OlgaModel:
         A function to compute the TCR generation probability for the amino acid sequence allowing to have \
         one amino acid change
 
-        :param threads: number of threads to perform parallelizing in
         :param cdr3aa: an amino acid sequence string
         :return: the probability to generate cdr3aa allowing for 1 amino acid mismatch
         """
@@ -67,7 +74,16 @@ class OlgaModel:
         sum_pgen_1mm = sum(probas)
         return sum_pgen_1mm - pgen_exact * (cdr3_length - 1)
 
-    # TODO: v usage correction
+    def generate_sequences(self, n: int = 1000) -> list[str]:
+        """
+        generates `n` random CDR3 sequences according to given model
+        :param n:
+        :return: list of generates CDR3 sequences
+        """
+        res = []
+        for i in range(n):
+            res.append(self.seq_gen_model.gen_rnd_prod_CDR3()[1])
+        return res
 
-    # TODO: generate, -> Iterable[Clonotype]
+    # TODO: v usage correction
 

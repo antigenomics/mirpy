@@ -17,14 +17,14 @@ class Repertoire:
 
     def __init__(self,
                  clonotypes: list[ClonotypeAA],
-                 sorted: bool = False,
+                 is_sorted: bool = False,
                  metadata: dict[str, str] | pd.Series = dict(),
                  gene: str = None):
         """
         The initializing function for the repertoire which creates an object using a list of clonotypes and other param
         :param clonotypes: the list of clonotypes to create an object from. You *should do everything you can*\
         to not use `Clonotype` class here. Please use one of: `ClonotypeAA`, `ClonotypeNT`, `PairedChainClonotype`
-        :param sorted: whether the repertoire clonotypes are sorted by usage or not
+        :param is_sorted: whether the repertoire clonotypes are sorted by usage or not
         :param metadata: the metadata which was given along with clonotypes information. Usually contains \
         age/sex/disease_status/HLA info
         :param gene: TRA/TRB/IGH/IGL... By defauly can be None. In this case it can contain any number of chains \
@@ -36,7 +36,7 @@ class Repertoire:
                     x.d is None or gene in x.d.gene)]
         else:
             self.clonotypes = clonotypes
-        self.sorted = sorted
+        self.sorted = is_sorted
         self.metadata = metadata
         self.segment_usage = None
         self.number_of_clones = len(self.clonotypes)
@@ -89,10 +89,10 @@ class Repertoire:
             columns_to_use.append(d_gene_column)
         cur_df = cur_df[columns_to_use].groupby(columns_to_use[1:], as_index=False).sum()
         clonotypes = cur_df.apply(lambda x: ClonotypeAA(cdr3aa=x[cdr3_column],
-                                                    v=x[v_gene_column],
-                                                    d=x[d_gene_column] if d_gene_column else None,
-                                                    j=x[j_gene_column],
-                                                    cells=x['cells']), axis=1)
+                                                        v=x[v_gene_column],
+                                                        d=x[d_gene_column] if d_gene_column else None,
+                                                        j=x[j_gene_column],
+                                                        cells=x['cells']), axis=1)
         return cls(clonotypes=clonotypes, metadata=metadata, gene=gene)
 
     def __copy__(self):
@@ -172,6 +172,66 @@ class Repertoire:
                     serialization_dct[k].append(None)
         return pd.DataFrame(serialization_dct)
 
+    def subtract_background(self, other, odds_ratio_threshold=2, compare_by=lambda x: (x.cdr3aa, x.v.id)):
+        """
+        subtracts another Repertoire from the given
+        the method is needed to remove noize clonotypes from the sample
+        :param other: the Repertoire object we should subtract
+        :param odds_ratio_threshold: the odds ratio threshold for considering the clonotype significantly changed (e.g. if it is equal to 2 it means that if the clonotype usage in cells has grown twice in self compared to other -- the clonotype is significant and should be saved)
+        :param compare_by: the lambda which we use for clonotype comparisons between objects; should be changed to PairMatcher!!
+        :return: the subtracted Repertoire object with the clonotypes and its usage
+        """
+        # TODO update with representations!!! PairMatcher!!!
+        pre_seq = set([compare_by(x) for x in other.clonotypes])
+        post_seq = set([compare_by(x) for x in self.clonotypes])
+        intersected = pre_seq.intersection(post_seq)
+
+        old_clone_to_freq = {}
+        for i, clonotype in enumerate(other):
+            if compare_by(clonotype) in intersected:
+                old_clone_to_freq[compare_by(clonotype)] = clonotype.cells / other.number_of_reads
+
+        clonotypes = []
+        for clonotype in self:
+            if compare_by(clonotype) in intersected:
+                current_fraction = clonotype.cells / self.number_of_reads
+                old_fraction = old_clone_to_freq[compare_by(clonotype)]
+                if current_fraction / old_fraction > odds_ratio_threshold:
+                    clonotypes.append(clonotype)
+            else:
+                clonotypes.append(clonotype)
+
+        return Repertoire(clonotypes=clonotypes, metadata=self.metadata, gene=self.gene)
+
+    def subsample_functional(self):
+        """
+        drop all the nonfunctional sequences from the repertoire
+        :return:
+        """
+        return Repertoire(clonotypes=[x for x in self.clonotypes if x.cdr3aa.isalpha()],
+                          metadata=self.metadata,
+                          gene=self.gene)
+
+    def subsample_nonfunctional(self):
+        """
+        keep only nonfunctional sequences
+        :return:
+        """
+        return Repertoire(clonotypes=[x for x in self.clonotypes if not x.cdr3aa.isalpha()],
+                          metadata=self.metadata,
+                          gene=self.gene)
+
+    def subsample_by_lambda(self, function=lambda x: x.cdr3aa.isalpha()):
+        """
+        keep only sequences which match the given rule
+        :param function: the lambda function with the rule for keeping the clonotype
+        :return:
+        """
+        return Repertoire(clonotypes=[x for x in self.clonotypes if function(x)],
+                          metadata=self.metadata,
+                          gene=self.gene)
+
+
     def __getitem__(self, idx):
         return self.clonotypes[idx]
 
@@ -197,8 +257,8 @@ class Repertoire:
         new_clonotypes = self.clonotypes + other.clonotypes
         return Repertoire(
             clonotypes=new_clonotypes,
-            sorted=False,
+            is_sorted=False,
             metadata=new_metadata)
-    # TODO subsample
+
     # TODO aggregate redundant
     # TODO group by and aggregate

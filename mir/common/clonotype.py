@@ -12,7 +12,7 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 class ClonotypePayload:
     """
     The class to store metadata of a clonotype (number of reads with this clonotype and number of samples where \
-    the clonotype occured)
+    the clonotype occurred)
     """
     def __init__(self) -> None:
         self.number_of_reads = None
@@ -157,10 +157,10 @@ class JunctionMarkup:
     __slots__ = 'vend', 'dstart', 'dend', 'jstart'
 
     def __init__(self,
-                 vend: int,
-                 dstart: int,
-                 dend: int,
-                 jstart: int):
+                 vend: int=None,
+                 dstart: int=None,
+                 dend: int=None,
+                 jstart: int=None):
         self.vend = vend
         self.dstart = dstart
         self.dend = dend
@@ -168,10 +168,10 @@ class JunctionMarkup:
 
 
 class ClonotypeNT(ClonotypeAA):
-    __slots__ = 'cdr3nt', 'junction'
     """
     The clonotype which stores the nucleotide sequence. Recommended to use everywhere instead of usual `Clonotype`.
     """
+    __slots__ = 'cdr3nt', 'junction'
     def __init__(self,
                  cdr3nt: str,
                  junction: JunctionMarkup = None,

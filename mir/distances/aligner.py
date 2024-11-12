@@ -76,8 +76,8 @@ class CDRAligner(Scoring):
         return max(self.__score(sp1, sp2) for (sp1, sp2) in self.pad(s1, s2))
 
     def score_norm(self, s1, s2) -> float:
-        score1 = sum(self.get_matrix_distance(c, c) for c in s1)
-        score2 = sum(self.get_matrix_distance(c, c) for c in s2)
+        score1 = self._factor * sum(self.get_matrix_distance(c, c) for c in s1)
+        score2 = self._factor * sum(self.get_matrix_distance(c, c) for c in s2)
         return self.score(s1, s2) - max(score1, score2)
 
 
