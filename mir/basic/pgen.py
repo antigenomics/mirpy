@@ -4,13 +4,15 @@ import olga.load_model as load_model
 import olga.generation_probability as pgen
 import olga.sequence_generation as seq_gen
 
+from mir import get_resource_path
+
 
 class OlgaModel:
     """A class to work with OLGA model for
     generation probability inference. You can generate repertoires using this class or identify
     the probability of any clone to be assembled."""
 
-    def __init__(self, model: str = 'resources/olga/default_models/human_T_beta', is_d_present=True):
+    def __init__(self, model: str = get_resource_path('olga/default_models/human_T_beta'), is_d_present=True):
         """
         A function which creates the model
 
