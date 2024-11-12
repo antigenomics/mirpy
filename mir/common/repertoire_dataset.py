@@ -271,3 +271,11 @@ class RepertoireDataset:
                                  threads=self.threads,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
+    def subsample_by_lambda(self, function=lambda x: x.cdr3aa.isalpha()):
+        return RepertoireDataset(repertoires=[x.subsample_by_lambda(function) for x in self.repertoires],
+                                 metadata=self.metadata,
+                                 gene=self.gene,
+                                 with_counts=self.with_counts,
+                                 threads=self.threads,
+                                 mismatch_max=self.mismatch_max,
+                                 pair_matcher=self.clonotype_pair_matcher)
