@@ -103,7 +103,7 @@ class ClonotypeTableParser:
                 return [ClonotypeNT(cells=get_cells(row),
                                     cdr3aa=row['cdr3aa'],
                                     v=self.segment_parser.parse(row['v']),
-                                    d=self.segment_parser.parse(row['d']),
+                                    d=self.segment_parser.parse(row['d']) if 'd' in source.columns else None,
                                     j=self.segment_parser.parse(row['j']),
                                     cdr3nt=row['cdr3nt'],
                                     junction=get_junction(row),
@@ -113,7 +113,7 @@ class ClonotypeTableParser:
                 return [ClonotypeAA(cells=get_cells(row),
                                     cdr3aa=row['cdr3aa'],
                                     v=self.segment_parser.parse(row['v']),
-                                    d=self.segment_parser.parse(row['d']),
+                                    d=self.segment_parser.parse(row['d']) if 'd' in source.columns else None,
                                     j=self.segment_parser.parse(row['j']),
                                     id=index)
                         for index, row in source.iterrows()]
