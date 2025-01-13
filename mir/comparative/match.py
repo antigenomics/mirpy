@@ -14,10 +14,10 @@ from mir.distances.aligner import ClonotypeAligner, ClonotypeScore, CDRAligner, 
 from tqdm.contrib.concurrent import process_map
 from scipy.sparse import lil_array, vstack
 import time
-from pympler.asizeof import asizeof
+# from pympler.asizeof import asizeof
 from datetime import datetime
 from tqdm import tqdm
-from memory_profiler import profile
+# from memory_profiler import profile
 
 
 class DatabaseMatch:
