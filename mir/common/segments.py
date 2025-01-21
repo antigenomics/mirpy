@@ -79,101 +79,94 @@ class SegmentLibrary:
         self.segments = segments
         self.complete = complete
 
+    # @classmethod
+    # def load_default(cls,
+    #                  genes: set[str] = {'TRB', 'TRA'},
+    #                  organisms: set[str] = {'HomoSapiens'},
+    #                  fname: str = 'segments.txt'):
+    #     try:
+    #         file = open(get_resource_path(fname))
+    #         lines = file.readlines()
+    #     finally:
+    #         file.close()
+    #     header = lines[0].split()
+    #     organism_col = header.index('organism')
+    #     id_col = header.index('id')
+    #     gene_col = header.index('gene')
+    #     stype_col = header.index('stype')
+    #     seqnt_col = header.index('seqnt')
+    #     refpoint_col = header.index('refpoint')
+    #     cdr1_start_col = header.index('cdr1_start')
+    #     cdr1_end_col = header.index('cdr1_end')
+    #     cdr2_start_col = header.index('cdr2_start')
+    #     cdr2_end_col = header.index('cdr2_end')
+    #     cdr25_start_col = header.index('cdr2.5_start')
+    #     cdr25_end_col = header.index('cdr2.5_end')
+    #     segments = {}
+    #     for line in lines[1:]:
+    #         splitline = line.split()
+    #         organism = splitline[organism_col]
+    #         if organism in organisms:
+    #             id = splitline[id_col]
+    #             gene = splitline[gene_col]
+    #             stype = splitline[stype_col][0]
+    #             seqnt = splitline[seqnt_col]
+    #             # refpoint = int(splitline[refpoint_col])
+    #             # featnt = {
+    #             #     'cdr1': (int(splitline[cdr1_start_col]), int(splitline[cdr1_end_col])),
+    #             #     'cdr2': (int(splitline[cdr2_start_col]), int(splitline[cdr2_end_col])),
+    #             #     'cdr2.5': (int(splitline[cdr25_start_col]), int(splitline[cdr25_end_col])),
+    #             # }
+    #             if gene in genes:
+    #                 segment = Segment(id=id,
+    #                                   organism=organism,
+    #                                   gene=gene,
+    #                                   stype=stype,
+    #                                   seqnt=seqnt)
+    #                 segments[segment.id] = segment
+    #             if _ALL_AV2DV and gene == 'TRA' and 'TRD' in genes and stype == 'V':
+    #                 segment = Segment(id=id + 'd',
+    #                                   organism=organism,
+    #                                   gene='TRD',
+    #                                   stype=stype,
+    #                                   seqnt=seqnt)
+    #                 segments[segment.id] = segment
+    #     return cls(segments, True)
+
     @classmethod
     def load_default(cls,
-                     genes: set[str] = {'TRB', 'TRA'},
-                     organisms: set[str] = {'HomoSapiens'},
-                     fname: str = 'segments.txt'):
-        try:
-            file = open(get_resource_path(fname))
-            lines = file.readlines()
-        finally:
-            file.close()
-        header = lines[0].split()
-        organism_col = header.index('organism')
-        id_col = header.index('id')
-        gene_col = header.index('gene')
-        stype_col = header.index('stype')
-        seqnt_col = header.index('seqnt')
-        refpoint_col = header.index('refpoint')
-        cdr1_start_col = header.index('cdr1_start')
-        cdr1_end_col = header.index('cdr1_end')
-        cdr2_start_col = header.index('cdr2_start')
-        cdr2_end_col = header.index('cdr2_end')
-        cdr25_start_col = header.index('cdr2.5_start')
-        cdr25_end_col = header.index('cdr2.5_end')
-        segments = {}
-        for line in lines[1:]:
-            splitline = line.split()
-            organism = splitline[organism_col]
-            if organism in organisms:
-                id = splitline[id_col]
-                gene = splitline[gene_col]
-                stype = splitline[stype_col][0]
-                seqnt = splitline[seqnt_col]
-                refpoint = int(splitline[refpoint_col])
-                featnt = {
-                    'cdr1': (int(splitline[cdr1_start_col]), int(splitline[cdr1_end_col])),
-                    'cdr2': (int(splitline[cdr2_start_col]), int(splitline[cdr2_end_col])),
-                    'cdr2.5': (int(splitline[cdr25_start_col]), int(splitline[cdr25_end_col])),
-                }
-                if gene in genes:
-                    segment = Segment(id=id,
-                                      organism=organism,
-                                      gene=gene,
-                                      stype=stype,
-                                      seqnt=seqnt,
-                                      refpoint=refpoint,
-                                      featnt=featnt)
-                    segments[segment.id] = segment
-                if _ALL_AV2DV and gene == 'TRA' and 'TRD' in genes and stype == 'V':
-                    segment = Segment(id=id + 'd',
-                                      organism=organism,
-                                      gene='TRD',
-                                      stype=stype,
-                                      seqnt=seqnt,
-                                      refpoint=refpoint,
-                                      featnt=featnt)
-                    segments[segment.id] = segment
-        return cls(segments, True)
-
-    def load_default_new(cls,
                          genes: set[str] = {'TRB', 'TRA'},
                          organisms: set[str] = {'HomoSapiens'},
                          fname: str = 'segments.txt'
                          ):
-        df = pd.read_csv(get_resource_path(fname), sep=' ')
+        df = pd.read_csv(get_resource_path(fname), sep='\t')
         segments = {}
-        for row in df.iterrows():
+        for _, row in df.iterrows():
             organism = row['organism']
             if organism in organisms:
                 id = row['id']
                 gene = row['gene']
                 stype = row['stype'][0]
                 seqnt = row['seqnt']
-                refpoint = int(row['refpoint'])
-                featnt = {
-                    'cdr1': (int(row['cdr1_start']), int(row['cdr1_end'])),
-                    'cdr2': (int(row['cdr2_start']), int(row['cdr2_end'])),
-                    'cdr2.5': (int(row['cdr2.5_start']), int(row['cdr2.5_end'])),
-                }
+                # refpoint = int(row['refpoint'])
+                # featnt = {
+                #     'cdr1': (int(row['cdr1_start']), int(row['cdr1_end'])),
+                #     'cdr2': (int(row['cdr2_start']), int(row['cdr2_end'])),
+                #     'cdr2.5': (int(row['cdr2.5_start']), int(row['cdr2.5_end'])),
+                # }
                 if gene in genes:
                     segment = Segment(id=id,
                                       organism=organism,
                                       gene=gene,
                                       stype=stype,
-                                      seqnt=seqnt,
-                                      refpoint=refpoint,
-                                      featnt=featnt)
+                                      seqnt=seqnt)
                     segments[segment.id] = segment
                 if _ALL_AV2DV and gene == 'TRA' and 'TRD' in genes and stype == 'V':
                     segment = Segment(id=id + 'd',
                                       organism=organism,
                                       gene='TRD',
                                       stype=stype,
-                                      seqnt=seqnt,
-                                      refpoint=refpoint,
-                                      featnt=featnt)
+                                      seqnt=seqnt)
                     segments[segment.id] = segment
         return cls(segments, True)
     @classmethod
@@ -253,6 +246,14 @@ class SegmentLibrary:
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \
                f"{[x[1] for x in self.segments.items()][:10]}"
+
+    def serialize(self):
+        segments_serialized = []
+        for segment_id, segment in self.segments.items():
+            segments_serialized.append(
+                [segment_id, segment.gene, segment.organism, segment.seqnt, segment.stype]
+            )
+        return pd.DataFrame(segments_serialized, columns=['id', 'gene', 'organism', 'seqnt', 'stype'])
 
 
 _SEGMENT_CACHE = SegmentLibrary()
