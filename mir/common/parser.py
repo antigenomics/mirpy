@@ -1,3 +1,4 @@
+import logging
 import typing as t
 import warnings
 from collections import namedtuple
@@ -304,3 +305,96 @@ class DoubleChainVDJtoolsParser(ClonotypeTableParser):
                                                                             'epitope' in self.column_mapping else None}),
                                        axis=1)
         return [PairedChainClone(chainA=alpha, chainB=beta) for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]
+
+
+class AIRRParser(ClonotypeTableParser):
+    """
+    A parser to process data in AIRR format. It is one of the most common formats which includes the following \
+    columns: `locus, v_call, j_call, junction_aa`. All the other columns including the column for
+    """
+    def __init__(self,
+                 lib: SegmentLibrary = SegmentLibrary(),
+                 sep='\t',
+                 locus='beta') -> None:
+        """
+        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
+        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
+        :param sep: either tabulation or comma usually
+        """
+        super().__init__(lib, sep)
+        self.locus = locus
+        self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
+
+
+    def validate_columns(self, df: pd.DataFrame):
+        for col in self.mandatory_columns:
+            if col not in df.columns:
+                raise KeyError(f'Mandatory column {col} is missing! List of mandatory columns is {self.mandatory_columns}.')
+
+    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
+        self.validate_columns(df)
+        df = df[df.locus == self.locus]
+        clonotypes = []
+        for i, row in df.iterrows():
+            try:
+                clonotype = ClonotypeAA(
+                    cdr3aa=row['junction_aa'],
+                    v=self.segment_parser.parse(row['v_call']),
+                    j=self.segment_parser.parse(row['j_call']),
+                    id=i if 'clone_id' not in df.columns else row['clone_id'],
+                    payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
+                )
+                clonotypes.append(clonotype)
+            except Exception as e:
+                logging.warn(f"Error parsing row {i + 1}: {e}")
+        return clonotypes
+
+class DoubleChainAIRRParser(AIRRParser):
+    def __init__(self,
+                 lib: SegmentLibrary = SegmentLibrary(),
+                 sep='\t', mapping_column='clone_id') -> None:
+        """
+        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
+        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
+        :param sep: either tabulation or comma usually
+        """
+        super().__init__(lib, sep)
+        self.alpha_parser = AIRRParser(lib, sep, 'alpha')
+        self.beta_parser = AIRRParser(lib, sep, 'beta')
+        self.mapping_column = mapping_column
+
+    def validate_columns(self, df: pd.DataFrame):
+        super().validate_columns(df)
+        if self.mapping_column not in df.columns:
+            raise KeyError(f'Mapping column {self.mapping_column} is missing! It is mandatory for paired chain data.')
+        if df[self.mapping_column].isna().sum() > 0:
+            raise ValueError(f'Mapping column {self.mapping_column} cannot be null! Check your data.')
+
+    def get_tcr_ids_for_chain(self, clonotypes, chain):
+        clone_ids = {x.payload[self.mapping_column]: x for x in clonotypes}
+        id_set = set(clone_ids.keys())
+        if len(clone_ids) != len(id_set):
+            raise ValueError(f'TCR ids are not unique for {chain} chain! Check your dataset.')
+        return clone_ids
+    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
+        self.validate_columns(df)
+
+        alpha_clonotypes = self.alpha_parser.parse_inner(df)
+        alpha_ids_to_clonotype = self.get_tcr_ids_for_chain(alpha_clonotypes, 'alpha')
+
+        beta_clonotypes = self.beta_parser.parse_inner(df)
+        beta_ids_to_clonotype = self.get_tcr_ids_for_chain(beta_clonotypes, 'beta')
+
+        paired_clonotypes = []
+
+        all_ids = set(beta_ids_to_clonotype).union(set(alpha_ids_to_clonotype))
+        for id in all_ids:
+            if id not in alpha_ids_to_clonotype:
+                logging.warning(f'Have filtered out clonotype with id {id} as it is not found in TRA data')
+            elif id not in beta_ids_to_clonotype:
+                logging.warning(f'Have filtered out clonotype with id {id} as it is not found in TRB data')
+            else:
+                paired_clonotypes.append(PairedChainClone(chainA=alpha_ids_to_clonotype[id],
+                                                          chainB=beta_ids_to_clonotype[id],
+                                                          payload={self.mapping_column: id}))
+        return paired_clonotypes
