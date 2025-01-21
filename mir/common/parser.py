@@ -286,24 +286,21 @@ class DoubleChainVDJtoolsParser(ClonotypeTableParser):
         self.column_mapping = column_mapping
 
     def parse_inner(self, source: pd.DataFrame) -> list[PairedChainClone]:
+
         alpha_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3a']],
                                                               v=self.segment_parser.parse(x[self.column_mapping['Va']]),
                                                               j=self.segment_parser.parse(x[self.column_mapping['Ja']]),
                                                               payload={'HLA': x[self.column_mapping['mhc.a']] if
-                                                                            self.column_mapping[
-                                                                                'mhc.a'] is not None else None,
+                                                                            'mhc.a' in self.column_mapping else None,
                                                                        'epitope': x[self.column_mapping['epitope']] if
-                                                                            self.column_mapping[
-                                                                                'epitope'] is not None else None}),
+                                                                            'epitope' in self.column_mapping else None}),
                                         axis=1)
         beta_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3b']],
                                                              v=self.segment_parser.parse(x[self.column_mapping['Vb']]),
                                                              j=self.segment_parser.parse(x[self.column_mapping['Jb']]),
                                                              payload={'HLA': x[self.column_mapping['mhc.a']] if
-                                                             self.column_mapping[
-                                                                 'mhc.a'] is not None else None,
-                                                                      'epitope': x[self.column_mapping['epitope']] if
-                                                                      self.column_mapping[
-                                                                          'epitope'] is not None else None}),
+                                                                            'mhc.a' in self.column_mapping else None,
+                                                                       'epitope': x[self.column_mapping['epitope']] if
+                                                                            'epitope' in self.column_mapping else None}),
                                        axis=1)
         return [PairedChainClone(chainA=alpha, chainB=beta) for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]

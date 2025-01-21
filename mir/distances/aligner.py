@@ -100,6 +100,8 @@ class GermlineAligner:
             g1 = g1.id
         if isinstance(g2, Segment):
             g2 = g2.id
+        if (g1, g2) not in self.dist:
+            raise ValueError(f'No pair {(g1, g2)} in distance dict!')
         return self.dist[(g1, g2)]
 
     def score_norm(self, g1: str | Segment, g2: str | Segment) -> float:
@@ -132,6 +134,11 @@ class ClonotypeScore:
         self.v_score = v_score
         self.j_score = j_score
         self.cdr3_score = cdr3_score
+
+    def __repr__(self):
+        return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
+    def __str__(self):
+        return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
 
 
 class PairedCloneScore:

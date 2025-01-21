@@ -14,15 +14,15 @@ class PrototypeEmbedding(Embedding):
 
     def embed_clonotype(self, clonotype: ClonotypeAA | PairedChainClone):
         embedding = []
-        try:
-            if isinstance(clonotype, ClonotypeAA):
-                for anchor in self.prototype_repertoire:
-                    embedding.append(self.aligner.score(anchor, clonotype))
-            elif isinstance(clonotype, PairedChainClone):
-                for anchor in self.prototype_repertoire:
-                    embedding.append(self.aligner.score_paired(anchor, clonotype))
-        except Exception as e:
-            print(clonotype, e)
+        # try:
+        if isinstance(clonotype, ClonotypeAA):
+            for anchor in self.prototype_repertoire:
+                embedding.append(self.aligner.score(anchor, clonotype))
+        elif isinstance(clonotype, PairedChainClone):
+            for anchor in self.prototype_repertoire:
+                embedding.append(self.aligner.score_paired(anchor, clonotype))
+        # except Exception as e:
+        #     print(f'Error in processing {clonotype}:', e)
         return embedding
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):
