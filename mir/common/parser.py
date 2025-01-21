@@ -331,20 +331,28 @@ class AIRRParser(ClonotypeTableParser):
             if col not in df.columns:
                 raise KeyError(f'Mandatory column {col} is missing! List of mandatory columns is {self.mandatory_columns}.')
 
+    def check_not_na_columns(self, row, index):
+        for k, v in row.items():
+            if pd.isna(v):
+                logging.warning(f'Filtered out row {index}, because it has None in {k}')
+                return False
+        return True
+
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
         self.validate_columns(df)
         df = df[df.locus == self.locus]
         clonotypes = []
         for i, row in df.iterrows():
             try:
-                clonotype = ClonotypeAA(
-                    cdr3aa=row['junction_aa'],
-                    v=self.segment_parser.parse(row['v_call']),
-                    j=self.segment_parser.parse(row['j_call']),
-                    id=i if 'clone_id' not in df.columns else row['clone_id'],
-                    payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
-                )
-                clonotypes.append(clonotype)
+                if self.check_not_na_columns(row, i):
+                    clonotype = ClonotypeAA(
+                        cdr3aa=row['junction_aa'],
+                        v=self.segment_parser.parse(row['v_call']),
+                        j=self.segment_parser.parse(row['j_call']),
+                        id=i if 'clone_id' not in df.columns else row['clone_id'],
+                        payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
+                    )
+                    clonotypes.append(clonotype)
             except Exception as e:
                 logging.warn(f"Error parsing row {i + 1}: {e}")
         return clonotypes
@@ -376,12 +384,15 @@ class DoubleChainAIRRParser(AIRRParser):
         if len(clone_ids) != len(id_set):
             raise ValueError(f'TCR ids are not unique for {chain} chain! Check your dataset.')
         return clone_ids
+
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
         self.validate_columns(df)
 
+        logging.info('Started processing TCR alpha chain clonotypes.')
         alpha_clonotypes = self.alpha_parser.parse_inner(df)
         alpha_ids_to_clonotype = self.get_tcr_ids_for_chain(alpha_clonotypes, 'alpha')
 
+        logging.info('Started processing TCR beta chain clonotypes.')
         beta_clonotypes = self.beta_parser.parse_inner(df)
         beta_ids_to_clonotype = self.get_tcr_ids_for_chain(beta_clonotypes, 'beta')
 
@@ -396,5 +407,5 @@ class DoubleChainAIRRParser(AIRRParser):
             else:
                 paired_clonotypes.append(PairedChainClone(chainA=alpha_ids_to_clonotype[id],
                                                           chainB=beta_ids_to_clonotype[id],
-                                                          payload={self.mapping_column: id}))
+                                                          id=id))
         return paired_clonotypes
