@@ -28,6 +28,7 @@ class PrototypeEmbedding(Embedding):
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):
         with Pool(threads) as p:
             repertoire_embeddings = p.map(self.embed_clonotype, repertoire.clonotypes)
+        # repertoire_embeddings = map(self.embed_clonotype, repertoire.clonotypes)
         if flatten_scores:
             repertoire_embeddings = [[item for proto_score in clone_emb for item in proto_score.get_flatten_score()] for
                                      clone_emb in repertoire_embeddings]

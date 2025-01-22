@@ -1,3 +1,4 @@
+import time
 from abc import abstractmethod
 from itertools import starmap
 from multiprocessing import Pool
@@ -120,7 +121,7 @@ class GermlineAligner:
         gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if
                gs1[0] >= gs2[0])
         if nproc == 1:
-            dist = starmap(scoring_wrapper, gen)
+            dist = starmap(scoring_wrapper, gen) # this operation is long, Bio issue:(
         else:
             with Pool(nproc) as pool:
                 dist = pool.starmap(scoring_wrapper, gen, chunk_sz)
@@ -139,6 +140,9 @@ class ClonotypeScore:
         return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
     def __str__(self):
         return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
+
+    def get_flatten_score(self):
+        return [self.v_score, self.j_score, self.cdr3_score]
 
 
 class PairedCloneScore:
