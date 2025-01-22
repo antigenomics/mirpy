@@ -1,3 +1,4 @@
+import random
 from collections import defaultdict
 
 import pandas as pd
@@ -231,6 +232,12 @@ class Repertoire:
                           metadata=self.metadata,
                           gene=self.gene)
 
+    def sample_n(self, n=100, sample_random=False, random_seed=42):
+        if n is None:
+            return self
+        random.seed(random_seed)
+        return Repertoire(clonotypes=random.sample(self.clonotypes, n) if sample_random else self.clonotypes[:n],
+                          metadata=self.metadata, gene=self.gene)
 
     def __getitem__(self, idx):
         return self.clonotypes[idx]
