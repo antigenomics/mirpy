@@ -81,6 +81,9 @@ class CDRAligner(Scoring):
         score2 = self._factor * sum(self.get_matrix_distance(c, c) for c in s2)
         return self.score(s1, s2) - max(score1, score2)
 
+    def score_dist(self, s1, s2) -> float:
+        return self.score(s1, s1) + self.score(s2, s2) - 2 * self.score(s1, s2)
+
 
 class _Scoring_Wrapper:
     def __init__(self, scoring: Scoring):
@@ -107,6 +110,9 @@ class GermlineAligner:
 
     def score_norm(self, g1: str | Segment, g2: str | Segment) -> float:
         return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
+
+    def score_dist(self, g1: str | Segment, g2: str | Segment) -> float:
+        return self.score(g1, g1) + self.score(g2, g2) - 2 * self.score(g1, g2)
 
     @classmethod
     def from_seqs(cls,
@@ -180,9 +186,13 @@ class ClonotypeAligner:
 
     def score_norm(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
         return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score_norm(
-                                  cln1.j, cln2.j),
+                              j_score=self.j_aligner.score_norm(cln1.j, cln2.j),
                               cdr3_score=self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+
+    def score_dist(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
+        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v, cln2.v),
+                              j_score=self.j_aligner.score_dist(cln1.j, cln2.j),
+                              cdr3_score=self.cdr3_aligner.score_dist(cln1.cdr3aa, cln2.cdr3aa))
 
     def score_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
         return PairedCloneScore(self.score(cln1.chainA, cln2.chainA),
@@ -191,3 +201,8 @@ class ClonotypeAligner:
     def score_norm_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
         return PairedCloneScore(self.score_norm(cln1.chainA, cln2.chainA),
                                 self.score_norm(cln1.chainB, cln2.chainB))
+
+
+    def score_dist_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
+        return PairedCloneScore(self.score_dist(cln1.chainA, cln2.chainA),
+                                self.score_dist(cln1.chainB, cln2.chainB))
