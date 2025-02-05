@@ -4,6 +4,7 @@ from mir.common.repertoire import Repertoire
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
 from mir.distances.aligner import ClonotypeAligner
 from mir.embedding.repertoire_embedding import Embedding
+from tqdm import tqdm
 
 from enum import Enum
 
@@ -42,7 +43,8 @@ class PrototypeEmbedding(Embedding):
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):
         with Pool(threads) as p:
-            repertoire_embeddings = p.map(self.embed_clonotype, repertoire.clonotypes)
+            repertoire_embeddings = list(
+                tqdm(p.imap(self.embed_clonotype, repertoire.clonotypes), total=repertoire.total))
 
         if flatten_scores:
             repertoire_embeddings = [[item for proto_score in clone_emb for item in proto_score.get_flatten_score()] for

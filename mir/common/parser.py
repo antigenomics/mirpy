@@ -35,10 +35,13 @@ class SegmentParser:
         :param id: the name of a segment. should be a string. if the name cannot be parsed would return None
         :return: a `Segment` object. if the name cannot be parsed would return None
         """
+        id = id.strip()
         if pd.isna(id) or len(id) < 5:
-            return None
+            raise ValueError(
+                f"Id {id} is null or too short")
         if self.select_most_probable:
             id = id.split(',')[0]
+            id = id.split(';')[0]
         if self.remove_allele:
             id = id.split('*', 1)[0]
         if self.mock_allele:
