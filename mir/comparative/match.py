@@ -14,9 +14,10 @@ from mir.distances.aligner import ClonotypeAligner, ClonotypeScore, CDRAligner, 
 from tqdm.contrib.concurrent import process_map
 from scipy.sparse import lil_array, vstack
 import time
-# from pympler.asizeof import asizeof
 from datetime import datetime
 from tqdm import tqdm
+
+
 # from memory_profiler import profile
 
 
@@ -87,6 +88,7 @@ class DenseMatcher:
 class SparseMatcher:
     pass
 
+
 class SubstitutionMatrixSearchRepertoire:
     def __init__(self, repertoire,
                  pair_matcher: PairMatcher):
@@ -99,6 +101,7 @@ class SubstitutionMatrixSearchRepertoire:
             if len(c.cdr3aa) == len(clonotype.cdr3aa) and self.matcher.check_repr_similar(c, clonotype):
                 matches_count += 1
         return matches_count
+
 
 class XEncodedRepertoire:
     def __init__(self, repertoire,
@@ -164,19 +167,19 @@ class XEncodedRepertoire:
 
 # @profile
 def get_clonotypes_usage_for_repertoire_chunk(args):
-    reps, clonotypes_for_analysis, pair_matcher, mismatch_max, with_counts, chunk_idx = args
+    rep_indices, rd, clonotypes_for_analysis, pair_matcher, mismatch_max, with_counts, chunk_idx = args
     # print(
-    #     f'chunk num {chunk_idx}, reps in chunk {len(reps)}, chunk size is {asizeof(reps) / 1024 ** 2}, clonotypes object size is {asizeof(clonotypes_for_analysis) / 1024 ** 2}')
-    current_matrix = lil_array((len(reps), len(clonotypes_for_analysis)))
-    for i, x in enumerate(reps):
+    #     f'chunk num {chunk_idx}, rep_indices in chunk {len(rep_indices)}, chunk size is {asizeof(rep_indices) / 1024 ** 2}, clonotypes object size is {asizeof(clonotypes_for_analysis) / 1024 ** 2}')
+    current_matrix = lil_array((len(rep_indices), len(clonotypes_for_analysis)))
+    for i, rep_index in enumerate(rep_indices):
         # print(f'[{datetime.now()}, {chunk_idx}]: started {i} rep in chunk')
         t0 = time.time()
-        if mismatch_max == 1: # TODO fix the mismatches and substitutions changes
-            encoded_repertoire = XEncodedRepertoire(x,
+        if mismatch_max == 1:  # TODO fix the mismatches and substitutions changes
+            encoded_repertoire = XEncodedRepertoire(rd[rep_index],
                                                     pair_matcher=pair_matcher,
                                                     with_counts=with_counts)
         else:
-            encoded_repertoire = SubstitutionMatrixSearchRepertoire(repertoire=x,
+            encoded_repertoire = SubstitutionMatrixSearchRepertoire(repertoire=rd[rep_index],
                                                                     pair_matcher=pair_matcher)
         t1 = time.time()
         # print(f'[{datetime.now()}, {chunk_idx}]: created XEncoded in {t1 - t0}, size {asizeof(encoded_repertoire) / 1024 ** 2}')
@@ -187,7 +190,7 @@ def get_clonotypes_usage_for_repertoire_chunk(args):
         # print(
         #     f'[{datetime.now()}, {chunk_idx}]: browsed through all the clones in {time.time() - t1}, matrix size {asizeof(current_matrix) / 1024 ** 2}')
         del encoded_repertoire
-        # del reps[i]
+        # del rep_indices[i]
     return current_matrix
 
 
@@ -208,7 +211,9 @@ class MultipleRepertoireDenseMatcher:
                                                 with_counts=True):
         print(f'started with {threads} threads')
         self.clonotypes_to_choose_from = most_common_clonotypes
-        print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
+        # print(f'repertoire dataset size is {asizeof(repertoire_dataset) / 1024 ** 2}')
+
+        repertoire_dataset.serialize_repertoires()
 
         data_size = len(repertoire_dataset.repertoires)
         chunk_size = min(8, math.ceil(data_size / threads))
@@ -216,8 +221,8 @@ class MultipleRepertoireDenseMatcher:
 
         print(f'all in all {data_size} reps, chunk size is {chunk_size}, number of batches {iters}')
         resulting_values = process_map(get_clonotypes_usage_for_repertoire_chunk,
-                                       [(repertoire_dataset.repertoires[
-                                         chunk_size * i: min(chunk_size * (i + 1), data_size)],
+                                       [([i for i in range(chunk_size * i, min(chunk_size * (i + 1), data_size))],
+                                         repertoire_dataset,
                                          most_common_clonotypes,
                                          pair_matcher,
                                          self.mismatch_max,

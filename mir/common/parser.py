@@ -37,8 +37,9 @@ class SegmentParser:
         """
         id = id.strip()
         if pd.isna(id) or len(id) < 5:
-            raise ValueError(
-                f"Id {id} is null or too short")
+            return None
+            # raise ValueError(
+            #     f"Id {id} is null or too short")
         if self.select_most_probable:
             id = id.split(',')[0]
             id = id.split(';')[0]
@@ -355,6 +356,8 @@ class AIRRParser(ClonotypeTableParser):
                         id=i if 'clone_id' not in df.columns else row['clone_id'],
                         payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
                     )
+                    if clonotype.v is None or clonotype.j is None:
+                        raise ValueError(f'Error parsing {clonotype}')
                     clonotypes.append(clonotype)
             except Exception as e:
                 logging.warn(f"Error parsing row {i + 1}: {e}")

@@ -95,12 +95,6 @@ class SegmentLibrary:
                 gene = row['gene']
                 stype = row['stype'][0]
                 seqnt = row['seqnt']
-                # refpoint = int(row['refpoint'])
-                # featnt = {
-                #     'cdr1': (int(row['cdr1_start']), int(row['cdr1_end'])),
-                #     'cdr2': (int(row['cdr2_start']), int(row['cdr2_end'])),
-                #     'cdr2.5': (int(row['cdr2.5_start']), int(row['cdr2.5_end'])),
-                # }
                 if gene in genes:
                     segment = Segment(id=id,
                                       organism=organism,

@@ -1,6 +1,8 @@
 from multiprocessing import Pool, Manager
 import typing as t
 
+from tqdm import tqdm
+
 from mir.basic.clonotype_usage import ClonotypeUsageTable
 from mir.common.repertoire import Repertoire
 import pandas as pd
@@ -8,6 +10,10 @@ from mir.common.parser import ClonotypeTableParser
 from tqdm.contrib.concurrent import process_map, thread_map
 
 from mir.comparative.pair_matcher import PairMatcher
+
+import pickle
+import os
+import uuid
 
 
 class RepertoireDataset:
@@ -19,7 +25,8 @@ class RepertoireDataset:
                  public_clonotypes=None,
                  mismatch_max=1,
                  with_counts=False,
-                 pair_matcher=PairMatcher()) -> None:
+                 pair_matcher=PairMatcher(),
+                 storage_dir="repertoires_storage") -> None:
         # TODO: lazy read files for large cross-sample comparisons
         # not to alter metadata
         self.repertoires = [r for r in repertoires]
@@ -42,6 +49,34 @@ class RepertoireDataset:
         self.clonotype_pair_matcher = pair_matcher
         self.mismatch_max = mismatch_max
         self.with_counts=with_counts
+
+        self.storage_dir = storage_dir
+        os.makedirs(self.storage_dir, exist_ok=True)  # Ensure storage directory exists
+        self.repertoire_filenames = [None] * len(self.repertoires)  # No files at start
+
+    def serialize_repertoires(self):
+        # TODO make it parallel? or no use?
+        """Pickles only the repertoires that are currently in memory and removes them."""
+        for i, repertoire in tqdm(enumerate(self.repertoires), 'repertoire dataset serialization'):
+            if repertoire is not None:  # Consider in-memory objects as modified
+                if self.repertoire_filenames[i] is None:
+                    self.repertoire_filenames[i] = f"{uuid.uuid4().hex}.pkl"  # Assign unique filename
+                file_path = os.path.join(self.storage_dir, self.repertoire_filenames[i])
+                with open(file_path, 'wb') as f:
+                    pickle.dump(repertoire, f)
+                self.repertoires[i] = None  # Remove from memory after serialization
+
+    def deserialize_repertoire(self, idx):
+        """Loads a repertoire from file if it was serialized."""
+        if self.repertoires[idx] is None and self.repertoire_filenames[idx] is not None:
+            file_path = os.path.join(self.storage_dir, self.repertoire_filenames[idx])
+            with open(file_path, 'rb') as f:
+                self.repertoires[idx] = pickle.load(f)  # Load back into memory
+
+    def __getitem__(self, idx):
+        """Returns a repertoire, loading from disk if necessary."""
+        self.deserialize_repertoire(idx)
+        return self.repertoires[idx]
 
     @property
     def clonotype_usage_matrix(self):
@@ -138,8 +173,8 @@ class RepertoireDataset:
     def __iter__(self):
         return iter(self.repertoires)
 
-    def __getitem__(self, idx):
-        return self.repertoires[idx]
+    # def __getitem__(self, idx):
+    #     return self.repertoires[idx]
 
     def serialize(self, threads: int = 1) -> list[pd.DataFrame]:
         global inner_serialize
