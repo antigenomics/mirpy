@@ -41,10 +41,16 @@ class PrototypeEmbedding(Embedding):
 
         return embedding
 
+    def embed_clonotype_batch(self, clonotypes):
+        return [self.embed_clonotype(c) for c in clonotypes]
+
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):
+        chunks = [repertoire.clonotypes[i::threads] for i in range(threads)]
+
         with Pool(threads) as p:
             repertoire_embeddings = list(
-                tqdm(p.imap(self.embed_clonotype, repertoire.clonotypes), total=repertoire.total))
+                tqdm(p.imap(self.embed_clonotype_batch, chunks), total=threads))
+        repertoire_embeddings = [embedding for emb_chunk in repertoire_embeddings for embedding in emb_chunk]
 
         if flatten_scores:
             repertoire_embeddings = [[item for proto_score in clone_emb for item in proto_score.get_flatten_score()] for
