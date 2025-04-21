@@ -54,9 +54,21 @@ class RepertoireDataset:
         os.makedirs(self.storage_dir, exist_ok=True)  # Ensure storage directory exists
         self.repertoire_filenames = [None] * len(self.repertoires)  # No files at start
 
+    # def __del__(self):
+    #     for file in self.repertoire_filenames:
+    #         if file is not None:
+    #             file_path = os.path.join(self.storage_dir, file)
+    #             if os.path.exists(file_path):
+    #                 os.remove(file_path)
+    #     if not os.listdir(self.storage_dir):  # Check if it's empty
+    #         os.rmdir(self.storage_dir)
+
     def serialize_repertoires(self):
         # TODO make it parallel? or no use?
         """Pickles only the repertoires that are currently in memory and removes them."""
+        if sum([x is None for x in self.repertoires]) == len(self.repertoires):
+            return
+
         for i, repertoire in tqdm(enumerate(self.repertoires), 'repertoire dataset serialization'):
             if repertoire is not None:  # Consider in-memory objects as modified
                 if self.repertoire_filenames[i] is None:

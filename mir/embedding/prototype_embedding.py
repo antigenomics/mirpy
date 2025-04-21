@@ -45,7 +45,7 @@ class PrototypeEmbedding(Embedding):
         return [self.embed_clonotype(c) for c in clonotypes]
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=False):
-        chunks = [repertoire.clonotypes[i::threads] for i in range(threads)]
+        chunks = self.__split_into_chunks(repertoire.clonotypes, threads)
 
         with Pool(threads) as p:
             repertoire_embeddings = list(
@@ -57,3 +57,17 @@ class PrototypeEmbedding(Embedding):
                                      clone_emb in repertoire_embeddings]
 
         return repertoire_embeddings
+
+    @staticmethod
+    def __split_into_chunks(lst, k):
+        n = len(lst)
+        chunk_sizes = [n // k + (1 if i < n % k else 0) for i in range(k)]
+
+        chunks = []
+        start = 0
+        for size in chunk_sizes:
+            end = start + size
+            chunks.append(lst[start:end])
+            start = end
+
+        return chunks

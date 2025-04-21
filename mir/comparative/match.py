@@ -5,6 +5,8 @@ import math
 import sys
 from collections import defaultdict, Counter
 from multiprocessing import Pool, Manager
+
+from pympler.asizeof import asizeof
 from pyparsing import Iterable
 import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
@@ -18,7 +20,7 @@ from datetime import datetime
 from tqdm import tqdm
 
 
-# from memory_profiler import profile
+from memory_profiler import profile
 
 
 class DatabaseMatch:
@@ -189,6 +191,7 @@ def get_clonotypes_usage_for_repertoire_chunk(args):
                 current_matrix[i, j] += found_matches_count
         # print(
         #     f'[{datetime.now()}, {chunk_idx}]: browsed through all the clones in {time.time() - t1}, matrix size {asizeof(current_matrix) / 1024 ** 2}')
+        # rd.serialize_repertoires()
         del encoded_repertoire
         # del rep_indices[i]
     return current_matrix
@@ -216,7 +219,7 @@ class MultipleRepertoireDenseMatcher:
         repertoire_dataset.serialize_repertoires()
 
         data_size = len(repertoire_dataset.repertoires)
-        chunk_size = min(8, math.ceil(data_size / threads))
+        chunk_size = math.ceil(data_size / threads) #min(8, math.ceil(data_size / threads))
         iters = max(1, data_size // chunk_size + math.ceil(data_size / chunk_size - data_size // chunk_size))
 
         print(f'all in all {data_size} reps, chunk size is {chunk_size}, number of batches {iters}')
