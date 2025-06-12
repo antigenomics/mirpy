@@ -44,7 +44,8 @@ def worker_embed_clonotype_batch_to_file(args):
         flat = [s.get_flatten_score() for s in scores] if flatten else scores
         flat = [v for sub in flat for v in sub]
         mmap[i, :] = flat
-        mmap.flush()
+
+    mmap.flush()
     return output_file, mmap.shape
 
 
@@ -57,7 +58,7 @@ class PrototypeEmbedding(Embedding):
         self.aligner = aligner
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=True):
-        chunks = self.__split_into_chunks(repertoire.clonotypes, threads)
+        chunks = self.__split_into_chunks(repertoire.clonotypes, threads * 100)
         tmp_dir = tempfile.mkdtemp()
 
         args = []
