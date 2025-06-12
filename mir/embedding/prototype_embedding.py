@@ -1,3 +1,4 @@
+import logging
 from multiprocessing import Pool
 from mir.common.repertoire import Repertoire
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
@@ -7,6 +8,7 @@ from enum import Enum
 import os
 import numpy as np
 import tempfile
+from pympler import asizeof
 
 
 class Metrics(Enum):
@@ -44,7 +46,8 @@ def worker_embed_clonotype_batch_to_file(args):
         flat = [s.get_flatten_score() for s in scores] if flatten else scores
         flat = [v for sub in flat for v in sub]
         mmap[i, :] = flat
-        mmap.flush()
+
+    mmap.flush()
     return output_file, mmap.shape
 
 
@@ -57,7 +60,7 @@ class PrototypeEmbedding(Embedding):
         self.aligner = aligner
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=True):
-        chunks = self.__split_into_chunks(repertoire.clonotypes, threads)
+        chunks = self.__split_into_chunks(repertoire.clonotypes, threads * 100)
         tmp_dir = tempfile.mkdtemp()
 
         args = []
@@ -66,6 +69,7 @@ class PrototypeEmbedding(Embedding):
             args.append((chunk, self.prototype_repertoire, self.aligner,
                          self.embedding_type, path, flatten_scores))
 
+        logging.info(f"Полный размер объекта: {asizeof.asizeof(args)} байт")
         with Pool(threads) as pool:
             temp_files = pool.map(worker_embed_clonotype_batch_to_file, args)
 
