@@ -1,3 +1,4 @@
+import logging
 from multiprocessing import Pool
 from mir.common.repertoire import Repertoire
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
@@ -7,6 +8,7 @@ from enum import Enum
 import os
 import numpy as np
 import tempfile
+from pympler import asizeof
 
 
 class Metrics(Enum):
@@ -67,6 +69,7 @@ class PrototypeEmbedding(Embedding):
             args.append((chunk, self.prototype_repertoire, self.aligner,
                          self.embedding_type, path, flatten_scores))
 
+        logging.info(f"Полный размер объекта: {asizeof.asizeof(args)} байт")
         with Pool(threads) as pool:
             temp_files = pool.map(worker_embed_clonotype_batch_to_file, args)
 
