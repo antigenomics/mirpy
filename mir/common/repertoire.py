@@ -3,6 +3,10 @@ from collections import defaultdict
 
 import pandas as pd
 
+import tempfile
+import csv
+from tcrtrie import Trie
+
 from mir.common.clonotype import ClonotypeAA
 from mir.common.parser import ClonotypeTableParser
 
@@ -155,6 +159,16 @@ class Repertoire:
                 if c.d is not None:
                     self.segment_usage[c.d.id] += 1
         return self.segment_usage
+
+    @property
+    def trie(self) -> Trie:
+        if not hasattr(self, '_trie'):
+            seqs = [str(c.cdr3aa) for c in self.clonotypes]
+            vgs = [str(c.v) for c in self.clonotypes]
+            jgs = [str(c.j) for c in self.clonotypes]
+            self._trie = Trie(sequences=seqs, vGenes=vgs, jGenes=jgs)
+
+        return self._trie
 
     def serialize(self):
         """
