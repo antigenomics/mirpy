@@ -5,6 +5,9 @@ import pandas as pd
 
 from mir.common.clonotype import ClonotypeAA
 from mir.common.parser import ClonotypeTableParser
+import os
+import pickle
+from pathlib import Path
 
 
 class Repertoire:
@@ -43,6 +46,22 @@ class Repertoire:
         self.number_of_clones = len(self.clonotypes)
         self.number_of_reads = sum([x.size() for x in self.clonotypes])
         self.gene = gene
+    #     self._clonotypes_file = None
+    #
+    # def serialize_clonotypes(self, path: str):
+    #     if self.clonotypes is None:
+    #         raise ValueError("No clonotypes to serialize.")
+    #     self._clonotypes_file = path
+    #     with open(path, "wb") as f:
+    #         pickle.dump(self.clonotypes, f)
+    #     self.clonotypes = None
+    #
+    # def deserialize_clonotypes(self):
+    #     if self._clonotypes_file is None:
+    #         raise ValueError("No path stored for clonotypes.")
+    #     path = self._clonotypes_file
+    #     with open(path, "rb") as f:
+    #         self.clonotypes = pickle.load(f)
 
     @classmethod
     def load(cls,
@@ -171,7 +190,7 @@ class Repertoire:
                     serialization_dct[k].append(serialization_res[k])
                 else:
                     serialization_dct[k].append(None)
-        return pd.DataFrame(serialization_dct)
+        return pd.DataFrame(serialization_dct, index=[x.id for x in self.clonotypes])
 
     def subtract_background(self, other, odds_ratio_threshold=2, compare_by=lambda x: (x.cdr3aa, x.v.id)):
         """
@@ -238,6 +257,38 @@ class Repertoire:
         random.seed(random_seed)
         return Repertoire(clonotypes=random.sample(self.clonotypes, n) if sample_random else self.clonotypes[:n],
                           metadata=self.metadata, gene=self.gene)
+
+    def make_chunks(self, number_of_chunks, save_path=None):
+        """
+        Split the repertoire into `number_of_chunks` with sequential clonotypes.
+        If `save_path` is provided, save each chunk to a separate file and return the file paths.
+        Otherwise, return the chunked Repertoire objects.
+        """
+        if number_of_chunks < 1:
+            raise ValueError("number_of_chunks must be at least 1")
+        if number_of_chunks > len(self.clonotypes):
+            raise ValueError("number_of_chunks cannot exceed number of clonotypes")
+
+        chunk_size = (len(self.clonotypes) + number_of_chunks - 1) // number_of_chunks
+        chunks = []
+
+        for i in range(number_of_chunks):
+            start = i * chunk_size
+            end = min((i + 1) * chunk_size, len(self.clonotypes))
+            chunk_clonotypes = self.clonotypes[start:end]
+            chunk = Repertoire(clonotypes=chunk_clonotypes, is_sorted=self.sorted, metadata=self.metadata,
+                               gene=self.gene)
+
+            if save_path:
+                Path(save_path).mkdir(parents=True, exist_ok=True)
+                file_path = os.path.join(save_path, f"chunk_{i}.pkl")
+                with open(file_path, "wb") as f:
+                    pickle.dump(chunk, f)
+                chunks.append(file_path)
+            else:
+                chunks.append(chunk)
+
+        return chunks
 
     def __getitem__(self, idx):
         return self.clonotypes[idx]

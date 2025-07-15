@@ -170,12 +170,8 @@ class XEncodedRepertoire:
 # @profile
 def get_clonotypes_usage_for_repertoire_chunk(args):
     rep_indices, rd, clonotypes_for_analysis, pair_matcher, mismatch_max, with_counts, chunk_idx = args
-    # print(
-    #     f'chunk num {chunk_idx}, rep_indices in chunk {len(rep_indices)}, chunk size is {asizeof(rep_indices) / 1024 ** 2}, clonotypes object size is {asizeof(clonotypes_for_analysis) / 1024 ** 2}')
     current_matrix = lil_array((len(rep_indices), len(clonotypes_for_analysis)))
     for i, rep_index in enumerate(rep_indices):
-        # print(f'[{datetime.now()}, {chunk_idx}]: started {i} rep in chunk')
-        t0 = time.time()
         if mismatch_max == 1:  # TODO fix the mismatches and substitutions changes
             encoded_repertoire = XEncodedRepertoire(rd[rep_index],
                                                     pair_matcher=pair_matcher,
@@ -183,17 +179,11 @@ def get_clonotypes_usage_for_repertoire_chunk(args):
         else:
             encoded_repertoire = SubstitutionMatrixSearchRepertoire(repertoire=rd[rep_index],
                                                                     pair_matcher=pair_matcher)
-        t1 = time.time()
-        # print(f'[{datetime.now()}, {chunk_idx}]: created XEncoded in {t1 - t0}, size {asizeof(encoded_repertoire) / 1024 ** 2}')
         for j, clone in enumerate(clonotypes_for_analysis):
             found_matches_count = encoded_repertoire.find_matches_count_in_database(clone)
             if found_matches_count > 0:
                 current_matrix[i, j] += found_matches_count
-        # print(
-        #     f'[{datetime.now()}, {chunk_idx}]: browsed through all the clones in {time.time() - t1}, matrix size {asizeof(current_matrix) / 1024 ** 2}')
-        # rd.serialize_repertoires()
         del encoded_repertoire
-        # del rep_indices[i]
     return current_matrix
 
 

@@ -78,6 +78,8 @@ class PairMatcher:
             return x.j == y.j
         elif self.__clonotype_comparison_method == 'vj':
             return x.v == y.v and x.j == y.j
+        elif self.__clonotype_comparison_method == 'full':
+            return x.v == y.v and x.j == y.j and x.cdr3aa == y.cdr3aa
         elif self.__clonotype_comparison_method == 'substitution':
             if len(x.cdr3aa) not in self._scoring_threshold:
                 return False

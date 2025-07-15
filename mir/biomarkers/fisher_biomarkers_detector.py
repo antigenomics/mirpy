@@ -6,6 +6,7 @@ from mir.common.repertoire_dataset import RepertoireDataset
 from tqdm.contrib.concurrent import process_map
 from datetime import datetime
 
+
 def get_p_value_for_one_clonotype(args):
     """
     Performs fisher exact test for one clonotype
@@ -19,7 +20,7 @@ def get_p_value_for_one_clonotype(args):
                         [ill_joint_number_of_clones - ill_data_clonotype_usage,
                          healthy_joint_number_of_clones - control_data_clonotype_usage]],
                        alternative='greater')
-    return res[1]
+    return res
 
 
 class FisherBiomarkersDetector:
@@ -65,12 +66,16 @@ class FisherBiomarkersDetector:
         print(f'[{datetime.now()}]: finished creating func arguments')
         print(f'[{datetime.now()}]: chunksize is {len(all_clonotypes_to_consider) // 1000}')
 
-        pvals = process_map(get_p_value_for_one_clonotype,
-                    all_clonotypes_to_consider,
-                    max_workers=self.threads,
-                    desc='fisher testing in progress',
-                    chunksize=max(1, len(all_clonotypes_to_consider) // 1000))
+        fisher_results = process_map(get_p_value_for_one_clonotype,
+                                     all_clonotypes_to_consider,
+                                     max_workers=self.threads,
+                                     desc='fisher testing in progress',
+                                     chunksize=max(1, len(all_clonotypes_to_consider) // 1000))
+        odds_ratios = [x.statistic for x in fisher_results]
+        pvals = [x.pvalue for x in fisher_results]
         self.clonotype_to_p_value = {clonotype[0]: pval for clonotype, pval in zip(all_clonotypes_to_consider, pvals)}
+        self.clonotype_to_odds_ratio = {clonotype[0]: odds for clonotype, odds in
+                                        zip(all_clonotypes_to_consider, odds_ratios)}
         significant_pvals = lsu(np.array(pvals), q=adjusted_p_value if adjusted_p_value else self.adjusted_p_value)
         self.significant_clones = []
         for pval, clone in zip(significant_pvals, all_clonotypes_to_consider):
@@ -78,6 +83,12 @@ class FisherBiomarkersDetector:
                 self.significant_clones.append(clone[0])
 
         return self.significant_clones
+
+    def get_fold_change_to_pval(self, fold_change_threshold=2):
+        if self.clonotype_to_p_value is None:
+            self.detect_biomarkers()
+        return {clonotype: (self.clonotype_to_p_value[clonotype], self.clonotype_to_odds_ratio[clonotype]) for clonotype
+                in self.clonotype_to_p_value.keys() if self.clonotype_to_odds_ratio[clonotype] > fold_change_threshold}
 
 
 def create_significant_clonotype_matrix(clonotype_matrix, significant_clones, clone_column='clone'):

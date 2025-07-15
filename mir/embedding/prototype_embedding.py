@@ -1,12 +1,13 @@
 import logging
 from multiprocessing import Pool
+import shutil
+
 from mir.common.repertoire import Repertoire
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
 from mir.distances.aligner import ClonotypeAligner
 from mir.embedding.repertoire_embedding import Embedding
 from enum import Enum
 import os
-import numpy as np
 import tempfile
 from pympler import asizeof
 
@@ -16,9 +17,26 @@ class Metrics(Enum):
     DISSIMILARITY = 'dissimilarity'
 
 
-def worker_embed_clonotype_batch_to_file(args):
-    clonotypes, prototype_repertoire, aligner, metrics, output_file, flatten = args
+# переместить embed repertoire в абстрактный,
 
+import pickle
+import numpy as np
+from mir.embedding.prototype_embedding import Metrics
+from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.common.repertoire import Repertoire
+
+def worker_embed_clonotype_batch_to_file(args):
+    clonotypes_or_path, prototype_repertoire, aligner, metrics, output_file, flatten = args
+
+    if isinstance(clonotypes_or_path, str):
+        with open(clonotypes_or_path, 'rb') as f:
+            repertoire = pickle.load(f)
+    elif isinstance(clonotypes_or_path, Repertoire):
+        repertoire = clonotypes_or_path
+    else:
+        raise ValueError("Expected Repertoire object or path to .pkl file")
+
+    clonotypes = repertoire.clonotypes
     n_clonotypes = len(clonotypes)
     n_prototypes = len(prototype_repertoire)
 
@@ -60,8 +78,9 @@ class PrototypeEmbedding(Embedding):
         self.aligner = aligner
 
     def embed_repertoire(self, repertoire: Repertoire, threads: int = 32, flatten_scores=True):
-        chunks = self.__split_into_chunks(repertoire.clonotypes, threads * 100)
         tmp_dir = tempfile.mkdtemp()
+        chunks = repertoire.make_chunks(threads, tmp_dir)
+        repertoire.clonotypes = None
 
         args = []
         for i, chunk in enumerate(chunks):
@@ -69,25 +88,24 @@ class PrototypeEmbedding(Embedding):
             args.append((chunk, self.prototype_repertoire, self.aligner,
                          self.embedding_type, path, flatten_scores))
 
-        logging.info(f"Полный размер объекта: {asizeof.asizeof(args)} байт")
         with Pool(threads) as pool:
             temp_files = pool.map(worker_embed_clonotype_batch_to_file, args)
 
-        total_rows = sum(shape[0] for f, shape in temp_files)
+        total_rows = sum(shape[0] for _, shape in temp_files)
         total_cols = temp_files[0][1][1]
         combined_path = os.path.join(tmp_dir, "combined.dat")
-        combined = np.memmap(combined_path, dtype='int16', mode='w+', shape=(total_rows, total_cols))
+        combined = np.memmap(combined_path, dtype='float16', mode='w+', shape=(total_rows, total_cols))
 
         offset = 0
         for f, shape in temp_files:
             data = np.memmap(f, dtype='int16', mode='r', shape=shape)
             combined[offset:offset + data.shape[0]] = data
             offset += data.shape[0]
-            os.remove(f)
 
         result = np.array(combined)
         del combined
-        os.remove(combined_path)
+
+        shutil.rmtree(tmp_dir)
 
         return result
 
