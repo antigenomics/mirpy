@@ -4,7 +4,7 @@ from itertools import starmap
 from multiprocessing import Pool
 from Bio import Align
 from Bio.Align import substitution_matrices
-import numpy as np
+
 import typing as t
 
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
@@ -30,22 +30,25 @@ class BioAlignerWrapper(Scoring):
 
 # TODO substitution matrix wrapper to load from dict
 class CDRAligner(Scoring):
+    _factor = 10.
+
     def __init__(self,
                  gap_positions: t.Iterable[int] = (3, 4, -4, -3),
-                 matrix_name: str = 'BLOSUM62',
-                 gap_penalty: float = -3.0,
+                 mat: substitution_matrices.Array = substitution_matrices.load(
+                     'BLOSUM62'),
+                 gap_penalty: float = -3,
                  v_offset: int = 3,
-                 j_offset: int = 3,
-                 factor: float = 10.0):
-        mat = substitution_matrices.load(matrix_name)
-        self.mat = np.array(mat, dtype=np.float32)
-        self.aa_to_index = {aa: i for i, aa in enumerate(mat.alphabet)}
+                 j_offset: int = 3):
+        self.gap_positions = gap_positions
+        self.mat = mat
 
-        self.gap_positions = list(gap_positions)
+
+
+
         self.gap_penalty = gap_penalty
         self.v_offset = v_offset
         self.j_offset = j_offset
-        self.factor = factor
+
 
     def get_matrix_distance(self, c1, c2):
         if self.mat is not None:
@@ -53,48 +56,50 @@ class CDRAligner(Scoring):
         else:
             return 0 if c1 == c2 else 1
 
-    def _score_shifted(self, s1: str, s2: str, shift: int,
-                       shift_pos: int, gap_in_s1: bool) -> float:
-        L1, L2 = len(s1), len(s2)
-        L = max(L1, L2) + abs(shift)
-        score = 0.0
-        for i in range(self.v_offset, L - self.j_offset):
-            if gap_in_s1:
-                pos1 = i if i < shift_pos else i - shift
-                pos2 = i
-            else:
-                pos1 = i
-                pos2 = i if i < shift_pos else i + shift
-
-            if pos1 < 0 or pos1 >= L1 or pos2 < 0 or pos2 >= L2:
-                score += self.gap_penalty
-            else:
-                a1, a2 = s1[pos1], s2[pos2]
-                i1, i2 = self.aa_to_index[a1], self.aa_to_index[a2]
-                score += self.mat[i1, i2]
-
-        return score * self.factor
-
-    def score(self, s1: str, s2: str) -> float:
-        best = float('-inf')
+    def pad(self, s1, s2) -> tuple[tuple[str, str]]:
         d = len(s1) - len(s2)
-        for p in self.gap_positions:
-            if d == 0:
-                val = 0.0
-                for i in range(self.v_offset, len(s1) - self.j_offset):
-                    a1, a2 = s1[i], s2[i]
-                    i1, i2 = self.aa_to_index[a1], self.aa_to_index[a2]
-                    val += self.mat[i1, i2]
-                val *= self.factor
-            else:
-                shift = d if d > 0 else d
-                gap_in_s1 = d < 0
-                shift_pos = p if p >= 0 else (len(s2) + p if gap_in_s1 else len(s1) + p)
-                val = self._score_shifted(s1, s2, shift, shift_pos, gap_in_s1)
+        if d == 0:
+            return tuple([(s1, s2)])
+        elif d < 0:
+            return tuple((s1[:p] + ('-' * d) + s1[p:], s2) for p in self.gap_positions)
+        else:
+            return tuple((s1, s2[:p] + ('-' * d) + s2[p:]) for p in self.gap_positions)
 
-            if val > best:
-                best = val
-        return best
+    def __score(self, s1, s2) -> float:
+        x = 0
+        for i in range(self.v_offset, len(s1) - self.j_offset):
+            c1 = s1[i]
+            c2 = s2[i]
+            if c1 == '-' or c2 == '-':
+                x = x + self.gap_penalty
+            else:
+                x = x + self.get_matrix_distance(c1, c2)
+        return self._factor * x
+
+
+    def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
+        return tuple((sp1, sp2, self.__score(sp1, sp2)) for (sp1, sp2) in self.pad(s1, s2))
+
+    def score(self, s1, s2) -> float:
+        return max(self.__score(sp1, sp2) for (sp1, sp2) in self.pad(s1, s2))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def score_norm(self, s1, s2) -> float:
         score1 = self._factor * sum(self.get_matrix_distance(c, c) for c in s1)
