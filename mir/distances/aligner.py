@@ -6,10 +6,19 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 
 import typing as t
+import importlib
+import numpy as np
+from functools import lru_cache
 
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
 from mir.common.segments import Segment, SegmentLibrary
 
+_cdrscore_mod = None
+def _get_cdrscore():
+    global _cdrscore_mod
+    if _cdrscore_mod is None:
+        _cdrscore_mod = importlib.import_module('mir.distances.cdrscore')
+    return _cdrscore_mod
 
 class Scoring:
     @abstractmethod
@@ -30,85 +39,231 @@ class BioAlignerWrapper(Scoring):
 
 # TODO substitution matrix wrapper to load from dict
 class CDRAligner(Scoring):
-    _factor = 10.
+    _factor = 10.0
+    _cdr_mod = None
+
+    @staticmethod
+    def _get_cdrscore():
+        if CDRAligner._cdr_mod is not None:
+            return CDRAligner._cdr_mod
+        try:
+            import importlib
+            CDRAligner._cdr_mod = importlib.import_module('mir.distances.cdrscore')
+        except Exception:
+            CDRAligner._cdr_mod = None
+        return CDRAligner._cdr_mod
 
     def __init__(self,
                  gap_positions: t.Iterable[int] = (3, 4, -4, -3),
-                 mat: substitution_matrices.Array = substitution_matrices.load(
-                     'BLOSUM62'),
-                 gap_penalty: float = -3,
+                 mat: substitution_matrices.Array = substitution_matrices.load('BLOSUM62'),
+                 gap_penalty: float = -3.0,
                  v_offset: int = 3,
                  j_offset: int = 3):
-        self.gap_positions = gap_positions
+        self.gap_positions = np.asarray(tuple(gap_positions), dtype=np.int32)
         self.mat = mat
+        self.gap_penalty = float(gap_penalty)
+        self.v_offset = int(v_offset)
+        self.j_offset = int(j_offset)
+        self._use_mat = mat is not None
+        self._mat256 = self._build_dense_mat(mat) if self._use_mat else np.zeros((256, 256), dtype=np.float64)
 
+        self._self_cache: dict[str, float] = {}
+        self._self_cache_max = 1 << 16
 
+    @staticmethod
+    def _build_dense_mat(mat):
+        tbl = np.zeros((256, 256), dtype=np.float64)
+        if mat is None:
+            return tbl
+        aa = [ord(c) for c in 'ACDEFGHIKLMNPQRSTVWYXBZJUO']
+        for i in aa:
+            ci = chr(i)
+            for j in aa:
+                cj = chr(j)
+                try:
+                    tbl[i, j] = mat[ci, cj]
+                except Exception:
+                    pass
+        return tbl
 
+    @staticmethod
+    def _norm_pos(p: int, m: int) -> int:
+        if p >= 0:
+            return m if p > m else p
+        q = m + int(p)
+        return 0 if q < 0 else q
 
-        self.gap_penalty = gap_penalty
-        self.v_offset = v_offset
-        self.j_offset = j_offset
-
-
-    def get_matrix_distance(self, c1, c2):
-        if self.mat is not None:
-            return self.mat[c1, c2]
+    def _score_equal_len_py(self, s1: str, s2: str) -> float:
+        start = self.v_offset
+        end = len(s1) - self.j_offset
+        if end <= start:
+            return 0.0
+        mat = self.mat
+        x = 0.0
+        if mat is None:
+            for i in range(start, end):
+                x += 0.0 if s1[i] == s2[i] else 1.0
         else:
-            return 0 if c1 == c2 else 1
-
-    def pad(self, s1, s2) -> tuple[tuple[str, str]]:
-        d = len(s1) - len(s2)
-        if d == 0:
-            return tuple([(s1, s2)])
-        elif d < 0:
-            return tuple((s1[:p] + ('-' * d) + s1[p:], s2) for p in self.gap_positions)
-        else:
-            return tuple((s1, s2[:p] + ('-' * d) + s2[p:]) for p in self.gap_positions)
-
-    def __score(self, s1, s2) -> float:
-        x = 0
-        for i in range(self.v_offset, len(s1) - self.j_offset):
-            c1 = s1[i]
-            c2 = s2[i]
-            if c1 == '-' or c2 == '-':
-                x = x + self.gap_penalty
-            else:
-                x = x + self.get_matrix_distance(c1, c2)
+            for i in range(start, end):
+                x += mat[s1[i], s2[i]]
         return self._factor * x
 
+    def _score_with_gap_py(self, s1: str, s2: str, p_raw: int) -> float:
+        n1, n2 = len(s1), len(s2)
+        if n1 == n2:
+            return self._score_equal_len_py(s1, s2)
 
-    def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
-        return tuple((sp1, sp2, self.__score(sp1, sp2)) for (sp1, sp2) in self.pad(s1, s2))
+        mat = self.mat
+        gap_pen = self.gap_penalty
+
+        if n1 < n2:
+            gap_len = n2 - n1
+            p = self._norm_pos(p_raw, n1)
+            L = n2
+            start = self.v_offset
+            end = L - self.j_offset
+            if end <= start:
+                return 0.0
+            g0 = max(start, p)
+            g1 = min(end, p + gap_len)
+            x = 0.0
+            if mat is None:
+                for i in range(start, g0):
+                    x += 0.0 if s1[i] == s2[i] else 1.0
+                if g1 > g0:
+                    x += (g1 - g0) * gap_pen
+                for i in range(g1, end):
+                    j = i - gap_len
+                    x += 0.0 if s1[j] == s2[i] else 1.0
+            else:
+                for i in range(start, g0):
+                    x += mat[s1[i], s2[i]]
+                if g1 > g0:
+                    x += (g1 - g0) * gap_pen
+                for i in range(g1, end):
+                    j = i - gap_len
+                    x += mat[s1[j], s2[i]]
+            return self._factor * x
+        else:
+            gap_len = n1 - n2
+            p = self._norm_pos(p_raw, n2)
+            L = n1
+            start = self.v_offset
+            end = L - self.j_offset
+            if end <= start:
+                return 0.0
+            g0 = max(start, p)
+            g1 = min(end, p + gap_len)
+            x = 0.0
+            if mat is None:
+                for i in range(start, g0):
+                    x += 0.0 if s1[i] == s2[i] else 1.0
+                if g1 > g0:
+                    x += (g1 - g0) * gap_pen
+                for i in range(g1, end):
+                    j = i - gap_len
+                    x += 0.0 if s1[i] == s2[j] else 1.0
+            else:
+                for i in range(start, g0):
+                    x += mat[s1[i], s2[i]]
+                if g1 > g0:
+                    x += (g1 - g0) * gap_pen
+                for i in range(g1, end):
+                    j = i - gap_len
+                    x += mat[s1[i], s2[j]]
+            return self._factor * x
+
+    def _selfscore_cached(self, s: str) -> float:
+        val = self._self_cache.get(s)
+        if val is not None:
+            return val
+        cdr = self._get_cdrscore()
+        if cdr is not None:
+            val = cdr.selfscore(s, self._mat256, self._factor, self._use_mat)
+        else:
+            if self.mat is None:
+                val = 0.0
+            else:
+                x = 0.0
+                m = self.mat
+                for c in s:
+                    x += m[c, c]
+                val = self._factor * x
+        if len(self._self_cache) >= self._self_cache_max:
+            self._self_cache.clear()
+        self._self_cache[s] = val
+        return val
 
     def score(self, s1, s2) -> float:
-        return max(self.__score(sp1, sp2) for (sp1, sp2) in self.pad(s1, s2))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        cdr = self._get_cdrscore()
+        if cdr is not None:
+            return cdr.score_max(
+                s1, s2,
+                self._mat256,
+                np.asarray(self.gap_positions, dtype=np.int32),
+                self.gap_penalty, self.v_offset, self.j_offset,
+                self._factor, self._use_mat
+            )
+        if len(s1) == len(s2):
+            return self._score_equal_len_py(s1, s2)
+        best = float("-inf")
+        for p in self.gap_positions:
+            sc = self._score_with_gap_py(s1, s2, int(p))
+            if sc > best:
+                best = sc
+        return best
 
     def score_norm(self, s1, s2) -> float:
-        score1 = self._factor * sum(self.get_matrix_distance(c, c) for c in s1)
-        score2 = self._factor * sum(self.get_matrix_distance(c, c) for c in s2)
-        return self.score(s1, s2) - max(score1, score2)
+        return self.score(s1, s2) - max(self._selfscore_cached(s1), self._selfscore_cached(s2))
 
     def score_dist(self, s1, s2) -> float:
         return self.score(s1, s1) + self.score(s2, s2) - 2 * self.score(s1, s2)
 
+    def pad(self, s1, s2) -> tuple[tuple[str, str]]:
+        d = len(s1) - len(s2)
+        if d == 0:
+            return ((s1, s2),)
+        elif d < 0:
+            gap = '-' * (-d)
+            m = len(s1)
+            res = []
+            for p in self.gap_positions:
+                k = self._norm_pos(int(p), m)
+                res.append((s1[:k] + gap + s1[k:], s2))
+            return tuple(res)
+        else:
+            gap = '-' * d
+            m = len(s2)
+            res = []
+            for p in self.gap_positions:
+                k = self._norm_pos(int(p), m)
+                res.append((s1, s2[:k] + gap + s2[k:]))
+            return tuple(res)
+
+    def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
+        cdr = self._get_cdrscore()
+        if len(s1) == len(s2):
+            if cdr is not None:
+                sc = cdr.score_max(
+                    s1, s2, self._mat256, np.array([0], dtype=np.int32),
+                    self.gap_penalty, self.v_offset, self.j_offset,
+                    self._factor, self._use_mat
+                )
+            else:
+                sc = self._score_equal_len_py(s1, s2)
+            return ((s1, s2, sc),)
+        if cdr is not None:
+            scores = tuple(
+                cdr.score_max(
+                    s1, s2, self._mat256, np.array([int(p)], dtype=np.int32),
+                    self.gap_penalty, self.v_offset, self.j_offset,
+                    self._factor, self._use_mat
+                )
+                for p in self.gap_positions
+            )
+        else:
+            scores = tuple(self._score_with_gap_py(s1, s2, int(p)) for p in self.gap_positions)
+        return tuple((sp1, sp2, sc) for (sp1, sp2), sc in zip(self.pad(s1, s2), scores))
 
 class _Scoring_Wrapper:
     def __init__(self, scoring: Scoring):
@@ -121,8 +276,7 @@ class _Scoring_Wrapper:
 class GermlineAligner:
     def __init__(self, dist: dict[tuple[str, str], float]):
         self.dist = dist
-        self.dist.update(dict(((g2, g1), score)
-                         for ((g1, g2), score) in dist.items()))
+        self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
 
     def score(self, g1: str | Segment, g2: str | Segment) -> float:
         if isinstance(g1, Segment):
@@ -147,12 +301,12 @@ class GermlineAligner:
         scoring_wrapper = _Scoring_Wrapper(scoring)
         if type(seqs) is dict:
             seqs = seqs.items()
-        elif isinstance(seqs, list) and isinstance(seqs[0], Segment):
-            seqs = dict({s.id, s.seqaa} for s in seqs)
-        gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if
-               gs1[0] >= gs2[0])
+        elif isinstance(seqs, list) and len(seqs) > 0 and isinstance(seqs[0], Segment):
+            # фикс: делаем список пар (id, seqaa)
+            seqs = [(s.id, s.seqaa) for s in seqs]
+        gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if gs1[0] >= gs2[0])
         if nproc == 1:
-            dist = starmap(scoring_wrapper, gen) # this operation is long, Bio issue:(
+            dist = starmap(scoring_wrapper, gen)  # this operation is long, Bio issue :(
         else:
             with Pool(nproc) as pool:
                 dist = pool.starmap(scoring_wrapper, gen, chunk_sz)
@@ -197,9 +351,9 @@ class ClonotypeAligner:
 
     @classmethod
     def from_library(cls,
-                  lib: SegmentLibrary = SegmentLibrary.load_default(),
-                  gene: str = None,
-                  cdr3_aligner: CDRAligner = CDRAligner()):
+                     lib: SegmentLibrary = SegmentLibrary.load_default(),
+                     gene: str = None,
+                     cdr3_aligner: CDRAligner = CDRAligner()):
         v_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='V'))
         j_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='J'))
         return cls(v_aligner, j_aligner, cdr3_aligner)
@@ -226,7 +380,6 @@ class ClonotypeAligner:
     def score_norm_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
         return PairedCloneScore(self.score_norm(cln1.chainA, cln2.chainA),
                                 self.score_norm(cln1.chainB, cln2.chainB))
-
 
     def score_dist_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
         return PairedCloneScore(self.score_dist(cln1.chainA, cln2.chainA),

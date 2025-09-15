@@ -20,9 +20,6 @@ from datetime import datetime
 from tqdm import tqdm
 
 
-from memory_profiler import profile
-
-
 class DatabaseMatch:
     __slots__ = ['db_clonotype', 'scores']
 
@@ -166,8 +163,6 @@ class XEncodedRepertoire:
         else:
             return 0
 
-
-# @profile
 def get_clonotypes_usage_for_repertoire_chunk(args):
     rep_indices, rd, clonotypes_for_analysis, pair_matcher, mismatch_max, with_counts, chunk_idx = args
     current_matrix = lil_array((len(rep_indices), len(clonotypes_for_analysis)))
@@ -195,7 +190,6 @@ class MultipleRepertoireDenseMatcher:
         self.mismatch_clone_to_cdr3aa = defaultdict(set)
         self.clonotypes_to_choose_from = None
 
-    # @profile
     def get_clonotype_database_usage_for_cohort(self,
                                                 most_common_clonotypes,
                                                 repertoire_dataset,
