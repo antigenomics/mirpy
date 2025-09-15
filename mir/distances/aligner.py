@@ -302,7 +302,6 @@ class GermlineAligner:
         if type(seqs) is dict:
             seqs = seqs.items()
         elif isinstance(seqs, list) and len(seqs) > 0 and isinstance(seqs[0], Segment):
-            # фикс: делаем список пар (id, seqaa)
             seqs = [(s.id, s.seqaa) for s in seqs]
         gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if gs1[0] >= gs2[0])
         if nproc == 1:
