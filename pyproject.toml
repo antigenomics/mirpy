@@ -1,38 +1,44 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = [
+  "scikit-build-core",
+  "pybind11",
+  "numpy",
+  "ninja"
+]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "mir"
 version = "1.0.0"
-authors = [
-  { name="antigenomics", email="elizaveta.k.vlasova@gmail.com" },
-]
+authors = [{ name="antigenomics", email="elizaveta.k.vlasova@gmail.com" }]
 description = "A library for managing and analyzing immunosequencing data"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
 ]
 dependencies = [
-        "biopython",
-        "matplotlib",
-        "numpy",
-        "olga",
-        "pandas",
-        "python_igraph",
-        "scipy",
-        "seaborn",
-        "umap-learn",
-        "scikit-learn",
-        "textdistance",
-        "plotnine"
+  "biopython",
+  "matplotlib",
+  "numpy",
+  "olga",
+  "pandas",
+  "python_igraph",
+  "scipy",
+  "seaborn",
+  "umap-learn",
+  "scikit-learn",
+  "textdistance",
+  "plotnine"
 ]
 license = {text = "MIT License"}
 
-
 [project.urls]
 Homepage = "https://github.com/antigenomics/mirpy"
-Issues = "https://github.com/antigenomics/mirpy/issues"
+Issues   = "https://github.com/antigenomics/mirpy/issues"
+
+[tool.scikit-build]
+wheel.packages = ["mir"]
+logging.level = "INFO"
