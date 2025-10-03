@@ -97,7 +97,7 @@ class SubstitutionMatrixSearchRepertoire:
     def find_matches_count_in_database(self, clonotype):
         matches_count = 0
         for c in self.clonotypes:
-            if len(c.cdr3aa) == len(clonotype.cdr3aa) and self.matcher.check_repr_similar(c, clonotype):
+            if c.cdr3aa == clonotype.cdr3aa and self.matcher.check_repr_similar(c, clonotype):
                 matches_count += 1
         return matches_count
 
