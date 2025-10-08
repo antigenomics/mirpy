@@ -326,3 +326,47 @@ class RepertoireDataset:
                                  threads=self.threads,
                                  mismatch_max=self.mismatch_max,
                                  pair_matcher=self.clonotype_pair_matcher)
+    
+    def clonotype_usage(
+        self,
+        cluster: list[str],
+        *,
+        maxSubstitution: int = 0,
+        maxInsertion: int = 0,
+        maxDeletion: int = 0,
+        maxEdits: int | None = None,
+        vGeneFilter: str | None = None,
+        jGeneFilter: str | None = None,
+        show_progress: bool = True,
+    ):
+        per_rep_results = []
+        per_rep_uniques: list[set[tuple[str, str, str]]] = []
+        union_uniques: set[tuple[str, str, str]] = set()
+
+        it = range(len(self.repertoires))
+        if show_progress:
+            try:
+                it = tqdm(it, desc="clonotype usage (levenshtein)")
+            except Exception:
+                pass
+
+        for i in it:
+            rep = self[i]
+            if rep is None:
+                raise RuntimeError(f"Repertoire #{i} is not available")
+            if not hasattr(rep, "trie") or rep.trie is None:
+                raise AttributeError(f"Repertoire #{i} has no trie")
+
+            matches = rep.trie.ClusterUsage(
+                cluster,
+                maxSubstitution,
+                maxInsertion,
+                maxDeletion,
+                maxEdits,
+                vGeneFilter,
+                jGeneFilter,
+            )
+
+            per_rep_results.append(matches)
+
+        return per_rep_results

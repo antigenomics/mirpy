@@ -1,6 +1,7 @@
 import random
 from collections import defaultdict
 
+from tcrtrie import Trie
 import pandas as pd
 
 from mir.common.clonotype import ClonotypeAA
@@ -174,6 +175,16 @@ class Repertoire:
                 if c.d is not None:
                     self.segment_usage[c.d.id] += 1
         return self.segment_usage
+    
+    @property
+    def trie(self) -> Trie:
+        if not hasattr(self, '_trie'):
+            seqs = [str(c.cdr3aa) for c in self.clonotypes]
+            vgs = [str(c.v) for c in self.clonotypes]
+            jgs = [str(c.j) for c in self.clonotypes]
+            self._trie = Trie(sequences=seqs, vGenes=vgs, jGenes=jgs)
+
+        return self._trie
 
     def serialize(self):
         """
