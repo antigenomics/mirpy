@@ -72,7 +72,13 @@ class PairMatcher:
     def check_repr_similar(self, x:ClonotypeRepresentation, y: ClonotypeRepresentation):
         if self.__clonotype_comparison_method == 'any':
             return True
-        elif self.__clonotype_comparison_method == 'v':
+        
+        if not isinstance(x, ClonotypeRepresentation):
+            x = self.get_clonotype_repr(x)
+        if not isinstance(y, ClonotypeRepresentation):
+            y = self.get_clonotype_repr(y)
+        
+        if self.__clonotype_comparison_method == 'v':
             return x.v == y.v
         elif self.__clonotype_comparison_method == 'j':
             return x.j == y.j
