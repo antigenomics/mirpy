@@ -31,7 +31,8 @@ dependencies = [
   "umap-learn",
   "scikit-learn",
   "textdistance",
-  "plotnine"
+  "plotnine",
+  "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.0-tcrtriepy",
 ]
 license = {text = "MIT License"}
 
