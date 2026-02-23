@@ -251,7 +251,7 @@ class OlgaModel:
                 rec["pgen"] = (
                     math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
                 )
-                res.append(rec)
+            res.append(rec)
         return res
 
     # TODO: v usage correction
