@@ -229,7 +229,7 @@ class OlgaModel:
                 "j_start": j_start,
             }
 
-    def generate_sequences_with_meta(self, n: int = 1000) -> list[dict]:
+    def generate_sequences_with_meta(self, n: int = 1000, pgens: bool = True) -> list[dict]:
         """
         Generate n sequences with meta:
           - cdr3 (aa)
@@ -245,12 +245,13 @@ class OlgaModel:
             else:
                 rec = self._gen_one_vj_with_meta()
 
-            p_raw = self.compute_pgen_cdr3aa(rec["cdr3"])
-            rec["pgen_raw"] = p_raw
-            rec["pgen"] = (
-                math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
-            )
-            res.append(rec)
+            if pgens:
+                p_raw = self.compute_pgen_cdr3aa(rec["cdr3"])
+                rec["pgen_raw"] = p_raw
+                rec["pgen"] = (
+                    math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
+                )
+                res.append(rec)
         return res
 
     # TODO: v usage correction
