@@ -32,7 +32,7 @@ dependencies = [
   "scikit-learn",
   "textdistance",
   "plotnine",
-  "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.1-tcrtriepy",
+  "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy",
 ]
 license = {text = "MIT License"}
 
