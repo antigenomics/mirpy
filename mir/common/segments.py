@@ -16,7 +16,6 @@ _IMGT_SPECIES_ALIASES = {
     'MusMusculus': 'Mus_musculus',
     'MacacaMulatta': 'Macaca_mulatta',
 }
-_IMGT_SPECIES_REVERSE_ALIASES = {v: k for k, v in _IMGT_SPECIES_ALIASES.items()}
 
 
 class Segment:
@@ -94,12 +93,23 @@ class SegmentLibrary:
                          organisms: set[str] = {'HomoSapiens'},
                          fname: str = 'segments.txt'
                          ):
+        genes = cls._as_set(genes)
+        organisms = cls._as_set(organisms)
         default_path = Path(get_resource_path(fname))
         df = cls._load_segments_dataframe(default_path)
         missing_pairs = cls._get_missing_vj_pairs(df=df, genes=genes, organisms=organisms)
         if missing_pairs:
-            downloaded = cls._download_missing_segments(missing_pairs)
-            if not downloaded.empty:
+            downloaded_frames = []
+            for organism, gene in missing_pairs:
+                lib = cls.load_from_imgt(genes={gene}, organisms={organism})
+                serialized = cls.serialize_library(lib)
+                if not serialized.empty:
+                    downloaded_frames.append(serialized)
+            if downloaded_frames:
+                downloaded = cls._merge_segments_dataframes(
+                    pd.DataFrame(columns=_DEFAULT_SEGMENTS_COLUMNS),
+                    pd.concat(downloaded_frames, ignore_index=True),
+                )
                 df = cls._merge_segments_dataframes(df, downloaded)
                 cls._write_segments_dataframe(df, default_path)
         segments = {}
@@ -130,10 +140,11 @@ class SegmentLibrary:
     def load_from_imgt(cls,
                        genes: set[str] = {'TRA', 'TRB'},
                        organisms: set[str] = {'Homo_sapiens'}):
+        genes = cls._as_set(genes)
+        organisms = cls._as_set(organisms)
         segments = {}
         for organism in organisms:
-            imgt_organism = cls._to_imgt_organism(organism)
-            mir_organism = cls._from_imgt_organism(imgt_organism)
+            imgt_organism = _IMGT_SPECIES_ALIASES.get(organism, organism)
             for gene_type in genes:
                 gene_prefix = gene_type[:2]
                 for segment_type in ['V', 'J']:
@@ -141,7 +152,7 @@ class SegmentLibrary:
                         f'https://www.imgt.org/download/V-QUEST/IMGT_V-QUEST_reference_directory/{imgt_organism}/{gene_prefix}/{gene_type}{segment_type}.fasta')
                     fasta_parsed = data.read().decode("utf-8").replace('\n', '').split('>')
                     segments_list = [Segment(id=x.split('|')[1] + ('*01' if '*' not in x.split('|')[1] else ''),
-                                        organism=mir_organism,
+                                        organism=organism,
                                         gene=gene_type,
                                         stype=segment_type,
                                         seqnt=x.split('|')[15].replace('.', '').upper()) for x in fasta_parsed[1:] if x]
@@ -150,12 +161,10 @@ class SegmentLibrary:
         return cls(segments, True)
 
     @staticmethod
-    def _to_imgt_organism(organism: str) -> str:
-        return _IMGT_SPECIES_ALIASES.get(organism, organism)
-
-    @staticmethod
-    def _from_imgt_organism(organism: str) -> str:
-        return _IMGT_SPECIES_REVERSE_ALIASES.get(organism, organism.replace('_', ''))
+    def _as_set(values) -> set[str]:
+        if isinstance(values, str):
+            return {values}
+        return set(values)
 
     @classmethod
     def _load_segments_dataframe(cls, path: Path) -> pd.DataFrame:
@@ -197,23 +206,6 @@ class SegmentLibrary:
             if 'V' not in stypes or 'J' not in stypes:
                 missing.append((organism, gene))
         return missing
-
-    @classmethod
-    def _download_missing_segments(cls, missing_pairs: list[tuple[str, str]]) -> pd.DataFrame:
-        if not missing_pairs:
-            return pd.DataFrame(columns=_DEFAULT_SEGMENTS_COLUMNS)
-        downloaded_frames = []
-        for organism, gene in missing_pairs:
-            lib = cls.load_from_imgt(genes={gene}, organisms={organism})
-            serialized = cls.serialize_library(lib)
-            if not serialized.empty:
-                downloaded_frames.append(serialized)
-        if not downloaded_frames:
-            return pd.DataFrame(columns=_DEFAULT_SEGMENTS_COLUMNS)
-        return cls._merge_segments_dataframes(
-            pd.DataFrame(columns=_DEFAULT_SEGMENTS_COLUMNS),
-            pd.concat(downloaded_frames, ignore_index=True),
-        )
 
     @staticmethod
     def serialize_library(lib: 'SegmentLibrary') -> pd.DataFrame:
