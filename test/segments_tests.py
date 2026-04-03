@@ -95,6 +95,20 @@ class TestSegmentLibraryBootstrap(unittest.TestCase):
         segment = lib.get_or_create_noallele("IGHV3-43D")
         self.assertEqual(segment.id, "IGHV3-43D*03")
 
+    def test_get_or_create_preserves_slash_in_segment_ids(self):
+        lib = SegmentLibrary({
+            "TRAV29/DV5*01": Segment(
+                id="TRAV29/DV5*01",
+                organism="HomoSapiens",
+                gene="TRA",
+                stype="V",
+                seqnt="ATGC",
+            ),
+        }, complete=True)
+
+        self.assertEqual(lib.get_or_create("TRAV29/DV5*01").id, "TRAV29/DV5*01")
+        self.assertEqual(lib.get_or_create_noallele("TRAV29/DV5").id, "TRAV29/DV5*01")
+
 
 if __name__ == "__main__":
     unittest.main()
