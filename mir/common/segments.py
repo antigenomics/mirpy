@@ -197,7 +197,7 @@ class SegmentLibrary:
 
     @classmethod
     def _resolve_allele_id(cls, segment_id: str, organism: str = None, gene: str = None) -> str:
-        segment_id = str(segment_id).replace('/', '').strip()
+        segment_id = str(segment_id).strip()
         if '*' in segment_id:
             return segment_id
 
@@ -295,7 +295,7 @@ class SegmentLibrary:
                 res = s
                 self.segments[s.id] = s
         else:
-            s = str(s).replace('/', '')
+            s = str(s).strip()
             res = self.segments.get(s)
             if not res:
                 if self.complete:
