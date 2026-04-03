@@ -56,8 +56,7 @@ class SegmentParser:
         if self.remove_allele:
             id = id.split('*', 1)[0]
         if self.mock_allele:
-            if not '*' in id:
-                id += '*01'
+            return self.lib.get_or_create_noallele(id)
         return self.lib.get_or_create(id)
 
 

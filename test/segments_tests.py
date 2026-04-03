@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mir.common.segments import SegmentLibrary
+from mir.common.segments import Segment, SegmentLibrary
 
 
 class _FakeResponse:
@@ -73,6 +73,27 @@ class TestSegmentLibraryBootstrap(unittest.TestCase):
             self.assertIn("IGHJ1*01", lib.segments)
             self.assertEqual(len(requested_urls), 2)
             self.assertTrue(all("/Homo_sapiens/" in url for url in requested_urls))
+
+    def test_get_or_create_noallele_uses_min_available_allele(self):
+        lib = SegmentLibrary({
+            "IGHV3-43D*03": Segment(
+                id="IGHV3-43D*03",
+                organism="HomoSapiens",
+                gene="IGH",
+                stype="V",
+                seqnt="ATGC",
+            ),
+            "IGHV3-43D*06": Segment(
+                id="IGHV3-43D*06",
+                organism="HomoSapiens",
+                gene="IGH",
+                stype="V",
+                seqnt="ATGC",
+            ),
+        }, complete=True)
+
+        segment = lib.get_or_create_noallele("IGHV3-43D")
+        self.assertEqual(segment.id, "IGHV3-43D*03")
 
 
 if __name__ == "__main__":
