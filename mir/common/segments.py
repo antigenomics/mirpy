@@ -16,6 +16,7 @@ _IMGT_SPECIES_ALIASES = {
     'MusMusculus': 'Mus_musculus',
     'MacacaMulatta': 'Macaca_mulatta',
 }
+_SEGMENT_ALLELE_CACHE = None
 
 
 class Segment:
@@ -166,6 +167,48 @@ class SegmentLibrary:
             return {values}
         return set(values)
 
+    @staticmethod
+    def _allele_sort_key(segment_id: str) -> tuple[int, str]:
+        allele = str(segment_id).split('*', 1)[1]
+        try:
+            return (int(allele), allele)
+        except ValueError:
+            return (10**9, allele)
+
+    @classmethod
+    def _get_resource_allele_cache(cls) -> dict[tuple[str, str, str], str]:
+        global _SEGMENT_ALLELE_CACHE
+        if _SEGMENT_ALLELE_CACHE is not None:
+            return _SEGMENT_ALLELE_CACHE
+
+        path = Path(get_resource_path('segments.txt'))
+        df = cls._load_segments_dataframe(path)
+        cache = {}
+        df = df[df['id'].astype(str).str.contains(r'\*', regex=True)]
+        for _, row in df.iterrows():
+            segment_id = str(row['id'])
+            base_id = segment_id.split('*', 1)[0]
+            key = (str(row['organism']), str(row['gene']), base_id)
+            current = cache.get(key)
+            if current is None or cls._allele_sort_key(segment_id) < cls._allele_sort_key(current):
+                cache[key] = segment_id
+        _SEGMENT_ALLELE_CACHE = cache
+        return cache
+
+    @classmethod
+    def _resolve_allele_id(cls, segment_id: str, organism: str = None, gene: str = None) -> str:
+        segment_id = str(segment_id).replace('/', '').strip()
+        if '*' in segment_id:
+            return segment_id
+
+        if gene is None and len(segment_id) >= 4:
+            gene = segment_id[:3]
+        if organism is not None and gene is not None:
+            cached = cls._get_resource_allele_cache().get((organism, gene, segment_id))
+            if cached is not None:
+                return cached
+        return segment_id + '*01'
+
     @classmethod
     def _load_segments_dataframe(cls, path: Path) -> pd.DataFrame:
         df = pd.read_csv(path, sep='\t')
@@ -266,7 +309,12 @@ class SegmentLibrary:
         if '*' in id:
             return self.get_or_create(id)
         else:
-            return self.get_or_create(id + '*01')
+            for organism in sorted(self.get_organisms()):
+                gene = id[:3] if len(id) >= 3 else None
+                resolved = self._resolve_allele_id(id, organism=organism, gene=gene)
+                if resolved in self.segments:
+                    return self.get_or_create(resolved)
+            return self.get_or_create(self._resolve_allele_id(id))
 
     def __repr__(self):
         return f"Library of {len(self.segments)} segments: " + \
