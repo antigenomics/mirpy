@@ -8,6 +8,16 @@ import pandas as pd
 from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, PairedChainClone
 from mir.common.segments import SegmentLibrary, Segment
 
+_AIRR_LOCUS_ALIASES = {
+    'alpha': {'alpha', 'tra'},
+    'beta': {'beta', 'trb'},
+    'gamma': {'gamma', 'trg'},
+    'delta': {'delta', 'trd'},
+    'heavy': {'heavy', 'igh'},
+    'kappa': {'kappa', 'igk'},
+    'lambda': {'lambda', 'igl'},
+}
+
 
 class SegmentParser:
     """
@@ -329,6 +339,16 @@ class AIRRParser(ClonotypeTableParser):
         self.locus = locus
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
 
+    def get_locus_aliases(self) -> set[str]:
+        locus = str(self.locus).strip()
+        locus_normalized = locus.lower()
+        if locus_normalized in _AIRR_LOCUS_ALIASES:
+            return _AIRR_LOCUS_ALIASES[locus_normalized]
+        for aliases in _AIRR_LOCUS_ALIASES.values():
+            if locus_normalized in aliases:
+                return aliases
+        return {locus_normalized}
+
 
     def validate_columns(self, df: pd.DataFrame):
         for col in self.mandatory_columns:
@@ -344,7 +364,8 @@ class AIRRParser(ClonotypeTableParser):
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
         self.validate_columns(df)
-        df = df[df.locus == self.locus]
+        locus_aliases = self.get_locus_aliases()
+        df = df[df.locus.astype(str).str.strip().str.lower().isin(locus_aliases)]
         clonotypes = []
         for i, row in df.iterrows():
             try:
