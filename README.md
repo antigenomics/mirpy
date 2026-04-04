@@ -1,5 +1,7 @@
 # mirpy
 
+![mirpy logo](assets/mirpy_logo.png)
+
 `mirpy` is a Python library for working with AIRR-seq and immune repertoire data.
 It provides building blocks for:
 
