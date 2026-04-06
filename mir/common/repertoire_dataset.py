@@ -187,17 +187,18 @@ class RepertoireDataset:
 
     # def __getitem__(self, idx):
     #     return self.repertoires[idx]
+ 
+    @staticmethod
+    def inner_serialize(repertoire):
+        return repertoire.serialize()
 
     def serialize(self, threads: int = 1) -> list[pd.DataFrame]:
-        global inner_serialize
-        serialized_dict = {}
-
-        def inner_serialize(x):
-            serialized_dict[x] = self.repertoires[x].serialize()
+        if processes == 1:
+            return [r.serialize() for r in self.repertoires]
 
         with Pool(threads) as p:
-            p.map(inner_serialize, [x for x in range(len(self.repertoires))])
-        return [serialized_dict[x] for x in range(len(self.repertoires))]
+            results = p.map(self.inner_serialize, self.repertoires)
+        return results
 
     def evaluate_segment_usage(self) -> pd.DataFrame:
         if self.__segment_usage_matrix is None:
