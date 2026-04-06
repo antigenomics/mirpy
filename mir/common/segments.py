@@ -7,7 +7,6 @@ from Bio.Seq import translate
 
 from .. import get_resource_path
 
-_ALL_AV2DV = True
 _ALLOWED_GENES = {'TRA', 'TRB', 'TRG', 'TRD', 'IGL', 'IGK', 'IGH'}
 _ALLOWED_STYPE = {'V', 'D', 'J', 'C'}
 _DEFAULT_SEGMENTS_COLUMNS = ['organism', 'gene', 'stype', 'id', 'seqnt']
@@ -125,13 +124,6 @@ class SegmentLibrary:
                     segment = Segment(id=id,
                                       organism=organism,
                                       gene=gene,
-                                      stype=stype,
-                                      seqnt=seqnt)
-                    segments[segment.id] = segment
-                if _ALL_AV2DV and gene == 'TRA' and 'TRD' in genes and stype == 'V':
-                    segment = Segment(id=id + 'd',
-                                      organism=organism,
-                                      gene='TRD',
                                       stype=stype,
                                       seqnt=seqnt)
                     segments[segment.id] = segment
