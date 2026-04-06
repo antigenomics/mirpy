@@ -1,5 +1,3 @@
-"""Utilities for repertoire diversity and rarefaction analysis."""
-
 from collections import namedtuple
 from functools import cached_property
 import typing as t
@@ -12,11 +10,8 @@ from mir.common.repertoire_dataset import RepertoireDataset
 
 
 class FrequencyTable:
-    """Store clone-size frequencies for a repertoire.
-
-    The table maps observed clone size to the number of clonotypes with that
-    size. For example, ``{1: 120, 2: 15}`` means there are 120 singleton
-    clonotypes and 15 clonotypes supported by two reads/cells.
+    """
+    A frequency table which stores the frequency of clonotype expansion in repertoire
     """
 
     def __init__(self, table: dict[int, int]) -> None:
@@ -24,7 +19,11 @@ class FrequencyTable:
 
     @classmethod
     def from_repertoire(cls, repertoire: Repertoire):
-        """Build a frequency table from a :class:`mir.common.repertoire.Repertoire`."""
+        """
+        creates the FrequencyTable object for a repertoire
+        :param repertoire: repertoire object
+        :return: FrequencyTable object with a dictionary
+        """
         tbl = dict()
         for clonotype in repertoire:
             tbl[clonotype.cells] = tbl.get(clonotype.cells, 0) + 1
@@ -91,47 +90,37 @@ HillCurvePoint = namedtuple(
 
 
 class DiversityIndices:
-    """Compute common alpha-diversity statistics for a repertoire."""
-
     def __init__(self, source: FrequencyTable | Repertoire) -> None:
         if isinstance(source, Repertoire):
             source = FrequencyTable.from_repertoire(source)
         self._table = source
 
     def obs(self) -> int:
-        """Return observed richness, i.e. the number of unique clonotypes."""
         return self._table.species
 
     def obs_per_mil(self) -> int:
-        """Return observed richness normalized to one million reads/cells."""
         return self._table.species * 1.0e6 / self._table.individuals
 
     def shannon(self) -> float:
-        """Return Shannon entropy for the clone frequency distribution."""
         return -sum(species * count / self._table.individuals *
                     math.log(count / self._table.individuals) for
                     (count, species) in self._table.items())
 
     def pielou(self) -> float:
-        """Return Pielou evenness derived from Shannon entropy."""
         return self.shannon() / math.log(self._table.species)
 
     def simpson(self) -> float:
-        """Return the Simpson concentration-style diversity statistic."""
         return -sum(species * (count / self._table.individuals) ** 2 for
                     (count, species) in self._table.items())
 
     def unseen(self) -> float:
-        """Estimate the number of unseen clonotypes from singleton/doubleton counts."""
         return self._table.singletons() * (self._table.singletons() - 1.) / \
             2. / (self._table.doubletons() + 1.)
 
     def chao(self) -> float:
-        """Return the Chao richness estimate."""
         return self._table.species + self.unseen()
 
     def hill(self, q) -> float:
-        """Evaluate the Hill diversity number for order ``q``."""
         if q == 1:
             return math.exp(self.shannon())
         else:
@@ -140,12 +129,10 @@ class DiversityIndices:
 
     def hill_curve(self, q_values: list[float] = [0., 1., 2.] +
                                                  [2 ** x for x in np.linspace(-5, 5, 100)]) -> list[HillCurvePoint]:
-        """Return Hill numbers for a sequence of ``q`` values."""
         return [HillCurvePoint(x, self.hill(x)) for x in q_values]
 
     @staticmethod
     def for_dataset(dataset: RepertoireDataset):
-        """Compute a one-row diversity summary for each repertoire in a dataset."""
         return pd.DataFrame([dict(repertoire.metadata) |
                              DiversityIndices(
                                  FrequencyTable.from_repertoire(repertoire)).as_dict()
@@ -155,7 +142,6 @@ class DiversityIndices:
     def hill_curve_for_dataset(dataset: RepertoireDataset,
                                q_values: list[float] = [0., 1., 2.] +
                                                        [2 ** x for x in np.linspace(-5, 5, 100)]):
-        """Compute Hill-curve points for each repertoire in a dataset."""
         rows = []
         for repertoire in dataset:
             meta = dict(repertoire.metadata)
@@ -175,7 +161,6 @@ class DiversityIndices:
         return self.__str__()
 
     def as_dict(self):
-        """Return a compact dictionary representation of the main metrics."""
         return {'depth': self._table.individuals,
                 'obs': self.obs(),
                 'opm': self.obs_per_mil(),
@@ -189,8 +174,6 @@ RarefactionPoint = namedtuple(
 
 
 class RarefactionCurve:
-    """Estimate richness under interpolation or extrapolation of read depth."""
-
     def __init__(self, source: FrequencyTable | Repertoire) -> None:
         if isinstance(source, Repertoire):
             source = FrequencyTable.from_repertoire(source)
@@ -198,12 +181,10 @@ class RarefactionCurve:
         self._div_indices = DiversityIndices(source)
 
     def span(self) -> int:
-        """Return the original repertoire depth used by the model."""
         return self._table.individuals
 
     def rarefy(self,
                count_star: int) -> RarefactionPoint:
-        """Estimate richness and variance at a target depth ``count_star``."""
         phi = count_star / self.span()
         if phi <= 1:
             species_star = 0
@@ -245,7 +226,6 @@ class RarefactionCurve:
     def rarefy_points(self,
                       counts_star: list[int] = [],
                       n_points: int = 30, extrapolate_factor: float = 1.) -> list[RarefactionPoint]:
-        """Generate rarefaction points on a supplied or automatically derived grid."""
         if not counts_star.any():
             counts_star = np.linspace(
                 0., self.span() * extrapolate_factor, n_points)
@@ -255,7 +235,6 @@ class RarefactionCurve:
     def for_dataset(dataset: RepertoireDataset,
                     counts_star: list[int] = [],
                     n_points: int = 30, extrapolate_factor: float = 1.):
-        """Build a long-format rarefaction table for all repertoires in a dataset."""
         curves = [(repertoire, RarefactionCurve(repertoire))
                   for repertoire in dataset]
         if not counts_star:

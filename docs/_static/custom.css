@@ -1,135 +1,55 @@
 main.bd-main .bd-content .bd-article-container {
-  max-width: 1100px;
+  max-width: 960px;
 }
 
 .bd-page-width {
-  max-width: 1440px;
+  max-width: 1280px;
 }
 
-.bd-main .bd-content .bd-article-container h1 {
-  letter-spacing: -0.03em;
-}
-
-.mirpy-hero {
+.mirpy-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
-  gap: 2rem;
+  grid-template-columns: 144px 1fr;
+  gap: 1.25rem;
   align-items: center;
-  margin: 1.5rem 0 2.5rem;
-  padding: 2rem;
-  border: 1px solid var(--pst-color-border);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at top left, rgba(80, 142, 255, 0.18), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(14, 165, 166, 0.16), transparent 28%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.16);
+  margin: 1rem 0 2rem;
+  padding: 1.25rem 0 1.5rem;
+  border-bottom: 1px solid var(--pst-color-border);
 }
 
-.mirpy-eyebrow {
-  margin: 0 0 0.75rem;
-  font-size: 0.78rem;
+.mirpy-intro__logo {
+  width: 144px;
+  height: auto;
+}
+
+.mirpy-intro__eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--pst-color-primary);
 }
 
-.mirpy-hero h1 {
+.mirpy-intro__lead {
   margin: 0;
-  font-size: clamp(2.6rem, 6vw, 4.5rem);
-  line-height: 0.95;
-}
-
-.mirpy-lead {
-  margin: 1.25rem 0 0;
-  font-size: 1.15rem;
-  line-height: 1.75;
-  max-width: 48rem;
+  font-size: 1.02rem;
+  line-height: 1.7;
   color: var(--pst-color-text-base);
 }
 
-.mirpy-actions {
+.mirpy-intro__links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.85rem;
-  margin: 1.5rem 0 0;
-}
-
-.mirpy-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0.75rem 1.1rem;
-  border-radius: 999px;
-  font-weight: 700;
-  text-decoration: none !important;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-}
-
-.mirpy-button:hover {
-  transform: translateY(-1px);
-}
-
-.mirpy-button--primary {
-  color: white !important;
-  background: linear-gradient(135deg, #4581ff, #00a7c4);
-  box-shadow: 0 12px 30px rgba(69, 129, 255, 0.25);
-}
-
-.mirpy-button--secondary {
-  color: var(--pst-color-text-base) !important;
-  border: 1px solid var(--pst-color-border);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.mirpy-button--ghost {
-  color: var(--pst-color-primary) !important;
-  background: transparent;
-}
-
-.mirpy-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 1.5rem;
-}
-
-.mirpy-stat {
-  min-width: 120px;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--pst-color-border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.mirpy-stat strong {
-  display: block;
-  font-size: 1.25rem;
-}
-
-.mirpy-stat span {
-  font-size: 0.92rem;
-  color: var(--pst-color-text-muted);
-}
-
-.mirpy-hero__visual {
-  display: flex;
-  justify-content: center;
-}
-
-.mirpy-hero__visual img {
-  width: min(100%, 330px);
-  height: auto;
-  filter: drop-shadow(0 20px 50px rgba(0, 0, 0, 0.25));
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.95rem;
 }
 
 .mirpy-card-grid,
 .mirpy-feature-grid {
   display: grid;
   gap: 1rem;
-  margin: 1.5rem 0 2rem;
+  margin: 1rem 0 2rem;
 }
 
 .mirpy-card-grid {
@@ -143,10 +63,10 @@ main.bd-main .bd-content .bd-article-container {
 .mirpy-card,
 .mirpy-feature {
   display: block;
-  padding: 1.25rem 1.2rem;
+  padding: 1.1rem 1rem;
   border: 1px solid var(--pst-color-border);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: 14px;
+  background: transparent;
 }
 
 .mirpy-card {
@@ -156,17 +76,6 @@ main.bd-main .bd-content .bd-article-container {
 
 .mirpy-card:hover {
   border-color: var(--pst-color-primary);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.12);
-}
-
-.mirpy-card__tag {
-  display: inline-block;
-  margin-bottom: 0.6rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--pst-color-primary);
 }
 
 .mirpy-card h3,
@@ -182,9 +91,8 @@ main.bd-main .bd-content .bd-article-container {
 }
 
 @media (max-width: 900px) {
-  .mirpy-hero {
+  .mirpy-intro {
     grid-template-columns: 1fr;
-    padding: 1.5rem;
   }
 
   .mirpy-card-grid,
