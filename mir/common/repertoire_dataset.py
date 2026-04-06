@@ -193,7 +193,7 @@ class RepertoireDataset:
         return repertoire.serialize()
 
     def serialize(self, threads: int = 1) -> list[pd.DataFrame]:
-        if processes == 1:
+        if threads == 1:
             return [r.serialize() for r in self.repertoires]
 
         with Pool(threads) as p:
