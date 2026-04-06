@@ -1,5 +1,3 @@
-"""Parsers for common clonotype and repertoire table formats."""
-
 import logging
 import typing as t
 import warnings
@@ -63,10 +61,9 @@ class SegmentParser:
 
 
 class ClonotypeTableParser:
-    """Base parser for tabular clonotype formats.
-
-    Subclasses implement :meth:`parse_inner` for a specific schema, while this
-    class handles reading from disk and optional row sampling.
+    """
+    The object which parses clonotype tables.
+    Creates a list of clonotypes
     """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
@@ -75,7 +72,13 @@ class ClonotypeTableParser:
         self.sep = sep
 
     def parse(self, source: str | pd.DataFrame, n: int = None, sample: bool = False) -> list[Clonotype]:
-        """Parse clonotypes from a file path or an in-memory dataframe."""
+        """
+        Parses the dataset.
+        :param source: Should be either a `pd.DataFrame` or a string with filename
+        :param n: either None or number of rows to parse
+        :param sample: whether the file should be sampled into a smaller one or not
+        :return: a list of clonotypes in a file
+        """
         if isinstance(source, str):
             if n is None or not sample:
                 source = pd.read_csv(source, sep=self.sep, nrows=n)
@@ -89,7 +92,11 @@ class ClonotypeTableParser:
         return self.parse_inner(source)
 
     def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
-        """Parse the canonical ``cdr3/v/j`` style dataframe into clonotypes."""
+        """
+        Reads the file and clonotypes in it. Takes counts and junction in account.
+        :param source: the dataframe to perform the parsing on
+        :return: list of clonotypes
+        """
         if {'cells'}.issubset(source.columns):
             def get_cells(r):
                 return r['cells']
@@ -194,7 +201,9 @@ class VDJdbSlimParser(ClonotypeTableParser):
 
 
 class OlgaParser(ClonotypeTableParser):
-    """Parse OLGA-generated tables into nucleotide clonotype objects."""
+    """
+    An object to parse the OLGA software generated data. Only accepts the `SegmentLibrary` as input
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary()) -> None:
         super().__init__(lib)
@@ -215,7 +224,10 @@ class OlgaParser(ClonotypeTableParser):
 
 
 class VDJtoolsParser(ClonotypeTableParser):
-    """Parse clonotype tables exported by VDJtools."""
+    """
+    A parser to process the result of VDJtools. It is one of the most common formats which includes the following \
+    columns: `cdr3aa, cdr3nt, count, v, d, j, VEnd, DStart, DEnd, JStart`.
+    """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t') -> None:
@@ -227,7 +239,6 @@ class VDJtoolsParser(ClonotypeTableParser):
         super().__init__(lib, sep)
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        """Convert a VDJtools dataframe into ``ClonotypeNT`` objects."""
         if len(df.columns) == 7:
             def get_junction(_):
                 return JunctionMarkup()
@@ -310,11 +321,9 @@ class DoubleChainVDJtoolsParser(ClonotypeTableParser):
 
 
 class AIRRParser(ClonotypeTableParser):
-    """Parse AIRR rearrangement tables for a selected locus.
-
-    The parser expects at least ``locus``, ``v_call``, ``j_call``, and
-    ``junction_aa`` columns and preserves additional fields in clonotype
-    payloads.
+    """
+    A parser to process data in AIRR format. It is one of the most common formats which includes the following \
+    columns: `locus, v_call, j_call, junction_aa`. All the other columns including the column for
     """
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
@@ -330,7 +339,6 @@ class AIRRParser(ClonotypeTableParser):
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
 
     def get_locus_aliases(self) -> set[str]:
-        """Return accepted aliases for the configured AIRR locus."""
         locus = str(self.locus).strip()
         locus_normalized = locus.lower()
         if locus_normalized in _AIRR_LOCUS_ALIASES:
@@ -341,13 +349,11 @@ class AIRRParser(ClonotypeTableParser):
         return {locus_normalized}
 
     def validate_columns(self, df: pd.DataFrame):
-        """Validate that mandatory AIRR columns are present."""
         for col in self.mandatory_columns:
             if col not in df.columns:
                 raise KeyError(f'Mandatory column {col} is missing! List of mandatory columns is {self.mandatory_columns}.')
 
     def check_not_na_columns(self, row, index):
-        """Reject rows with missing values while logging the filtered column."""
         for k, v in row.items():
             if pd.isna(v):
                 logging.warning(f'Filtered out row {index}, because it has None in {k}')
@@ -355,7 +361,6 @@ class AIRRParser(ClonotypeTableParser):
         return True
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        """Parse AIRR rows, filter by locus, and keep extra columns as payload."""
         self.validate_columns(df)
         locus_aliases = self.get_locus_aliases()
         df = df[df.locus.astype(str).str.strip().str.lower().isin(locus_aliases)]
@@ -378,8 +383,6 @@ class AIRRParser(ClonotypeTableParser):
         return clonotypes
 
 class DoubleChainAIRRParser(AIRRParser):
-    """Build paired TRA/TRB clonotypes from an AIRR table with clone identifiers."""
-
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t', mapping_column='clone_id') -> None:
@@ -394,7 +397,6 @@ class DoubleChainAIRRParser(AIRRParser):
         self.mapping_column = mapping_column
 
     def validate_columns(self, df: pd.DataFrame):
-        """Validate both AIRR columns and the chain-matching identifier."""
         super().validate_columns(df)
         if self.mapping_column not in df.columns:
             raise KeyError(f'Mapping column {self.mapping_column} is missing! It is mandatory for paired chain data.')
@@ -402,7 +404,6 @@ class DoubleChainAIRRParser(AIRRParser):
             raise ValueError(f'Mapping column {self.mapping_column} cannot be null! Check your data.')
 
     def get_tcr_ids_for_chain(self, clonotypes, chain):
-        """Build a mapping from clone identifier to parsed chain clonotype."""
         clone_ids = {x.payload[self.mapping_column]: x for x in clonotypes}
         id_set = set(clone_ids.keys())
         if len(clone_ids) != len(id_set):
@@ -410,7 +411,6 @@ class DoubleChainAIRRParser(AIRRParser):
         return clone_ids
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        """Pair alpha and beta chains by the configured mapping column."""
         self.validate_columns(df)
 
         logging.info('Started processing TCR alpha chain clonotypes.')
