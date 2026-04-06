@@ -17,6 +17,8 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.todo",
     "sphinx.ext.viewcode",
+    "nbsphinx",
+    "nbsphinx_link",
 ]
 
 templates_path = ["_templates"]
@@ -75,3 +77,24 @@ autodoc_mock_imports = [
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = "mirpy documentation"
+html_logo = "_static/mirpy_logo.png"
+html_css_files = ["custom.css"]
+html_sidebars = {
+    "index": [],
+}
+html_theme_options = {
+    "logo": {
+        "text": "mirpy documentation",
+    },
+    "navbar_align": "content",
+    "show_prev_next": False,
+    "secondary_sidebar_items": ["page-toc"],
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/antigenomics/mirpy",
+            "icon": "fa-brands fa-github",
+        },
+    ],
+}
+nbsphinx_execute = "never"
