@@ -1,4 +1,5 @@
 # todo: vdjmatch
+from collections.abc import Iterable
 from typing import Set
 
 import math
@@ -7,7 +8,6 @@ from collections import defaultdict, Counter
 from multiprocessing import Pool, Manager
 
 from pympler.asizeof import asizeof
-from pyparsing import Iterable
 import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
 from mir.common.repertoire_dataset import RepertoireDataset

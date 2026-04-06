@@ -348,7 +348,6 @@ class AIRRParser(ClonotypeTableParser):
                 return aliases
         return {locus_normalized}
 
-
     def validate_columns(self, df: pd.DataFrame):
         for col in self.mandatory_columns:
             if col not in df.columns:
