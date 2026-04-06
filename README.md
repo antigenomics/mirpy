@@ -93,7 +93,8 @@ repertoire = Repertoire.load(
 ## Resources
 
 - Example notebooks are available in [notebooks/](https://github.com/antigenomics/mirpy/tree/main/notebooks).
-- A previously generated API documentation site is stored in [public/](https://github.com/antigenomics/mirpy/tree/main/public).
+- Source files for the API documentation are stored in [docs/](docs/).
+- After GitHub Pages is enabled for the repository, the documentation site will be rebuilt automatically on each push to `main`.
 
 ## Project status
 
