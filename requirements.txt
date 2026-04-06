@@ -10,3 +10,4 @@ umap-learn==0.5.3
 scikit-learn==1.3.0
 textdistance==4.5.0
 plotnine==0.12.3
+tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy
