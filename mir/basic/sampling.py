@@ -1,3 +1,5 @@
+"""Sampling helpers for repertoire downsampling and segment-usage adjustment."""
+
 import numpy as np
 from copy import copy
 
@@ -6,12 +8,13 @@ from mir.common.repertoire import Repertoire
 
 
 class RepertoireSampling:
-    """
-    A class which can resample the repertoire. The main method of the class is `sample`.
-    This method uses a single repertoire and resamples it using the initial segment usage matrix and the usage matrix \
-    you want your resampled repertoire to correspond to.
-    If you don't want to change the segment usage distribution you can simply skip the `new_usage_matrix` parameter.
-    Parameter `n` is the number of clones in the new repertoire. Skip it if you want to have the same number of reads.
+    """Resample repertoires while preserving or reweighting segment usage.
+
+    The sampler can:
+
+    * redraw a repertoire at the same depth;
+    * redraw it at a different target depth;
+    * shift clone probabilities according to a new segment-usage profile.
     """
     def __init__(self, random_seed: int = 42):
         """
@@ -23,15 +26,19 @@ class RepertoireSampling:
 
     def sample(self, repertoire: Repertoire, old_usage_matrix: list[SegmentUsageTable],
                new_usage_matrix: list[SegmentUsageTable] = None, n: int = None):
-        """
-        A function which samples a new repertoire based on the given one and its usage matrix
+        """Generate a resampled repertoire from an existing one.
 
-        :param repertoire: a `Repertoire` object which is the base for resampling
-        :param old_usage_matrix: the V(D)J gene usage matrix describing the segment usage in the initial repertoire
-        :param new_usage_matrix: the V(D)J gene usage matrix describing the desired segment usage in the new repertoire;\
-        do not fill this parameter if you do not want to change the segment usage distribution
-        :param n: number of reads to be sampled (samples the same size if None)
-        :return: a resampled `Repertoire` repertoire
+        Parameters
+        ----------
+        repertoire
+            Source repertoire used as the sampling template.
+        old_usage_matrix
+            Segment usage tables describing the source repertoire.
+        new_usage_matrix
+            Optional target segment usage tables. If omitted, the original
+            segment usage is preserved and only the sampling depth changes.
+        n
+            Target read depth. If omitted, the original depth is reused.
         """
         sample_name = repertoire.metadata['run']
         if new_usage_matrix is None:
@@ -67,13 +74,7 @@ class RepertoireSampling:
 
     @staticmethod
     def __preprocess_frequencies(usage_matrix, sample_name):
-        """
-        A function which transforms segment usages from integer numbers into frequencies
-
-        :param usage_matrix: the `list[SegmentUsageTable]` object containing `SegmentUsageTable`s for each sample
-        :param sample_name: the sample to perform preprocessing on
-        :return: a dictionary mapping segment type to a dictionary of gene-usage items
-        """
+        """Normalize a usage table collection into per-segment frequencies."""
         run_frequencies = {usage_table.segment_type: usage_table[sample_name] for usage_table in usage_matrix}
         for k, v in run_frequencies.items():
             sum_freq = sum(list(run_frequencies[k].values()))
@@ -82,15 +83,11 @@ class RepertoireSampling:
         return run_frequencies
 
     def __roulette_wheel_selection(self, frequencies: list[int], desired_num_generated_reads: int):
-        """
-        A function which performs roulette wheel selection resampling. It makes segments of size equal to the\
-        probability of the clone to be found in a sample. Afterwards, the random numbers are placed in the segments and\
-        the new counts for each clonotype are identified.
-        For more see https://en.wikipedia.org/wiki/Fitness_proportionate_selection
+        """Sample clone counts with roulette-wheel selection.
 
-        :param frequencies: the desired frequencies for each clonotype
-        :param desired_num_generated_reads: number of reads to generate
-        :return: the list of counts for each clonotype
+        This is a standard fitness-proportionate sampling scheme where each
+        clonotype occupies a segment on the unit interval proportional to its
+        expected frequency.
         """
         np.random.seed(self.random_seed)
         random_numbers = np.random.uniform(0, 1, desired_num_generated_reads).tolist()
