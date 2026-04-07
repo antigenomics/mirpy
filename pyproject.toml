@@ -8,7 +8,7 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "mir"
+name = "mirpy-lib"
 version = "1.0.0"
 authors = [{ name="antigenomics", email="elizaveta.k.vlasova@gmail.com" }]
 description = "A library for managing and analyzing immunosequencing data"
