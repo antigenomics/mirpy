@@ -39,22 +39,48 @@ jobs:
           name: python-sdist
           path: dist/
 
+  build-wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.23.3
+        env:
+          CIBW_BUILD: cp311-* cp312-* cp313-*
+          CIBW_SKIP: "*-musllinux_*"
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
   publish:
     name: Publish To PyPI
-    needs: build-sdist
+    needs:
+      - build-sdist
+      - build-wheels
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
-
-    environment:
-      name: pypi
-      url: https://pypi.org/project/mir/
+      contents: read
 
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
         with:
-          name: python-sdist
+          pattern: python-*
+          merge-multiple: true
           path: dist/
 
       - name: List distributions
@@ -62,3 +88,5 @@ jobs:
 
       - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

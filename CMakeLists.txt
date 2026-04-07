@@ -9,7 +9,7 @@ target_compile_features(cdrscore PRIVATE cxx_std_17)
 if (MSVC)
   target_compile_options(cdrscore PRIVATE /O2 /DNOMINMAX)
 else()
-  target_compile_options(cdrscore PRIVATE -O3 -march=native)
+  target_compile_options(cdrscore PRIVATE -O3)
 endif()
 
 set_target_properties(cdrscore PROPERTIES
