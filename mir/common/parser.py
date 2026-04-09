@@ -252,7 +252,7 @@ class VDJtoolsParser(ClonotypeTableParser):
                                                    d=self.segment_parser.parse(x['d']),
                                                    j=self.segment_parser.parse(x['j']),
                                                    junction=get_junction(x),
-                                                   id=x.index
+                                                   id=x.name
                                                    ), axis=1))
 
 
