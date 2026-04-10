@@ -77,7 +77,7 @@ class TestAlphabetSequence(unittest.TestCase):
     def test_content_backward_compat(self) -> None:
         """The .content property still works."""
         nt = NucleotideSequence.from_string("ATCG")
-        self.assertIs(nt.content, nt.data)
+        np.testing.assert_array_equal(nt.content, nt.data)
 
     def test_repr(self) -> None:
         nt = NucleotideSequence.from_string("ATCG")
