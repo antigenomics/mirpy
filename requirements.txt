@@ -18,3 +18,4 @@ stringzilla==4.6.0
 stringutils==1.0.6
 umap-learn==0.5.3
 pybind11==2.11.0
+multipy==0.16
