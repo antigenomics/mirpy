@@ -1,17 +1,17 @@
 """Biological sequence types backed by NumPy byte arrays.
 
 This module defines alphabet-validated sequence classes for nucleotide and
-amino-acid data.  All sequences are stored as ``np.ndarray`` of dtype ``S1``
+amino-acid data. All sequences are stored as ``np.ndarray`` of dtype ``S1``
 (single-byte ASCII characters) so they can be operated on efficiently with
 NumPy primitives and ``stringzilla``.
 
 Classes:
-    SequenceAlphabet       -- Singleton alphabet definition.
-    AlphabetSequence       -- Base class for alphabet-constrained sequences.
-    NucleotideSequence     -- DNA sequence (A/T/G/C by default).
-    AminoAcidSequence      -- Standard 20-AA + stop/unknown sequence.
-    SimpleAminoAcidSequence -- Reduced amino-acid alphabet used for fuzzy
-                               matching (groups physico-chemically similar AAs).
+    SequenceAlphabet         -- Singleton alphabet definition.
+    AlphabetSequence         -- Base class for alphabet-constrained sequences.
+    NucleotideSequence       -- DNA sequence (A/T/G/C/N by default).
+    AminoAcidSequence        -- Standard 20-AA + stop/unknown sequence.
+    ReducedAminoAcidSequence -- Reduced amino-acid alphabet used for fuzzy
+                                 matching (groups physico-chemically similar AAs).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from typing import Self
 #:   X  unknown
 #:   *  stop codon
 #:   _  gap
-AMINO_ACID_TO_SIMPLE_AMINO_ACID: dict[str, str] = {
+AMINO_ACID_TO_REDUCED_AMINO_ACID: dict[str, str] = {
     "A": "l",
     "R": "b",
     "N": "m",
@@ -102,9 +102,17 @@ class SequenceAlphabet:
         self.allowed_array = np.array([c.encode("ascii") for c in self.allowed_symbols], dtype="S1")
 
 
+#: Backwards-compatible alias for older name.
+AMINO_ACID_TO_SIMPLE_AMINO_ACID = AMINO_ACID_TO_REDUCED_AMINO_ACID
+
+
 #: Pre-built :class:`SequenceAlphabet` for the reduced amino-acid symbol set
-#: derived from :data:`AMINO_ACID_TO_SIMPLE_AMINO_ACID`.
-SIMPLE_AMINO_ACID_ALPHABET = SequenceAlphabet(tuple(dict.fromkeys(AMINO_ACID_TO_SIMPLE_AMINO_ACID.values())))
+#: derived from :data:`AMINO_ACID_TO_REDUCED_AMINO_ACID`.
+REDUCED_AMINO_ACID_ALPHABET = SequenceAlphabet(tuple(dict.fromkeys(AMINO_ACID_TO_REDUCED_AMINO_ACID.values())))
+
+
+#: Backwards-compatible alias for older name.
+SIMPLE_AMINO_ACID_ALPHABET = REDUCED_AMINO_ACID_ALPHABET
 
 
 class AlphabetSequence:
@@ -116,12 +124,19 @@ class AlphabetSequence:
     :class:`AminoAcidSequence`, :class:`SimpleAminoAcidSequence`) which
     provide a sensible default alphabet.
 
+    Class Attributes:
+        MASK_SYMBOL (str | None): Symbol used by :meth:`mask`. Subclasses
+            that support masking define this symbol (``"N"`` for nucleotides,
+            ``"X"`` for amino-acid alphabets).
+
     Attributes:
         content (np.ndarray): One-dimensional ``S1``-dtype array storing the
             sequence as individual ASCII bytes.
         alphabet (SequenceAlphabet): The alphabet that ``content`` was
             validated against.
     """
+
+    MASK_SYMBOL: str | None = None
 
     def __init__(self, content: np.ndarray, alphabet: SequenceAlphabet) -> None:
         """Construct a validated sequence from an existing byte array.
@@ -194,9 +209,73 @@ class AlphabetSequence:
         sub_array = np.frombuffer(memoryview(part_bytes), dtype="S1").copy()
         return self.__class__(sub_array, self.alphabet)
 
+    def mask(self, position: int | slice | tuple[int, int]) -> Self:
+        """Return a copy with one position or a range replaced by mask symbol.
+
+        Args:
+            position: Either a single integer index, a :class:`slice`, or a
+                ``(start, stop)`` tuple. ``stop`` is exclusive.
+
+        Returns:
+            A new sequence with masked positions replaced by ``MASK_SYMBOL``.
+
+        Raises:
+            ValueError: If this sequence type does not define ``MASK_SYMBOL``.
+            TypeError: If *position* has unsupported type.
+            IndexError: If integer position is out of bounds.
+        """
+        if self.MASK_SYMBOL is None:
+            raise ValueError(f"Masking is not supported for {self.__class__.__name__}")
+
+        masked = self.content.copy()
+        mask_byte = np.array(self.MASK_SYMBOL.encode("ascii"), dtype="S1")
+
+        if isinstance(position, int):
+            if position < 0:
+                position += len(self)
+            if position < 0 or position >= len(self):
+                raise IndexError("Mask position out of range")
+            masked[position] = mask_byte
+        elif isinstance(position, slice):
+            masked[position] = mask_byte
+        elif isinstance(position, tuple) and len(position) == 2:
+            start, stop = position
+            masked[slice(start, stop)] = mask_byte
+        else:
+            raise TypeError("position must be int, slice, or (start, stop) tuple")
+
+        return self.__class__(masked, self.alphabet)
+
+    def _is_masked(self, symbol: np.bytes_) -> bool:
+        """Return whether a symbol is the sequence-specific mask marker."""
+        if self.MASK_SYMBOL is None:
+            return False
+        return symbol == self.MASK_SYMBOL.encode("ascii")
+
+    def matches(self, other: "AlphabetSequence") -> bool:
+        """Compare two sequences, treating mask characters as wildcards.
+
+        Matching requires equal lengths. At each position, symbols match if
+        they are equal or if either symbol is masked.
+        """
+        if len(self) != len(other):
+            return False
+
+        for left, right in zip(self.content, other.content):
+            if left == right:
+                continue
+            if self._is_masked(left) or other._is_masked(right):
+                continue
+            return False
+        return True
+
     def __len__(self) -> int:
         """Return the number of characters in the sequence."""
         return int(self.content.shape[0])
+    
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the sequence."""
+        return self.to_string()
 
 
 class NucleotideSequence(AlphabetSequence):
@@ -207,10 +286,11 @@ class NucleotideSequence(AlphabetSequence):
     ambiguity codes.
 
     Class Attributes:
-        DEFAULT_ALPHABET (SequenceAlphabet): Standard DNA alphabet ``{A, T, G, C}``.
+        DEFAULT_ALPHABET (SequenceAlphabet): Standard DNA alphabet ``{A, T, G, C, N}``.
     """
 
-    DEFAULT_ALPHABET = SequenceAlphabet(("A", "T", "G", "C"))
+    MASK_SYMBOL = "N"
+    DEFAULT_ALPHABET = SequenceAlphabet(("A", "T", "G", "C", "N"))
 
     def __init__(self, content: np.ndarray, alphabet: SequenceAlphabet = DEFAULT_ALPHABET) -> None:
         """Construct a nucleotide sequence from a byte array.
@@ -267,6 +347,7 @@ class AminoAcidSequence(AlphabetSequence):
             "*", "_", "X",
         )
     )
+    MASK_SYMBOL = "X"
 
     def __init__(self, content: np.ndarray, alphabet: SequenceAlphabet = DEFAULT_ALPHABET) -> None:
         """Construct an amino-acid sequence from a byte array.
@@ -303,60 +384,78 @@ class AminoAcidSequence(AlphabetSequence):
         array = np.frombuffer(memoryview(sequence_bytes), dtype="S1").copy()
         return cls(array, alphabet)
 
-    def to_simple_amino_acid(self) -> "SimpleAminoAcidSequence":
-        """Convert to a :class:`SimpleAminoAcidSequence` using physico-chemical grouping.
+    def to_reduced_amino_acid(self) -> "ReducedAminoAcidSequence":
+        """Convert to :class:`ReducedAminoAcidSequence` using physico-chemical grouping.
 
         Each amino acid is mapped to a reduced symbol according to
         :data:`AMINO_ACID_TO_SIMPLE_AMINO_ACID`.
 
         Returns:
-            A :class:`SimpleAminoAcidSequence` of the same length whose
+            A :class:`ReducedAminoAcidSequence` of the same length whose
             symbols represent physico-chemical classes.
         """
-        converted = "".join(AMINO_ACID_TO_SIMPLE_AMINO_ACID[s] for s in self.to_string())
-        return SimpleAminoAcidSequence.from_string(converted)
+        converted = "".join(AMINO_ACID_TO_REDUCED_AMINO_ACID[s] for s in self.to_string())
+        return ReducedAminoAcidSequence.from_string(converted)
 
-    def matches_simple_amino_acid(self, simple_sequence: "SimpleAminoAcidSequence") -> bool:
-        """Check whether this sequence maps to a given simple amino-acid sequence.
+    def to_simple_amino_acid(self) -> "ReducedAminoAcidSequence":
+        """Backwards-compatible alias for :meth:`to_reduced_amino_acid`."""
+        return self.to_reduced_amino_acid()
 
-        Converts ``self`` to the reduced alphabet and compares byte-for-byte
-        with *simple_sequence*.
+    def matches_reduced_amino_acid(self, reduced_sequence: "ReducedAminoAcidSequence") -> bool:
+        """Check whether this sequence matches a reduced amino-acid sequence.
+
+        Matching is performed position-wise and ignores masked characters
+        (``X`` in either sequence).
 
         Args:
-            simple_sequence: A :class:`SimpleAminoAcidSequence` to compare
+            reduced_sequence: A :class:`ReducedAminoAcidSequence` to compare
                 against.
 
         Returns:
-            ``True`` if the reduced representation of this sequence equals
-            *simple_sequence*, ``False`` otherwise.
+            ``True`` if all non-masked positions are compatible with the
+            reduced amino-acid mapping, ``False`` otherwise.
         """
-        return self.to_simple_amino_acid().content.tobytes() == simple_sequence.content.tobytes()
+        if len(self) != len(reduced_sequence):
+            return False
+
+        for aa_symbol, reduced_symbol in zip(self.content, reduced_sequence.content):
+            if self._is_masked(aa_symbol) or reduced_sequence._is_masked(reduced_symbol):
+                continue
+            mapped = AMINO_ACID_TO_REDUCED_AMINO_ACID[aa_symbol.decode("ascii")].encode("ascii")
+            if mapped != reduced_symbol:
+                return False
+        return True
+
+    def matches_simple_amino_acid(self, simple_sequence: "ReducedAminoAcidSequence") -> bool:
+        """Backwards-compatible alias for :meth:`matches_reduced_amino_acid`."""
+        return self.matches_reduced_amino_acid(simple_sequence)
 
 
-class SimpleAminoAcidSequence(AlphabetSequence):
-    """An amino-acid sequence encoded in the reduced physico-chemical alphabet.
+class ReducedAminoAcidSequence(AlphabetSequence):
+    """A sequence encoded in the reduced physico-chemical amino-acid alphabet.
 
     Symbols are those produced by :data:`AMINO_ACID_TO_SIMPLE_AMINO_ACID`:
     ``l``, ``b``, ``m``, ``c``, ``s``, ``h``, ``G``, ``F``, ``P``, ``W``,
     ``Y``, ``X``, ``*``, ``_``.
 
     Instances are typically obtained via
-    :meth:`AminoAcidSequence.to_simple_amino_acid` rather than constructed
+    :meth:`AminoAcidSequence.to_reduced_amino_acid` rather than constructed
     directly.
 
     Class Attributes:
-        DEFAULT_ALPHABET (SequenceAlphabet): :data:`SIMPLE_AMINO_ACID_ALPHABET`.
+        DEFAULT_ALPHABET (SequenceAlphabet): :data:`REDUCED_AMINO_ACID_ALPHABET`.
     """
 
-    DEFAULT_ALPHABET = SIMPLE_AMINO_ACID_ALPHABET
+    DEFAULT_ALPHABET = REDUCED_AMINO_ACID_ALPHABET
+    MASK_SYMBOL = "X"
 
     def __init__(self, content: np.ndarray, alphabet: SequenceAlphabet = DEFAULT_ALPHABET) -> None:
-        """Construct a simple amino-acid sequence from a byte array.
+        """Construct a reduced amino-acid sequence from a byte array.
 
         Args:
             content:  One-dimensional ``S1``-dtype NumPy array.
             alphabet: Alphabet to validate against (defaults to
-                :data:`SIMPLE_AMINO_ACID_ALPHABET`).
+                :data:`REDUCED_AMINO_ACID_ALPHABET`).
         """
         super().__init__(content, alphabet)
 
@@ -366,16 +465,16 @@ class SimpleAminoAcidSequence(AlphabetSequence):
         sequence: str,
         alphabet: SequenceAlphabet = DEFAULT_ALPHABET,
     ) -> Self:
-        """Create a :class:`SimpleAminoAcidSequence` from a plain string.
+        """Create a :class:`ReducedAminoAcidSequence` from a plain string.
 
         Args:
             sequence: String using the reduced physico-chemical symbols
                 (e.g. ``"slhhllGGlhmcbllW"``).  All characters must belong
                 to *alphabet*.
-            alphabet: Defaults to :data:`SIMPLE_AMINO_ACID_ALPHABET`.
+            alphabet: Defaults to :data:`REDUCED_AMINO_ACID_ALPHABET`.
 
         Returns:
-            A new :class:`SimpleAminoAcidSequence` instance.
+            A new :class:`ReducedAminoAcidSequence` instance.
 
         Raises:
             ValueError: If *sequence* contains characters outside *alphabet*.
@@ -384,3 +483,8 @@ class SimpleAminoAcidSequence(AlphabetSequence):
         sequence_bytes = bytes(sz_sequence)
         array = np.frombuffer(memoryview(sequence_bytes), dtype="S1").copy()
         return cls(array, alphabet)
+
+
+
+#: Backwards-compatible class alias.
+SimpleAminoAcidSequence = ReducedAminoAcidSequence

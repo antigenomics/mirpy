@@ -6,10 +6,10 @@ Coverage:
                          substring slicing, length, and alphabet
                          rejection.
     NucleotideSequence  -- DNA string parsing and slicing.
-    AminoAcidSequence   -- protein string parsing, slicing, and
-                           conversion to the reduced alphabet.
-    SimpleAminoAcidSequence -- reduced-alphabet string parsing and
-                               slicing.
+    AminoAcidSequence     -- protein string parsing, slicing, reduction,
+                 and mask-aware matching.
+    ReducedAminoAcidSequence -- reduced-alphabet parsing, slicing,
+                  masking, and matching.
 """
 
 import unittest
@@ -19,8 +19,8 @@ import numpy as np
 from mir.basic.sequence import (
     AminoAcidSequence,
     NucleotideSequence,
+  ReducedAminoAcidSequence,
     SequenceAlphabet,
-    SimpleAminoAcidSequence,
 )
 
 
@@ -37,7 +37,7 @@ class TestAlphabetSequence(unittest.TestCase):
         * ``substring(start, stop)`` returns the expected subsequence for both
           :class:`NucleotideSequence` and :class:`AminoAcidSequence`.
         """
-        self.assertIs(NucleotideSequence.DEFAULT_ALPHABET, SequenceAlphabet(("A", "T", "G", "C")))
+        self.assertIs(NucleotideSequence.DEFAULT_ALPHABET, SequenceAlphabet(("A", "T", "G", "C", "N")))
 
         nt = NucleotideSequence.from_string("ATTAGACA")
         self.assertEqual(nt.to_string(), "ATTAGACA")
@@ -71,48 +71,97 @@ class TestAlphabetSequence(unittest.TestCase):
 
         self.assertEqual(NucleotideSequence.from_string("ATTAGACA").substring(0, 0).to_string(), "")
 
+        self.assertEqual(NucleotideSequence.from_string("ATN").to_string(), "ATN")
+
         with self.assertRaises(ValueError):
-            NucleotideSequence.from_string("ATU")
+          NucleotideSequence.from_string("ATU")
 
         with self.assertRaises(ValueError):
             AminoAcidSequence.from_string("B")
 
 
-class TestSimpleAminoAcidSequence(unittest.TestCase):
-    """Tests for :class:`~mir.basic.sequence.SimpleAminoAcidSequence` and AA conversion."""
+class TestReducedAminoAcidSequence(unittest.TestCase):
+    """Tests for :class:`~mir.basic.sequence.ReducedAminoAcidSequence` and AA conversion."""
 
-    def test_amino_acid_to_simple_conversion_and_match(self) -> None:
-        """``to_simple_amino_acid`` applies the physico-chemical grouping map correctly.
+    def test_amino_acid_to_reduced_conversion_and_match(self) -> None:
+        """Reduced conversion and matching respect mapping and masks.
 
         Verifies that:
-        * The reduced string produced by :meth:`AminoAcidSequence.to_simple_amino_acid`
+        * The reduced string produced by :meth:`AminoAcidSequence.to_reduced_amino_acid`
           matches the expected character-by-character mapping from
-          :data:`AMINO_ACID_TO_SIMPLE_AMINO_ACID`.
-        * :meth:`AminoAcidSequence.matches_simple_amino_acid` returns ``True``
-          for the sequence's own reduced form and ``False`` for an altered one.
+          :data:`AMINO_ACID_TO_REDUCED_AMINO_ACID`.
+        * :meth:`AminoAcidSequence.matches_reduced_amino_acid` returns ``True``
+          for the sequence's own reduced form and ``False`` for an altered one
+          at an unmasked position.
         """
         aa: AminoAcidSequence = AminoAcidSequence.from_string("CASTIVGGLSQDKIVW")
-        simple = aa.to_simple_amino_acid()
+        reduced = aa.to_reduced_amino_acid()
 
-        self.assertEqual(simple.to_string(), "slhhllGGlhmcbllW")
-        self.assertTrue(aa.matches_simple_amino_acid(simple))
-        self.assertFalse(aa.matches_simple_amino_acid(SimpleAminoAcidSequence.from_string("slhhllGGlhmcbllY")))
+        self.assertEqual(reduced.to_string(), "slhhllGGlhmcbllW")
+        self.assertTrue(aa.matches_reduced_amino_acid(reduced))
+        self.assertFalse(aa.matches_reduced_amino_acid(ReducedAminoAcidSequence.from_string("slhhllGGlhmcbllY")))
 
-    def test_simple_substrings(self) -> None:
-        """``substring`` on a :class:`SimpleAminoAcidSequence` slices correctly.
+        masked_aa = aa.mask(2)
+        self.assertTrue(masked_aa.matches_reduced_amino_acid(reduced))
+
+        masked_reduced = reduced.mask((2, 5))
+        self.assertTrue(aa.matches_reduced_amino_acid(masked_reduced))
+
+    def test_aa_to_reduced_backwards_compatible_aliases(self) -> None:
+        """Legacy simple-amino-acid aliases keep working."""
+        aa = AminoAcidSequence.from_string("CAST")
+        reduced = aa.to_simple_amino_acid()
+        self.assertIsInstance(reduced, ReducedAminoAcidSequence)
+        self.assertTrue(aa.matches_simple_amino_acid(reduced))
+
+    def test_reduced_substrings(self) -> None:
+        """``substring`` on a :class:`ReducedAminoAcidSequence` slices correctly.
 
         Verifies that:
         * A half-open slice returns the expected subsequence.
         * ``substring(start, None)`` slices through to the end of the sequence.
         * An out-of-alphabet character (``Z``) raises ``ValueError``.
         """
-        simple = SimpleAminoAcidSequence.from_string("slhhllGGlhmcbllW")
-        self.assertEqual(simple.substring(0, 4).to_string(), "slhh")
-        self.assertEqual(simple.substring(6, 8).to_string(), "GG")
-        self.assertEqual(simple.substring(11, None).to_string(), "cbllW")
+        reduced = ReducedAminoAcidSequence.from_string("slhhllGGlhmcbllW")
+        self.assertEqual(reduced.substring(0, 4).to_string(), "slhh")
+        self.assertEqual(reduced.substring(6, 8).to_string(), "GG")
+        self.assertEqual(reduced.substring(11, None).to_string(), "cbllW")
 
         with self.assertRaises(ValueError):
-            SimpleAminoAcidSequence.from_string("Z")
+            ReducedAminoAcidSequence.from_string("Z")
+
+
+class TestMaskAndMatch(unittest.TestCase):
+    """Tests for masking and wildcard-aware matching."""
+
+    def test_nucleotide_mask_single_and_range(self) -> None:
+        seq = NucleotideSequence.from_string("ATCGAT")
+        self.assertEqual(seq.mask(1).to_string(), "ANCGAT")
+        self.assertEqual(seq.mask((2, 5)).to_string(), "ATNNNT")
+        self.assertEqual(seq.mask(slice(0, 3)).to_string(), "NNNGAT")
+
+    def test_amino_and_reduced_mask_single_and_range(self) -> None:
+        aa = AminoAcidSequence.from_string("CASTIV")
+        reduced = ReducedAminoAcidSequence.from_string("slhhll")
+        self.assertEqual(aa.mask(0).to_string(), "XASTIV")
+        self.assertEqual(aa.mask((1, 4)).to_string(), "CXXXIV")
+        self.assertEqual(reduced.mask(slice(2, 5)).to_string(), "slXXXl")
+
+    def test_sequence_matching_ignores_mask_symbols(self) -> None:
+        nt1 = NucleotideSequence.from_string("ATCG")
+        nt2 = NucleotideSequence.from_string("ANNG")
+        self.assertTrue(nt1.matches(nt2))
+        self.assertFalse(nt1.matches(NucleotideSequence.from_string("ANNA")))
+
+        aa1 = AminoAcidSequence.from_string("CAST")
+        aa2 = AminoAcidSequence.from_string("XASX")
+        self.assertTrue(aa1.matches(aa2))
+        self.assertFalse(aa1.matches(AminoAcidSequence.from_string("XATX")))
+
+        red1 = ReducedAminoAcidSequence.from_string("slhh")
+        red2 = ReducedAminoAcidSequence.from_string("sXXh")
+        self.assertTrue(red1.matches(red2))
+        self.assertFalse(red1.matches(ReducedAminoAcidSequence.from_string("sXXY")))
 
 
 if __name__ == "__main__":
