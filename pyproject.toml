@@ -4,19 +4,22 @@ requires = [
   "pybind11",
   "numpy",
   "ninja"
-]
+]  
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "mirpy-lib"
-version = "1.0.0"
-authors = [{ name="antigenomics", email="elizaveta.k.vlasova@gmail.com" }]
+version = "0.1.3"
+authors = [
+  { name="VEK239", email="elizaveta.k.vlasova@gmail.com" },
+  { name="mikessh", email="mikhail.shugay@gmail.com"},
+]
 description = "A library for managing and analyzing immunosequencing data"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GPL-3.0 license",
   "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -32,9 +35,10 @@ dependencies = [
   "scikit-learn",
   "textdistance",
   "plotnine",
+  "stringzilla",
   "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy",
 ]
-license = {text = "MIT License"}
+license = {text = "GPL-3.0 license"}
 
 [project.urls]
 Homepage = "https://github.com/antigenomics/mirpy"
@@ -43,3 +47,4 @@ Issues   = "https://github.com/antigenomics/mirpy/issues"
 [tool.scikit-build]
 wheel.packages = ["mir"]
 logging.level = "INFO"
+

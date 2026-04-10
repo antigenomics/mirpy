@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(mir_cdrscore LANGUAGES CXX)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
-find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 
 pybind11_add_module(cdrscore MODULE mir/distances/cdrscore.cpp)
 target_compile_features(cdrscore PRIVATE cxx_std_17)
