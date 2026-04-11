@@ -1,4 +1,4 @@
-"""Benchmarks: C (mirseq) vs pure-Python for key operations.
+"""Benchmarks: C extensions vs pure-Python for key operations.
 
 Run with ``python -m pytest tests/test_mirseq_benchmark.py -v -s``.
 """
@@ -7,6 +7,7 @@ import time
 import unittest
 
 from mir.basic import mirseq
+from mir.distances import seqdist_c
 from mir.basic.alphabets import (
     AA_MASK,
     AA_TO_REDUCED_TABLE,
@@ -118,7 +119,7 @@ class TestBenchmarks(unittest.TestCase):
             return sum(c1 != c2 for c1, c2 in zip(s1, s2))
 
         py_t = _time_fn(py_hamming, a, b, n=n)
-        c_t = _time_fn(mirseq.hamming, a, b, n=n)
+        c_t = _time_fn(seqdist_c.hamming, a, b, n=n)
         self._report("hamming", py_t, c_t)
 
     # ── levenshtein ───────────────────────────────────────────────
@@ -140,7 +141,7 @@ class TestBenchmarks(unittest.TestCase):
             return prev[n_]
 
         py_t = _time_fn(py_levenshtein, a, b, n=n)
-        c_t = _time_fn(mirseq.levenshtein, a, b, n=n)
+        c_t = _time_fn(seqdist_c.levenshtein, a, b, n=n)
         self._report("levenshtein", py_t, c_t)
 
 

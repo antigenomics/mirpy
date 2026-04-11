@@ -1,5 +1,5 @@
 /*
- * mirseq — C-native sequence translation, tokenization, and distances.
+ * mirseq — C-native sequence translation and tokenization.
  *
  * Compiled as a pybind11 module.  All functions accept Python str or bytes
  * via py::bytes / std::string_view and return Python list[str] or list[bytes].
@@ -15,8 +15,6 @@
  *   tokenize_str(seq, k)             → list[str]    sliding window k-mers
  *   tokenize_gapped_bytes(seq,k,m)   → list[bytes]  gapped k-mers
  *   tokenize_gapped_str(seq,k,m)     → list[str]    gapped k-mers
- *   hamming(a, b)                    → int   hamming distance
- *   levenshtein(a, b)                → int   levenshtein distance
  */
 
 #include <pybind11/pybind11.h>
@@ -135,6 +133,16 @@ static py::str translate_linear(const py::object& obj) {
 
 /* ================================================================
  * Translation: bidirectional
+ *
+ * Inserts a full gap codon (NNN, which translates to '_') into the
+ * nucleotide sequence so that the total length becomes divisible by 3,
+ * then performs a standard linear translation.
+ *
+ * Gap position:
+ *   - Short sequences (< 27 nt): gap inserted in the middle
+ *     (after the first half of complete codons).
+ *   - Long sequences (>= 27 nt): gap inserted after the 4th codon
+ *     (position 12).
  * ================================================================ */
 
 static py::str translate_bidi(const py::object& obj) {
@@ -144,7 +152,7 @@ static py::str translate_bidi(const py::object& obj) {
 
     size_t remainder = n % 3;
     if (remainder == 0) {
-        // Exact multiple of 3: just translate linearly
+        // Exact multiple of 3: translate linearly, no gap needed
         size_t n_codons = n / 3;
         std::string result(n_codons, '\0');
         const char* s = sv.data;
@@ -155,42 +163,46 @@ static py::str translate_bidi(const py::object& obj) {
         return py::str(result);
     }
 
-    // Not multiple of 3: bidirectional with gap
-    size_t n_codons = n / 3;  // full codons available
-    // Determine forward and reverse codon counts
-    // For long sequences (>= 9 codons worth = 27 nt): gap after 4th codon from start
-    // For shorter sequences: gap in the middle
-    size_t fwd_codons, rev_codons;
-    if (n >= 9 * 3) {
+    // Insert a gap codon (NNN) to make length divisible by 3.
+    // Gap codon length = 3 - remainder
+    size_t gap_len = 3 - remainder;
+    size_t n_codons = n / 3;
+
+    // Determine insertion point (in nucleotide space)
+    size_t fwd_codons;
+    if (n >= 27) {
         fwd_codons = 4;
-        rev_codons = n_codons - 4;
     } else {
         fwd_codons = n_codons / 2;
-        rev_codons = n_codons - fwd_codons;
     }
+    size_t insert_pos = fwd_codons * 3;
 
-    // out_len = fwd + 1 (gap) + rev
-    size_t out_len = fwd_codons + 1 + rev_codons;
-    std::string result(out_len, '\0');
+    // Build padded sequence: [0..insert_pos) + NNN.. + [insert_pos..n)
+    size_t padded_len = n + gap_len;
+    // padded_len is now divisible by 3
+    size_t total_codons = padded_len / 3;
+    std::string result(total_codons, '\0');
     const char* s = sv.data;
 
-    // Forward codons from start
-    for (size_t i = 0; i < fwd_codons; ++i)
-        result[i] = translate_codon((unsigned char)s[i*3],
-                                     (unsigned char)s[i*3+1],
-                                     (unsigned char)s[i*3+2]);
-
-    // Gap
-    result[fwd_codons] = '_';
-
-    // Reverse codons from end
-    for (size_t i = 0; i < rev_codons; ++i) {
-        size_t nt_pos = n - (rev_codons - i) * 3;
-        result[fwd_codons + 1 + i] = translate_codon(
-            (unsigned char)s[nt_pos],
-            (unsigned char)s[nt_pos+1],
-            (unsigned char)s[nt_pos+2]);
+    // Translate codons from the padded sequence
+    for (size_t i = 0; i < total_codons; ++i) {
+        size_t nt_base = i * 3;
+        unsigned char c[3];
+        for (int b = 0; b < 3; ++b) {
+            size_t pos = nt_base + b;
+            if (pos < insert_pos)
+                c[b] = (unsigned char)s[pos];
+            else if (pos < insert_pos + gap_len)
+                c[b] = 'N';  // gap filler
+            else
+                c[b] = (unsigned char)s[pos - gap_len];
+        }
+        result[i] = translate_codon(c[0], c[1], c[2]);
     }
+    // The gap codon (any codon containing N) will produce 'X'.
+    // We want '_' for the gap, so fix it up:
+    // The gap codon is at index fwd_codons (the one that starts at insert_pos)
+    result[fwd_codons] = '_';
 
     return py::str(result);
 }
@@ -283,54 +295,11 @@ static py::list c_tokenize_gapped_str(const py::object& obj, int k, int mask_byt
 }
 
 /* ================================================================
- * Hamming distance
- * ================================================================ */
-
-static int c_hamming(const py::object& a, const py::object& b) {
-    auto sa = to_view(a);
-    auto sb = to_view(b);
-    if (sa.len != sb.len)
-        throw std::invalid_argument("sequences must have equal length for hamming distance");
-    int d = 0;
-    for (size_t i = 0; i < sa.len; ++i)
-        d += (sa.data[i] != sb.data[i]);
-    return d;
-}
-
-/* ================================================================
- * Levenshtein distance  (classic DP, two-row, O(min(m,n)) space)
- * ================================================================ */
-
-static int c_levenshtein(const py::object& a, const py::object& b) {
-    auto sa = to_view(a);
-    auto sb = to_view(b);
-    size_t m = sa.len, n = sb.len;
-    // Ensure m <= n for space optimisation
-    const char* s = sa.data;
-    const char* t = sb.data;
-    if (m > n) { std::swap(s, t); std::swap(m, n); }
-    std::vector<int> prev(m + 1), curr(m + 1);
-    for (size_t i = 0; i <= m; ++i) prev[i] = (int)i;
-    for (size_t j = 1; j <= n; ++j) {
-        curr[0] = (int)j;
-        for (size_t i = 1; i <= m; ++i) {
-            int cost = (s[i-1] != t[j-1]) ? 1 : 0;
-            int del_ = prev[i] + 1;
-            int ins  = curr[i-1] + 1;
-            int sub  = prev[i-1] + cost;
-            curr[i] = std::min({del_, ins, sub});
-        }
-        std::swap(prev, curr);
-    }
-    return prev[m];
-}
-
-/* ================================================================
  * Module definition
  * ================================================================ */
 
 PYBIND11_MODULE(mirseq, m) {
-    m.doc() = "C-native sequence translation, tokenization, and distances";
+    m.doc() = "C-native sequence translation and tokenization";
 
     // Translation
     m.def("translate_linear", &translate_linear,
@@ -356,12 +325,4 @@ PYBIND11_MODULE(mirseq, m) {
     m.def("tokenize_gapped_str", &c_tokenize_gapped_str,
           py::arg("seq"), py::arg("k"), py::arg("mask_byte"),
           "Gapped k-mers (each position masked) as list[str]");
-
-    // Distances
-    m.def("hamming", &c_hamming,
-          py::arg("a"), py::arg("b"),
-          "Hamming distance between two equal-length sequences");
-    m.def("levenshtein", &c_levenshtein,
-          py::arg("a"), py::arg("b"),
-          "Levenshtein (edit) distance between two sequences");
 }
