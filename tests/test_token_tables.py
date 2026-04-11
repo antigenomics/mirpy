@@ -27,7 +27,7 @@ def _make_rearrangement(
     junction_aa: str = "CASSLAPGATNEKLFF",
     *,
     locus: str = "TRB",
-    id: str = "r1",
+    id: int = 1,
     v_gene: str = "TRBV5-1",
     c_gene: str = "TRBC1",
     duplicate_count: int = 10,
@@ -49,7 +49,7 @@ class TestRearrangement:
 
     def test_fields(self):
         r = _make_rearrangement()
-        assert r.id == "r1"
+        assert r.id == 1
         assert r.v_gene == "TRBV5-1"
         assert r.c_gene == "TRBC1"
 
@@ -113,8 +113,8 @@ class TestTokenizeRearrangements:
 
     def test_multiple_rearrangements_shared_kmer(self):
         """Two rearrangements sharing a k-mer both appear in the list."""
-        r1 = _make_rearrangement("CASSLA", id="r1")
-        r2 = _make_rearrangement("CASSXY", id="r2")
+        r1 = _make_rearrangement("CASSLA", id=1)
+        r2 = _make_rearrangement("CASSXY", id=2)
         idx = tokenize_rearrangements([r1, r2], k=4)
         shared = Kmer("TRB", "TRBV5-1", "TRBC1", b"CASS")
         assert shared in idx
@@ -133,8 +133,8 @@ class TestTokenizeRearrangements:
         assert idx == {}
 
     def test_different_loci(self):
-        r_trb = Rearrangement("TRB", "r1", "TRBV5-1", "TRBC1", "CASSLA", 1)
-        r_tra = Rearrangement("TRA", "r2", "TRAV12", "TRAC", "CASSLA", 1)
+        r_trb = Rearrangement("TRB", 1, "TRBV5-1", "TRBC1", "CASSLA", 1)
+        r_tra = Rearrangement("TRA", 2, "TRAV12", "TRAC", "CASSLA", 1)
         idx = tokenize_rearrangements([r_trb, r_tra], k=4)
         key_trb = Kmer("TRB", "TRBV5-1", "TRBC1", b"CASS")
         key_tra = Kmer("TRA", "TRAV12", "TRAC", b"CASS")
@@ -177,7 +177,7 @@ class TestTokenizeRearrangementsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement("TRB", f"r{i}", "TRBV5-1", "TRBC1",
+            Rearrangement("TRB", i, "TRBV5-1", "TRBC1",
                           self.JUNCTION, 10)
             for i in range(self.N)
         ]
@@ -278,8 +278,8 @@ class TestSummarizeRearrangements:
             assert v.duplicate_count == 5
 
     def test_two_rearrangements_shared_kmer(self):
-        r1 = _make_rearrangement("CASSLA", id="r1", duplicate_count=3)
-        r2 = _make_rearrangement("CASSXY", id="r2", duplicate_count=7)
+        r1 = _make_rearrangement("CASSLA", id=1, duplicate_count=3)
+        r2 = _make_rearrangement("CASSXY", id=2, duplicate_count=7)
         stats = summarize_rearrangements([r1, r2], k=4)
         shared = Kmer("TRB", "TRBV5-1", "TRBC1", b"CASS")
         assert shared in stats
@@ -287,8 +287,8 @@ class TestSummarizeRearrangements:
         assert stats[shared].duplicate_count == 10  # 3 + 7
 
     def test_unique_kmers(self):
-        r1 = _make_rearrangement("CASSLA", id="r1", duplicate_count=2)
-        r2 = _make_rearrangement("CASSXY", id="r2", duplicate_count=8)
+        r1 = _make_rearrangement("CASSLA", id=1, duplicate_count=2)
+        r2 = _make_rearrangement("CASSXY", id=2, duplicate_count=8)
         stats = summarize_rearrangements([r1, r2], k=4)
         unique_r1 = Kmer("TRB", "TRBV5-1", "TRBC1", b"SSLA")
         unique_r2 = Kmer("TRB", "TRBV5-1", "TRBC1", b"SSXY")
@@ -303,8 +303,8 @@ class TestSummarizeRearrangements:
         assert summarize_rearrangements([r], k=5) == {}
 
     def test_different_loci_separate(self):
-        r1 = Rearrangement("TRB", "r1", "V1", "C1", "CASSLA", 1)
-        r2 = Rearrangement("TRA", "r2", "V2", "C2", "CASSLA", 4)
+        r1 = Rearrangement("TRB", 1, "V1", "C1", "CASSLA", 1)
+        r2 = Rearrangement("TRA", 2, "V2", "C2", "CASSLA", 4)
         stats = summarize_rearrangements([r1, r2], k=4)
         k_trb = Kmer("TRB", "V1", "C1", b"CASS")
         k_tra = Kmer("TRA", "V2", "C2", b"CASS")
@@ -324,8 +324,8 @@ class TestSummarizeRearrangements:
             assert key.seq.count(MASK) == 1
 
     def test_gapped_shared_summary(self):
-        r1 = _make_rearrangement("CASSLA", id="r1", duplicate_count=2)
-        r2 = _make_rearrangement("CASSXY", id="r2", duplicate_count=3)
+        r1 = _make_rearrangement("CASSLA", id=1, duplicate_count=2)
+        r2 = _make_rearrangement("CASSXY", id=2, duplicate_count=3)
         stats = summarize_rearrangements([r1, r2], k=4, mask_byte=MASK)
         # Both produce gapped XASS from window CASS
         shared = Kmer("TRB", "TRBV5-1", "TRBC1", b"XASS")
@@ -346,7 +346,7 @@ class TestSummarizeRearrangementsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement("TRB", f"r{i}", "TRBV5-1", "TRBC1",
+            Rearrangement("TRB", i, "TRBV5-1", "TRBC1",
                           self.JUNCTION, 10)
             for i in range(self.N)
         ]
@@ -394,8 +394,8 @@ class TestSummarizeAnnotations:
     def test_different_genes_merge_under_same_kmer_seq(self):
         """Same locus+seq but different v_gene → single KmerSeq key,
         two KmerAnnotation entries."""
-        r1 = Rearrangement("TRB", "r1", "TRBV5-1", "TRBC1", "CASSLA", 3)
-        r2 = Rearrangement("TRB", "r2", "TRBV6-2", "TRBC2", "CASSLA", 7)
+        r1 = Rearrangement("TRB", 1, "TRBV5-1", "TRBC1", "CASSLA", 3)
+        r2 = Rearrangement("TRB", 2, "TRBV6-2", "TRBC2", "CASSLA", 7)
         ann = summarize_annotations([r1, r2], k=4)
         ks = KmerSeq("TRB", b"CASS")
         assert ks in ann
@@ -406,8 +406,8 @@ class TestSummarizeAnnotations:
         assert a2 in inner and inner[a2] == KmerStats(1, 7)
 
     def test_different_loci_separate(self):
-        r_trb = Rearrangement("TRB", "r1", "V1", "C1", "CASSLA", 1)
-        r_tra = Rearrangement("TRA", "r2", "V2", "C2", "CASSLA", 4)
+        r_trb = Rearrangement("TRB", 1, "V1", "C1", "CASSLA", 1)
+        r_tra = Rearrangement("TRA", 2, "V2", "C2", "CASSLA", 4)
         ann = summarize_annotations([r_trb, r_tra], k=4)
         ks_trb = KmerSeq("TRB", b"CASS")
         ks_tra = KmerSeq("TRA", b"CASS")
@@ -418,8 +418,8 @@ class TestSummarizeAnnotations:
     def test_shared_kmer_same_gene_accumulates(self):
         """Two rearrangements with identical gene annotations at same position
         accumulate counts."""
-        r1 = _make_rearrangement("CASSLA", id="r1", duplicate_count=2)
-        r2 = _make_rearrangement("CASSXY", id="r2", duplicate_count=8)
+        r1 = _make_rearrangement("CASSLA", id=1, duplicate_count=2)
+        r2 = _make_rearrangement("CASSXY", id=2, duplicate_count=8)
         ann = summarize_annotations([r1, r2], k=4)
         ks = KmerSeq("TRB", b"CASS")
         a = KmerAnnotation("TRBV5-1", "TRBC1", 0)
@@ -464,8 +464,8 @@ class TestSummarizeAnnotations:
     def test_gapped_different_genes_merge(self):
         """Gapped: different v_gene rearrangements with same locus+seq
         merge under one KmerSeq."""
-        r1 = Rearrangement("TRB", "r1", "TRBV5-1", "TRBC1", "CASSLA", 2)
-        r2 = Rearrangement("TRB", "r2", "TRBV6-2", "TRBC2", "CASSLA", 3)
+        r1 = Rearrangement("TRB", 1, "TRBV5-1", "TRBC1", "CASSLA", 2)
+        r2 = Rearrangement("TRB", 2, "TRBV6-2", "TRBC2", "CASSLA", 3)
         ann = summarize_annotations([r1, r2], k=4, mask_byte=MASK)
         ks = KmerSeq("TRB", b"XASS")
         assert ks in ann
@@ -488,7 +488,7 @@ class TestSummarizeAnnotationsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement("TRB", f"r{i}", "TRBV5-1", "TRBC1",
+            Rearrangement("TRB", i, "TRBV5-1", "TRBC1",
                           self.JUNCTION, 10)
             for i in range(self.N)
         ]
@@ -527,7 +527,7 @@ class TestOlgaKmerSummary:
         return [
             Rearrangement(
                 locus="TRB",
-                id=f"olga_{i}",
+                id=i,
                 v_gene=rec["v_gene"].split("*")[0],  # strip allele
                 c_gene="",
                 junction_aa=rec["cdr3"],
