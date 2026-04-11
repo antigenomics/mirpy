@@ -1,16 +1,18 @@
-"""Unit tests for the ``mirseq`` C extension and ``alphabets`` module.
+"""Unit tests for the ``mirseq`` C extension.
 
 Covers:
   - Codon translation: linear and bidirectional (comprehensive)
+  - BioPython cross-checks for translation
   - AA → reduced alphabet (C and Python paths)
   - Tokenization: plain bytes/str, gapped bytes/str
-  - Distances: Hamming, Levenshtein
   - Cross-checking against tokens.py wrappers
 
 Run with ``python -m pytest tests/test_mirseq.py -v``.
 """
 
 import unittest
+
+from Bio.Seq import Seq as BioSeq
 
 from mir.basic import mirseq
 from mir.basic.alphabets import (
@@ -25,7 +27,6 @@ from mir.basic.tokens import (
     tokenize_str as py_tokenize_str,
     tokenize_gapped_str as py_tokenize_gapped_str,
 )
-from mir.distances.seqdist import hamming, levenshtein
 
 
 # ── helpers ────────────────────────────────────────────────────────
@@ -61,23 +62,30 @@ def _py_translate_linear(nt: str) -> str:
 
 
 def _py_translate_bidi(nt: str) -> str:
+    """Reference: insert gap nucleotides then translate linearly.
+
+    Gap length = 3 - (len % 3) nucleotides (N's), inserted after
+    fwd_codons * 3 position. The gap codon translates to '_'.
+    """
     n = len(nt)
     if n == 0:
         return ""
     if n % 3 == 0:
         return _py_translate_linear(nt)
+    remainder = n % 3
+    gap_len = 3 - remainder
     n_codons = n // 3
     fwd_codons = 4 if n >= 27 else n_codons // 2
-    rev_codons = n_codons - fwd_codons
+    insert_pos = fwd_codons * 3
+    # Build padded sequence
+    padded = nt[:insert_pos] + "N" * gap_len + nt[insert_pos:]
+    # Translate linearly — all codons are now complete
     result = []
-    for i in range(fwd_codons):
-        codon = nt[i * 3:i * 3 + 3]
+    for i in range(0, len(padded), 3):
+        codon = padded[i:i + 3]
         result.append("X" if "N" in codon else _CODON_MAP[codon])
-    result.append("_")
-    for i in range(rev_codons):
-        pos = n - (rev_codons - i) * 3
-        codon = nt[pos:pos + 3]
-        result.append("X" if "N" in codon else _CODON_MAP[codon])
+    # Replace the gap codon (at fwd_codons) with '_'
+    result[fwd_codons] = "_"
     return "".join(result)
 
 
@@ -127,6 +135,30 @@ class TestTranslateLinear(unittest.TestCase):
             with self.subTest(seq=seq):
                 self.assertEqual(
                     mirseq.translate_linear(seq), _py_translate_linear(seq))
+
+    def test_cross_check_biopython(self) -> None:
+        """Verify translate_linear matches BioPython Seq.translate() for
+        complete-codon sequences (BioPython doesn't produce '_' for
+        incomplete trailing codons)."""
+        seqs = ["ATGGCTTGA", "TTTTTCTTATTG", "GCAGCCGCGGCG",
+                "TAATGATAG", "ATGATGATGATGATGATGATG",
+                "TGTTGCTGATGG"]
+        for seq in seqs:
+            with self.subTest(seq=seq):
+                # Only compare the full-codon portion
+                n_full = (len(seq) // 3) * 3
+                full_seq = seq[:n_full]
+                bio_result = str(BioSeq(full_seq).translate())
+                mirseq_result = mirseq.translate_linear(full_seq)
+                self.assertEqual(mirseq_result, bio_result)
+
+    def test_cross_check_biopython_all_codons(self) -> None:
+        """Verify every codon matches BioPython."""
+        for codon in _CODON_MAP:
+            with self.subTest(codon=codon):
+                self.assertEqual(
+                    mirseq.translate_linear(codon),
+                    str(BioSeq(codon).translate()))
 
 
 # ── Translation: bidirectional (comprehensive) ────────────────────
@@ -254,6 +286,49 @@ class TestTranslateBidi(unittest.TestCase):
             with self.subTest(length=length):
                 self.assertEqual(
                     mirseq.translate_bidi(nt), _py_translate_bidi(nt))
+
+    # -- cross-check bidi against BioPython -----------------------------
+
+    def test_bidi_vs_biopython(self) -> None:
+        """For divisible-by-3 sequences, bidi == linear == BioPython."""
+        seqs = ["ATG" * 3, "ATG" * 9, "ATGGCTTGA", "TTTTTCTTATTG"]
+        for seq in seqs:
+            with self.subTest(seq=seq):
+                self.assertEqual(
+                    mirseq.translate_bidi(seq),
+                    str(BioSeq(seq).translate()))
+
+    def test_bidi_flanks_vs_biopython(self) -> None:
+        """Non-gap codons in bidi output match BioPython translation of
+        those same nucleotide regions."""
+        nt_base = "ATGGCTTGAAACTAAGTTTTTCATA" * 3
+        for length in range(4, 50):
+            nt = nt_base[:length]
+            if length % 3 == 0:
+                continue
+            remainder = length % 3
+            gap_len = 3 - remainder
+            n_codons = length // 3
+            fwd_codons = 4 if length >= 27 else n_codons // 2
+            with self.subTest(length=length):
+                result = mirseq.translate_bidi(nt)
+                # Check forward flanking codons against BioPython
+                fwd_nt = nt[:fwd_codons * 3]
+                if fwd_nt:
+                    self.assertEqual(
+                        result[:fwd_codons],
+                        str(BioSeq(fwd_nt).translate()))
+                # Check reverse flanking codons against BioPython
+                rev_start = fwd_codons * 3
+                rev_nt = nt[rev_start:]
+                # After gap insertion, the reverse portion starts at a new
+                # codon boundary; extract the codons from end
+                rev_codons = n_codons - fwd_codons
+                rev_nt_from_end = nt[length - rev_codons * 3:]
+                if rev_nt_from_end:
+                    self.assertEqual(
+                        result[fwd_codons + 1:],
+                        str(BioSeq(rev_nt_from_end).translate()))
 
     # -- structural properties ------------------------------------------
 
@@ -416,71 +491,6 @@ class TestTokenizeGappedStr(unittest.TestCase):
         self.assertEqual(
             mirseq.tokenize_gapped_str("CASSL", 3, AA_MASK),
             py_tokenize_gapped_str("CASSL", 3, "X"))
-
-
-# ── Hamming distance ──────────────────────────────────────────────
-
-class TestHamming(unittest.TestCase):
-
-    def test_identical(self) -> None:
-        self.assertEqual(mirseq.hamming("CAST", "CAST"), 0)
-
-    def test_one_mismatch(self) -> None:
-        self.assertEqual(mirseq.hamming("CAST", "CAAT"), 1)
-
-    def test_all_mismatch(self) -> None:
-        self.assertEqual(mirseq.hamming("AAAA", "TTTT"), 4)
-
-    def test_empty(self) -> None:
-        self.assertEqual(mirseq.hamming("", ""), 0)
-
-    def test_length_mismatch_raises(self) -> None:
-        with self.assertRaises(Exception):
-            mirseq.hamming("ABC", "AB")
-
-    def test_bytes_input(self) -> None:
-        self.assertEqual(mirseq.hamming(b"CAST", b"CAAT"), 1)
-
-    def test_wrapper(self) -> None:
-        self.assertEqual(hamming("CAST", "CAAT"), 1)
-
-
-# ── Levenshtein distance ─────────────────────────────────────────
-
-class TestLevenshtein(unittest.TestCase):
-
-    def test_classic(self) -> None:
-        self.assertEqual(mirseq.levenshtein("kitten", "sitting"), 3)
-
-    def test_identical(self) -> None:
-        self.assertEqual(mirseq.levenshtein("CAST", "CAST"), 0)
-
-    def test_insertion(self) -> None:
-        self.assertEqual(mirseq.levenshtein("ABC", "ABCD"), 1)
-
-    def test_deletion(self) -> None:
-        self.assertEqual(mirseq.levenshtein("ABCD", "ABC"), 1)
-
-    def test_substitution(self) -> None:
-        self.assertEqual(mirseq.levenshtein("ABC", "AXC"), 1)
-
-    def test_empty_vs_nonempty(self) -> None:
-        self.assertEqual(mirseq.levenshtein("", "ABC"), 3)
-        self.assertEqual(mirseq.levenshtein("ABC", ""), 3)
-
-    def test_both_empty(self) -> None:
-        self.assertEqual(mirseq.levenshtein("", ""), 0)
-
-    def test_bytes_input(self) -> None:
-        self.assertEqual(mirseq.levenshtein(b"kitten", b"sitting"), 3)
-
-    def test_wrapper(self) -> None:
-        self.assertEqual(levenshtein("kitten", "sitting"), 3)
-
-    def test_symmetric(self) -> None:
-        self.assertEqual(
-            mirseq.levenshtein("CASSL", "CASSQL"),
-            mirseq.levenshtein("CASSQL", "CASSL"))
 
 
 if __name__ == "__main__":

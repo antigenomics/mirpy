@@ -17,6 +17,19 @@ set_target_properties(cdrscore PROPERTIES
 )
 install(TARGETS cdrscore LIBRARY DESTINATION mir/distances)
 
+# --- seqdist_c (mir.distances) ---
+pybind11_add_module(seqdist_c MODULE mir/distances/seqdist.cpp)
+target_compile_features(seqdist_c PRIVATE cxx_std_17)
+if (MSVC)
+  target_compile_options(seqdist_c PRIVATE /O2 /DNOMINMAX)
+else()
+  target_compile_options(seqdist_c PRIVATE -O3)
+endif()
+set_target_properties(seqdist_c PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mir/distances"
+)
+install(TARGETS seqdist_c LIBRARY DESTINATION mir/distances)
+
 # --- mirseq (mir.basic) ---
 pybind11_add_module(mirseq MODULE mir/basic/mirseq.cpp)
 target_compile_features(mirseq PRIVATE cxx_std_17)

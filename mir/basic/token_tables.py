@@ -22,6 +22,10 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from mir.basic.alphabets import Seq, _to_bytes
+from mir.basic.mirseq import (
+    tokenize_bytes as _c_tokenize_bytes,
+    tokenize_gapped_bytes as _c_tokenize_gapped_bytes,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,22 +117,27 @@ class KmerStats(NamedTuple):
 # ---------------------------------------------------------------------------
 
 def _plain_kmers(raw: bytes, k: int) -> list[tuple[bytes, int]]:
-    """Overlapping k-mers from *raw* with their start positions."""
-    return [(raw[i : i + k], i) for i in range(len(raw) - k + 1)]
+    """Overlapping k-mers from *raw* with their start positions.
+
+    Delegates to the C extension for the k-mer extraction.
+    """
+    kmers = _c_tokenize_bytes(raw, k)
+    return [(kmer, i) for i, kmer in enumerate(kmers)]
 
 
 def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]:
-    """Gapped k-mers (each position masked once) with window start positions."""
-    n = len(raw)
-    n_windows = n - k + 1
-    buf = bytearray(k)
+    """Gapped k-mers (each position masked once) with window start positions.
+
+    Delegates to the C extension for the gapped k-mer extraction.
+    """
+    gapped = _c_tokenize_gapped_bytes(raw, k, mask_byte)
+    n_windows = len(raw) - k + 1
     result: list[tuple[bytes, int]] = []
+    idx = 0
     for i in range(n_windows):
-        window = raw[i : i + k]
-        for j in range(k):
-            buf[:] = window
-            buf[j] = mask_byte
-            result.append((bytes(buf), i))
+        for _ in range(k):
+            result.append((gapped[idx], i))
+            idx += 1
     return result
 
 

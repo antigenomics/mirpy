@@ -1,4 +1,4 @@
-"""Thin Python wrappers around the C-native distance functions in ``mirseq``.
+"""Thin Python wrappers around the C-native distance functions in ``seqdist_c``.
 
 Functions
 ---------
@@ -9,7 +9,7 @@ Functions
 from __future__ import annotations
 
 from mir.basic.alphabets import Seq
-from mir.basic.mirseq import hamming as _c_hamming, levenshtein as _c_levenshtein
+from mir.distances.seqdist_c import hamming as _c_hamming, levenshtein as _c_levenshtein
 
 
 def hamming(a: Seq, b: Seq) -> int:
