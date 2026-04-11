@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.18)
-project(mir_cdrscore LANGUAGES CXX)
+project(mir_native LANGUAGES CXX)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
 
+# --- cdrscore (mir.distances) ---
 pybind11_add_module(cdrscore MODULE mir/distances/cdrscore.cpp)
 target_compile_features(cdrscore PRIVATE cxx_std_17)
 if (MSVC)
@@ -11,8 +12,20 @@ if (MSVC)
 else()
   target_compile_options(cdrscore PRIVATE -O3)
 endif()
-
 set_target_properties(cdrscore PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mir/distances"
 )
 install(TARGETS cdrscore LIBRARY DESTINATION mir/distances)
+
+# --- mirseq (mir.basic) ---
+pybind11_add_module(mirseq MODULE mir/basic/mirseq.cpp)
+target_compile_features(mirseq PRIVATE cxx_std_17)
+if (MSVC)
+  target_compile_options(mirseq PRIVATE /O2 /DNOMINMAX)
+else()
+  target_compile_options(mirseq PRIVATE -O3)
+endif()
+set_target_properties(mirseq PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mir/basic"
+)
+install(TARGETS mirseq LIBRARY DESTINATION mir/basic)
