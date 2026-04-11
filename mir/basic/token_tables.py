@@ -32,6 +32,14 @@ class Rearrangement:
     """Immune receptor rearrangement with minimal annotation.
 
     Uses ``__slots__`` for memory efficiency.
+
+    Attributes:
+        locus: Chain locus (e.g. ``"TRB"``, ``"TRA"``).
+        id: Unique integer identifier.
+        v_gene: Variable gene name.
+        c_gene: Constant gene name.
+        junction_aa: Amino-acid junction (CDR3) sequence.
+        duplicate_count: Number of duplicate reads.
     """
 
     __slots__ = ("locus", "id", "v_gene", "c_gene", "junction_aa",
@@ -40,7 +48,7 @@ class Rearrangement:
     def __init__(
         self,
         locus: str,
-        id: str,
+        id: int,
         v_gene: str,
         c_gene: str,
         junction_aa: str,
@@ -89,7 +97,12 @@ class KmerAnnotation(NamedTuple):
 
 
 class KmerStats(NamedTuple):
-    """Aggregate statistics for a single k-mer (or annotation bucket)."""
+    """Aggregate statistics for a single k-mer (or annotation bucket).
+
+    Attributes:
+        rearrangement_count: Number of *unique* rearrangement IDs.
+        duplicate_count: Sum of ``Rearrangement.duplicate_count``.
+    """
 
     rearrangement_count: int
     duplicate_count: int
@@ -175,8 +188,8 @@ def summarize_rearrangements(
 
     For each :class:`Kmer` the result contains:
 
-    * ``rearrangement_count`` — number of rearrangements contributing
-      that k-mer.
+    * ``rearrangement_count`` — number of *unique* rearrangement IDs
+      contributing that k-mer.
     * ``duplicate_count`` — sum of :attr:`Rearrangement.duplicate_count`
       across those rearrangements.
 
@@ -190,7 +203,7 @@ def summarize_rearrangements(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    counts: dict[Kmer, int] = {}
+    ids: dict[Kmer, set[int]] = {}
     dups: dict[Kmer, int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -199,13 +212,19 @@ def summarize_rearrangements(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
+        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
         for s, _pos in pairs:
             key = Kmer(locus, v_gene, c_gene, s)
-            counts[key] = counts.get(key, 0) + 1
-            dups[key] = dups.get(key, 0) + dc
-    return {k: KmerStats(counts[k], dups[k]) for k in counts}
+            id_set = ids.get(key)
+            if id_set is None:
+                ids[key] = {rid}
+                dups[key] = dc
+            else:
+                id_set.add(rid)
+                dups[key] += dc
+    return {k: KmerStats(len(ids[k]), dups[k]) for k in ids}
 
 
 def summarize_annotations(
@@ -219,7 +238,8 @@ def summarize_annotations(
     The outer key is a :class:`KmerSeq` — just locus and k-mer bytes,
     ignoring gene annotation.  The inner dict maps each unique
     :class:`KmerAnnotation` (v_gene, c_gene, position) to a
-    :class:`KmerStats` holding rearrangement_count and duplicate_count.
+    :class:`KmerStats` holding rearrangement_count (unique IDs) and
+    duplicate_count.
 
     Args:
         rearrangements: Input rearrangements.
@@ -231,8 +251,7 @@ def summarize_annotations(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    # Accumulate into flat (KmerSeq, KmerAnnotation) → (count, dup_sum)
-    counts: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
+    ids: dict[tuple[KmerSeq, KmerAnnotation], set[int]] = {}
     dups: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -241,20 +260,26 @@ def summarize_annotations(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
+        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
         for s, pos in pairs:
             ks = KmerSeq(locus, s)
             ka = KmerAnnotation(v_gene, c_gene, pos)
             flat_key = (ks, ka)
-            counts[flat_key] = counts.get(flat_key, 0) + 1
-            dups[flat_key] = dups.get(flat_key, 0) + dc
+            id_set = ids.get(flat_key)
+            if id_set is None:
+                ids[flat_key] = {rid}
+                dups[flat_key] = dc
+            else:
+                id_set.add(rid)
+                dups[flat_key] += dc
     # Pivot into nested dict
     result: dict[KmerSeq, dict[KmerAnnotation, KmerStats]] = {}
-    for (ks, ka), cnt in counts.items():
+    for (ks, ka), id_set in ids.items():
         inner = result.get(ks)
         if inner is None:
             inner = {}
             result[ks] = inner
-        inner[ka] = KmerStats(cnt, dups[(ks, ka)])
+        inner[ka] = KmerStats(len(id_set), dups[(ks, ka)])
     return result
