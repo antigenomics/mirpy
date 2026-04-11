@@ -336,10 +336,15 @@ class RepertoireDataset:
         maxInsertion: int = 0,
         maxDeletion: int = 0,
         maxEdits: int | None = None,
-        vGeneFilter: str | None = None,
-        jGeneFilter: str | None = None,
+        vGeneFilter: list[str] | None = None,
+        jGeneFilter: list[str] | None = None,
         show_progress: bool = True,
     ):
+        if vGeneFilter is not None and len(vGeneFilter) != len(cluster):
+            raise ValueError("vGeneFilter length must match cluster length")
+        if jGeneFilter is not None and len(jGeneFilter) != len(cluster):
+            raise ValueError("jGeneFilter length must match cluster length")
+
         per_rep_results = []
         per_rep_uniques: list[set[tuple[str, str, str]]] = []
         union_uniques: set[tuple[str, str, str]] = set()
