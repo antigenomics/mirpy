@@ -1,128 +1,108 @@
-"""Unit tests for :mod:`mir.basic.tokens`."""
+"""Unit tests for :mod:`mir.basic.tokens` functions."""
 
 import unittest
 
-import numpy as np
-
-from mir.basic.sequence import (
-    AminoAcidSequence,
-    NucleotideSequence,
-    ReducedAminoAcidSequence,
-)
-from mir.basic.tokens import tokenize
+from mir.basic.sequence import AA_MASK, NT_MASK, REDUCED_AA_MASK, matches
+from mir.basic.tokens import tokenize, tokenize_gapped, tokenize_gapped_str, tokenize_str
 
 
-def _strs(seqs):
-    """Helper: list of sequences → list of str."""
-    return [s.to_string() for s in seqs]
+class TestTokenize(unittest.TestCase):
+    """Plain k-mer extraction (bytes output)."""
 
+    def test_aa_k3(self) -> None:
+        self.assertEqual(tokenize("CASSL", 3), [b"CAS", b"ASS", b"SSL"])
 
-class TestTokenizePlain(unittest.TestCase):
-    """Plain (non-gapped) k-mer extraction."""
-
-    def test_amino_acid_k3(self) -> None:
-        """CASSL → CAS ASS SSL."""
-        aa = AminoAcidSequence.from_string("CASSL")
-        kmers = tokenize(aa, k=3)
-        self.assertEqual(_strs(kmers), ["CAS", "ASS", "SSL"])
-        self.assertIsInstance(kmers[0], AminoAcidSequence)
-
-    def test_nucleotide_k4(self) -> None:
-        nt = NucleotideSequence.from_string("ATCGAT")
-        kmers = tokenize(nt, k=4)
-        self.assertEqual(_strs(kmers), ["ATCG", "TCGA", "CGAT"])
-        self.assertIsInstance(kmers[0], NucleotideSequence)
+    def test_nt_k4(self) -> None:
+        self.assertEqual(tokenize("ATCGAT", 4), [b"ATCG", b"TCGA", b"CGAT"])
 
     def test_reduced_k2(self) -> None:
-        red = ReducedAminoAcidSequence.from_string("slhh")
-        kmers = tokenize(red, k=2)
-        self.assertEqual(_strs(kmers), ["sl", "lh", "hh"])
+        self.assertEqual(tokenize("slhh", 2), [b"sl", b"lh", b"hh"])
 
     def test_k_equals_length(self) -> None:
-        """When k == len, a single k-mer equal to the sequence is returned."""
-        aa = AminoAcidSequence.from_string("CAST")
-        kmers = tokenize(aa, k=4)
-        self.assertEqual(len(kmers), 1)
-        self.assertEqual(kmers[0], aa)
+        self.assertEqual(tokenize("CAST", 4), [b"CAST"])
 
     def test_k_equals_one(self) -> None:
-        nt = NucleotideSequence.from_string("ATG")
-        kmers = tokenize(nt, k=1)
-        self.assertEqual(_strs(kmers), ["A", "T", "G"])
+        self.assertEqual(tokenize("ATG", 1), [b"A", b"T", b"G"])
+
+    def test_bytes_input(self) -> None:
+        self.assertEqual(tokenize(b"CASSL", 3), [b"CAS", b"ASS", b"SSL"])
+
+    def test_bytearray_input(self) -> None:
+        self.assertEqual(tokenize(bytearray(b"ATG"), 1), [b"A", b"T", b"G"])
 
     def test_invalid_k(self) -> None:
-        aa = AminoAcidSequence.from_string("CAST")
         with self.assertRaises(ValueError):
-            tokenize(aa, k=0)
+            tokenize("CAST", 0)
         with self.assertRaises(ValueError):
-            tokenize(aa, k=5)
+            tokenize("CAST", 5)
 
-    def test_kmers_are_independent_copies(self) -> None:
-        """Returned k-mers own their data and don't share buffers."""
-        aa = AminoAcidSequence.from_string("CASSL")
-        kmers = tokenize(aa, k=3)
-        self.assertFalse(np.shares_memory(kmers[0].data, kmers[1].data))
+
+class TestTokenizeStr(unittest.TestCase):
+    """Plain k-mer extraction (str output)."""
+
+    def test_basic(self) -> None:
+        self.assertEqual(tokenize_str("CASSL", 3), ["CAS", "ASS", "SSL"])
+
+    def test_bytes_input(self) -> None:
+        self.assertEqual(tokenize_str(b"ATG", 1), ["A", "T", "G"])
 
 
 class TestTokenizeGapped(unittest.TestCase):
-    """Gapped k-mer extraction (single-position mask variants)."""
+    """Gapped k-mer extraction (bytes output)."""
 
-    def test_amino_acid_gapped_k3(self) -> None:
-        """CASSL → 3 windows × 3 gap positions = 9 gapped k-mers."""
-        aa = AminoAcidSequence.from_string("CASSL")
-        gapped = tokenize(aa, k=3, gapped=True)
+    def test_aa_gapped_k3(self) -> None:
+        gapped = tokenize_gapped("CASSL", 3, AA_MASK)
         self.assertEqual(len(gapped), 9)
         expected = [
-            # window CAS
-            "XAS", "CXS", "CAX",
-            # window ASS
-            "XSS", "AXS", "ASX",
-            # window SSL
-            "XSL", "SXL", "SSX",
+            b"XAS", b"CXS", b"CAX",
+            b"XSS", b"AXS", b"ASX",
+            b"XSL", b"SXL", b"SSX",
         ]
-        self.assertEqual(_strs(gapped), expected)
-        self.assertIsInstance(gapped[0], AminoAcidSequence)
+        self.assertEqual(gapped, expected)
 
-    def test_nucleotide_gapped_k2(self) -> None:
-        nt = NucleotideSequence.from_string("ATG")
-        gapped = tokenize(nt, k=2, gapped=True)
-        expected = [
-            "NT", "AN",  # AT
-            "NG", "TN",  # TG
-        ]
-        self.assertEqual(_strs(gapped), expected)
+    def test_nt_gapped_k2(self) -> None:
+        gapped = tokenize_gapped("ATG", 2, NT_MASK)
+        self.assertEqual(gapped, [b"NT", b"AN", b"NG", b"TN"])
 
     def test_reduced_gapped_k2(self) -> None:
-        red = ReducedAminoAcidSequence.from_string("slh")
-        gapped = tokenize(red, k=2, gapped=True)
-        expected = ["Xl", "sX", "Xh", "lX"]
-        self.assertEqual(_strs(gapped), expected)
+        gapped = tokenize_gapped("slh", 2, REDUCED_AA_MASK)
+        self.assertEqual(gapped, [b"Xl", b"sX", b"Xh", b"lX"])
 
     def test_gapped_k1(self) -> None:
-        """With k=1, each gapped k-mer is just the mask character."""
-        aa = AminoAcidSequence.from_string("CA")
-        gapped = tokenize(aa, k=1, gapped=True)
-        self.assertEqual(_strs(gapped), ["X", "X"])
+        gapped = tokenize_gapped("CA", 1, AA_MASK)
+        self.assertEqual(gapped, [b"X", b"X"])
 
-    def test_gapped_invalid_k(self) -> None:
-        aa = AminoAcidSequence.from_string("CAST")
+    def test_invalid_k(self) -> None:
         with self.assertRaises(ValueError):
-            tokenize(aa, k=0, gapped=True)
+            tokenize_gapped("CAST", 0, AA_MASK)
         with self.assertRaises(ValueError):
-            tokenize(aa, k=5, gapped=True)
+            tokenize_gapped("CAST", 5, AA_MASK)
 
-    def test_gapped_kmers_match_plain_kmers(self) -> None:
+    def test_bytes_input(self) -> None:
+        gapped = tokenize_gapped(b"ATG", 2, NT_MASK)
+        self.assertEqual(gapped, [b"NT", b"AN", b"NG", b"TN"])
+
+    def test_gapped_match_plain(self) -> None:
         """Each gapped k-mer should wildcard-match its corresponding plain k-mer."""
-        aa = AminoAcidSequence.from_string("CASSL")
-        plain = tokenize(aa, k=3)
-        gapped = tokenize(aa, k=3, gapped=True)
+        plain = tokenize("CASSL", 3)
+        gapped = tokenize_gapped("CASSL", 3, AA_MASK)
         for i, kmer in enumerate(plain):
             variants = gapped[i * 3 : (i + 1) * 3]
             for var in variants:
                 self.assertTrue(
-                    kmer.matches(var),
+                    matches(kmer, var, AA_MASK),
                     f"{kmer} should match {var}",
                 )
+
+
+class TestTokenizeGappedStr(unittest.TestCase):
+    """Gapped k-mer extraction (str output)."""
+
+    def test_basic(self) -> None:
+        gapped = tokenize_gapped_str("CASSL", 3, "X")
+        self.assertEqual(len(gapped), 9)
+        self.assertEqual(gapped[0], "XAS")
+        self.assertIsInstance(gapped[0], str)
 
 
 if __name__ == "__main__":

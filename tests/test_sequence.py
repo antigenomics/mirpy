@@ -1,213 +1,190 @@
-"""Unit tests for :mod:`mir.basic.sequence`.
+"""Unit tests for :mod:`mir.basic.sequence` functions.
 
 Coverage:
-    SequenceAlphabet         -- singleton caching.
-    AlphabetSequence         -- construction, string round-trip, substring,
-                                immutability, ``__eq__``, ``__hash__``.
-    NucleotideSequence       -- parsing, slicing, masking.
-    AminoAcidSequence        -- parsing, slicing, reduced conversion, matching.
-    ReducedAminoAcidSequence -- parsing, slicing, masking, matching.
-    Equality vs matching     -- ``matches()`` is wildcard-aware, ``==`` is not.
+    make_alphabet / validate  — alphabet construction and validation.
+    aa_to_reduced / translate — byte-level translation.
+    mask                      — single-index, range, and slice masking.
+    matches                   — wildcard-aware comparison.
+    matches_aa_reduced        — cross-alphabet wildcard match.
+    str / bytes duality       — every function accepts both types.
 """
 
 import unittest
 
-import numpy as np
-
 from mir.basic.sequence import (
-    AminoAcidSequence,
-    NucleotideSequence,
-    ReducedAminoAcidSequence,
-    SequenceAlphabet,
+    AA_ALPHABET,
+    AA_MASK,
+    AA_TO_REDUCED_TABLE,
+    NT_ALPHABET,
+    NT_MASK,
+    REDUCED_AA_ALPHABET,
+    REDUCED_AA_MASK,
+    aa_to_reduced,
+    make_alphabet,
+    mask,
+    matches,
+    matches_aa_reduced,
+    translate,
+    validate,
 )
 
 
-class TestAlphabetSequence(unittest.TestCase):
-    """Construction, round-trip, substring, immutability."""
+class TestMakeAlphabet(unittest.TestCase):
 
-    def test_create_convert_and_substring(self) -> None:
-        self.assertIs(
-            NucleotideSequence.DEFAULT_ALPHABET,
-            SequenceAlphabet(("A", "T", "G", "C", "N")),
-        )
+    def test_custom_alphabet(self) -> None:
+        lut = make_alphabet("AB")
+        self.assertEqual(len(lut), 256)
+        self.assertEqual(lut[ord("A")], 1)
+        self.assertEqual(lut[ord("B")], 1)
+        self.assertEqual(lut[ord("C")], 0)
 
-        nt = NucleotideSequence.from_string("ATTAGACA")
-        self.assertEqual(nt.to_string(), "ATTAGACA")
-        self.assertEqual(nt.data.dtype, np.dtype("S1"))
-        self.assertEqual(nt.data.tobytes(), b"ATTAGACA")
-        self.assertEqual(nt.substring(2, 6).to_string(), "TAGA")
+    def test_predefined_nt(self) -> None:
+        for ch in "ATGCN":
+            self.assertEqual(NT_ALPHABET[ord(ch)], 1)
+        self.assertEqual(NT_ALPHABET[ord("U")], 0)
 
-        aa = AminoAcidSequence.from_string("CASSLAPGATNEKLFF")
-        self.assertEqual(aa.to_string(), "CASSLAPGATNEKLFF")
-        self.assertEqual(aa.substring(4, 9).to_string(), "LAPGA")
+    def test_predefined_aa(self) -> None:
+        for ch in "ACDEFGHIKLMNPQRSTVWYX*_":
+            self.assertEqual(AA_ALPHABET[ord(ch)], 1)
+        self.assertEqual(AA_ALPHABET[ord("B")], 0)
 
-    def test_empty_or_invalid_sequence(self) -> None:
-        empty_nt = NucleotideSequence.from_string("")
-        self.assertEqual(len(empty_nt), 0)
-        self.assertEqual(empty_nt.to_string(), "")
+    def test_predefined_reduced(self) -> None:
+        for ch in "lbmcshGFPWYX*_":
+            self.assertEqual(REDUCED_AA_ALPHABET[ord(ch)], 1)
+        self.assertEqual(REDUCED_AA_ALPHABET[ord("Z")], 0)
 
-        empty_aa = AminoAcidSequence.from_string("")
-        self.assertEqual(len(empty_aa), 0)
-        self.assertEqual(empty_aa.to_string(), "")
 
-        self.assertEqual(
-            NucleotideSequence.from_string("ATTAGACA").substring(0, 0).to_string(), ""
-        )
+class TestValidate(unittest.TestCase):
 
-        self.assertEqual(NucleotideSequence.from_string("ATN").to_string(), "ATN")
+    def test_valid_nt_str(self) -> None:
+        self.assertEqual(validate("ATTAGACA", NT_ALPHABET), b"ATTAGACA")
 
+    def test_valid_nt_bytes(self) -> None:
+        self.assertEqual(validate(b"ATN", NT_ALPHABET), b"ATN")
+
+    def test_valid_aa_bytearray(self) -> None:
+        self.assertEqual(validate(bytearray(b"CAST"), AA_ALPHABET), b"CAST")
+
+    def test_empty(self) -> None:
+        self.assertEqual(validate("", NT_ALPHABET), b"")
+        self.assertEqual(validate(b"", AA_ALPHABET), b"")
+
+    def test_invalid_nt(self) -> None:
         with self.assertRaises(ValueError):
-            NucleotideSequence.from_string("ATU")
+            validate("ATU", NT_ALPHABET)
 
+    def test_invalid_aa(self) -> None:
         with self.assertRaises(ValueError):
-            AminoAcidSequence.from_string("B")
+            validate("B", AA_ALPHABET)
 
-    def test_immutability(self) -> None:
-        """The underlying byte array is read-only."""
-        nt = NucleotideSequence.from_string("ATCG")
+    def test_invalid_reduced(self) -> None:
         with self.assertRaises(ValueError):
-            nt.data[0] = b"G"
-
-    def test_no_extra_attributes(self) -> None:
-        """__slots__ prevents adding arbitrary instance attributes."""
-        nt = NucleotideSequence.from_string("ATCG")
-        with self.assertRaises(AttributeError):
-            nt.foo = 42  # type: ignore[attr-defined]
-
-    def test_content_backward_compat(self) -> None:
-        """The .content property still works."""
-        nt = NucleotideSequence.from_string("ATCG")
-        np.testing.assert_array_equal(nt.content, nt.data)
-
-    def test_repr(self) -> None:
-        nt = NucleotideSequence.from_string("ATCG")
-        self.assertEqual(repr(nt), "NucleotideSequence('ATCG')")
+            validate("Z", REDUCED_AA_ALPHABET)
 
 
-class TestEqualityAndHashing(unittest.TestCase):
-    """``__eq__`` and ``__hash__`` use raw bytes, not wildcard matching."""
+class TestTranslateAndReduce(unittest.TestCase):
 
-    def test_equal_sequences(self) -> None:
-        a = NucleotideSequence.from_string("ATCG")
-        b = NucleotideSequence.from_string("ATCG")
-        self.assertEqual(a, b)
-        self.assertEqual(hash(a), hash(b))
+    def test_aa_to_reduced_str(self) -> None:
+        self.assertEqual(aa_to_reduced("CASTIVGGLSQDKIVW"), b"slhhllGGlhmcbllW")
 
-    def test_unequal_sequences(self) -> None:
-        a = NucleotideSequence.from_string("ATCG")
-        b = NucleotideSequence.from_string("ATNG")
-        self.assertNotEqual(a, b)
+    def test_aa_to_reduced_bytes(self) -> None:
+        self.assertEqual(aa_to_reduced(b"CASTIVGGLSQDKIVW"), b"slhhllGGlhmcbllW")
 
-    def test_masked_not_equal_but_matches(self) -> None:
-        """A masked sequence matches the original but is not equal."""
-        orig = NucleotideSequence.from_string("ATCG")
-        masked = NucleotideSequence.from_string("ANNG")
-        self.assertNotEqual(orig, masked)
-        self.assertTrue(orig.matches(masked))
+    def test_generic_translate(self) -> None:
+        self.assertEqual(translate("CAST", AA_TO_REDUCED_TABLE), b"slhh")
 
-    def test_set_and_dict_storage(self) -> None:
-        a = AminoAcidSequence.from_string("CAST")
-        b = AminoAcidSequence.from_string("CAST")
-        c = AminoAcidSequence.from_string("XAST")
-        s = {a, b, c}
-        self.assertEqual(len(s), 2)
-        d = {a: 1}
-        self.assertEqual(d[b], 1)
-        self.assertNotIn(c, d)
-
-    def test_cross_type_not_equal(self) -> None:
-        """Different types with identical bytes are not equal."""
-        aa = AminoAcidSequence.from_string("X")
-        red = ReducedAminoAcidSequence.from_string("X")
-        self.assertNotEqual(aa, red)
+    def test_empty_translate(self) -> None:
+        self.assertEqual(aa_to_reduced(""), b"")
 
 
-class TestReducedAminoAcidSequence(unittest.TestCase):
-    """Reduced-alphabet conversion and matching."""
+class TestMask(unittest.TestCase):
 
-    def test_conversion_via_byte_lut(self) -> None:
-        aa = AminoAcidSequence.from_string("CASTIVGGLSQDKIVW")
-        reduced = aa.to_reduced_amino_acid()
-        self.assertEqual(reduced.to_string(), "slhhllGGlhmcbllW")
+    def test_single_nt(self) -> None:
+        self.assertEqual(mask("ATCGAT", 1, NT_MASK), b"ANCGAT")
 
-    def test_match_and_mismatch(self) -> None:
-        aa = AminoAcidSequence.from_string("CASTIVGGLSQDKIVW")
-        reduced = aa.to_reduced_amino_acid()
-        self.assertTrue(aa.matches_reduced_amino_acid(reduced))
-        self.assertFalse(
-            aa.matches_reduced_amino_acid(
-                ReducedAminoAcidSequence.from_string("slhhllGGlhmcbllY")
-            )
-        )
+    def test_range_nt(self) -> None:
+        self.assertEqual(mask("ATCGAT", (2, 5), NT_MASK), b"ATNNNT")
 
-    def test_masked_aa_matches_reduced(self) -> None:
-        aa = AminoAcidSequence.from_string("CASTIVGGLSQDKIVW")
-        reduced = aa.to_reduced_amino_acid()
-        self.assertTrue(aa.mask(2).matches_reduced_amino_acid(reduced))
+    def test_slice_nt(self) -> None:
+        self.assertEqual(mask("ATCGAT", slice(0, 3), NT_MASK), b"NNNGAT")
 
-    def test_masked_reduced_matches_aa(self) -> None:
-        aa = AminoAcidSequence.from_string("CASTIVGGLSQDKIVW")
-        reduced = aa.to_reduced_amino_acid()
-        self.assertTrue(aa.matches_reduced_amino_acid(reduced.mask((2, 5))))
+    def test_aa_single(self) -> None:
+        self.assertEqual(mask("CASTIV", 0, AA_MASK), b"XASTIV")
 
-    def test_backwards_compatible_aliases(self) -> None:
-        aa = AminoAcidSequence.from_string("CAST")
-        reduced = aa.to_simple_amino_acid()
-        self.assertIsInstance(reduced, ReducedAminoAcidSequence)
-        self.assertTrue(aa.matches_simple_amino_acid(reduced))
+    def test_aa_range(self) -> None:
+        self.assertEqual(mask("CASTIV", (1, 4), AA_MASK), b"CXXXIV")
 
-    def test_reduced_substrings(self) -> None:
-        reduced = ReducedAminoAcidSequence.from_string("slhhllGGlhmcbllW")
-        self.assertEqual(reduced.substring(0, 4).to_string(), "slhh")
-        self.assertEqual(reduced.substring(6, 8).to_string(), "GG")
-        self.assertEqual(reduced.substring(11, None).to_string(), "cbllW")
+    def test_reduced_slice(self) -> None:
+        self.assertEqual(mask("slhhll", slice(2, 5), REDUCED_AA_MASK), b"slXXXl")
 
-        with self.assertRaises(ValueError):
-            ReducedAminoAcidSequence.from_string("Z")
+    def test_bytes_input(self) -> None:
+        self.assertEqual(mask(b"ATCG", 0, NT_MASK), b"NTCG")
+
+    def test_out_of_range(self) -> None:
+        with self.assertRaises(IndexError):
+            mask("AT", 5, NT_MASK)
 
 
-class TestMaskAndMatch(unittest.TestCase):
-    """Masking and wildcard-aware matching."""
+class TestMatches(unittest.TestCase):
 
-    def test_nucleotide_mask_single_and_range(self) -> None:
-        seq = NucleotideSequence.from_string("ATCGAT")
-        self.assertEqual(seq.mask(1).to_string(), "ANCGAT")
-        self.assertEqual(seq.mask((2, 5)).to_string(), "ATNNNT")
-        self.assertEqual(seq.mask(slice(0, 3)).to_string(), "NNNGAT")
+    def test_identical(self) -> None:
+        self.assertTrue(matches("ATCG", "ATCG", NT_MASK))
 
-    def test_amino_and_reduced_mask(self) -> None:
-        aa = AminoAcidSequence.from_string("CASTIV")
-        reduced = ReducedAminoAcidSequence.from_string("slhhll")
-        self.assertEqual(aa.mask(0).to_string(), "XASTIV")
-        self.assertEqual(aa.mask((1, 4)).to_string(), "CXXXIV")
-        self.assertEqual(reduced.mask(slice(2, 5)).to_string(), "slXXXl")
+    def test_wildcard_match(self) -> None:
+        self.assertTrue(matches("ATCG", "ANNG", NT_MASK))
 
-    def test_matching_ignores_mask_symbols(self) -> None:
-        nt1 = NucleotideSequence.from_string("ATCG")
-        nt2 = NucleotideSequence.from_string("ANNG")
-        self.assertTrue(nt1.matches(nt2))
-        self.assertFalse(nt1.matches(NucleotideSequence.from_string("ANNA")))
+    def test_no_match(self) -> None:
+        self.assertFalse(matches("ATCG", "ANNA", NT_MASK))
 
-        aa1 = AminoAcidSequence.from_string("CAST")
-        aa2 = AminoAcidSequence.from_string("XASX")
-        self.assertTrue(aa1.matches(aa2))
-        self.assertFalse(aa1.matches(AminoAcidSequence.from_string("XATX")))
+    def test_length_mismatch(self) -> None:
+        self.assertFalse(matches("ATC", "ATCG", NT_MASK))
 
-        red1 = ReducedAminoAcidSequence.from_string("slhh")
-        red2 = ReducedAminoAcidSequence.from_string("sXXh")
-        self.assertTrue(red1.matches(red2))
-        self.assertFalse(red1.matches(ReducedAminoAcidSequence.from_string("sXXY")))
+    def test_empty(self) -> None:
+        self.assertTrue(matches("", "", NT_MASK))
 
-    def test_length_mismatch_does_not_match(self) -> None:
-        a = NucleotideSequence.from_string("ATC")
-        b = NucleotideSequence.from_string("ATCG")
-        self.assertFalse(a.matches(b))
+    def test_aa_wildcard(self) -> None:
+        self.assertTrue(matches("CAST", "XASX", AA_MASK))
+        self.assertFalse(matches("CAST", "XATX", AA_MASK))
 
-    def test_empty_sequences_match(self) -> None:
-        a = NucleotideSequence.from_string("")
-        b = NucleotideSequence.from_string("")
-        self.assertTrue(a.matches(b))
-        self.assertEqual(a, b)
+    def test_reduced_wildcard(self) -> None:
+        self.assertTrue(matches("slhh", "sXXh", REDUCED_AA_MASK))
+        self.assertFalse(matches("slhh", "sXXY", REDUCED_AA_MASK))
+
+    def test_bytes_input(self) -> None:
+        self.assertTrue(matches(b"ATCG", b"ANNG", NT_MASK))
+
+    def test_mixed_str_bytes(self) -> None:
+        self.assertTrue(matches("ATCG", b"ANNG", NT_MASK))
+
+
+class TestMatchesAaReduced(unittest.TestCase):
+
+    def test_match(self) -> None:
+        reduced = aa_to_reduced("CASTIVGGLSQDKIVW")
+        self.assertTrue(matches_aa_reduced("CASTIVGGLSQDKIVW", reduced))
+
+    def test_mismatch(self) -> None:
+        self.assertFalse(matches_aa_reduced("CASTIVGGLSQDKIVW", b"slhhllGGlhmcbllY"))
+
+    def test_masked_aa(self) -> None:
+        reduced = aa_to_reduced("CASTIVGGLSQDKIVW")
+        masked_aa = mask("CASTIVGGLSQDKIVW", 2, AA_MASK)
+        self.assertTrue(matches_aa_reduced(masked_aa, reduced))
+
+    def test_masked_reduced(self) -> None:
+        reduced = aa_to_reduced("CASTIVGGLSQDKIVW")
+        masked_red = mask(reduced, (2, 5), REDUCED_AA_MASK)
+        self.assertTrue(matches_aa_reduced("CASTIVGGLSQDKIVW", masked_red))
+
+    def test_empty(self) -> None:
+        self.assertTrue(matches_aa_reduced("", ""))
+
+    def test_length_mismatch(self) -> None:
+        self.assertFalse(matches_aa_reduced("CAS", "sl"))
+
+    def test_bytes_input(self) -> None:
+        reduced = aa_to_reduced(b"CAST")
+        self.assertTrue(matches_aa_reduced(b"CAST", reduced))
 
 
 if __name__ == "__main__":
