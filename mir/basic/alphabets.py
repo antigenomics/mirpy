@@ -1,31 +1,37 @@
-"""Biological sequence validation, translation, masking, and matching.
+"""Alphabets, constants, and amino-acid → reduced-alphabet translation.
 
-All functions operate on plain ``str`` or ``bytes`` — no wrapper classes.
-Alphabet membership is checked via 256-byte lookup tables (``bytes``) for
-O(1) per-character validation.  Translation uses ``bytes.translate`` with a
-pre-built table for native-speed conversion.
+This module holds the lightweight, GC-friendly parts that are faster in
+pure Python (``bytes.translate``) than in C.  Heavy-lifting functions
+(codon translation, tokenisation, distances) live in the ``mirseq``
+C extension.
+
+Types
+-----
+* ``Seq`` — Union type ``str | bytes | bytearray``.
+
+Helpers
+-------
+* ``_to_bytes`` — Normalise *Seq* to ``bytes``.
 
 Alphabets
 ---------
-Three predefined alphabets are provided as module-level ``bytes`` lookup
-tables (256 entries, 1 = allowed, 0 = disallowed):
+* ``NT_ALPHABET`` / ``AA_ALPHABET`` / ``REDUCED_AA_ALPHABET`` — 256-byte LUTs.
+* ``NT_MASK`` / ``AA_MASK`` / ``REDUCED_AA_MASK`` — Mask byte values.
 
-* ``NT_ALPHABET``       — DNA nucleotides ``ATGCN`` (``N`` = mask).
-* ``AA_ALPHABET``       — 20 amino acids + ``*_X`` (``X`` = mask).
-* ``REDUCED_AA_ALPHABET`` — Physico-chemical reduced alphabet (``X`` = mask).
-
-Functions
----------
-* ``make_alphabet``     — Build a 256-byte LUT from a string of allowed chars.
+Translation
+-----------
+* ``aa_to_reduced``     — AA → reduced via ``bytes.translate`` (fastest path).
 * ``validate``          — Check every byte belongs to an alphabet.
-* ``translate``         — Byte-level translation via ``bytes.translate``.
 * ``mask``              — Replace position(s) with a mask character.
 * ``matches``           — Wildcard-aware positional comparison.
-* ``aa_to_reduced``     — Convert amino-acid sequence to reduced alphabet.
 * ``matches_aa_reduced``— Cross-alphabet wildcard match (AA vs reduced).
 """
 
 from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Type alias
+# ---------------------------------------------------------------------------
 
 Seq = str | bytes | bytearray
 
@@ -43,14 +49,7 @@ def _to_bytes(seq: Seq) -> bytes:
 # ---------------------------------------------------------------------------
 
 def make_alphabet(chars: str) -> bytes:
-    """Build a 256-byte lookup table where allowed positions are ``1``.
-
-    Args:
-        chars: String of allowed ASCII characters.
-
-    Returns:
-        A 256-byte ``bytes`` object usable as a fast membership LUT.
-    """
+    """Build a 256-byte lookup table where allowed positions are ``1``."""
     lut = bytearray(256)
     for ch in chars:
         lut[ord(ch)] = 1
@@ -78,7 +77,6 @@ REDUCED_AA_MASK = ord("X")
 # Amino-acid → reduced-alphabet mapping
 # ---------------------------------------------------------------------------
 
-#: Per-character mapping from standard amino-acid codes to reduced symbols.
 AA_TO_REDUCED: dict[str, str] = {
     "A": "l", "R": "b", "N": "m", "D": "c", "C": "s", "Q": "m",
     "E": "c", "G": "G", "H": "b", "I": "l", "L": "l", "K": "b",
@@ -86,13 +84,11 @@ AA_TO_REDUCED: dict[str, str] = {
     "Y": "Y", "V": "l", "X": "X", "*": "*", "_": "_",
 }
 
-#: ``bytes.translate`` table for fast AA → reduced conversion.
 AA_TO_REDUCED_TABLE: bytes = bytes.maketrans(
     "".join(AA_TO_REDUCED.keys()).encode(),
     "".join(AA_TO_REDUCED.values()).encode(),
 )
 
-#: 256-byte LUT mapping each AA byte to its reduced byte (for matching).
 _AA_TO_REDUCED_LUT: bytes
 _lut = bytearray(256)
 for _aa, _red in AA_TO_REDUCED.items():
@@ -102,25 +98,24 @@ del _lut, _aa, _red
 
 
 # ---------------------------------------------------------------------------
+# Translation (aa_to_reduced — fastest in Python via bytes.translate)
+# ---------------------------------------------------------------------------
+
+def aa_to_reduced(seq: Seq) -> bytes:
+    """Convert an amino-acid sequence to the reduced physico-chemical alphabet.
+
+    Uses ``bytes.translate`` with a pre-built table — faster than C for
+    this particular operation.
+    """
+    return _to_bytes(seq).translate(AA_TO_REDUCED_TABLE)
+
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
 def validate(seq: Seq, alphabet: bytes) -> bytes:
-    """Validate that every byte of *seq* belongs to *alphabet*.
-
-    Accepts ``str``, ``bytes``, or ``bytearray``.  Strings are
-    ASCII-encoded first.
-
-    Args:
-        seq: Input sequence.
-        alphabet: 256-byte LUT (1 = allowed).
-
-    Returns:
-        The validated sequence as ``bytes``.
-
-    Raises:
-        ValueError: If any byte falls outside the alphabet.
-    """
+    """Validate every byte of *seq* belongs to *alphabet* (256-byte LUT)."""
     raw = _to_bytes(seq)
     for b in raw:
         if not alphabet[b]:
@@ -131,54 +126,11 @@ def validate(seq: Seq, alphabet: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Translation
-# ---------------------------------------------------------------------------
-
-def translate(seq: Seq, table: bytes) -> bytes:
-    """Translate *seq* byte-by-byte using a ``bytes.maketrans`` *table*.
-
-    Args:
-        seq: Input sequence (``str``, ``bytes``, or ``bytearray``).
-        table: A 256-byte translation table (from ``bytes.maketrans``).
-
-    Returns:
-        Translated ``bytes``.
-    """
-    return _to_bytes(seq).translate(table)
-
-
-def aa_to_reduced(seq: Seq) -> bytes:
-    """Convert an amino-acid sequence to the reduced physico-chemical alphabet.
-
-    Uses ``bytes.translate`` with a pre-built table for native speed.
-
-    Args:
-        seq: Amino-acid sequence (``str``, ``bytes``, or ``bytearray``).
-
-    Returns:
-        Reduced-alphabet ``bytes``.
-    """
-    return _to_bytes(seq).translate(AA_TO_REDUCED_TABLE)
-
-
-# ---------------------------------------------------------------------------
 # Masking
 # ---------------------------------------------------------------------------
 
 def mask(seq: Seq, position: int | slice | tuple[int, int], mask_byte: int) -> bytes:
-    """Return a copy of *seq* with the given position(s) replaced by *mask_byte*.
-
-    Args:
-        seq: Input sequence.
-        position: Single index, ``slice``, or ``(start, stop)`` half-open range.
-        mask_byte: Replacement byte value (e.g. ``ord('N')`` or ``NT_MASK``).
-
-    Returns:
-        New ``bytes`` with the specified positions masked.
-
-    Raises:
-        IndexError: If a single-index position is out of bounds.
-    """
+    """Return a copy of *seq* with the given position(s) replaced by *mask_byte*."""
     buf = bytearray(_to_bytes(seq))
     if isinstance(position, int):
         n = len(buf)
@@ -207,15 +159,7 @@ def matches(a: Seq, b: Seq, mask_byte: int) -> bool:
 
     Returns ``True`` when *a* and *b* have the same length and at every
     position the bytes are equal **or** at least one side carries
-    *mask_byte*.  This is **not** the same as ``a == b``.
-
-    Args:
-        a: First sequence.
-        b: Second sequence.
-        mask_byte: The wildcard byte value (e.g. ``NT_MASK``).
-
-    Returns:
-        ``True`` if the sequences match, ``False`` otherwise.
+    *mask_byte*.
     """
     ba = _to_bytes(a)
     bb = _to_bytes(b)
@@ -231,19 +175,7 @@ def matches(a: Seq, b: Seq, mask_byte: int) -> bool:
 
 
 def matches_aa_reduced(aa_seq: Seq, reduced_seq: Seq) -> bool:
-    """Wildcard-aware match between an amino-acid and a reduced-alphabet sequence.
-
-    Each byte of *aa_seq* is first mapped to the reduced alphabet via a
-    byte LUT, then compared against *reduced_seq*.  ``X`` (mask) on either
-    side counts as a wildcard.
-
-    Args:
-        aa_seq: Amino-acid sequence.
-        reduced_seq: Reduced-alphabet sequence.
-
-    Returns:
-        ``True`` if every position matches (accounting for wildcards).
-    """
+    """Wildcard-aware match between an amino-acid and a reduced-alphabet sequence."""
     ba = _to_bytes(aa_seq)
     br = _to_bytes(reduced_seq)
     if len(ba) != len(br):

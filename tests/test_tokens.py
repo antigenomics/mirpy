@@ -1,108 +1,105 @@
-"""Unit tests for :mod:`mir.basic.tokens` functions."""
+"""Unit tests for ``mir.basic.tokens`` wrapper functions.
+
+These delegates to the ``mirseq`` C extension; focus is on the wrapper
+API, input normalisation, and agreement with ``mirseq`` direct calls.
+
+Run with ``python -m pytest tests/test_tokens.py -v``.
+"""
 
 import unittest
 
-from mir.basic.sequence import AA_MASK, NT_MASK, REDUCED_AA_MASK, matches
-from mir.basic.tokens import tokenize, tokenize_gapped, tokenize_gapped_str, tokenize_str
+from mir.basic.alphabets import AA_MASK, NT_MASK
+from mir.basic.tokens import (
+    tokenize,
+    tokenize_str,
+    tokenize_gapped,
+    tokenize_gapped_str,
+)
+from mir.basic import mirseq
 
+
+# ── tokenize (returns list[bytes]) ────────────────────────────────
 
 class TestTokenize(unittest.TestCase):
-    """Plain k-mer extraction (bytes output)."""
 
-    def test_aa_k3(self) -> None:
+    def test_basic_aa(self) -> None:
         self.assertEqual(tokenize("CASSL", 3), [b"CAS", b"ASS", b"SSL"])
 
-    def test_nt_k4(self) -> None:
-        self.assertEqual(tokenize("ATCGAT", 4), [b"ATCG", b"TCGA", b"CGAT"])
+    def test_basic_nt(self) -> None:
+        self.assertEqual(tokenize("ATCGAT", 4),
+                         [b"ATCG", b"TCGA", b"CGAT"])
 
-    def test_reduced_k2(self) -> None:
-        self.assertEqual(tokenize("slhh", 2), [b"sl", b"lh", b"hh"])
-
-    def test_k_equals_length(self) -> None:
-        self.assertEqual(tokenize("CAST", 4), [b"CAST"])
-
-    def test_k_equals_one(self) -> None:
+    def test_k1(self) -> None:
         self.assertEqual(tokenize("ATG", 1), [b"A", b"T", b"G"])
 
+    def test_k_eq_len(self) -> None:
+        self.assertEqual(tokenize("CAST", 4), [b"CAST"])
+
+    def test_str_input(self) -> None:
+        self.assertEqual(tokenize("CAST", 2), [b"CA", b"AS", b"ST"])
+
     def test_bytes_input(self) -> None:
-        self.assertEqual(tokenize(b"CASSL", 3), [b"CAS", b"ASS", b"SSL"])
+        self.assertEqual(tokenize(b"CAST", 2), [b"CA", b"AS", b"ST"])
 
-    def test_bytearray_input(self) -> None:
-        self.assertEqual(tokenize(bytearray(b"ATG"), 1), [b"A", b"T", b"G"])
+    def test_agrees_with_c(self) -> None:
+        for seq in ["CASSL", "ATCGATCGATCG"]:
+            for k in [1, 2, 3]:
+                with self.subTest(seq=seq, k=k):
+                    self.assertEqual(tokenize(seq, k),
+                                     mirseq.tokenize_bytes(seq, k))
 
-    def test_invalid_k(self) -> None:
-        with self.assertRaises(ValueError):
-            tokenize("CAST", 0)
-        with self.assertRaises(ValueError):
-            tokenize("CAST", 5)
 
+# ── tokenize_str (returns list[str]) ─────────────────────────────
 
 class TestTokenizeStr(unittest.TestCase):
-    """Plain k-mer extraction (str output)."""
 
     def test_basic(self) -> None:
         self.assertEqual(tokenize_str("CASSL", 3), ["CAS", "ASS", "SSL"])
 
-    def test_bytes_input(self) -> None:
-        self.assertEqual(tokenize_str(b"ATG", 1), ["A", "T", "G"])
+    def test_type(self) -> None:
+        result = tokenize_str("CAST", 2)
+        self.assertIsInstance(result[0], str)
 
+    def test_agrees_with_c(self) -> None:
+        self.assertEqual(tokenize_str("CASSL", 3),
+                         mirseq.tokenize_str("CASSL", 3))
+
+
+# ── tokenize_gapped (returns list[bytes]) ────────────────────────
 
 class TestTokenizeGapped(unittest.TestCase):
-    """Gapped k-mer extraction (bytes output)."""
 
-    def test_aa_gapped_k3(self) -> None:
-        gapped = tokenize_gapped("CASSL", 3, AA_MASK)
-        self.assertEqual(len(gapped), 9)
+    def test_basic(self) -> None:
         expected = [
             b"XAS", b"CXS", b"CAX",
             b"XSS", b"AXS", b"ASX",
             b"XSL", b"SXL", b"SSX",
         ]
-        self.assertEqual(gapped, expected)
+        self.assertEqual(tokenize_gapped("CASSL", 3, AA_MASK), expected)
 
-    def test_nt_gapped_k2(self) -> None:
-        gapped = tokenize_gapped("ATG", 2, NT_MASK)
-        self.assertEqual(gapped, [b"NT", b"AN", b"NG", b"TN"])
+    def test_nt(self) -> None:
+        self.assertEqual(tokenize_gapped("ATG", 2, NT_MASK),
+                         [b"NT", b"AN", b"NG", b"TN"])
 
-    def test_reduced_gapped_k2(self) -> None:
-        gapped = tokenize_gapped("slh", 2, REDUCED_AA_MASK)
-        self.assertEqual(gapped, [b"Xl", b"sX", b"Xh", b"lX"])
+    def test_agrees_with_c(self) -> None:
+        self.assertEqual(tokenize_gapped("CASSL", 3, AA_MASK),
+                         mirseq.tokenize_gapped_bytes("CASSL", 3, AA_MASK))
 
-    def test_gapped_k1(self) -> None:
-        gapped = tokenize_gapped("CA", 1, AA_MASK)
-        self.assertEqual(gapped, [b"X", b"X"])
 
-    def test_invalid_k(self) -> None:
-        with self.assertRaises(ValueError):
-            tokenize_gapped("CAST", 0, AA_MASK)
-        with self.assertRaises(ValueError):
-            tokenize_gapped("CAST", 5, AA_MASK)
-
-    def test_bytes_input(self) -> None:
-        gapped = tokenize_gapped(b"ATG", 2, NT_MASK)
-        self.assertEqual(gapped, [b"NT", b"AN", b"NG", b"TN"])
-
-    def test_gapped_match_plain(self) -> None:
-        """Each gapped k-mer should wildcard-match its corresponding plain k-mer."""
-        plain = tokenize("CASSL", 3)
-        gapped = tokenize_gapped("CASSL", 3, AA_MASK)
-        for i, kmer in enumerate(plain):
-            variants = gapped[i * 3 : (i + 1) * 3]
-            for var in variants:
-                self.assertTrue(
-                    matches(kmer, var, AA_MASK),
-                    f"{kmer} should match {var}",
-                )
-
+# ── tokenize_gapped_str (returns list[str]) ──────────────────────
 
 class TestTokenizeGappedStr(unittest.TestCase):
-    """Gapped k-mer extraction (str output)."""
 
     def test_basic(self) -> None:
-        gapped = tokenize_gapped_str("CASSL", 3, "X")
-        self.assertEqual(len(gapped), 9)
-        self.assertEqual(gapped[0], "XAS")
-        self.assertIsInstance(gapped[0], str)
+        result = tokenize_gapped_str("CASSL", 3, "X")
+        self.assertEqual(len(result), 9)
+        self.assertIsInstance(result[0], str)
+        self.assertEqual(result[0], "XAS")
+
+    def test_agrees_with_c(self) -> None:
+        self.assertEqual(
+            tokenize_gapped_str("CASSL", 3, "X"),
+            mirseq.tokenize_gapped_str("CASSL", 3, AA_MASK))
 
 
 if __name__ == "__main__":

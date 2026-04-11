@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from mir.basic.sequence import Seq, _to_bytes
+from mir.basic.alphabets import Seq, _to_bytes
 
 
 # ---------------------------------------------------------------------------
