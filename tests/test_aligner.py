@@ -365,6 +365,7 @@ class TestBackwardCompat:
         assert callable(a.score_dist)
         assert callable(a.pad)
         assert callable(a.alns)
+        assert callable(a.align)
 
     def test_bioaligner_wrapper(self):
         w = BioAlignerWrapper()
@@ -397,6 +398,156 @@ class TestBackwardCompat:
         assert hasattr(seqdist_c, "levenshtein")
         assert hasattr(seqdist_c, "score_max")
         assert hasattr(seqdist_c, "selfscore")
+        assert hasattr(seqdist_c, "best_alignment")
+
+
+# ===================================================================
+# Alignment visualization tests
+# ===================================================================
+
+
+class TestAlignVisualization:
+    """Tests for CDRAligner.align() — gapped alignment strings."""
+
+    def setup_method(self):
+        self.aligner = CDRAligner()
+
+    # -- Basic structure -------------------------------------------------
+
+    def test_align_returns_four_tuple(self):
+        s1, s2 = OLGA_CDR3S[0], OLGA_CDR3S[3]
+        result = self.aligner.align(s1, s2)
+        assert len(result) == 4
+        gs1, mid, gs2, score = result
+        assert isinstance(gs1, str)
+        assert isinstance(mid, str)
+        assert isinstance(gs2, str)
+        assert isinstance(score, float)
+
+    def test_align_equal_lengths(self):
+        """Equal-length strings: no gaps, all three strings same length."""
+        gs1, mid, gs2, sc = self.aligner.align(
+            OLGA_CDR3S[0], OLGA_CDR3S[0]
+        )
+        assert gs1 == OLGA_CDR3S[0]
+        assert gs2 == OLGA_CDR3S[0]
+        assert len(mid) == len(gs1)
+        assert all(c == '|' for c in mid)  # self-alignment: all match
+
+    def test_align_strings_equal_length(self):
+        """All three output strings must have the same length."""
+        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            assert len(gs1) == len(mid) == len(gs2), (
+                f"length mismatch: {len(gs1)}, {len(mid)}, {len(gs2)}"
+            )
+
+    def test_align_output_length_is_max(self):
+        """Output length equals max(len(s1), len(s2))."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            expected_len = max(len(a), len(b))
+            assert len(gs1) == expected_len
+
+    # -- Gap characters --------------------------------------------------
+
+    def test_gaps_in_shorter_sequence(self):
+        """Gaps ('-') must appear only in the shorter sequence."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            if len(a) == len(b):
+                continue
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            if len(a) < len(b):
+                assert '-' in gs1
+                assert '-' not in gs2
+            else:
+                assert '-' not in gs1
+                assert '-' in gs2
+
+    def test_gap_count_matches_length_diff(self):
+        """Number of '-' chars equals the length difference."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            diff = abs(len(a) - len(b))
+            assert gs1.count('-') + gs2.count('-') == diff
+
+    # -- Midline characters ----------------------------------------------
+
+    def test_midline_chars_valid(self):
+        """Midline only contains |, :, ., or space."""
+        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+            _, mid, _, _ = self.aligner.align(a, b)
+            for c in mid:
+                assert c in '|:. ', f"unexpected midline char: {c!r}"
+
+    def test_midline_pipe_means_match(self):
+        """'|' in midline ↔ same residue at that position."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            for i, c in enumerate(mid):
+                if c == '|':
+                    assert gs1[i] == gs2[i], (
+                        f"'|' at {i} but {gs1[i]} != {gs2[i]}"
+                    )
+
+    def test_midline_space_means_gap(self):
+        """' ' in midline ↔ gap character in one of the sequences."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            gs1, mid, gs2, _ = self.aligner.align(a, b)
+            for i, c in enumerate(mid):
+                if c == ' ':
+                    assert gs1[i] == '-' or gs2[i] == '-'
+
+    # -- Score consistency -----------------------------------------------
+
+    def test_align_score_matches_score(self):
+        """align() score must match score()."""
+        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+            _, _, _, aln_sc = self.aligner.align(a, b)
+            sc = self.aligner.score(a, b)
+            assert aln_sc == pytest.approx(sc, abs=1e-6), (
+                f"align score {aln_sc} != score {sc} for {a}, {b}"
+            )
+
+    def test_align_symmetry(self):
+        """align(a,b) score == align(b,a) score; gaps swap sides."""
+        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+            gs1_ab, _, gs2_ab, sc_ab = self.aligner.align(a, b)
+            gs1_ba, _, gs2_ba, sc_ba = self.aligner.align(b, a)
+            assert sc_ab == pytest.approx(sc_ba, abs=1e-6)
+
+    # -- C vs Python fallback -------------------------------------------
+
+    def test_align_c_vs_python(self):
+        """C and Python fallback align() must produce identical output."""
+        aligner = CDRAligner()
+        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+            c_result = aligner.align(a, b)
+            py_result = aligner._align_py(a, b)
+            assert c_result[0] == py_result[0], f"gs1 mismatch for {a}, {b}"
+            assert c_result[1] == py_result[1], f"mid mismatch for {a}, {b}"
+            assert c_result[2] == py_result[2], f"gs2 mismatch for {a}, {b}"
+            assert c_result[3] == pytest.approx(py_result[3], abs=1e-6)
+
+    # -- Visual output (run with pytest -s) ------------------------------
+
+    def test_visualize_sample_alignments(self):
+        """Print a few representative alignments for visual inspection."""
+        pairs = [
+            (OLGA_CDR3S[0], OLGA_CDR3S[3]),   # 17 vs 11 aa
+            (OLGA_CDR3S[4], OLGA_CDR3S[5]),   # 17 vs 18 aa
+            (OLGA_CDR3S[0], OLGA_CDR3S[0]),   # self
+            (OLGA_CDR3S[13], OLGA_CDR3S[15]), # 24 vs 10 aa
+        ]
+        print("\n")
+        for s1, s2 in pairs:
+            gs1, mid, gs2, sc = self.aligner.align(s1, s2)
+            norm = self.aligner.score_norm(s1, s2)
+            print(f"  {gs1}")
+            print(f"  {mid}")
+            print(f"  {gs2}")
+            print(f"  score={sc:.1f}  norm={norm:.1f}  "
+                  f"len1={len(s1)} len2={len(s2)}\n")
 
 
 # ===================================================================
@@ -413,6 +564,7 @@ class TestAlignmentBenchmarks:
     """
 
     N_PAIRS = 200  # number of pairs to score in each benchmark
+    N_GAPS = len(CDRAligner().gap_positions)  # gap positions tested per pair
 
     def _make_pairs(self):
         pairs = []
@@ -438,7 +590,7 @@ class TestAlignmentBenchmarks:
 
         rate = self.N_PAIRS / elapsed
         print(f"\n  CDRAligner C  : {self.N_PAIRS} pairs in {elapsed*1000:.1f} ms "
-              f"({rate:.0f} pairs/s)")
+              f"({rate:.0f} pairs/s, {self.N_GAPS} gap positions/pair)")
 
     def test_benchmark_python_fallback(self):
         aligner = CDRAligner()
@@ -465,7 +617,7 @@ class TestAlignmentBenchmarks:
 
         rate = self.N_PAIRS / elapsed
         print(f"\n  CDRAligner Py : {self.N_PAIRS} pairs in {elapsed*1000:.1f} ms "
-              f"({rate:.0f} pairs/s)")
+              f"({rate:.0f} pairs/s, {self.N_GAPS} gap positions/pair)")
 
     def test_benchmark_biopython(self):
         bio = BioAlignerWrapper()
@@ -483,6 +635,7 @@ class TestAlignmentBenchmarks:
         rate = self.N_PAIRS / elapsed
         print(f"\n  BioPython     : {self.N_PAIRS} pairs in {elapsed*1000:.1f} ms "
               f"({rate:.0f} pairs/s)")
+        # BioPython uses its own gap model, not our gap_positions
 
     def test_c_faster_than_python(self):
         """C extension should be significantly faster than Python fallback."""
@@ -514,3 +667,64 @@ class TestAlignmentBenchmarks:
         speedup = t_py / t_c if t_c > 0 else float("inf")
         print(f"\n  C/Py speedup  : {speedup:.1f}x")
         assert speedup > 2.0, f"C extension only {speedup:.1f}x faster than Python"
+
+    def test_benchmark_align_visualization(self):
+        """Benchmark align() (C) that also builds visualization strings."""
+        aligner = CDRAligner()
+        pairs = self._make_pairs()
+
+        # Warm up
+        for a, b in pairs[:5]:
+            aligner.align(a, b)
+
+        t0 = time.perf_counter()
+        for a, b in pairs:
+            aligner.align(a, b)
+        elapsed = time.perf_counter() - t0
+
+        rate = self.N_PAIRS / elapsed
+        print(f"\n  CDRAligner C align(): {self.N_PAIRS} pairs in "
+              f"{elapsed*1000:.1f} ms ({rate:.0f} pairs/s, {self.N_GAPS} gap positions/pair)")
+
+    def test_benchmark_summary(self):
+        """Print a combined benchmark summary table."""
+        aligner = CDRAligner()
+        bio = BioAlignerWrapper()
+        pairs = self._make_pairs()
+
+        def py_score(s1, s2):
+            if len(s1) == len(s2):
+                return aligner._score_equal_len_py(s1, s2)
+            best = -math.inf
+            for p in aligner.gap_positions:
+                sc = aligner._score_with_gap_py(s1, s2, int(p))
+                if sc > best:
+                    best = sc
+            return best
+
+        # Warm-up all paths
+        for a, b in pairs[:5]:
+            aligner.score(a, b)
+            aligner.align(a, b)
+            py_score(a, b)
+            bio.score(a, b)
+
+        results = {}
+        for label, fn in [
+            ("CDRAligner C score()", lambda a, b: aligner.score(a, b)),
+            ("CDRAligner C align()", lambda a, b: aligner.align(a, b)),
+            ("BioPython PairwiseAl.", lambda a, b: bio.score(a, b)),
+            ("CDRAligner Python",    py_score),
+        ]:
+            t0 = time.perf_counter()
+            for a, b in pairs:
+                fn(a, b)
+            elapsed = time.perf_counter() - t0
+            results[label] = elapsed
+
+        print(f"\n  Pairs: {self.N_PAIRS}, Gap positions: {self.N_GAPS}")
+        print(f"  {'Method':<25} {'Time (ms)':>10} {'Throughput':>15}")
+        print(f"  {'-'*25} {'-'*10} {'-'*15}")
+        for label, elapsed in results.items():
+            rate = self.N_PAIRS / elapsed
+            print(f"  {label:<25} {elapsed*1000:>9.1f}  {rate:>12,.0f} p/s")
