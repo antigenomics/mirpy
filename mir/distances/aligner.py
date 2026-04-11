@@ -1,3 +1,20 @@
+"""CDR3, germline and clonotype alignment scoring.
+
+This module provides scoring classes for comparing TCR/BCR sequences:
+
+* :class:`CDRAligner` — CDR3 amino-acid alignment with gap model and
+  BLOSUM62 substitution scoring.  Delegates to the C extension
+  ``seqdist_c`` (``score_max`` / ``selfscore``) when available, with a
+  pure-Python fallback.
+* :class:`BioAlignerWrapper` — thin wrapper around BioPython's
+  ``PairwiseAligner``.
+* :class:`GermlineAligner` — dict-based germline gene scoring built from
+  pairwise sequence alignment.
+* :class:`ClonotypeAligner` — composite scorer combining V/J germline
+  aligners with a CDR3 aligner.
+* :class:`ClonotypeScore` / :class:`PairedCloneScore` — score containers.
+"""
+
 import time
 from abc import abstractmethod
 from itertools import starmap
@@ -6,30 +23,45 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 
 import typing as t
-import importlib
 import numpy as np
 from functools import lru_cache
 
 from mir.common.clonotype import ClonotypeAA, PairedChainClone
 from mir.common.segments import Segment, SegmentLibrary
 
-_cdrscore_mod = None
-def _get_cdrscore():
-    global _cdrscore_mod
-    if _cdrscore_mod is None:
-        _cdrscore_mod = importlib.import_module('mir.distances.cdrscore')
-    return _cdrscore_mod
+# ---------------------------------------------------------------------------
+# Lazy-load C acceleration from seqdist_c (score_max, selfscore)
+# ---------------------------------------------------------------------------
+_seqdist_mod = None
+
+def _get_seqdist():
+    """Return the ``seqdist_c`` C module, or *None* if unavailable."""
+    global _seqdist_mod
+    if _seqdist_mod is None:
+        try:
+            from mir.distances import seqdist_c as _mod
+            # Verify the CDR3 scoring functions are present
+            if hasattr(_mod, 'score_max') and hasattr(_mod, 'selfscore'):
+                _seqdist_mod = _mod
+        except ImportError:
+            pass
+    return _seqdist_mod
 
 class Scoring:
+    """Abstract base for pairwise sequence scoring."""
+
     @abstractmethod
     def score(self, s1: str, s2: str) -> float:
-        pass
+        """Raw alignment score between *s1* and *s2*."""
 
     def score_norm(self, s1: str, s2: str) -> float:
+        """Normalised score: ``score(s1,s2) - max(score(s1,s1), score(s2,s2))``."""
         return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
 
 
 class BioAlignerWrapper(Scoring):
+    """Wrapper around :class:`Bio.Align.PairwiseAligner`."""
+
     def __init__(self, scoring: str = "blastp"):
         self.aligner = Align.PairwiseAligner(scoring)
 
@@ -37,21 +69,32 @@ class BioAlignerWrapper(Scoring):
         return self.aligner.align(s1, s2).score
 
 
-# TODO substitution matrix wrapper to load from dict
 class CDRAligner(Scoring):
-    _factor = 10.0
-    _cdr_mod = None
+    """CDR3 amino-acid aligner with a simplified gap model.
 
-    @staticmethod
-    def _get_cdrscore():
-        if CDRAligner._cdr_mod is not None:
-            return CDRAligner._cdr_mod
-        try:
-            import importlib
-            CDRAligner._cdr_mod = importlib.import_module('mir.distances.cdrscore')
-        except Exception:
-            CDRAligner._cdr_mod = None
-        return CDRAligner._cdr_mod
+    Scores are computed over the interior of the CDR3 (skipping
+    *v_offset* positions from the start and *j_offset* from the end)
+    using a substitution matrix (BLOSUM62 by default).  When sequences
+    differ in length the shorter sequence is padded with a gap block
+    placed at each of the *gap_positions* and the best score is kept.
+
+    The heavy lifting is done in C (``seqdist_c.score_max`` /
+    ``seqdist_c.selfscore``) when available; a pure-Python fallback
+    is used otherwise.
+
+    Parameters
+    ----------
+    gap_positions : iterable of int
+        Candidate gap-insertion positions (negative = from end).
+    mat : substitution_matrices.Array or None
+        Amino-acid substitution matrix (e.g. BLOSUM62).
+    gap_penalty : float
+        Per-position gap penalty (typically negative).
+    v_offset, j_offset : int
+        Number of positions to skip at the V/J ends.
+    """
+
+    _factor = 10.0
 
     def __init__(self,
                  gap_positions: t.Iterable[int] = (3, 4, -4, -3),
@@ -177,7 +220,7 @@ class CDRAligner(Scoring):
         val = self._self_cache.get(s)
         if val is not None:
             return val
-        cdr = self._get_cdrscore()
+        cdr = _get_seqdist()
         if cdr is not None:
             val = cdr.selfscore(s, self._mat256, self._factor, self._use_mat)
         else:
@@ -195,7 +238,7 @@ class CDRAligner(Scoring):
         return val
 
     def score(self, s1, s2) -> float:
-        cdr = self._get_cdrscore()
+        cdr = _get_seqdist()
         if cdr is not None:
             return cdr.score_max(
                 s1, s2,
@@ -241,7 +284,7 @@ class CDRAligner(Scoring):
             return tuple(res)
 
     def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
-        cdr = self._get_cdrscore()
+        cdr = _get_seqdist()
         if len(s1) == len(s2):
             if cdr is not None:
                 sc = cdr.score_max(
@@ -274,6 +317,8 @@ class _Scoring_Wrapper:
 
 
 class GermlineAligner:
+    """Dict-based gene-level aligner built from pre-computed pairwise scores."""
+
     def __init__(self, dist: dict[tuple[str, str], float]):
         self.dist = dist
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
@@ -313,6 +358,8 @@ class GermlineAligner:
 
 
 class ClonotypeScore:
+    """Container for V / J / CDR3 component scores."""
+
     __scores__ = ['v_score', 'j_score', 'cdr3_score']
 
     def __init__(self, v_score: float, j_score: float, cdr3_score: float):
@@ -330,6 +377,8 @@ class ClonotypeScore:
 
 
 class PairedCloneScore:
+    """Score container for paired alpha/beta chain clonotypes."""
+
     def __init__(self, alpha_chain_score: ClonotypeScore, beta_chain_score: ClonotypeScore):
         self.alpha_chain_score = alpha_chain_score
         self.beta_chain_score = beta_chain_score
@@ -340,6 +389,8 @@ class PairedCloneScore:
 
 
 class ClonotypeAligner:
+    """Composite aligner combining V gene, J gene, and CDR3 scoring."""
+
     def __init__(self,
                  v_aligner: GermlineAligner,
                  j_aligner: GermlineAligner,
