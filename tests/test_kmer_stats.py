@@ -26,7 +26,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from tests.conftest import skip_integration
 from mir.biomarkers.kmer_stats import (
     KmerCounter,
     compare_kmer_counts,
@@ -76,6 +78,8 @@ def _generate_olga_background(n: int = 1000, seed: int = 42) -> list[str]:
 
 @unittest.skipUnless(GILG_FILE.exists(),
                      "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")
+@skip_integration
+@pytest.mark.integration
 class TestKmerStatsBenchmark(unittest.TestCase):
     """K-mer differential analysis: GILGFVFTL-specific vs OLGA background."""
 
