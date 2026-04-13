@@ -261,14 +261,13 @@ static py::list c_tokenize_gapped_bytes(const py::object& obj, int k, int mask_b
     int n_windows = n - k + 1;
     int total = n_windows * k;
     py::list result(total);
-    // Temporary buffer for each gapped k-mer
-    char* buf = (char*)alloca(k);
+    std::string buf(k, '\0');
     int idx = 0;
     for (int i = 0; i < n_windows; ++i) {
         for (int j = 0; j < k; ++j) {
-            std::memcpy(buf, sv.data + i, k);
+            std::memcpy(buf.data(), sv.data + i, k);
             buf[j] = (char)mask_byte;
-            result[idx++] = py::bytes(buf, k);
+            result[idx++] = py::bytes(buf.data(), k);
         }
     }
     return result;
@@ -282,13 +281,13 @@ static py::list c_tokenize_gapped_str(const py::object& obj, int k, int mask_byt
     int n_windows = n - k + 1;
     int total = n_windows * k;
     py::list result(total);
-    char* buf = (char*)alloca(k);
+    std::string buf(k, '\0');
     int idx = 0;
     for (int i = 0; i < n_windows; ++i) {
         for (int j = 0; j < k; ++j) {
-            std::memcpy(buf, sv.data + i, k);
+            std::memcpy(buf.data(), sv.data + i, k);
             buf[j] = (char)mask_byte;
-            result[idx++] = py::str(std::string(buf, k));
+            result[idx++] = py::str(std::string(buf.data(), k));
         }
     }
     return result;

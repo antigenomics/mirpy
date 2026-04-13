@@ -11,6 +11,7 @@ import numpy as np
 from Bio import Align
 from Bio.Align import substitution_matrices
 
+from tests.conftest import skip_benchmarks
 from mir.distances.aligner import (
     CDRAligner,
     BioAlignerWrapper,
@@ -555,6 +556,8 @@ class TestAlignVisualization:
 # ===================================================================
 
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestAlignmentBenchmarks:
     """Speed benchmarks for CDR3 alignment.
 
