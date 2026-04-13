@@ -25,18 +25,20 @@ classifiers = [
 dependencies = [
   "biopython",
   "matplotlib",
+  "multipy",
   "numpy",
   "olga",
   "pandas",
+  "polars",
+  "pympler",
   "python_igraph",
   "scipy",
   "seaborn",
-  "umap-learn",
   "scikit-learn",
+  "statsmodels",
   "textdistance",
-  "plotnine",
-  "stringzilla",
   "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy",
+  "tqdm",
 ]
 license = {text = "GPL-3.0 license"}
 
