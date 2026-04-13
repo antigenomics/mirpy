@@ -1,5 +1,7 @@
 import os
 import unittest
+from pathlib import Path
+
 import pandas as pd
 
 from mir.biomarkers.fisher_biomarkers_detector import FisherBiomarkersDetector
@@ -10,11 +12,12 @@ from mir.common.repertoire_dataset import RepertoireDataset
 
 class TestRepertoireDataset(unittest.TestCase):
     def setUp(self):
-        self.meta = pd.read_csv('assets/test_meta.csv')
+        assets_dir = Path(__file__).parent / "assets"
+        self.meta = pd.read_csv(assets_dir / "meta.csv")
         self.rd = RepertoireDataset.load(parser=VDJtoolsParser(sep=','),
                                          metadata=self.meta,
                                          threads=1,
-                                         paths=[f'assets/{x}' for x in self.meta.file_name])
+                                         paths=[str(assets_dir / x) for x in self.meta.file_name])
 
         self.ill_rd, self.healthy_rd = self.rd.split_by_metadata_function(splitting_method=lambda x: x.status == 'ill')
 

@@ -230,7 +230,7 @@ def summarize_rearrangements(
             if id_set is None:
                 ids[key] = {rid}
                 dups[key] = dc
-            else:
+            elif rid not in id_set:
                 id_set.add(rid)
                 dups[key] += dc
     return {k: KmerStats(len(ids[k]), dups[k]) for k in ids}
@@ -280,7 +280,7 @@ def summarize_annotations(
             if id_set is None:
                 ids[flat_key] = {rid}
                 dups[flat_key] = dc
-            else:
+            elif rid not in id_set:
                 id_set.add(rid)
                 dups[flat_key] += dc
     # Pivot into nested dict

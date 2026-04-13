@@ -6,6 +6,9 @@ Run with ``python -m pytest tests/test_mirseq_benchmark.py -v -s``.
 import time
 import unittest
 
+import pytest
+
+from tests.conftest import skip_benchmarks
 from mir.basic import mirseq
 from mir.distances import seqdist_c
 from mir.basic.alphabets import (
@@ -23,6 +26,8 @@ def _time_fn(fn, *args, n: int = 5000) -> float:
     return time.perf_counter() - start
 
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestBenchmarks(unittest.TestCase):
 
     def _report(self, name: str, py_t: float, c_t: float) -> None:

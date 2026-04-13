@@ -207,8 +207,7 @@ static double c_selfscore(const std::string& s,
                  py::array_t<double, py::array::c_style | py::array::forcecast> mat256,
                  double factor, bool use_mat) {
     if (!use_mat) return 0.0;
-    auto mbuf = mat256.request();
-    const double* mat = static_cast<double*>(mbuf.ptr);
+    const double* mat = extract_mat(mat256, use_mat);
     double x = 0.0;
     for (unsigned char c : s) x += mat[(size_t)c * 256 + c];
     return factor * x;
