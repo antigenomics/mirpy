@@ -34,9 +34,10 @@ class TestRepertoireDataset(unittest.TestCase):
         assert len(self.rd.clonotype_usage_matrix.public_clonotypes) == 5
 
     def test_public_clonotypes(self):
-        assert 'CGGGF' in self.rd.clonotype_usage_matrix.public_clonotypes
-        assert 'CASTA' in self.rd.clonotype_usage_matrix.public_clonotypes
-        assert 'CFRRA' in self.rd.clonotype_usage_matrix.public_clonotypes
+        public_cdr3aa = [x.cdr3aa for x in self.rd.clonotype_usage_matrix.public_clonotypes]
+        assert 'CGGGF' in public_cdr3aa
+        assert 'CASTA' in public_cdr3aa
+        assert 'CFRRA' in public_cdr3aa
 
 
     def test_usage_full_matrix_values_for_CGGGF(self):
