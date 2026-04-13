@@ -12,7 +12,6 @@ from mir.embedding.prototype_embedding import PrototypeEmbedding, Metrics
 from mir.common.repertoire import Repertoire
 from mir.common.parser import AIRRParser
 
-# ======= Настройки =======
 input_path = "/projects/immunestatus/pogorelyy/airr_format/P1_0_F1_with_1.txt"
 proto_path = "tcremp_prototypes_olga.tsv"
 species = ["HomoSapiens"]
@@ -21,7 +20,6 @@ locus = "beta"
 metric = "dissimilarity"
 nproc = 32
 llen, hlen = 5, 30
-# ==========================
 
 def report_memory(stage):
     process = psutil.Process(os.getpid())
