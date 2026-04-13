@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from tests.conftest import skip_benchmarks, skip_integration
 from mir.basic.token_tables import (
     Kmer,
     KmerAnnotation,
@@ -169,6 +170,8 @@ class TestTokenizeRearrangements:
 # Benchmark
 # ---------------------------------------------------------------------------
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestTokenizeRearrangementsBenchmark:
     N = 100_000
     K = 5
@@ -333,11 +336,18 @@ class TestSummarizeRearrangements:
         assert stats[shared].rearrangement_count == 2
         assert stats[shared].duplicate_count == 5
 
+    def test_repeated_kmer_counts_duplicate_once_per_rearrangement(self):
+        r = _make_rearrangement("CASSCAS", duplicate_count=11)
+        stats = summarize_rearrangements([r], k=3)
+        assert stats[Kmer("TRB", "TRBV5-1", "TRBC1", b"CAS")] == KmerStats(1, 11)
+
 
 # ---------------------------------------------------------------------------
 # Benchmark — summarize
 # ---------------------------------------------------------------------------
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestSummarizeRearrangementsBenchmark:
     N = 100_000
     K = 5
@@ -441,6 +451,13 @@ class TestSummarizeAnnotations:
         assert a0 in inner and inner[a0] == KmerStats(1, 1)
         assert a4 in inner and inner[a4] == KmerStats(1, 1)
 
+    def test_repeated_annotation_counts_duplicate_once_per_rearrangement(self):
+        r = _make_rearrangement("CASSCAS", duplicate_count=9)
+        ann = summarize_annotations([r], k=3)
+        ks = KmerSeq("TRB", b"CAS")
+        assert ann[ks][KmerAnnotation("TRBV5-1", "TRBC1", 0)] == KmerStats(1, 9)
+        assert ann[ks][KmerAnnotation("TRBV5-1", "TRBC1", 4)] == KmerStats(1, 9)
+
     def test_gapped_annotations(self):
         r = _make_rearrangement("CASSLA", duplicate_count=6)
         ann = summarize_annotations([r], k=4, mask_byte=MASK)
@@ -480,6 +497,8 @@ class TestSummarizeAnnotations:
 # Benchmark — summarize_annotations
 # ---------------------------------------------------------------------------
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestSummarizeAnnotationsBenchmark:
     N = 100_000
     K = 5
@@ -511,6 +530,8 @@ class TestSummarizeAnnotationsBenchmark:
 # OLGA-based realistic benchmark
 # ---------------------------------------------------------------------------
 
+@skip_integration
+@pytest.mark.integration
 class TestOlgaKmerSummary:
     """Generate 10,000 human TCR-beta rearrangements via OLGA and validate
     biological expectations on k-mer incidence."""

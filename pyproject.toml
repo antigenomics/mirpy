@@ -19,7 +19,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: GPL-3.0 license",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -49,4 +49,10 @@ Issues   = "https://github.com/antigenomics/mirpy/issues"
 [tool.scikit-build]
 wheel.packages = ["mir"]
 logging.level = "INFO"
+
+[tool.pytest.ini_options]
+markers = [
+  "benchmark: performance-oriented tests excluded from the default test run",
+  "integration: slow or environment-dependent tests excluded from the default test run",
+]
 

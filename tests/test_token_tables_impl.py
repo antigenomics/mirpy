@@ -13,6 +13,7 @@ import tracemalloc
 import polars as pl
 import pytest
 
+from tests.conftest import skip_benchmarks
 from mir.basic import token_tables_pl as plmod
 from mir.basic.token_tables import (
     Kmer,
@@ -258,6 +259,8 @@ def _measure(func, label: str) -> dict:
     return {"label": label, "elapsed": elapsed, "peak_mem": peak, "result": result}
 
 
+@skip_benchmarks
+@pytest.mark.benchmark
 class TestBenchmarkImplementations:
     """Compare time and memory: naive (token_tables.py) vs Polars on
     10,000 OLGA-generated TCR-beta rearrangements."""
