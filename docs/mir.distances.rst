@@ -28,6 +28,22 @@ mir.distances.search module
    :undoc-members:
    :show-inheritance:
 
+mir.distances.seqdist module
+----------------------------
+
+.. automodule:: mir.distances.seqdist
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.distances.seqdist\_c module
+-------------------------------
+
+.. automodule:: mir.distances.seqdist_c
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

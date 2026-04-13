@@ -1,3 +1,1 @@
-"""
-a module which contains functions for biomarkers selection and postprocessing
-"""
+"""Biomarker detection and k-mer differential analysis for immune repertoires."""
