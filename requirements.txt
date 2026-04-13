@@ -14,9 +14,6 @@ statsmodels==0.14.1
 textdistance==4.5.0
 tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy
 tqdm==4.66.2
-stringzilla==4.6.0
-stringutils==1.0.6
 umap-learn==0.5.3
 pybind11==2.11.0
-multipy==0.16
 polars==1.39.3
