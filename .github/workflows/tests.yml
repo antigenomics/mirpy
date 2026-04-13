@@ -2,9 +2,6 @@ name: Test Suite
 
 on:
   push:
-    branches:
-      - main
-      - dev
   pull_request:
   workflow_dispatch:
 
