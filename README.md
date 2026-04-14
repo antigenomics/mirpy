@@ -20,6 +20,12 @@ Requirements:
 - Python 3.11+
 - a C/C++ build toolchain for compiled extensions
 
+Install from PyPI:
+
+```bash
+pip install mirpy-lib
+```
+
 Install from the repository root:
 
 ```bash
@@ -88,6 +94,29 @@ repertoire = Repertoire.load(
     path="example.tsv",
     gene="TRB",
 )
+```
+
+### Mask and match sequences
+
+```python
+from mir.basic.alphabets import (
+    aa_to_reduced,
+    mask,
+    matches,
+    matches_aa_reduced,
+    NT_MASK,
+    AA_MASK,
+)
+
+nt_masked = mask("ATCGAT", (2, 5), NT_MASK)
+assert nt_masked == b"ATNNNT"
+
+aa = "CASTIV"
+reduced = aa_to_reduced(aa)
+
+# Matching ignores mask symbols: N for nucleotides, X for amino-acid alphabets.
+assert matches(mask(aa, 0, AA_MASK), aa, AA_MASK)
+assert matches_aa_reduced(aa, mask(reduced, 3, AA_MASK))
 ```
 
 ## Resources
