@@ -9,7 +9,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "mirpy-lib"
-version = "0.1.3"
+version = "1.0.0"
 authors = [
   { name="VEK239", email="elizaveta.k.vlasova@gmail.com" },
   { name="mikessh", email="mikhail.shugay@gmail.com"},
@@ -37,7 +37,7 @@ dependencies = [
   "scikit-learn",
   "statsmodels",
   "textdistance",
-  "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy",
+  "tcrtrie>=0.1.2",
   "tqdm",
 ]
 license = {text = "GPL-3.0 license"}
