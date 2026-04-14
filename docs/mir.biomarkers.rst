@@ -12,6 +12,14 @@ mir.biomarkers.fisher_biomarkers_detector module
    :undoc-members:
    :show-inheritance:
 
+mir.biomarkers.kmer_stats module
+--------------------------------
+
+.. automodule:: mir.biomarkers.kmer_stats
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

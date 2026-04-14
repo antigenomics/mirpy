@@ -28,14 +28,6 @@ mir.basic.fast_clust module
    :undoc-members:
    :show-inheritance:
 
-mir.basic.kmers module
-----------------------
-
-.. automodule:: mir.basic.kmers
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.basic.pgen module
 ---------------------
 
@@ -48,6 +40,22 @@ mir.basic.sampling module
 -------------------------
 
 .. automodule:: mir.basic.sampling
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.basic.alphabets module
+--------------------------
+
+.. automodule:: mir.basic.alphabets
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.basic.mirseq module
+-----------------------
+
+.. automodule:: mir.basic.mirseq
    :members:
    :undoc-members:
    :show-inheritance:

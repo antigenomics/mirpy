@@ -4,37 +4,43 @@ requires = [
   "pybind11",
   "numpy",
   "ninja"
-]
+]  
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "mirpy-lib"
 version = "1.0.0"
-authors = [{ name="antigenomics", email="elizaveta.k.vlasova@gmail.com" }]
+authors = [
+  { name="VEK239", email="elizaveta.k.vlasova@gmail.com" },
+  { name="mikessh", email="mikhail.shugay@gmail.com"},
+]
 description = "A library for managing and analyzing immunosequencing data"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent",
 ]
 dependencies = [
   "biopython",
   "matplotlib",
+  "multipy",
   "numpy",
   "olga",
   "pandas",
+  "polars",
+  "pympler",
   "python_igraph",
   "scipy",
   "seaborn",
-  "umap-learn",
   "scikit-learn",
+  "statsmodels",
   "textdistance",
-  "plotnine",
-  "tcrtrie @ git+https://github.com/MikePodsytnik/TCRtrie@0.1.2-tcrtriepy",
+  "tcrtrie>=0.1.2",
+  "tqdm",
 ]
-license = {text = "MIT License"}
+license = {text = "GPL-3.0 license"}
 
 [project.urls]
 Homepage = "https://github.com/antigenomics/mirpy"
@@ -43,3 +49,10 @@ Issues   = "https://github.com/antigenomics/mirpy/issues"
 [tool.scikit-build]
 wheel.packages = ["mir"]
 logging.level = "INFO"
+
+[tool.pytest.ini_options]
+markers = [
+  "benchmark: performance-oriented tests excluded from the default test run",
+  "integration: slow or environment-dependent tests excluded from the default test run",
+]
+
