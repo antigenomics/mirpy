@@ -20,6 +20,12 @@ Requirements:
 - Python 3.11+
 - a C/C++ build toolchain for compiled extensions
 
+Install from PyPI:
+
+```bash
+pip install mirpy-lib
+```
+
 Install from the repository root:
 
 ```bash
