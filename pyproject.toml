@@ -48,6 +48,19 @@ Issues   = "https://github.com/antigenomics/mirpy/issues"
 
 [tool.scikit-build]
 wheel.packages = ["mir"]
+sdist.exclude = [
+  ".github/**",
+  ".idea/**",
+  ".tmp/**",
+  ".vscode/**",
+  "docs/_build/**",
+  "mir/docs/_build/**",
+  "notebooks/**",
+  "public/**",
+  "test/**",
+  "tests/**",
+  "wheeltest/**",
+]
 logging.level = "INFO"
 
 [tool.pytest.ini_options]
