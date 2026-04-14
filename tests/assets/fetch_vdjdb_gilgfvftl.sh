@@ -64,4 +64,6 @@ awk -F'\t' 'NR > 1 && $2 == "TRB" && $6 == "HomoSapiens" && $10 == "GILGFVFTL" &
     | sort -u > "$OUTFILE"
 
 n=$(wc -l < "$OUTFILE")
-echo "Wrote $n unique CDR3 sequences to $OUTFILE"
+echo "Wrote $n unique CDR3 sequences to $OUTFILE, gzipping..."
+gzip -f "$OUTFILE"
+echo "Done: $OUTFILE.gz"
