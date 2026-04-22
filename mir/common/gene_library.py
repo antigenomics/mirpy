@@ -66,13 +66,14 @@ class GeneEntry:
                  sequence: str = None,
                  sequence_aa: str = None,
                  refpoint: int = -1,
-                 featnt: dict[str, tuple[int, int]] = {},
-                 feataa: dict[str, tuple[int, int]] = {}):
+                 featnt: dict[str, tuple[int, int]] | None = None,
+                 feataa: dict[str, tuple[int, int]] | None = None):
         self.allele = allele
         self.species = species
         self.locus = locus if locus else allele[:3]
         if self.locus not in _ALLOWED_LOCI:
             raise ValueError(f'Bad locus {self.locus!r}')
+        # 4th character of an IMGT allele name encodes gene type: TRBV… → 'V'
         self.gene = gene if gene else (allele[3] if len(allele) > 3 else '?')
         if self.gene not in _ALLOWED_GENES:
             raise ValueError(f'Bad gene type {self.gene!r}')
@@ -84,9 +85,13 @@ class GeneEntry:
         else:
             self.sequence_aa = None
         self.refpoint = refpoint
+        featnt = featnt or {}
+        feataa = feataa or {}
+        # keep only non-empty intervals (start, end) where end > start
         self.featnt = {k: v for k, v in featnt.items() if v[1] > v[0]}
         self.feataa = {k: v for k, v in feataa.items() if v[1] > v[0]}
         if not feataa and self.featnt:
+            # derive AA feature coords by dividing NT coords by 3
             self.feataa = {k: (v[0] // 3, v[1] // 3) for k, v in self.featnt.items()}
 
     def __str__(self) -> str:
@@ -230,7 +235,12 @@ class GeneLibrary:
 
     @staticmethod
     def _allele_sort_key(allele: str) -> tuple[int, str]:
-        suffix = str(allele).split('*', 1)[1]
+        """Sort key that orders alleles numerically by the suffix after ``*``.
+
+        ``TRBV1*01`` → ``(1, '01')``, ``TRBV1*02`` → ``(2, '02')``.
+        Non-numeric suffixes sort last.
+        """
+        suffix = str(allele).split('*', 1)[1]   # text after '*', e.g. '01'
         try:
             return (int(suffix), suffix)
         except ValueError:

@@ -9,16 +9,11 @@ _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
 
 
 class ClonotypePayload:
-    """
-    The class to store metadata of a clonotype (number of reads with this clonotype and number of samples where \
-    the clonotype occurred)
-    """
+    """Optional read/sample count metadata attached to a clonotype."""
+
     def __init__(self) -> None:
         self.number_of_reads = None
         self.number_of_samples = None
-
-
-# TODO tcrnet payload etc / consider moving to separate module
 
 
 class Clonotype:
@@ -28,31 +23,20 @@ class Clonotype:
                  id: int | str,
                  cells: int | list[str] = 1,
                  payload: t.Any = None):
-        """
-        The initializing method for the clonotype class.
-        :param id: the clonotype id
-        :param cells: number of reads (cells) with the clonotype or number of cells for SC
-        :param payload: the metadata which is defined in `ClonotypePayload`
-        """
         self.id = id
         self.cells = cells
         self.payload = payload
         self.clone_metadata = {}
 
     def size(self) -> int:
-        """
-        A method which returns the number of cells (reads) where the clonotype is found
-        :return:
-        """
+        """Return the number of cells/reads associated with this clonotype."""
         if isinstance(self.cells, int):
             return self.cells
         else:
             return len(self.cells)
 
     def serialize(self) -> dict:
-        """
-        A mthod to perform the serialization of a clonotype
-        :return:
+        """Return a plain-dict representation of this clonotype.
         """
         return {'id': self.id,
                 'cells': self.cells}
@@ -81,15 +65,19 @@ class ClonotypeAA(Clonotype):
                  cells: int | list[str] = 1,
                  payload: t.Any = None):
         """
-        The initialization function which includes the cdr3aa sequence and vdj genes. The segmqnts might not be \
-        initialized.
-        :param cdr3aa: the string with cdr3aa
-        :param v: v segment object or string or None
-        :param d: segment object or string or None
-        :param j: segment object or string or None
-        :param id:
-        :param cells:
-        :param payload:
+        Parameters
+        ----------
+        cdr3aa:
+            CDR3 amino-acid sequence.
+        v, d, j:
+            V/D/J gene entries or allele-name strings.  Strings are
+            resolved via the default OLGA gene-library cache.
+        id:
+            Clonotype identifier (integer row index or custom string).
+        cells:
+            Read / cell count, or a list of barcode strings for single-cell.
+        payload:
+            Arbitrary metadata attached to this clonotype.
         """
         super().__init__(id, cells, payload)
         self.cdr3aa = cdr3aa
@@ -104,24 +92,15 @@ class ClonotypeAA(Clonotype):
         self.j = j
 
     def is_coding(self):
-        """
-        understand whether the clonotype is coding or not. ^[ARNDCQEGHILKMFPSTWYV]+$
-        :return: bool whether the clonotype is coding
-        """
+        """Return True if CDR3 consists only of standard amino-acid characters."""
         return _CODING_AA.match(self.cdr3aa)
 
     def is_canonical(self):
-        """
-        understand whether the clonotype is canonical or not. ^C[ARNDCQEGHILKMFPSTWYV]+[FW]$
-        :return: bool whether the clonotype is canonical
-        """
+        """Return True if CDR3 starts with C and ends with F or W."""
         return _CANONICAL_AA.match(self.cdr3aa)
 
     def serialize(self) -> dict:
-        """
-        Returns the serialized amino acid clonotype
-        :return: a dictionary with serialized clonotype
-        """
+        """Return a plain-dict representation of this clonotype."""
         return {'id': self.id,
                 'cells': self.cells,
                 'cdr3aa': self.cdr3aa,
@@ -182,17 +161,18 @@ class ClonotypeNT(ClonotypeAA):
                  cells: int | list[str] = 1,
                  payload: t.Any = None):
         """
-        The initialization function which includes the cdr3aa sequence and vdj genes. The segmqnts might not be \
-        initialized.
-        :param cdr3nt: the string with cdr3nt
-        :param junction: the `JunctionMarkup` object which stores the info on clonotype junction
-        :param cdr3aa: the string with cdr3aa
-        :param v: v segment object or string or None
-        :param d: segment object or string or None
-        :param j: segment object or string or None
-        :param id:
-        :param cells:
-        :param payload:
+        Parameters
+        ----------
+        cdr3nt:
+            CDR3 nucleotide sequence.  ``cdr3aa`` is auto-translated when
+            not provided.
+        junction:
+            Optional V/D/J boundary markup (positions in AA space).
+        cdr3aa:
+            CDR3 amino-acid sequence.  Derived from *cdr3nt* if omitted.
+        v, d, j:
+            V/D/J gene entries or allele-name strings (resolved via the
+            default OLGA gene-library cache).
         """
         if not cdr3aa:
             cdr3aa = translate_linear(cdr3nt).rstrip('_')
