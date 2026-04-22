@@ -284,6 +284,26 @@ class GeneLibrary:
         return f'GeneLibrary({len(self.entries)} entries, complete={self.complete}, sample={sample})'
 
 
-# Module-level singleton used for lazy GeneEntry creation from raw strings
-# (e.g. in ClonotypeAA when v/d/j are given as strings).
-_GENE_LIBRARY_CACHE = GeneLibrary()
+class _DefaultLibrary:
+    """Lazy proxy for the default OLGA gene library singleton.
+
+    Loads ``olga_gene_library.txt`` (human TRA+TRB by default) on first
+    attribute access so that importing this module never triggers file I/O.
+    ``complete`` is kept ``False`` so unknown allele names are accepted as
+    placeholder entries rather than raising.
+    """
+
+    _lib: 'GeneLibrary | None' = None
+
+    @classmethod
+    def _load(cls) -> 'GeneLibrary':
+        if cls._lib is None:
+            cls._lib = GeneLibrary.load_default()
+            cls._lib.complete = False
+        return cls._lib
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+
+_GENE_LIBRARY_CACHE = _DefaultLibrary()
