@@ -11,7 +11,8 @@ appears in that rearrangement's ``junction_aa``, as recorded by the token
 table produced by :func:`~mir.basic.token_tables.tokenize_rearrangements`.
 
 Use :func:`~mir.basic.token_tables.filter_token_table` to restrict the
-token table to kmers matching a regex before building the graph.
+token table before building the graph — by regex pattern, minimum
+rearrangement count, or both.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ def build_token_graph(
     ``node_type`` : ``"rearrangement"`` or ``"kmer"``
     ``name``      : ``junction_aa`` for rearrangements; decoded kmer sequence
                     for kmers.
+    ``r_id``      : :attr:`Rearrangement.id` for rearrangement vertices;
+                    ``-1`` for kmer vertices.
     ``v_gene``    : ``v_gene`` field (rearrangements) or kmer v-gene annotation.
     ``c_gene``    : ``c_gene`` field (rearrangements) or kmer c-gene annotation.
     ``locus``     : locus field for both vertex types.
@@ -74,6 +77,7 @@ def build_token_graph(
         [r.junction_aa for r in rearrangements]
         + [k.seq.decode("ascii") for k in kmers]
     )
+    g.vs["r_id"] = [r.id for r in rearrangements] + [-1] * n_k
     g.vs["v_gene"] = (
         [r.v_gene for r in rearrangements] + [k.v_gene for k in kmers]
     )

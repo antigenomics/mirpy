@@ -39,6 +39,9 @@ from mir.basic.token_tables import (
 )
 from mir.graph.token_graph import build_token_graph
 
+# RS retention threshold for count-based filtering benchmarks
+_RS_RETENTION_THRESHOLD = 0.80  # ≥80% of RS rearrangements must stay in filtered CC
+
 # ---------------------------------------------------------------------------
 # Mock data
 # ---------------------------------------------------------------------------
@@ -130,6 +133,108 @@ class TestFilterTokenTable(unittest.TestCase):
         rx = re.compile("RS")
         for kmer in result:
             self.assertTrue(rx.search(kmer.seq.decode("ascii")))
+
+
+# ---------------------------------------------------------------------------
+# filter_token_table — count-based filter
+# ---------------------------------------------------------------------------
+
+class TestFilterTokenTableByCount(unittest.TestCase):
+    """Tests for min_rearrangement_count filtering.
+
+    Mock table (k=3):
+      CAS  → r_rs1, r_rs2, r_none  (3 rearrangements)
+      ASR  → r_rs1                  (1 rearrangement)
+      SRS  → r_rs1, r_rs2           (2 rearrangements)
+      ASS  → r_rs2                  (1 rearrangement)
+      SSR  → r_rs2                  (1 rearrangement)
+      AST  → r_none                 (1 rearrangement)
+      STL  → r_none                 (1 rearrangement)
+      TLG  → r_none                 (1 rearrangement)
+    """
+
+    def setUp(self):
+        self.rearrangements, self.table = _make_mock()
+
+    def test_count_1_keeps_all(self):
+        """min_rearrangement_count=1 keeps every kmer."""
+        result = filter_token_table(self.table, min_rearrangement_count=1)
+        self.assertEqual(len(result), len(self.table))
+
+    def test_count_2_keeps_cas_and_srs(self):
+        """min_rearrangement_count=2 retains only CAS (×3) and SRS (×2)."""
+        result = filter_token_table(self.table, min_rearrangement_count=2)
+        seqs = {k.seq.decode("ascii") for k in result}
+        self.assertEqual(seqs, {"CAS", "SRS"})
+
+    def test_count_3_keeps_only_cas(self):
+        """min_rearrangement_count=3 retains only CAS (seen in all 3 rearrangements)."""
+        result = filter_token_table(self.table, min_rearrangement_count=3)
+        seqs = {k.seq.decode("ascii") for k in result}
+        self.assertEqual(seqs, {"CAS"})
+
+    def test_count_4_returns_empty(self):
+        """min_rearrangement_count=4 exceeds any kmer count → empty dict."""
+        result = filter_token_table(self.table, min_rearrangement_count=4)
+        self.assertEqual(len(result), 0)
+
+    def test_none_count_returns_same_table(self):
+        """min_rearrangement_count=None and no pattern → original table unchanged."""
+        result = filter_token_table(self.table)
+        self.assertIs(result, self.table)
+
+    def test_combined_pattern_and_count(self):
+        """RS pattern + min_count=2 keeps only SRS (RS-containing, ≥2 rearrangements)."""
+        result = filter_token_table(self.table, kmer_pattern="RS", min_rearrangement_count=2)
+        seqs = {k.seq.decode("ascii") for k in result}
+        self.assertEqual(seqs, {"SRS"})
+
+    def test_combined_pattern_and_count_too_strict(self):
+        """RS pattern + min_count=3 → empty (SRS only appears in 2 rearrangements)."""
+        result = filter_token_table(self.table, kmer_pattern="RS", min_rearrangement_count=3)
+        self.assertEqual(len(result), 0)
+
+    def test_original_table_not_modified_by_count_filter(self):
+        """Count filtering never mutates the original table."""
+        original_keys = set(self.table.keys())
+        filter_token_table(self.table, min_rearrangement_count=2)
+        self.assertEqual(set(self.table.keys()), original_keys)
+
+    def test_count_matches_distinct_ids(self):
+        """Count reflects *distinct* rearrangement IDs, not raw KmerMatch count."""
+        # CAS matches r_rs1 at pos 0, r_rs2 at pos 0, r_none at pos 0 → 3 distinct IDs.
+        # Even if we had duplicate matches, the count should still be 3.
+        result = filter_token_table(self.table, min_rearrangement_count=3)
+        cas_keys = [k for k in result if k.seq == b"CAS"]
+        self.assertEqual(len(cas_keys), 1)
+
+
+# ---------------------------------------------------------------------------
+# build_token_graph — r_id attribute
+# ---------------------------------------------------------------------------
+
+class TestTokenGraphRId(unittest.TestCase):
+
+    def setUp(self):
+        self.rearrangements, self.table = _make_mock()
+        self.g = build_token_graph(self.rearrangements, self.table)
+
+    def test_rearrangement_vertices_have_correct_r_id(self):
+        """Each rearrangement vertex r_id matches Rearrangement.id."""
+        for r in self.rearrangements:
+            v = next(v for v in self.g.vs
+                     if v["node_type"] == "rearrangement" and v["name"] == r.junction_aa)
+            self.assertEqual(v["r_id"], r.id)
+
+    def test_kmer_vertices_have_sentinel_r_id(self):
+        """Kmer vertices carry r_id=-1 (sentinel)."""
+        for v in self.g.vs:
+            if v["node_type"] == "kmer":
+                self.assertEqual(v["r_id"], -1)
+
+    def test_r_id_attribute_exists_on_all_vertices(self):
+        """r_id is set on every vertex (not None)."""
+        self.assertTrue(all(v["r_id"] is not None for v in self.g.vs))
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +453,44 @@ class TestTokenGraphBenchmark(unittest.TestCase):
         print(f"\n  Rearrangements in largest filtered CC: {len(r_seqs)}")
         print(f"  Of which contain 'RS': {len(rs_r_seqs)}")
         self.assertGreater(len(rs_r_seqs), 0)
+
+    def _rs_retention_for_min_count(self, min_count: int) -> float:
+        """Return the fraction of RS rearrangements retained in the largest CC."""
+        filtered = filter_token_table(self.table, min_rearrangement_count=min_count)
+        if not filtered:
+            return 0.0
+        g = build_token_graph(self.rearrangements, filtered)
+        largest = g.components().giant()
+        rs_in_largest = sum(
+            1 for v in largest.vs
+            if v["node_type"] == "rearrangement" and "RS" in v["name"]
+        )
+        total_rs = sum(1 for r in self.rearrangements if "RS" in r.junction_aa)
+        return rs_in_largest / total_rs if total_rs else 0.0
+
+    def test_count_filter_rs_retention_n2(self):
+        """min_count=2: ≥80% of RS rearrangements remain in the largest CC."""
+        rate = self._rs_retention_for_min_count(2)
+        print(f"\n  RS retention (min_count=2): {rate:.1%}")
+        self.assertGreaterEqual(rate, _RS_RETENTION_THRESHOLD)
+
+    def test_count_filter_rs_retention_n3(self):
+        """min_count=3: ≥80% of RS rearrangements remain in the largest CC."""
+        rate = self._rs_retention_for_min_count(3)
+        print(f"\n  RS retention (min_count=3): {rate:.1%}")
+        self.assertGreaterEqual(rate, _RS_RETENTION_THRESHOLD)
+
+    def test_count_filter_rs_retention_n5(self):
+        """min_count=5: ≥80% of RS rearrangements remain in the largest CC."""
+        rate = self._rs_retention_for_min_count(5)
+        print(f"\n  RS retention (min_count=5): {rate:.1%}")
+        self.assertGreaterEqual(rate, _RS_RETENTION_THRESHOLD)
+
+    def test_count_filter_rs_retention_n10(self):
+        """min_count=10: ≥80% of RS rearrangements remain in the largest CC."""
+        rate = self._rs_retention_for_min_count(10)
+        print(f"\n  RS retention (min_count=10): {rate:.1%}")
+        self.assertGreaterEqual(rate, _RS_RETENTION_THRESHOLD)
 
     def test_nonrs_rearrangements_lost_after_filtering(self):
         """Non-RS rearrangements are expelled from the major CC by RS filtering.

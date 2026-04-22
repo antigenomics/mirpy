@@ -1,19 +1,21 @@
 """Rearrangement-level k-mer indexing.
 
 Provides a lightweight ``Rearrangement`` type and hashable k-mer
-named-tuples, together with functions that build inverted indices and
-summary statistics from rearrangement lists.
+named-tuples, together with functions that build inverted indices,
+summary statistics, and filtered views of token tables.
 
 Functions
 ---------
 * ``tokenize_rearrangements`` — ``dict[Kmer, list[KmerMatch]]`` with
   position tracking.
+* ``filter_token_table``      — filter by regex pattern and/or minimum
+  rearrangement count; both criteria may be combined.
 * ``summarize_rearrangements`` — ``dict[Kmer, KmerStats]`` (full key).
 * ``summarize_annotations``   — ``dict[KmerSeq, dict[KmerAnnotation, KmerStats]]``
   keyed by (locus, seq) only, mapping to per-(v_gene, c_gene, position)
   counts.
 
-All functions accept an optional *mask_byte* for gapped k-mers.
+All tokenization functions accept an optional *mask_byte* for gapped k-mers.
 No runtime type checks — relies on static typing.
 """
 
@@ -298,24 +300,37 @@ def summarize_annotations(
 def filter_token_table(
     table: dict[Kmer, list[KmerMatch]],
     kmer_pattern: str | None = None,
+    min_rearrangement_count: int | None = None,
 ) -> dict[Kmer, list[KmerMatch]]:
     """Return a filtered view of a token table.
+
+    Both filters may be combined; a k-mer must satisfy *all* active criteria
+    to be retained.
 
     Args:
         table: Output of :func:`tokenize_rearrangements`.
         kmer_pattern: Regular expression matched against each k-mer sequence
             decoded as ASCII.  Only k-mers whose sequence matches are kept.
-            ``None`` (default) returns the table unchanged.
+            ``None`` (default) skips pattern filtering.
+        min_rearrangement_count: Minimum number of *distinct* rearrangement IDs
+            that must contain a k-mer for it to be retained.  ``None`` (default)
+            skips count filtering.  Pass ``3`` to discard rare k-mers seen in
+            fewer than three rearrangements.
 
     Returns:
         Filtered ``dict[Kmer, list[KmerMatch]]``.  The original table is
         never modified.
     """
-    if kmer_pattern is None:
+    if kmer_pattern is None and min_rearrangement_count is None:
         return table
-    rx = re.compile(kmer_pattern)
-    return {
-        kmer: matches
-        for kmer, matches in table.items()
-        if rx.search(kmer.seq.decode("ascii"))
-    }
+    rx = re.compile(kmer_pattern) if kmer_pattern is not None else None
+    result: dict[Kmer, list[KmerMatch]] = {}
+    for kmer, matches in table.items():
+        if rx is not None and not rx.search(kmer.seq.decode("ascii")):
+            continue
+        if min_rearrangement_count is not None:
+            n_distinct = len({m.rearrangement.id for m in matches})
+            if n_distinct < min_rearrangement_count:
+                continue
+        result[kmer] = matches
+    return result

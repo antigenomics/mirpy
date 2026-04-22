@@ -12,6 +12,7 @@ import typing as t
 from functools import partial
 from itertools import islice
 from multiprocessing import Pool
+from typing import NamedTuple
 
 import igraph as ig
 
@@ -20,41 +21,54 @@ from mir.distances.seqdist import hamming as _hamming
 from mir.distances.seqdist import levenshtein as _levenshtein
 
 
+class _PairRecord(NamedTuple):
+    """Pair of rearrangements to compare, with pre-extracted fields."""
+
+    i: int
+    j: int
+    seq1: str
+    seq2: str
+    v1: str
+    v2: str
+    c1: str
+    c2: str
+
+
 def _process_chunk(
-    chunk: list[tuple[int, int, str, str, str, str, str, str]],
+    chunk: list[_PairRecord],
     metric: str,
     threshold: int,
     v_gene_match: bool,
     c_gene_match: bool,
 ) -> list[tuple[int, int]]:
-    """Return edges from a chunk of (i, j, seq1, seq2, v1, v2, c1, c2) tuples."""
+    """Return edges for all pairs in *chunk* that are within *threshold*."""
     edges: list[tuple[int, int]] = []
-    for i, j, seq1, seq2, v1, v2, c1, c2 in chunk:
-        if v_gene_match and v1 != v2:
+    for rec in chunk:
+        if v_gene_match and rec.v1 != rec.v2:
             continue
-        if c_gene_match and c1 != c2:
+        if c_gene_match and rec.c1 != rec.c2:
             continue
         if metric == "hamming":
-            if len(seq1) != len(seq2):
+            if len(rec.seq1) != len(rec.seq2):
                 continue
-            d = _hamming(seq1, seq2)
+            d = _hamming(rec.seq1, rec.seq2)
         else:
-            d = _levenshtein(seq1, seq2)
+            d = _levenshtein(rec.seq1, rec.seq2)
         if d <= threshold:
-            edges.append((i, j))
+            edges.append((rec.i, rec.j))
     return edges
 
 
 def _iter_chunks(
     rearrangements: list[Rearrangement],
     chunk_sz: int,
-) -> t.Generator[list, None, None]:
+) -> t.Generator[list[_PairRecord], None, None]:
     n = len(rearrangements)
-    seqs = [r.junction_aa for r in rearrangements]
-    v_genes = [r.v_gene for r in rearrangements]
-    c_genes = [r.c_gene for r in rearrangements]
+    seqs   = [r.junction_aa for r in rearrangements]
+    v_genes = [r.v_gene     for r in rearrangements]
+    c_genes = [r.c_gene     for r in rearrangements]
     pair_gen = (
-        (i, j, seqs[i], seqs[j], v_genes[i], v_genes[j], c_genes[i], c_genes[j])
+        _PairRecord(i, j, seqs[i], seqs[j], v_genes[i], v_genes[j], c_genes[i], c_genes[j])
         for i in range(n)
         for j in range(i + 1, n)
     )
@@ -93,7 +107,8 @@ def build_edit_distance_graph(
 
     Returns:
         Undirected ``igraph.Graph`` with vertex attributes ``name``
-        (junction_aa), ``v_gene``, and ``c_gene``.
+        (``junction_aa``), ``r_id`` (:attr:`Rearrangement.id`),
+        ``v_gene``, and ``c_gene``.
     """
     if metric not in ("hamming", "levenshtein"):
         raise ValueError(f"metric must be 'hamming' or 'levenshtein', got {metric!r}")
@@ -118,9 +133,10 @@ def build_edit_distance_graph(
                 edges.extend(result)
 
     g = ig.Graph(n=n, directed=False)
-    g.vs["name"] = [r.junction_aa for r in rearrangements]
-    g.vs["v_gene"] = [r.v_gene for r in rearrangements]
-    g.vs["c_gene"] = [r.c_gene for r in rearrangements]
+    g.vs["name"]   = [r.junction_aa for r in rearrangements]
+    g.vs["r_id"]   = [r.id          for r in rearrangements]
+    g.vs["v_gene"] = [r.v_gene      for r in rearrangements]
+    g.vs["c_gene"] = [r.c_gene      for r in rearrangements]
     if edges:
         g.add_edges(edges)
     return g
