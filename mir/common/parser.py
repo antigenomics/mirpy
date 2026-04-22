@@ -6,7 +6,11 @@ from collections import namedtuple
 import pandas as pd
 
 from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, PairedChainClone
-from mir.common.segments import SegmentLibrary, Segment
+from mir.common.gene_library import GeneLibrary, GeneEntry
+
+# Legacy aliases kept for callers that reference old names
+SegmentLibrary = GeneLibrary
+Segment = GeneEntry
 
 _AIRR_LOCUS_ALIASES = {
     'alpha': {'alpha', 'tra'},
