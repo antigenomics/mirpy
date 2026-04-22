@@ -95,7 +95,7 @@ class SegmentLibrary:
                          ):
         genes = cls._as_set(genes)
         organisms = cls._as_set(organisms)
-        default_path = Path(get_resource_path(fname))
+        default_path = Path(get_resource_path('segments/' + fname))
         df = cls._load_segments_dataframe(default_path)
         missing_pairs = cls._get_missing_vj_pairs(df=df, genes=genes, organisms=organisms)
         if missing_pairs:
@@ -173,7 +173,7 @@ class SegmentLibrary:
         if _SEGMENT_ALLELE_CACHE is not None:
             return _SEGMENT_ALLELE_CACHE
 
-        path = Path(get_resource_path('segments.txt'))
+        path = Path(get_resource_path('segments/segments.txt'))
         df = cls._load_segments_dataframe(path)
         cache = {}
         df = df[df['id'].astype(str).str.contains(r'\*', regex=True)]
@@ -306,6 +306,10 @@ class SegmentLibrary:
                 resolved = self._resolve_allele_id(id, organism=organism, gene=gene)
                 if resolved in self.segments:
                     return self.get_or_create(resolved)
+            # Cache miss — find the minimum available allele with this base name.
+            candidates = sorted(s for s in self.segments if s.startswith(id + "*"))
+            if candidates:
+                return self.get_or_create(candidates[0])
             return self.get_or_create(self._resolve_allele_id(id))
 
     def __repr__(self):

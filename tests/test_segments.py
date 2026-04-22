@@ -22,7 +22,7 @@ class TestSegmentLibraryBootstrap(unittest.TestCase):
             requested_urls = []
 
             def fake_get_resource_path(name=None):
-                if name == "segments.txt":
+                if name == "segments/segments.txt":
                     return str(segments_path)
                 raise AssertionError(f"Unexpected resource request: {name}")
 
@@ -53,7 +53,7 @@ class TestSegmentLibraryBootstrap(unittest.TestCase):
             requested_urls = []
 
             def fake_get_resource_path(name=None):
-                if name == "segments.txt":
+                if name == "segments/segments.txt":
                     return str(segments_path)
                 raise AssertionError(f"Unexpected resource request: {name}")
 
