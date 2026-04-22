@@ -3,7 +3,11 @@ import typing as t
 
 from Bio.Seq import translate
 
-from mir.common.segments import Segment, _SEGMENT_CACHE
+from mir.common.gene_library import GeneEntry, _GENE_LIBRARY_CACHE
+
+# Legacy aliases used by type annotations below
+Segment = GeneEntry
+_SEGMENT_CACHE = _GENE_LIBRARY_CACHE
 
 _CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
 _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')

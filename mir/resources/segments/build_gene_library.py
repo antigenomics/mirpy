@@ -185,7 +185,7 @@ def build_olga_library(models_dirs: list[Path] | None = None) -> list[Row]:
 
 def _default_olga_dirs() -> list[Path]:
     """Return the default OLGA model search paths (local copy first)."""
-    local   = RESOURCES_DIR / "olga" / "default_models"
+    local   = RESOURCES_DIR.parent / "olga" / "default_models"
     package = Path(olga.__file__).parent / "default_models"
     return [d for d in (local, package) if d.exists()]
 
