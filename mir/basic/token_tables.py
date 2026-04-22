@@ -19,6 +19,7 @@ No runtime type checks — relies on static typing.
 
 from __future__ import annotations
 
+import re
 from typing import NamedTuple
 
 from mir.basic.alphabets import Seq, _to_bytes
@@ -292,3 +293,29 @@ def summarize_annotations(
             result[ks] = inner
         inner[ka] = KmerStats(len(id_set), dups[(ks, ka)])
     return result
+
+
+def filter_token_table(
+    table: dict[Kmer, list[KmerMatch]],
+    kmer_pattern: str | None = None,
+) -> dict[Kmer, list[KmerMatch]]:
+    """Return a filtered view of a token table.
+
+    Args:
+        table: Output of :func:`tokenize_rearrangements`.
+        kmer_pattern: Regular expression matched against each k-mer sequence
+            decoded as ASCII.  Only k-mers whose sequence matches are kept.
+            ``None`` (default) returns the table unchanged.
+
+    Returns:
+        Filtered ``dict[Kmer, list[KmerMatch]]``.  The original table is
+        never modified.
+    """
+    if kmer_pattern is None:
+        return table
+    rx = re.compile(kmer_pattern)
+    return {
+        kmer: matches
+        for kmer, matches in table.items()
+        if rx.search(kmer.seq.decode("ascii"))
+    }
