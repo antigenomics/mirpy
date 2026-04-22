@@ -13,12 +13,13 @@ to be significantly enriched compared to the OLGA background.
 Run with ``pytest -s tests/test_kmer_stats.py`` to see benchmark output.
 
 Requires:
-    * ``tests/assets/gilgfvftl_trb_cdr3.txt`` — run
+    * ``tests/assets/gilgfvftl_trb_cdr3.txt.gz`` — run
       ``bash tests/assets/fetch_vdjdb_gilgfvftl.sh`` first.
 """
 
 from __future__ import annotations
 
+import gzip
 import os
 import time
 import unittest
@@ -38,7 +39,7 @@ from mir.common.clonotype import ClonotypeAA
 from mir.common.repertoire import Repertoire
 
 ASSETS = Path(__file__).parent / "assets"
-GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt"
+GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,7 +52,10 @@ def _load_gilgfvftl_cdr3s() -> list[str]:
             f"{GILG_FILE} not found.  Run:\n"
             "  bash tests/assets/fetch_vdjdb_gilgfvftl.sh"
         )
-    seqs = [l.strip() for l in GILG_FILE.read_text().splitlines() if l.strip()]
+
+    with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
+        seqs = [l.strip() for l in f if l.strip()]
+
     if len(seqs) < 20:
         raise RuntimeError(f"Expected >= 20 GILGFVFTL CDR3s, got {len(seqs)}")
     return seqs

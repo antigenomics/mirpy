@@ -3,12 +3,15 @@ import os
 import pytest
 
 
-RUN_BENCHMARKS = os.getenv("RUN_BENCHMARKS") == "1"
+RUN_BENCHMARKS = (
+    os.getenv("RUN_BENCHMARK") == "1"
+    or os.getenv("RUN_BENCHMARKS") == "1"
+)
 RUN_INTEGRATION = os.getenv("RUN_INTEGRATION") == "1"
 
 skip_benchmarks = pytest.mark.skipif(
     not RUN_BENCHMARKS,
-    reason="set RUN_BENCHMARKS=1 to run benchmark tests",
+    reason="set RUN_BENCHMARK=1 to run benchmark tests",
 )
 
 skip_integration = pytest.mark.skipif(
