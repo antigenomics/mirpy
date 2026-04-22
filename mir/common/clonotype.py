@@ -1,13 +1,8 @@
 import re
 import typing as t
 
-from Bio.Seq import translate
-
+from mir.basic.mirseq import translate_linear
 from mir.common.gene_library import GeneEntry, _GENE_LIBRARY_CACHE
-
-# Legacy aliases used by type annotations below
-Segment = GeneEntry
-_SEGMENT_CACHE = _GENE_LIBRARY_CACHE
 
 _CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
 _CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
@@ -79,9 +74,9 @@ class ClonotypeAA(Clonotype):
     __slots__ = 'cdr3aa', 'v', 'd', 'j'
 
     def __init__(self, cdr3aa: str,
-                 v: str | Segment = None,
-                 d: str | Segment = None,
-                 j: str | Segment = None,
+                 v: str | GeneEntry = None,
+                 d: str | GeneEntry = None,
+                 j: str | GeneEntry = None,
                  id: int | str = -1,
                  cells: int | list[str] = 1,
                  payload: t.Any = None):
@@ -99,13 +94,13 @@ class ClonotypeAA(Clonotype):
         super().__init__(id, cells, payload)
         self.cdr3aa = cdr3aa
         if isinstance(v, str):
-            v = _SEGMENT_CACHE.get_or_create(v)
+            v = _GENE_LIBRARY_CACHE.get_or_create(v)
         self.v = v
         if isinstance(d, str):
-            d = _SEGMENT_CACHE.get_or_create(d)
+            d = _GENE_LIBRARY_CACHE.get_or_create(d)
         self.d = d
         if isinstance(j, str):
-            j = _SEGMENT_CACHE.get_or_create(j)
+            j = _GENE_LIBRARY_CACHE.get_or_create(j)
         self.j = j
 
     def is_coding(self):
@@ -180,9 +175,9 @@ class ClonotypeNT(ClonotypeAA):
                  cdr3nt: str,
                  junction: JunctionMarkup = None,
                  cdr3aa: str = None,
-                 v: str | Segment = None,
-                 d: str | Segment = None,
-                 j: str | Segment = None,
+                 v: str | GeneEntry = None,
+                 d: str | GeneEntry = None,
+                 j: str | GeneEntry = None,
                  id: int | str = -1,
                  cells: int | list[str] = 1,
                  payload: t.Any = None):
@@ -200,7 +195,7 @@ class ClonotypeNT(ClonotypeAA):
         :param payload:
         """
         if not cdr3aa:
-            cdr3aa = translate(cdr3nt)
+            cdr3aa = translate_linear(cdr3nt).rstrip('_')
         super().__init__(cdr3aa, v, d, j, id, cells, payload)
         self.cdr3nt = cdr3nt
         self.junction = junction

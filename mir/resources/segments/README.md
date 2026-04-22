@@ -9,7 +9,6 @@ Gene segment library files and generation scripts for the `mir` package.
 | `olga_gene_library.txt` | V/D/J alleles from OLGA default models — generated, do not edit by hand |
 | `imgt_gene_library.txt` | V/D/J alleles fetched from IMGT V-QUEST — generated, requires network |
 | `build_gene_library.log` | Append-only build log with timestamps, commit hashes, allele counts, and consistency reports |
-| `segments.txt` | Legacy gene segment library (superseded by the libraries above) |
 | `olga/` | Local OLGA model copies (full set, includes human TRG/TRD not in the package) |
 | `build_gene_library.py` | Script that generates the two libraries and the consistency log |
 
