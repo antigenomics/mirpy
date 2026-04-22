@@ -24,39 +24,40 @@ _AIRR_LOCUS_ALIASES = {
 
 
 class SegmentParser:
+    """Resolve raw V/J gene strings from a parser row into :class:`GeneEntry` objects.
+
+    Parameters
+    ----------
+    lib:
+        Gene library to resolve allele names against.
+    select_most_probable:
+        When ``True``, take only the first candidate from comma- or
+        semicolon-delimited multi-hit strings (e.g. ``'TRBV1*01,TRBV1*02'``).
+    mock_allele:
+        When ``True``, calls :meth:`GeneLibrary.get_or_create_noallele` so
+        that bare gene names without ``*NN`` suffixes are accepted.
+    remove_allele:
+        When ``True``, strips the allele suffix before lookup, returning the
+        base gene name entry.
     """
-    A parser which processes the segment. It uses the segment library as input and has some other parameters
-    """
+
     def __init__(self, lib: SegmentLibrary,
                  select_most_probable=True,
                  mock_allele: bool = True,
                  remove_allele: bool = False) -> None:
-        """
-        The initialization function for the `SegmentParser`.
-        :param lib: the `SegmentLibrary` object which stores the info about the segments to map to
-        :param select_most_probable: whether to select the most probable segment out of a sequence or not
-        :param mock_allele: whether to substitute the allele with *01 or not
-        :param remove_allele: whether to remove the allele from a segment name or not
-        """
         self.lib = lib
         self.mock_allele = mock_allele
         self.remove_allele = remove_allele
         self.select_most_probable = select_most_probable
 
-    def parse(self, id: str) -> Segment:
-        """
-        creates the `Segment` object
-        :param id: the name of a segment. should be a string. if the name cannot be parsed would return None
-        :return: a `Segment` object. if the name cannot be parsed would return None
-        """
+    def parse(self, id: str) -> GeneEntry | None:
+        """Resolve *id* to a :class:`GeneEntry`, or ``None`` if unparseable."""
         id = id.strip()
         if pd.isna(id) or len(id) < 5:
             return None
-            # raise ValueError(
-            #     f"Id {id} is null or too short")
         if self.select_most_probable:
-            id = id.split(',')[0]
-            id = id.split(';')[0]
+            id = id.split(',')[0]   # keep first of comma-delimited candidates
+            id = id.split(';')[0]   # keep first of semicolon-delimited candidates
         if self.remove_allele:
             id = id.split('*', 1)[0]
         if self.mock_allele:
