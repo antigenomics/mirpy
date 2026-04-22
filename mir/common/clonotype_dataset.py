@@ -174,7 +174,7 @@ class ClonotypeDataset:
         if self.__pgen_df is not None:
             return self.__pgen_df
         self.__pgen_df = {}
-        olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
+        olga = OlgaModel(model=get_resource_path('segments/olga/default_models/human_T_beta'))
         for clonotype in self.clonotypes_cdr3aa.keys():
             self.__pgen_df[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
         self.__pgen_df = pd.DataFrame(data={'cdr3aa': self.__pgen_df.keys(),

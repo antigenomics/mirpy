@@ -9,8 +9,8 @@ from olga.utils import nt2aa
 from mir import get_resource_path
 
 _CHAIN_TO_DEFAULT_MODEL = {
-    "TRB": "olga/default_models/human_T_beta",
-    "TRA": "olga/default_models/human_T_alpha",
+    "TRB": "segments/olga/default_models/human_T_beta",
+    "TRA": "segments/olga/default_models/human_T_alpha",
 }
 
 class OlgaModel:
