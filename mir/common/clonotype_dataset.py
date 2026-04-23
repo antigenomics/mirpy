@@ -176,7 +176,7 @@ class ClonotypeDataset:
         self.__pgen_df = {}
         olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
         for clonotype in self.clonotypes_by_junction_aa.keys():
-            self.__pgen_df[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
+            self.__pgen_df[clonotype] = olga.compute_pgen_junction_aa(clonotype)
         self.__pgen_df = pd.DataFrame(data={'junction_aa': self.__pgen_df.keys(),
                                             'pgen': self.__pgen_df.values()})
         return self.__pgen_df

@@ -294,6 +294,25 @@ static py::list c_tokenize_gapped_str(const py::object& obj, int k, int mask_byt
 }
 
 /* ================================================================
+ * Mask each position: seq with position i replaced by mask_char
+ * Returns list[str] of length len(seq).
+ * ================================================================ */
+
+static py::list c_mask_positions(const py::object& obj, char mask_char = 'X') {
+    auto sv = to_view(obj);
+    size_t n = sv.len;
+    py::list result(n);
+    std::string buf(sv.data, n);
+    for (size_t i = 0; i < n; ++i) {
+        char orig = buf[i];
+        buf[i] = mask_char;
+        result[i] = py::str(buf);
+        buf[i] = orig;
+    }
+    return result;
+}
+
+/* ================================================================
  * Module definition
  * ================================================================ */
 
@@ -324,4 +343,7 @@ PYBIND11_MODULE(mirseq, m) {
     m.def("tokenize_gapped_str", &c_tokenize_gapped_str,
           py::arg("seq"), py::arg("k"), py::arg("mask_byte"),
           "Gapped k-mers (each position masked) as list[str]");
+    m.def("mask_positions", &c_mask_positions,
+          py::arg("seq"), py::arg("mask_char") = 'X',
+          "Return list[str] with each position replaced by mask_char");
 }
