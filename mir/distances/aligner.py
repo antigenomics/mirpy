@@ -521,19 +521,19 @@ class ClonotypeAligner:
         return cls(v_aligner, j_aligner, cdr3_aligner)
 
     def score(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score(cln1.junction_aa, cln2.junction_aa))
 
     def score_norm(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score_norm(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score_norm(cln1.junction_aa, cln2.junction_aa))
 
     def score_dist(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score_dist(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score_dist(cln1.cdr3aa, cln2.cdr3aa))
+        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score_dist(cln1.junction_aa, cln2.junction_aa))
 
     def score_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
         return PairedCloneScore(self.score(cln1.chainA, cln2.chainA),

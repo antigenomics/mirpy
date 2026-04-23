@@ -1,4 +1,5 @@
 from multiprocessing import Pool, Manager
+import tempfile
 import typing as t
 
 from tqdm import tqdm
@@ -26,11 +27,8 @@ class RepertoireDataset:
                  mismatch_max=1,
                  with_counts=False,
                  pair_matcher=PairMatcher(),
-                 storage_dir="repertoires_storage") -> None:
-        # TODO: lazy read files for large cross-sample comparisons
-        # not to alter metadata
+                 storage_dir=None) -> None:
         self.repertoires = [r for r in repertoires]
-        # will overwrite metadata if specified
         if not (metadata is None or metadata.empty):
             if len(metadata.index) != len(repertoires):
                 raise ValueError(
@@ -44,15 +42,20 @@ class RepertoireDataset:
         self.joint_number_of_clones = sum([x.number_of_clones for x in self.repertoires])
         self.__clonotype_matrix = None
         self.gene = gene
-        self.threads=threads
+        self.threads = threads
         self.repertoire_matrix_public_clonotypes = public_clonotypes
         self.clonotype_pair_matcher = pair_matcher
         self.mismatch_max = mismatch_max
-        self.with_counts=with_counts
+        self.with_counts = with_counts
 
-        self.storage_dir = storage_dir
-        os.makedirs(self.storage_dir, exist_ok=True)  # Ensure storage directory exists
-        self.repertoire_filenames = [None] * len(self.repertoires)  # No files at start
+        self._storage_tempdir = None
+        if storage_dir is None:
+            self._storage_tempdir = tempfile.TemporaryDirectory(prefix='mirpy_rep_')
+            self.storage_dir = self._storage_tempdir.name
+        else:
+            self.storage_dir = storage_dir
+            os.makedirs(self.storage_dir, exist_ok=True)
+        self.repertoire_filenames = [None] * len(self.repertoires)
 
     # def __del__(self):
     #     for file in self.repertoire_filenames:

@@ -8,4 +8,4 @@ class TcrNet:
 
     def load_from_clonotype_dataset(self, cd: ClonotypeDataset):
         clusters = cd.clonotype_clustering
-        cdr3aa_to_clonotype = cd.clonotypes_cdr3aa
+        cdr3aa_to_clonotype = cd.clonotypes_by_junction_aa

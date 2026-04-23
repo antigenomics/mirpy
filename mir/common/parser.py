@@ -22,6 +22,21 @@ _AIRR_LOCUS_ALIASES = {
     'lambda': {'lambda', 'igl'},
 }
 
+# Mapping from VDJtools / legacy column names to AIRR column names
+_VDJTOOLS_TO_AIRR: dict[str, str] = {
+    'count':    'duplicate_count',
+    '#count':   'duplicate_count',
+    'cdr3nt':   'junction',
+    'cdr3aa':   'junction_aa',
+    'v':        'v_gene',
+    'd':        'd_gene',
+    'j':        'j_gene',
+    'VEnd':     'v_end',
+    'DStart':   'd_start',
+    'DEnd':     'd_end',
+    'JStart':   'j_start',
+}
+
 
 class SegmentParser:
     """Resolve raw V/J gene strings from a parser row into :class:`GeneEntry` objects.
@@ -66,29 +81,47 @@ class SegmentParser:
 
 
 class ClonotypeTableParser:
+    """Parse clonotype tables into lists of :class:`Clonotype` objects.
+
+    Accepts both file paths (string) and pre-loaded :class:`pd.DataFrame`.
+    Column names are normalised via :meth:`normalize_df` before parsing so
+    that both VDJtools-style (``count``, ``cdr3nt``, ``cdr3aa``, ``v``, ``j``)
+    and AIRR-style (``duplicate_count``, ``junction``, ``junction_aa``,
+    ``v_gene``, ``j_gene``) input files are handled transparently.
     """
-    The object which parses clonotype tables.
-    Creates a list of clonotypes
-    """
+
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t') -> None:
         self.segment_parser = SegmentParser(lib)
         self.sep = sep
 
+    @staticmethod
+    def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+        """Normalise column names: strip leading ``#``, map VDJtools → AIRR."""
+        df = df.copy()
+        df.columns = [c.lstrip('#') for c in df.columns]
+        return df.rename(columns=_VDJTOOLS_TO_AIRR)
+
     def parse(self, source: str | pd.DataFrame, n: int = None, sample: bool = False) -> list[Clonotype]:
-        """
-        Parses the dataset.
-        :param source: Should be either a `pd.DataFrame` or a string with filename
-        :param n: either None or number of rows to parse
-        :param sample: whether the file should be sampled into a smaller one or not
-        :return: a list of clonotypes in a file
+        """Parse *source* (path or DataFrame) into a list of clonotypes.
+
+        Parameters
+        ----------
+        source:
+            Either a file path string or a :class:`pd.DataFrame`.
+        n:
+            Maximum number of rows to parse (``None`` = all).
+        sample:
+            When ``True`` and *n* is set, sample randomly instead of taking
+            the first *n* rows.
         """
         if isinstance(source, str):
             if n is None or not sample:
                 source = pd.read_csv(source, sep=self.sep, nrows=n)
             else:
                 source = pd.read_csv(source, sep=self.sep).sample(n=n, random_state=42)
+            source = self.normalize_df(source)
         else:
             if not sample:
                 source = source.head(n)
@@ -97,14 +130,10 @@ class ClonotypeTableParser:
         return self.parse_inner(source)
 
     def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
-        """
-        Reads the file and clonotypes in it. Takes counts and junction in account.
-        :param source: the dataframe to perform the parsing on
-        :return: list of clonotypes
-        """
-        if {'cells'}.issubset(source.columns):
+        """Parse an already-loaded DataFrame with AIRR-normalised column names."""
+        if {'duplicate_count'}.issubset(source.columns):
             def get_cells(r):
-                return r['cells']
+                return r['duplicate_count']
         else:
             def get_cells(_):
                 return 1
@@ -117,44 +146,39 @@ class ClonotypeTableParser:
         else:
             def get_junction(_):
                 return None
-        if {'cdr3aa', 'v', 'j'}.issubset(source.columns):
-            if 'cdr3nt' in source.columns:
-                return [ClonotypeNT(cells=get_cells(row),
-                                    cdr3aa=row['cdr3aa'],
-                                    v=self.segment_parser.parse(row['v']),
-                                    d=self.segment_parser.parse(row['d']) if 'd' in source.columns else None,
-                                    j=self.segment_parser.parse(row['j']),
-                                    cdr3nt=row['cdr3nt'],
-                                    junction=get_junction(row),
+        if {'junction_aa', 'v_gene', 'j_gene'}.issubset(source.columns):
+            if 'junction' in source.columns:
+                return [ClonotypeNT(duplicate_count=get_cells(row),
+                                    junction_aa=row['junction_aa'],
+                                    v_gene=self.segment_parser.parse(row['v_gene']),
+                                    d_gene=self.segment_parser.parse(row['d_gene']) if 'd_gene' in source.columns else None,
+                                    j_gene=self.segment_parser.parse(row['j_gene']),
+                                    junction=row['junction'],
+                                    junction_markup=get_junction(row),
                                     id=index)
                         for index, row in source.iterrows()]
             else:
-                return [ClonotypeAA(cells=get_cells(row),
-                                    cdr3aa=row['cdr3aa'],
-                                    v=self.segment_parser.parse(row['v']),
-                                    d=self.segment_parser.parse(row['d']) if 'd' in source.columns else None,
-                                    j=self.segment_parser.parse(row['j']),
+                return [ClonotypeAA(duplicate_count=get_cells(row),
+                                    junction_aa=row['junction_aa'],
+                                    v_gene=self.segment_parser.parse(row['v_gene']),
+                                    d_gene=self.segment_parser.parse(row['d_gene']) if 'd_gene' in source.columns else None,
+                                    j_gene=self.segment_parser.parse(row['j_gene']),
                                     id=index)
                         for index, row in source.iterrows()]
         else:
             raise ValueError(
-                f'Critical columns missing in df {source.columns}')
+                f'Critical columns missing in df {list(source.columns)}. '
+                f'Expected junction_aa, v_gene, j_gene (AIRR names) or '
+                f'cdr3aa, v, j (VDJtools names — pass through normalize_df first).')
 
-
-# TODO: TCRNET
-# TcrnetPayload = namedtuple(
-#    'TcrnetPayload', 'degree_s degree_c total_s total_c p_value')
 
 VdjdbPayload = namedtuple(
     'VdjdbPayload', 'mhc_a mhc_b mhc_class epitope pathogen')
 
 
 class VDJdbSlimParser(ClonotypeTableParser):
-    """
-    The parser which is made to parse VDJdb.
-    Has a filtering parameter which can be a lambda function.
-    It has also got a parameter `warn` which is made to skip a number of exceptions in reading the file
-    """
+    """Parse VDJdb slim export files."""
+
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  species: str = 'HomoSapiens',
@@ -162,14 +186,6 @@ class VDJdbSlimParser(ClonotypeTableParser):
                  filter: t.Callable[[pd.DataFrame],
                                     pd.DataFrame] = lambda x: x,
                  warn: int = 0) -> None:
-        """
-        The initializing function for the parser
-        :param lib: the segment library object to parse with
-        :param species: by default HomoSapiens, can also be MusMusculus
-        :param gene: TRB by default; can be None if you want to parse all the rows in a file
-        :param filter: the lambda function to perform file filtering on; should return the boolean
-        :param warn: the number of errors to skip while reading a file
-        """
         super().__init__(lib)
         self.species = species
         self.gene = gene
@@ -187,11 +203,9 @@ class VDJdbSlimParser(ClonotypeTableParser):
         wrn = 0
         for idx, row in source.iterrows():
             try:
-                res.append(ClonotypeAA(cdr3aa=row['cdr3'],
-                                       v=self.segment_parser.parse(
-                                           row['v.segm']),
-                                       j=self.segment_parser.parse(
-                                           row['j.segm']),
+                res.append(ClonotypeAA(junction_aa=row['cdr3'],
+                                       v_gene=self.segment_parser.parse(row['v.segm']),
+                                       j_gene=self.segment_parser.parse(row['j.segm']),
                                        id=idx,
                                        payload={'vdjdb': VdjdbPayload(row['mhc.a'],
                                                                       row['mhc.b'],
@@ -206,9 +220,8 @@ class VDJdbSlimParser(ClonotypeTableParser):
 
 
 class OlgaParser(ClonotypeTableParser):
-    """
-    An object to parse the OLGA software generated data. Only accepts the `SegmentLibrary` as input
-    """
+    """Parse OLGA-generated output files."""
+
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary()) -> None:
         super().__init__(lib)
@@ -216,80 +229,64 @@ class OlgaParser(ClonotypeTableParser):
     def read_table(self, path: str, n: int = None) -> pd.DataFrame:
         return pd.read_csv(path,
                            header=None,
-                           names=['cdr3nt', 'cdr3aa', 'v', 'j'], sep='\t',
+                           names=['junction', 'junction_aa', 'v_gene', 'j_gene'], sep='\t',
                            nrows=n)
 
     def parse_inner(self, source: pd.DataFrame) -> list[ClonotypeNT]:
-        return [ClonotypeNT(cdr3nt=row['cdr3nt'],
-                            cdr3aa=row['cdr3aa'],
-                            v=self.segment_parser.parse(row['v']),
-                            j=self.segment_parser.parse(row['j']),
+        return [ClonotypeNT(junction=row['junction'],
+                            junction_aa=row['junction_aa'],
+                            v_gene=self.segment_parser.parse(row['v_gene']),
+                            j_gene=self.segment_parser.parse(row['j_gene']),
                             id=index)
                 for index, row in source.iterrows()]
 
 
 class VDJtoolsParser(ClonotypeTableParser):
+    """Parse VDJtools output files.
+
+    Expected columns (after :meth:`normalize_df`):
+    ``duplicate_count, junction, junction_aa, v_gene, d_gene, j_gene,
+    v_end, d_start, d_end, j_start``.
+
+    The raw VDJtools header uses ``#count`` (or ``count``), ``cdr3nt``,
+    ``cdr3aa``, ``v``, ``d``, ``j``, ``VEnd``, ``DStart``, ``DEnd``,
+    ``JStart`` — these are automatically mapped via :meth:`normalize_df`.
     """
-    A parser to process the result of VDJtools. It is one of the most common formats which includes the following \
-    columns: `cdr3aa, cdr3nt, count, v, d, j, VEnd, DStart, DEnd, JStart`.
-    """
+
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t') -> None:
-        """
-        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
-        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
-        :param sep: either tabulation or comma usually
-        """
         super().__init__(lib, sep)
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        if len(df.columns) == 7:
+        has_markup = {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(df.columns)
+        if has_markup:
+            def get_junction(r):
+                return JunctionMarkup(r['v_end'], r['d_start'], r['d_end'], r['j_start'])
+        else:
             def get_junction(_):
                 return JunctionMarkup()
-        else:
-            def get_junction(r):
-                return JunctionMarkup(r['VEnd'], r['DStart'], r['DEnd'], r['JStart'])
-        return list(df.apply(lambda x: ClonotypeNT(cells=x['count'],
-                                                   cdr3nt=x['cdr3nt'],
-                                                   cdr3aa=x['cdr3aa'],
-                                                   v=self.segment_parser.parse(x['v']),
-                                                   d=self.segment_parser.parse(x['d']),
-                                                   j=self.segment_parser.parse(x['j']),
-                                                   junction=get_junction(x),
-                                                   id=x.name
-                                                   ), axis=1))
+
+        return list(df.apply(lambda x: ClonotypeNT(
+            duplicate_count=x['duplicate_count'],
+            junction=x['junction'],
+            junction_aa=x['junction_aa'],
+            v_gene=self.segment_parser.parse(x['v_gene']),
+            d_gene=self.segment_parser.parse(x['d_gene']) if 'd_gene' in df.columns else None,
+            j_gene=self.segment_parser.parse(x['j_gene']),
+            junction_markup=get_junction(x),
+            id=x.name,
+        ), axis=1))
 
 
 class DoubleChainVDJtoolsParser(ClonotypeTableParser):
-    """
-    A parser which is used if you need to rename columns in `VDJtoolsParser`. \
-    You can pass the name mapping as a parameter. The file should contain HLA information \
-    (parameter `mhc.a` in `column_mapping`) and should have both chains information for each row \
-    (parameters `cdr3a` and `cdr3b` in `column_mapping`)
-    """
+    """Parse paired-chain VDJtools-style files with alpha and beta columns."""
+
     def __init__(self,
                  column_mapping=None,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t'
                  ):
-        """
-        The initializing function of the parser. Important to put the correct SegmentLibrary and separator. You should \
-        also specify column mapping information
-        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
-        :param sep: either tabulation or comma usually
-        :param column_mapping: the dictionary which maps the columns names to the column names in the initial file.\
-        The default mapping is the following: {
-                'epitope': 'Peptide',
-                'mhc.a': 'HLA',
-                'Va': 'Va',
-                'Ja': 'Ja',
-                'cdr3a': 'CDR3a_extended',
-                'Vb': 'Vb',
-                'Jb': 'Jb',
-                'cdr3b': 'CDR3b_extended',
-            }
-        """
         super().__init__(lib, sep)
         if column_mapping is None:
             column_mapping = {
@@ -305,40 +302,36 @@ class DoubleChainVDJtoolsParser(ClonotypeTableParser):
         self.column_mapping = column_mapping
 
     def parse_inner(self, source: pd.DataFrame) -> list[PairedChainClone]:
-
-        alpha_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3a']],
-                                                              v=self.segment_parser.parse(x[self.column_mapping['Va']]),
-                                                              j=self.segment_parser.parse(x[self.column_mapping['Ja']]),
-                                                              payload={'HLA': x[self.column_mapping['mhc.a']] if
-                                                                            'mhc.a' in self.column_mapping else None,
-                                                                       'epitope': x[self.column_mapping['epitope']] if
-                                                                            'epitope' in self.column_mapping else None}),
-                                        axis=1)
-        beta_clonotypes = source.apply(lambda x: ClonotypeAA(cdr3aa=x[self.column_mapping['cdr3b']],
-                                                             v=self.segment_parser.parse(x[self.column_mapping['Vb']]),
-                                                             j=self.segment_parser.parse(x[self.column_mapping['Jb']]),
-                                                             payload={'HLA': x[self.column_mapping['mhc.a']] if
-                                                                            'mhc.a' in self.column_mapping else None,
-                                                                       'epitope': x[self.column_mapping['epitope']] if
-                                                                            'epitope' in self.column_mapping else None}),
-                                       axis=1)
-        return [PairedChainClone(chainA=alpha, chainB=beta) for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]
+        alpha_clonotypes = source.apply(
+            lambda x: ClonotypeAA(
+                junction_aa=x[self.column_mapping['cdr3a']],
+                v_gene=self.segment_parser.parse(x[self.column_mapping['Va']]),
+                j_gene=self.segment_parser.parse(x[self.column_mapping['Ja']]),
+                payload={'HLA': x[self.column_mapping['mhc.a']] if 'mhc.a' in self.column_mapping else None,
+                         'epitope': x[self.column_mapping['epitope']] if 'epitope' in self.column_mapping else None}),
+            axis=1)
+        beta_clonotypes = source.apply(
+            lambda x: ClonotypeAA(
+                junction_aa=x[self.column_mapping['cdr3b']],
+                v_gene=self.segment_parser.parse(x[self.column_mapping['Vb']]),
+                j_gene=self.segment_parser.parse(x[self.column_mapping['Jb']]),
+                payload={'HLA': x[self.column_mapping['mhc.a']] if 'mhc.a' in self.column_mapping else None,
+                         'epitope': x[self.column_mapping['epitope']] if 'epitope' in self.column_mapping else None}),
+            axis=1)
+        return [PairedChainClone(chainA=alpha, chainB=beta)
+                for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]
 
 
 class AIRRParser(ClonotypeTableParser):
+    """Parse AIRR-format files.
+
+    Mandatory columns: ``locus``, ``v_call``, ``j_call``, ``junction_aa``.
     """
-    A parser to process data in AIRR format. It is one of the most common formats which includes the following \
-    columns: `locus, v_call, j_call, junction_aa`. All the other columns including the column for
-    """
+
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t',
                  locus='beta') -> None:
-        """
-        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
-        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
-        :param sep: either tabulation or comma usually
-        """
         super().__init__(lib, sep)
         self.locus = locus
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
@@ -356,7 +349,8 @@ class AIRRParser(ClonotypeTableParser):
     def validate_columns(self, df: pd.DataFrame):
         for col in self.mandatory_columns:
             if col not in df.columns:
-                raise KeyError(f'Mandatory column {col} is missing! List of mandatory columns is {self.mandatory_columns}.')
+                raise KeyError(f'Mandatory column {col} is missing! '
+                               f'List of mandatory columns is {self.mandatory_columns}.')
 
     def check_not_na_columns(self, row, index):
         for k, v in row.items():
@@ -365,7 +359,7 @@ class AIRRParser(ClonotypeTableParser):
                 return False
         return True
 
-    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
+    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeAA]:
         self.validate_columns(df)
         locus_aliases = self.get_locus_aliases()
         df = df[df.locus.astype(str).str.strip().str.lower().isin(locus_aliases)]
@@ -374,28 +368,24 @@ class AIRRParser(ClonotypeTableParser):
             try:
                 if self.check_not_na_columns(row, i):
                     clonotype = ClonotypeAA(
-                        cdr3aa=row['junction_aa'],
-                        v=self.segment_parser.parse(row['v_call']),
-                        j=self.segment_parser.parse(row['j_call']),
+                        junction_aa=row['junction_aa'],
+                        v_gene=self.segment_parser.parse(row['v_call']),
+                        j_gene=self.segment_parser.parse(row['j_call']),
                         id=i if 'clone_id' not in df.columns else row['clone_id'],
                         payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
                     )
-                    if clonotype.v is None or clonotype.j is None:
+                    if clonotype.v_gene is None or clonotype.j_gene is None:
                         raise ValueError(f'Error parsing {clonotype}')
                     clonotypes.append(clonotype)
             except Exception as e:
                 logging.warn(f"Error parsing row {i + 1}: {e}")
         return clonotypes
 
+
 class DoubleChainAIRRParser(AIRRParser):
     def __init__(self,
                  lib: SegmentLibrary = SegmentLibrary(),
                  sep='\t', mapping_column='clone_id') -> None:
-        """
-        The initializing function of the parser. Important to put the correct SegmentLibrary and separator
-        :param lib: `SegmentLibrary` object, can be default or made using `SegmentLibrary.load_from_imgt`
-        :param sep: either tabulation or comma usually
-        """
         super().__init__(lib, sep)
         self.alpha_parser = AIRRParser(lib, sep, 'alpha')
         self.beta_parser = AIRRParser(lib, sep, 'beta')
@@ -404,15 +394,15 @@ class DoubleChainAIRRParser(AIRRParser):
     def validate_columns(self, df: pd.DataFrame):
         super().validate_columns(df)
         if self.mapping_column not in df.columns:
-            raise KeyError(f'Mapping column {self.mapping_column} is missing! It is mandatory for paired chain data.')
+            raise KeyError(f'Mapping column {self.mapping_column} is missing!')
         if df[self.mapping_column].isna().sum() > 0:
-            raise ValueError(f'Mapping column {self.mapping_column} cannot be null! Check your data.')
+            raise ValueError(f'Mapping column {self.mapping_column} cannot be null!')
 
     def get_tcr_ids_for_chain(self, clonotypes, chain):
         clone_ids = {x.payload[self.mapping_column]: x for x in clonotypes}
         id_set = set(clone_ids.keys())
         if len(clone_ids) != len(id_set):
-            raise ValueError(f'TCR ids are not unique for {chain} chain! Check your dataset.')
+            raise ValueError(f'TCR ids are not unique for {chain} chain!')
         return clone_ids
 
     def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
@@ -427,15 +417,15 @@ class DoubleChainAIRRParser(AIRRParser):
         beta_ids_to_clonotype = self.get_tcr_ids_for_chain(beta_clonotypes, 'beta')
 
         paired_clonotypes = []
-
         all_ids = set(beta_ids_to_clonotype).union(set(alpha_ids_to_clonotype))
         for id in all_ids:
             if id not in alpha_ids_to_clonotype:
-                logging.warning(f'Have filtered out clonotype with id {id} as it is not found in TRA data')
+                logging.warning(f'Filtered out clonotype {id}: not found in TRA data')
             elif id not in beta_ids_to_clonotype:
-                logging.warning(f'Have filtered out clonotype with id {id} as it is not found in TRB data')
+                logging.warning(f'Filtered out clonotype {id}: not found in TRB data')
             else:
-                paired_clonotypes.append(PairedChainClone(chainA=alpha_ids_to_clonotype[id],
-                                                          chainB=beta_ids_to_clonotype[id],
-                                                          id=id))
+                paired_clonotypes.append(PairedChainClone(
+                    chainA=alpha_ids_to_clonotype[id],
+                    chainB=beta_ids_to_clonotype[id],
+                    id=id))
         return paired_clonotypes
