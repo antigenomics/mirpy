@@ -37,15 +37,15 @@ class Repertoire:
         a single gene data.
         """
         if gene is not None:
-            self.clonotypes = [x for x in clonotypes if gene in x.v.gene and gene in x.j.gene and (
-                    x.d is None or gene in x.d.gene)]
+            self.clonotypes = [x for x in clonotypes if gene in x.v_gene.gene and gene in x.j_gene.gene and (
+                    x.d_gene is None or gene in x.d_gene.gene)]
         else:
             self.clonotypes = clonotypes
         self.sorted = is_sorted
         self.metadata = metadata
         self.segment_usage = None
         self.number_of_clones = len(self.clonotypes)
-        self.number_of_reads = sum([x.size() for x in self.clonotypes])
+        self.number_of_reads = sum(x.size() for x in self.clonotypes)
         self.gene = gene
     #     self._clonotypes_file = None
     #
@@ -99,22 +99,22 @@ class Repertoire:
                      metadata: dict[str, str] | pd.Series = dict(),
                      cdr3_column='cdr3_b_aa',
                      v_gene_column='v_b_gene',
-                     j_gene_column='j_b_column',
+                     j_gene_column='j_b_gene',
                      d_gene_column=None,
                      gene: str = None
                      ):
         cur_df = df.copy()
-        cur_df['cells'] = 1
-        columns_to_use = ['cells'] + [cdr3_column, v_gene_column, j_gene_column]
+        cur_df['duplicate_count'] = 1
+        columns_to_use = ['duplicate_count'] + [cdr3_column, v_gene_column, j_gene_column]
         if d_gene_column:
             columns_to_use.append(d_gene_column)
         cur_df = cur_df[columns_to_use].groupby(columns_to_use[1:], as_index=False).sum()
-        clonotypes = cur_df.apply(lambda x: ClonotypeAA(cdr3aa=x[cdr3_column],
-                                                        v=x[v_gene_column],
-                                                        d=x[d_gene_column] if d_gene_column else None,
-                                                        j=x[j_gene_column],
-                                                        cells=x['cells']), axis=1)
-        return cls(clonotypes=clonotypes, metadata=metadata, gene=gene)
+        clonotypes = cur_df.apply(lambda x: ClonotypeAA(junction_aa=x[cdr3_column],
+                                                        v_gene=x[v_gene_column],
+                                                        d_gene=x[d_gene_column] if d_gene_column else None,
+                                                        j_gene=x[j_gene_column],
+                                                        duplicate_count=x['duplicate_count']), axis=1)
+        return cls(clonotypes=list(clonotypes), metadata=metadata, gene=gene)
 
     def __copy__(self):
         return Repertoire(self.clonotypes, self.sorted, self.metadata)
@@ -169,19 +169,18 @@ class Repertoire:
         if self.segment_usage is None:
             self.segment_usage = defaultdict(int)
             for c in self.clonotypes:
-                # TODO add type of clonotype assertion
-                self.segment_usage[c.v.id] += 1
-                self.segment_usage[c.j.id] += 1
-                if c.d is not None:
-                    self.segment_usage[c.d.id] += 1
+                self.segment_usage[str(c.v_gene)] += 1
+                self.segment_usage[str(c.j_gene)] += 1
+                if c.d_gene is not None:
+                    self.segment_usage[str(c.d_gene)] += 1
         return self.segment_usage
     
     @property
     def trie(self) -> Trie:
         if not hasattr(self, '_trie'):
-            seqs = [str(c.cdr3aa) for c in self.clonotypes]
-            vgs = [str(c.v) for c in self.clonotypes]
-            jgs = [str(c.j) for c in self.clonotypes]
+            seqs = [str(c.junction_aa) for c in self.clonotypes]
+            vgs = [str(c.v_gene) for c in self.clonotypes]
+            jgs = [str(c.j_gene) for c in self.clonotypes]
             self._trie = Trie(sequences=seqs, vGenes=vgs, jGenes=jgs)
 
         return self._trie
@@ -203,7 +202,7 @@ class Repertoire:
                     serialization_dct[k].append(None)
         return pd.DataFrame(serialization_dct, index=[x.id for x in self.clonotypes])
 
-    def subtract_background(self, other, odds_ratio_threshold=2, compare_by=lambda x: (x.cdr3aa, x.v.id)):
+    def subtract_background(self, other, odds_ratio_threshold=2, compare_by=lambda x: (x.junction_aa, str(x.v_gene))):
         """
         subtracts another Repertoire from the given
         the method is needed to remove noize clonotypes from the sample
@@ -220,12 +219,12 @@ class Repertoire:
         old_clone_to_freq = {}
         for i, clonotype in enumerate(other):
             if compare_by(clonotype) in intersected:
-                old_clone_to_freq[compare_by(clonotype)] = clonotype.cells / other.number_of_reads
+                old_clone_to_freq[compare_by(clonotype)] = clonotype.duplicate_count / other.number_of_reads
 
         clonotypes = []
         for clonotype in self:
             if compare_by(clonotype) in intersected:
-                current_fraction = clonotype.cells / self.number_of_reads
+                current_fraction = clonotype.duplicate_count / self.number_of_reads
                 old_fraction = old_clone_to_freq[compare_by(clonotype)]
                 if current_fraction / old_fraction > odds_ratio_threshold:
                     clonotypes.append(clonotype)
@@ -239,7 +238,7 @@ class Repertoire:
         drop all the nonfunctional sequences from the repertoire
         :return:
         """
-        return Repertoire(clonotypes=[x for x in self.clonotypes if x.cdr3aa.isalpha()],
+        return Repertoire(clonotypes=[x for x in self.clonotypes if x.junction_aa.isalpha()],
                           metadata=self.metadata,
                           gene=self.gene)
 
@@ -248,7 +247,7 @@ class Repertoire:
         keep only nonfunctional sequences
         :return:
         """
-        return Repertoire(clonotypes=[x for x in self.clonotypes if not x.cdr3aa.isalpha()],
+        return Repertoire(clonotypes=[x for x in self.clonotypes if not x.junction_aa.isalpha()],
                           metadata=self.metadata,
                           gene=self.gene)
 

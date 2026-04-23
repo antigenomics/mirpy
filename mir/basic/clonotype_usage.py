@@ -118,7 +118,7 @@ class ClonotypeUsageTable:
         datasets_to_concat = []
         for run in repertoire_dataset:
             cur_data = pd.DataFrame(
-                {'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.cdr3aa.isalpha()],
+                {'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.junction_aa.isalpha()],
                  'count': 1})
             datasets_to_concat.append(cur_data)
         full_data = pd.concat(datasets_to_concat)
@@ -146,7 +146,7 @@ class ClonotypeUsageTable:
         """
 
         if isinstance(clonotype, str):
-            clonotype = ClonotypeAA(cdr3aa=clonotype)
+            clonotype = ClonotypeAA(junction_aa=clonotype)
         if isinstance(clonotype, ClonotypeAA):
             clonotype = self.pair_matcher.get_clonotype_repr(clonotype)
         if clonotype not in self.clonotype_to_matrix_index:
