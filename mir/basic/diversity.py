@@ -6,7 +6,7 @@ import numpy as np
 import math
 
 from mir.common.repertoire import Repertoire
-from mir.common.repertoire_dataset import RepertoireDataset
+from typing import Any as RepertoireDataset  # RepertoireDataset removed
 
 
 class FrequencyTable:
@@ -26,7 +26,7 @@ class FrequencyTable:
         """
         tbl = dict()
         for clonotype in repertoire:
-            tbl[clonotype.cells] = tbl.get(clonotype.cells, 0) + 1
+            tbl[clonotype.duplicate_count] = tbl.get(clonotype.duplicate_count, 0) + 1
         return cls(tbl)
 
     def items(self) -> t.ItemsView[int, int]:

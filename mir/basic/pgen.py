@@ -4,60 +4,76 @@ import math
 import olga.load_model as load_model
 import olga.generation_probability as pgen
 import olga.sequence_generation as seq_gen
-from olga.utils import nt2aa
 
 from mir import get_resource_path
+from mir.basic.mirseq import translate_bidi, mask_positions
 
-_CHAIN_TO_DEFAULT_MODEL = {
-    "TRB": "olga/default_models/human_T_beta",
-    "TRA": "olga/default_models/human_T_alpha",
+# Maps (locus, species) → OLGA model directory name fragment.
+# Available models: human TRA/TRB/TRG/TRD/IGH/IGK/IGL, mouse TRA/TRB.
+_LOCUS_TO_OLGA = {
+    "TRA": "T_alpha",
+    "TRB": "T_beta",
+    "TRG": "T_gamma",
+    "TRD": "T_delta",
+    "IGH": "B_heavy",
+    "IGK": "B_kappa",
+    "IGL": "B_lambda",
 }
 
+# Loci that have a D gene segment in their recombination model.
+_D_PRESENT = frozenset({"TRB", "TRD", "IGH"})
+
+
 class OlgaModel:
-    """A class to work with OLGA model for
-    generation probability inference. You can generate repertoires using this class or identify
-    the probability of any clone to be assembled."""
+    """Interface to an OLGA recombination model for generation-probability
+    inference and sequence generation.
+
+    Supports all nine built-in models (human TRA/TRB/TRG/TRD/IGH/IGK/IGL,
+    mouse TRA/TRB).  A custom model directory can be provided via ``model``.
+    """
 
     def __init__(
         self,
         model: str | None = None,
         *,
-        chain: str = "TRB",
+        locus: str = "TRB",
+        species: str = "human",
         is_d_present: bool | None = None,
     ):
         """
-        A function which creates the model
-
-        :param model: a path to the directory where the OLGA model is stored
+        :param model: path to a directory containing an OLGA model.
+            When ``None``, the built-in model for ``locus``/``species`` is used.
+        :param locus: receptor locus (TRA, TRB, TRG, TRD, IGH, IGK, IGL).
+        :param species: organism (human or mouse).
+        :param is_d_present: override D-gene flag; inferred from ``locus`` when ``None``.
         """
-        chain_u = chain.upper()
+        locus_u = locus.upper()
+        species_l = species.lower()
 
         if model is None:
             try:
-                model = get_resource_path(_CHAIN_TO_DEFAULT_MODEL[chain_u])
+                olga_name = _LOCUS_TO_OLGA[locus_u]
             except KeyError:
-                raise ValueError(f"Unsupported chain={chain!r}. Supported: {sorted(_CHAIN_TO_DEFAULT_MODEL)}")
+                raise ValueError(
+                    f"Unsupported locus={locus!r}. Supported: {sorted(_LOCUS_TO_OLGA)}"
+                )
+            model = get_resource_path(f"olga/default_models/{species_l}_{olga_name}")
 
         if is_d_present is None:
-            if chain_u in ("TRB", "IGH"):
-                is_d_present = True
-            elif chain_u in ("TRA", "TRG", "IGK", "IGL"):
-                is_d_present = False
-            else:
-                raise ValueError(f"Can't infer is_d_present for chain={chain!r}; pass is_d_present explicitly")
+            is_d_present = locus_u in _D_PRESENT
 
         self.is_d_present = is_d_present
 
-        params_file_name = f"{model}/model_params.txt"
+        params_file_name    = f"{model}/model_params.txt"
         marginals_file_name = f"{model}/model_marginals.txt"
-        V_anchor_pos_file = f"{model}/V_gene_CDR3_anchors.csv"
-        J_anchor_pos_file = f"{model}/J_gene_CDR3_anchors.csv"
+        V_anchor_pos_file   = f"{model}/V_gene_CDR3_anchors.csv"
+        J_anchor_pos_file   = f"{model}/J_gene_CDR3_anchors.csv"
 
         if self.is_d_present:
-            genomic_data = load_model.GenomicDataVDJ()
+            genomic_data     = load_model.GenomicDataVDJ()
             generative_model = load_model.GenerativeModelVDJ()
         else:
-            genomic_data = load_model.GenomicDataVJ()
+            genomic_data     = load_model.GenomicDataVJ()
             generative_model = load_model.GenerativeModelVJ()
 
         genomic_data.load_igor_genomic_data(params_file_name, V_anchor_pos_file, J_anchor_pos_file)
@@ -67,62 +83,55 @@ class OlgaModel:
         self.j_names = [x[0] for x in genomic_data.__dict__["genJ"]]
 
         if self.is_d_present:
-            self.pgen_model = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
+            self.pgen_model    = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
             self.seq_gen_model = seq_gen.SequenceGenerationVDJ(generative_model, genomic_data)
         else:
-            self.pgen_model = pgen.GenerationProbabilityVJ(generative_model, genomic_data)
+            self.pgen_model    = pgen.GenerationProbabilityVJ(generative_model, genomic_data)
             self.seq_gen_model = seq_gen.SequenceGenerationVJ(generative_model, genomic_data)
 
-    def compute_pgen_cdr3nt(self, cdr3nt: str):
-        """
-        A function to compute the TCR generation probability for the nucleotide sequence
+    def compute_pgen_junction(self, junction: str) -> float:
+        """Return the generation probability for a nucleotide junction sequence.
 
-        :param cdr3nt: a nucleotide sequence string
-        :return:
+        :param junction: nucleotide sequence (CDR3, including conserved C and F/W).
         """
-        return self.pgen_model.compute_nt_CDR3_pgen(cdr3nt)
+        return self.pgen_model.compute_nt_CDR3_pgen(junction)
 
-    def compute_pgen_cdr3aa(self, cdr3aa: str):
+    def compute_pgen_junction_aa(self, junction_aa: str) -> float:
+        """Return the generation probability for an amino-acid junction sequence.
+
+        :param junction_aa: amino-acid sequence (CDR3).
         """
-        A function to compute the TCR generation probability for the amino acid sequence
+        return self.pgen_model.compute_aa_CDR3_pgen(junction_aa)
 
-        :param cdr3aa: an amino acid sequence string
-        :return:
+    def compute_pgen_junction_aa_1mm(self, junction_aa: str) -> float:
+        """Return the cumulative generation probability allowing one amino-acid mismatch.
+
+        Each position is masked to 'X' in turn using ``mirseq.mask_positions``,
+        the regex Pgen is summed, and the exact Pgen is subtracted once per
+        non-masked position to correct for the overlap.
+
+        :param junction_aa: amino-acid sequence (CDR3).
         """
-        return self.pgen_model.compute_aa_CDR3_pgen(cdr3aa)
-
-    def compute_pgen_cdr3aa_1mm(self, cdr3aa: str):
-        """
-        A function to compute the TCR generation probability for the amino acid sequence allowing to have \
-        one amino acid change
-
-        :param cdr3aa: an amino acid sequence string
-        :return: the probability to generate cdr3aa allowing for 1 amino acid mismatch
-        """
-
-        cdr3_length = len(cdr3aa)
-        pgen_exact = self.compute_pgen_cdr3aa(cdr3aa)
-        # with Pool(threads) as p:
-        probas = map(self.pgen_model.compute_regex_CDR3_template_pgen,
-                           [cdr3aa[:i] + 'X' + cdr3aa[i + 1:] for i in range(cdr3_length)])
-        sum_pgen_1mm = sum(probas)
-        return sum_pgen_1mm - pgen_exact * (cdr3_length - 1)
+        pgen_exact = self.compute_pgen_junction_aa(junction_aa)
+        masked_seqs = mask_positions(junction_aa)
+        sum_pgen_1mm = sum(map(self.pgen_model.compute_regex_CDR3_template_pgen, masked_seqs))
+        return sum_pgen_1mm - pgen_exact * (len(junction_aa) - 1)
 
     def generate_sequences(self, n: int = 1000) -> list[str]:
-        """
-        generates `n` random CDR3 sequences according to given model
-        :param n:
-        :return: list of generates CDR3 sequences
+        """Generate *n* productive CDR3 amino-acid sequences.
+
+        :param n: number of sequences to generate.
+        :return: list of CDR3 amino-acid strings.
         """
         res = []
-        for i in range(n):
+        for _ in range(n):
             res.append(self.seq_gen_model.gen_rnd_prod_CDR3()[1])
         return res
 
     def _gen_one_vdj_with_meta(self, conserved_J_residues: str = "FVW") -> dict:
-        """
-        Generate one productive VDJ CDR3 with meta:
-        cdr3 (aa), cdr3_nt, v_gene, j_gene, v_end, j_start
+        """Generate one productive VDJ recombination event with full annotation.
+
+        :return: dict with keys junction_aa, junction, v_gene, j_gene, v_end, j_start.
         """
         sg = self.seq_gen_model
 
@@ -136,69 +145,48 @@ class OlgaModel:
             D_seq_full = sg.cutD_genomic_CDR3_segs[recomb_events["D"]]
             J_seq_full = sg.cutJ_genomic_CDR3_segs[recomb_events["J"]]
 
-            if len(D_seq_full) < (
-                recomb_events["delDl"] + recomb_events["delDr"]
-            ):
+            if len(D_seq_full) < (recomb_events["delDl"] + recomb_events["delDr"]):
                 continue
             if len(J_seq_full) < recomb_events["delJ"]:
                 continue
 
             V_seq = V_seq_full[: len(V_seq_full) - recomb_events["delV"]]
-            D_seq = D_seq_full[
-                recomb_events["delDl"] : len(D_seq_full) - recomb_events["delDr"]
-            ]
+            D_seq = D_seq_full[recomb_events["delDl"] : len(D_seq_full) - recomb_events["delDr"]]
             J_seq = J_seq_full[recomb_events["delJ"] :]
 
             if (
-                len(V_seq)
-                + len(D_seq)
-                + len(J_seq)
-                + recomb_events["insVD"]
-                + recomb_events["insDJ"]
+                len(V_seq) + len(D_seq) + len(J_seq)
+                + recomb_events["insVD"] + recomb_events["insDJ"]
             ) % 3 != 0:
                 continue
 
-            insVD_seq = seq_gen.rnd_ins_seq(
-                recomb_events["insVD"], sg.C_Rvd, sg.C_first_nt_bias_insVD
-            )
-            insDJ_seq = seq_gen.rnd_ins_seq(
-                recomb_events["insDJ"], sg.C_Rdj, sg.C_first_nt_bias_insDJ
-            )[::-1]
+            insVD_seq = seq_gen.rnd_ins_seq(recomb_events["insVD"], sg.C_Rvd, sg.C_first_nt_bias_insVD)
+            insDJ_seq = seq_gen.rnd_ins_seq(recomb_events["insDJ"], sg.C_Rdj, sg.C_first_nt_bias_insDJ)[::-1]
 
             ntseq = V_seq + insVD_seq + D_seq + insDJ_seq + J_seq
-            aaseq = nt2aa(ntseq)
+            aaseq = translate_bidi(ntseq)
 
             if "*" in aaseq:
                 continue
             if aaseq[0] != "C" or aaseq[-1] not in conserved_J_residues:
                 continue
 
-            L_V_nt = len(V_seq)
-            L_J_nt = len(J_seq)
-            L_aa = len(aaseq)
-
-            V_len_aa = L_V_nt // 3
-            J_len_aa = L_J_nt // 3
-
-            v_end = V_len_aa
-            j_start = L_aa - J_len_aa + 1
-
-            v_name = self.v_names[recomb_events["V"]]
-            j_name = self.j_names[recomb_events["J"]]
+            v_end   = len(V_seq) // 3
+            j_start = len(aaseq) - len(J_seq) // 3 + 1
 
             return {
-                "cdr3": aaseq,
-                "cdr3_nt": ntseq,
-                "v_gene": v_name,
-                "j_gene": j_name,
-                "v_end": v_end,
-                "j_start": j_start,
+                "junction_aa": aaseq,
+                "junction":    ntseq,
+                "v_gene":      self.v_names[recomb_events["V"]],
+                "j_gene":      self.j_names[recomb_events["J"]],
+                "v_end":       v_end,
+                "j_start":     j_start,
             }
 
     def _gen_one_vj_with_meta(self, conserved_J_residues: str = "FVW") -> dict:
-        """
-        Generate one productive VJ CDR3 with meta:
-        cdr3 (aa), cdr3_nt, v_gene, j_gene, v_end, j_start
+        """Generate one productive VJ recombination event with full annotation.
+
+        :return: dict with keys junction_aa, junction, v_gene, j_gene, v_end, j_start.
         """
         sg = self.seq_gen_model
 
@@ -216,71 +204,48 @@ class OlgaModel:
             V_seq = V_seq_full[: len(V_seq_full) - recomb_events["delV"]]
             J_seq = J_seq_full[recomb_events["delJ"] :]
 
-            if (
-                len(V_seq)
-                + len(J_seq)
-                + recomb_events["insVJ"]
-            ) % 3 != 0:
+            if (len(V_seq) + len(J_seq) + recomb_events["insVJ"]) % 3 != 0:
                 continue
 
-            insVJ_seq = seq_gen.rnd_ins_seq(
-                recomb_events["insVJ"], sg.C_Rvj, sg.C_first_nt_bias_insVJ
-            )
+            insVJ_seq = seq_gen.rnd_ins_seq(recomb_events["insVJ"], sg.C_Rvj, sg.C_first_nt_bias_insVJ)
 
             ntseq = V_seq + insVJ_seq + J_seq
-            aaseq = nt2aa(ntseq)
+            aaseq = translate_bidi(ntseq)
 
             if "*" in aaseq:
                 continue
             if aaseq[0] != "C" or aaseq[-1] not in conserved_J_residues:
                 continue
 
-            L_V_nt = len(V_seq)
-            L_J_nt = len(J_seq)
-            L_aa = len(aaseq)
-
-            V_len_aa = L_V_nt // 3
-            J_len_aa = L_J_nt // 3
-
-            v_end = V_len_aa
-            j_start = L_aa - J_len_aa + 1
-
-            v_name = self.v_names[recomb_events["V"]]
-            j_name = self.j_names[recomb_events["J"]]
+            v_end   = len(V_seq) // 3
+            j_start = len(aaseq) - len(J_seq) // 3 + 1
 
             return {
-                "cdr3": aaseq,
-                "cdr3_nt": ntseq,
-                "v_gene": v_name,
-                "j_gene": j_name,
-                "v_end": v_end,
-                "j_start": j_start,
+                "junction_aa": aaseq,
+                "junction":    ntseq,
+                "v_gene":      self.v_names[recomb_events["V"]],
+                "j_gene":      self.j_names[recomb_events["J"]],
+                "v_end":       v_end,
+                "j_start":     j_start,
             }
 
     def generate_sequences_with_meta(self, n: int = 1000, pgens: bool = True) -> list[dict]:
-        """
-        Generate n sequences with meta:
-          - cdr3 (aa)
-          - cdr3_nt
-          - v_gene, j_gene
-          - v_end, j_start (AA, 1-based)
-          - pgen_raw, pgen (log10)
+        """Generate *n* productive sequences with full annotation.
+
+        Each record contains: junction_aa, junction, v_gene, j_gene, v_end,
+        j_start, and (when ``pgens=True``) pgen_raw and pgen (log10).
+
+        :param n: number of sequences to generate.
+        :param pgens: whether to compute and attach generation probabilities.
         """
         res = []
         for _ in range(n):
-            if self.is_d_present:
-                rec = self._gen_one_vdj_with_meta()
-            else:
-                rec = self._gen_one_vj_with_meta()
-
+            rec = self._gen_one_vdj_with_meta() if self.is_d_present else self._gen_one_vj_with_meta()
             if pgens:
-                p_raw = self.compute_pgen_cdr3aa(rec["cdr3"])
+                p_raw = self.compute_pgen_junction_aa(rec["junction_aa"])
                 rec["pgen_raw"] = p_raw
-                rec["pgen"] = (
-                    math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
-                )
+                rec["pgen"] = math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
             res.append(rec)
         return res
 
     # TODO: v usage correction
-

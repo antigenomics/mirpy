@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 
 # class PublicClonotypesSelectionMethod(Enum):
-from mir.common.clonotype import ClonotypeAA
+from mir.common.clonotype import Clonotype
 from mir.comparative.pair_matcher import PairMatcher
 
 
@@ -118,7 +118,7 @@ class ClonotypeUsageTable:
         datasets_to_concat = []
         for run in repertoire_dataset:
             cur_data = pd.DataFrame(
-                {'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.cdr3aa.isalpha()],
+                {'cdr3aa': [pair_matcher.get_clonotype_repr(x) for x in run.clonotypes if x.junction_aa.isalpha()],
                  'count': 1})
             datasets_to_concat.append(cur_data)
         full_data = pd.concat(datasets_to_concat)
@@ -141,13 +141,13 @@ class ClonotypeUsageTable:
         A function which finds the number of clonotype occurences within the dataset. Different nucleotide sequences
         which are translated into the same CDR3aa within one patient are supposed as unique occurences
 
-        :param clonotype: a string representing the CDR3 amino acid sequence or a `ClonotypeAA` object
+        :param clonotype: a string representing the CDR3 amino acid sequence or a `Clonotype` object
         :return: A `float` number of occurences for the given clonotype
         """
 
         if isinstance(clonotype, str):
-            clonotype = ClonotypeAA(cdr3aa=clonotype)
-        if isinstance(clonotype, ClonotypeAA):
+            clonotype = Clonotype(junction_aa=clonotype)
+        if isinstance(clonotype, Clonotype):
             clonotype = self.pair_matcher.get_clonotype_repr(clonotype)
         if clonotype not in self.clonotype_to_matrix_index:
             return 0

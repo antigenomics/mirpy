@@ -2,7 +2,7 @@ import numpy as np
 from multipy.fdr import lsu
 from scipy.stats import fisher_exact
 
-from mir.common.repertoire_dataset import RepertoireDataset
+from typing import Any as RepertoireDataset  # RepertoireDataset removed
 from tqdm.contrib.concurrent import process_map
 from datetime import datetime
 

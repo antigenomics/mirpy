@@ -1,252 +1,223 @@
-import re
-import typing as t
+"""Immune-receptor clonotype as a single flat dataclass.
 
-from Bio.Seq import translate
+All gene-name fields store plain strings (IMGT allele names, e.g.
+``"TRBV3-1*01"``).  Junction coordinates follow the AIRR Rearrangement
+schema naming: *v_sequence_end*, *d_sequence_start*, *d_sequence_end*,
+*j_sequence_start*.
+"""
 
-from mir.common.segments import Segment, _SEGMENT_CACHE
+from __future__ import annotations
 
-_CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
-_CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
+from dataclasses import dataclass, field
+from typing import ClassVar, NamedTuple
 
+import polars as pl
 
-class ClonotypePayload:
-    """
-    The class to store metadata of a clonotype (number of reads with this clonotype and number of samples where \
-    the clonotype occurred)
-    """
-    def __init__(self) -> None:
-        self.number_of_reads = None
-        self.number_of_samples = None
+from mir.basic.mirseq import translate_bidi, is_coding as _c_is_coding, is_canonical as _c_is_canonical
 
 
-# TODO tcrnet payload etc / consider moving to separate module
+# ---------------------------------------------------------------------------
+# Junction boundary type (derived from Clonotype int fields)
+# ---------------------------------------------------------------------------
+
+class JunctionMarkup(NamedTuple):
+    """V/D/J boundary positions within the junction sequence (AIRR names)."""
+    v_sequence_end: int = -1
+    d_sequence_start: int = -1
+    d_sequence_end: int = -1
+    j_sequence_start: int = -1
 
 
+# ---------------------------------------------------------------------------
+# Main dataclass
+# ---------------------------------------------------------------------------
+
+@dataclass(unsafe_hash=True)
 class Clonotype:
-    __slots__ = 'id', 'cells', 'payload', 'clone_metadata'
+    """Single immune-receptor rearrangement with AIRR-schema fields.
 
-    def __init__(self,
-                 id: int | str,
-                 cells: int | list[str] = 1,
-                 payload: t.Any = None):
-        """
-        The initializing method for the clonotype class.
-        :param id: the clonotype id
-        :param cells: number of reads (cells) with the clonotype or number of cells for SC
-        :param payload: the metadata which is defined in `ClonotypePayload`
-        """
-        self.id = id
-        self.cells = cells
-        self.payload = payload
-        self.clone_metadata = {}
+    All fields have safe defaults so instances can be constructed with any
+    subset of information.  ``junction_aa`` is auto-translated from
+    ``junction`` (via the C ``translate_bidi`` function) when omitted.
+    Gene-name arguments may be plain strings or legacy ``GeneEntry`` objects
+    (converted to ``str`` in ``__post_init__``).
+    """
+
+    sequence_id: str = ""
+    duplicate_count: int = 0
+    locus: str = ""
+    junction: str = ""
+    junction_aa: str = ""
+    v_gene: str = ""
+    j_gene: str = ""
+    d_gene: str = ""
+    c_gene: str = ""
+    v_sequence_end: int = -1
+    d_sequence_start: int = -1
+    d_sequence_end: int = -1
+    j_sequence_start: int = -1
+    # Mutable metadata dict excluded from eq/repr/init
+    clone_metadata: dict = field(default_factory=dict, repr=False,
+                                  compare=False, init=False)
+
+    def __post_init__(self) -> None:
+        # Auto-translate junction → junction_aa
+        if self.junction and not self.junction_aa:
+            self.junction_aa = translate_bidi(self.junction)
+        # Normalise gene fields: accept GeneEntry objects or None
+        for attr in ("v_gene", "d_gene", "j_gene", "c_gene"):
+            val = getattr(self, attr)
+            if val is None:
+                setattr(self, attr, "")
+            elif not isinstance(val, str):
+                setattr(self, attr, str(val))
+
+    # ------------------------------------------------------------------
+    # Derived properties
+    # ------------------------------------------------------------------
+
+    @property
+    def id(self) -> str:
+        """Backward-compat alias for ``sequence_id``."""
+        return self.sequence_id
+
+    @property
+    def junction_markup(self) -> JunctionMarkup:
+        """V/D/J boundary positions derived from the four int fields."""
+        return JunctionMarkup(
+            self.v_sequence_end, self.d_sequence_start,
+            self.d_sequence_end, self.j_sequence_start,
+        )
+
+    # ------------------------------------------------------------------
+    # Classification helpers (delegate to C extension for speed)
+    # ------------------------------------------------------------------
+
+    def is_coding(self) -> bool:
+        """True iff ``junction_aa`` contains only standard amino-acid letters."""
+        return bool(_c_is_coding(self.junction_aa)) if self.junction_aa else False
+
+    def is_canonical(self) -> bool:
+        """True iff ``junction_aa`` starts with C and ends with F or W."""
+        return bool(_c_is_canonical(self.junction_aa)) if self.junction_aa else False
+
+    # ------------------------------------------------------------------
+    # Size helper (supports int count or barcode lists)
+    # ------------------------------------------------------------------
 
     def size(self) -> int:
-        """
-        A method which returns the number of cells (reads) where the clonotype is found
-        :return:
-        """
-        if isinstance(self.cells, int):
-            return self.cells
-        else:
-            return len(self.cells)
+        """Return read/cell count (alias for ``duplicate_count``)."""
+        return self.duplicate_count
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
 
     def serialize(self) -> dict:
-        """
-        A mthod to perform the serialization of a clonotype
-        :return:
-        """
-        return {'id': self.id,
-                'cells': self.cells}
+        """Return all AIRR-schema fields as a plain ``dict``.
 
-    def __str__(self):
-        return 'κ' + str(self.id)
+        The returned keys match :attr:`_POLARS_SCHEMA` exactly, making the
+        output suitable for :func:`polars.from_dicts` or ``pd.DataFrame``.
+        """
+        return {
+            "sequence_id":     self.sequence_id,
+            "duplicate_count": self.duplicate_count,
+            "locus":           self.locus,
+            "junction":        self.junction,
+            "junction_aa":     self.junction_aa,
+            "v_gene":          self.v_gene,
+            "d_gene":          self.d_gene,
+            "j_gene":          self.j_gene,
+            "c_gene":          self.c_gene,
+            "v_sequence_end":  self.v_sequence_end,
+            "d_sequence_start": self.d_sequence_start,
+            "d_sequence_end":  self.d_sequence_end,
+            "j_sequence_start": self.j_sequence_start,
+        }
 
-    def __repr__(self):
+    # ------------------------------------------------------------------
+    # Polars I/O
+    # ------------------------------------------------------------------
+
+    _POLARS_SCHEMA: ClassVar[dict[str, type]] = {
+        "sequence_id":      pl.Utf8,
+        "duplicate_count":  pl.Int64,
+        "locus":            pl.Utf8,
+        "junction":         pl.Utf8,
+        "junction_aa":      pl.Utf8,
+        "v_gene":           pl.Utf8,
+        "d_gene":           pl.Utf8,
+        "j_gene":           pl.Utf8,
+        "c_gene":           pl.Utf8,
+        "v_sequence_end":   pl.Int64,
+        "d_sequence_start": pl.Int64,
+        "d_sequence_end":   pl.Int64,
+        "j_sequence_start": pl.Int64,
+    }
+
+    @classmethod
+    def from_polars(cls, df: pl.DataFrame) -> list[Clonotype]:
+        """Build a list of :class:`Clonotype` from a Polars DataFrame.
+
+        Column names must use AIRR schema names (see :attr:`_POLARS_SCHEMA`).
+        Rows without a ``sequence_id`` column receive incremental string IDs
+        ``"0"``, ``"1"``, …
+        """
+        cols = set(df.columns)
+        has_id = "sequence_id" in cols
+
+        def _str(v) -> str:
+            return "" if v is None else str(v)
+
+        def _int(v, default: int = -1) -> int:
+            if v is None:
+                return default
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
+        clonotypes: list[Clonotype] = []
+        for i, row in enumerate(df.iter_rows(named=True)):
+            clonotypes.append(cls(
+                sequence_id=    _str(row["sequence_id"]) if has_id else str(i),
+                duplicate_count=_int(row.get("duplicate_count"), 0),
+                locus=          _str(row.get("locus")),
+                junction=       _str(row.get("junction")),
+                junction_aa=    _str(row.get("junction_aa")),
+                v_gene=         _str(row.get("v_gene")),
+                d_gene=         _str(row.get("d_gene")),
+                j_gene=         _str(row.get("j_gene")),
+                c_gene=         _str(row.get("c_gene")),
+                v_sequence_end= _int(row.get("v_sequence_end")),
+                d_sequence_start=_int(row.get("d_sequence_start")),
+                d_sequence_end= _int(row.get("d_sequence_end")),
+                j_sequence_start=_int(row.get("j_sequence_start")),
+            ))
+        return clonotypes
+
+    @staticmethod
+    def to_polars(clonotypes: list[Clonotype]) -> pl.DataFrame:
+        """Serialise a list of :class:`Clonotype` to a Polars DataFrame."""
+        if not clonotypes:
+            return pl.DataFrame(schema=Clonotype._POLARS_SCHEMA)
+        return pl.from_dicts([c.serialize() for c in clonotypes],
+                             schema_overrides=Clonotype._POLARS_SCHEMA)
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
+
+    def __str__(self) -> str:
+        return f"κ{self.sequence_id} {self.junction_aa}"
+
+    def __repr__(self) -> str:
         return self.__str__()
 
-    def __copy__(self):
-        return Clonotype(self.id, self.cells, self.payload)
 
+# ---------------------------------------------------------------------------
+# Backward-compat aliases  (no separate ClonotypeAA / ClonotypeNT classes)
+# ---------------------------------------------------------------------------
 
-class ClonotypeAA(Clonotype):
-    """
-    The clonotype which stores the amino acid sequence. Recommended to use everywhere instead of usual `Clonotype`.
-    """
-    __slots__ = 'cdr3aa', 'v', 'd', 'j'
-
-    def __init__(self, cdr3aa: str,
-                 v: str | Segment = None,
-                 d: str | Segment = None,
-                 j: str | Segment = None,
-                 id: int | str = -1,
-                 cells: int | list[str] = 1,
-                 payload: t.Any = None):
-        """
-        The initialization function which includes the cdr3aa sequence and vdj genes. The segmqnts might not be \
-        initialized.
-        :param cdr3aa: the string with cdr3aa
-        :param v: v segment object or string or None
-        :param d: segment object or string or None
-        :param j: segment object or string or None
-        :param id:
-        :param cells:
-        :param payload:
-        """
-        super().__init__(id, cells, payload)
-        self.cdr3aa = cdr3aa
-        if isinstance(v, str):
-            v = _SEGMENT_CACHE.get_or_create(v)
-        self.v = v
-        if isinstance(d, str):
-            d = _SEGMENT_CACHE.get_or_create(d)
-        self.d = d
-        if isinstance(j, str):
-            j = _SEGMENT_CACHE.get_or_create(j)
-        self.j = j
-
-    def is_coding(self):
-        """
-        understand whether the clonotype is coding or not. ^[ARNDCQEGHILKMFPSTWYV]+$
-        :return: bool whether the clonotype is coding
-        """
-        return _CODING_AA.match(self.cdr3aa)
-
-    def is_canonical(self):
-        """
-        understand whether the clonotype is canonical or not. ^C[ARNDCQEGHILKMFPSTWYV]+[FW]$
-        :return: bool whether the clonotype is canonical
-        """
-        return _CANONICAL_AA.match(self.cdr3aa)
-
-    def serialize(self) -> dict:
-        """
-        Returns the serialized amino acid clonotype
-        :return: a dictionary with serialized clonotype
-        """
-        return {'id': self.id,
-                'cells': self.cells,
-                'cdr3aa': self.cdr3aa,
-                'v': self.v,
-                'd': self.d,
-                'j': self.j}
-
-    def __str__(self):
-        return super().__str__() + ' ' + self.cdr3aa
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return ClonotypeAA(self.cdr3aa, self.v, self.d, self.j, self.id, self.cells, self.payload)
-
-    def __getitem__(self, segment):
-        if segment == 'v':
-            return self.v
-        elif segment == 'd':
-            return self.d
-        elif segment == 'j':
-            return self.j
-        else:
-            raise Exception('You can get only v/d/j gene by itemization')
-
-
-class JunctionMarkup:
-    """
-    The junction markup object. Stores the end of V, beginning and end of D and beginning of J
-    """
-    __slots__ = 'vend', 'dstart', 'dend', 'jstart'
-
-    def __init__(self,
-                 vend: int=None,
-                 dstart: int=None,
-                 dend: int=None,
-                 jstart: int=None):
-        self.vend = vend
-        self.dstart = dstart
-        self.dend = dend
-        self.jstart = jstart
-
-
-class ClonotypeNT(ClonotypeAA):
-    """
-    The clonotype which stores the nucleotide sequence. Recommended to use everywhere instead of usual `Clonotype`.
-    """
-    __slots__ = 'cdr3nt', 'junction'
-    def __init__(self,
-                 cdr3nt: str,
-                 junction: JunctionMarkup = None,
-                 cdr3aa: str = None,
-                 v: str | Segment = None,
-                 d: str | Segment = None,
-                 j: str | Segment = None,
-                 id: int | str = -1,
-                 cells: int | list[str] = 1,
-                 payload: t.Any = None):
-        """
-        The initialization function which includes the cdr3aa sequence and vdj genes. The segmqnts might not be \
-        initialized.
-        :param cdr3nt: the string with cdr3nt
-        :param junction: the `JunctionMarkup` object which stores the info on clonotype junction
-        :param cdr3aa: the string with cdr3aa
-        :param v: v segment object or string or None
-        :param d: segment object or string or None
-        :param j: segment object or string or None
-        :param id:
-        :param cells:
-        :param payload:
-        """
-        if not cdr3aa:
-            cdr3aa = translate(cdr3nt)
-        super().__init__(cdr3aa, v, d, j, id, cells, payload)
-        self.cdr3nt = cdr3nt
-        self.junction = junction
-
-    def serialize(self) -> dict:
-        return {'id': self.id,
-                'cells': self.cells,
-                'cdr3aa': self.cdr3aa,
-                'cdr3nt': self.cdr3nt,
-                'v': self.v,
-                'd': self.d,
-                'j': self.j}
-
-    def __str__(self):
-        return super().__str__() + ' ' + self.cdr3nt
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return ClonotypeNT(self.cdr3nt, self.junction, self.cdr3aa, self.v, self.d, self.j, self.id, self.cells,
-                           self.payload)
-
-
-# TODO
-class PairedChainClone(Clonotype):
-    """
-    The object which stores a clone (alpha+beta chains or heavy+light and so on).
-    """
-    def __init__(self,
-                 chainA: Clonotype,
-                 chainB: Clonotype,
-                 id: int | str = -1,
-                 cells: int | list[str] = 1,
-                 payload: t.Any = None):
-        super().__init__(id, cells, payload)
-        self.chainA = chainA
-        self.chainB = chainB
-
-    def __str__(self):
-        return 'alpha ' + self.chainA.__str__() + ' beta ' + self.chainB.__str__()
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return PairedChainClone(self.chainA, self.chainB)
-
-
-# TODO
-class ClonalLineage:
-    def __init__(self, clonotypes: list[Clonotype]):
-        self.clonotypes = clonotypes
+ClonotypeAA = Clonotype
+ClonotypeNT = Clonotype

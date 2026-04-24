@@ -2,7 +2,7 @@ from collections import defaultdict
 
 from mir import get_resource_path
 from mir.basic.pgen import OlgaModel
-from mir.common.clonotype import ClonotypeAA, ClonotypeNT
+from mir.common.clonotype import Clonotype
 import igraph as ig
 import numpy as np
 import pandas as pd
@@ -21,11 +21,11 @@ class ClonotypeDataset:
     """
 
     # TODO add loading clonotypeDataset from file
-    def __init__(self, clonotypes: list[ClonotypeAA]):
+    def __init__(self, clonotypes: list[Clonotype]):
         for clonotype in clonotypes:
-            if not isinstance(clonotype, ClonotypeAA):
-                raise Exception('You must have cdr3aa sequence for ClonotypeDataset creation')
-        self.clonotypes_cdr3aa = {x.cdr3aa: x for x in clonotypes}
+            if not isinstance(clonotype, Clonotype):
+                raise Exception('You must have junction_aa sequence for ClonotypeDataset creation')
+        self.clonotypes_by_junction_aa = {x.junction_aa: x for x in clonotypes}
         self.additional_info = pd.DataFrame([x.serialize() for x in clonotypes])
         self.__masks = None
         self.masks_to_clonotypes = defaultdict(set)
@@ -46,15 +46,12 @@ class ClonotypeDataset:
         # TODO add payload?
         clonotypes = []
         for representation in clonotype_reprs:
-            if representation.cdr3nt is not None:
-                clonotypes.append(ClonotypeNT(cdr3nt=representation.cdr3nt,
-                                              cdr3aa=representation.cdr3aa,
-                                              v=representation.v,
-                                              j=representation.j))
-            else:
-                clonotypes.append(ClonotypeAA(cdr3aa=representation.cdr3aa,
-                                              v=representation.v,
-                                              j=representation.j))
+            clonotypes.append(Clonotype(
+                junction=representation.junction or "",
+                junction_aa=representation.junction_aa or "",
+                v_gene=str(representation.v_gene) if representation.v_gene else "",
+                j_gene=str(representation.j_gene) if representation.j_gene else "",
+            ))
         return cls(clonotypes)
 
     def serialize(self, file_name='biomarkers.csv'):
@@ -92,7 +89,7 @@ class ClonotypeDataset:
         if self.__masks is not None:
             return self.__masks
         self.__masks = set()
-        for c in self.clonotypes_cdr3aa.keys():
+        for c in self.clonotypes_by_junction_aa.keys():
             for i in range(len(c)):
                 self.__masks.add(c[:i] + 'X' + c[i + 1:])
                 self.masks_to_clonotypes[c[:i] + 'X' + c[i + 1:]].add(c)
@@ -113,9 +110,9 @@ class ClonotypeDataset:
                 if current_mask in self.masks:
                     found_matches = found_matches.union(self.masks_to_clonotypes[current_mask])
         elif threshold == 0:
-            found_matches = [clonotype_of_interest] if clonotype_of_interest in self.clonotypes_cdr3aa else []
+            found_matches = [clonotype_of_interest] if clonotype_of_interest in self.clonotypes_by_junction_aa else []
         if return_clusters:
-            return set(self.clonotype_clustering[self.clonotype_clustering.cdr3aa.isin(found_matches)].cluster)
+            return set(self.clonotype_clustering[self.clonotype_clustering.junction_aa.isin(found_matches)].cluster)
         return found_matches
 
     def get_matching_clonotypes_for_set(self, clonotypes_of_interest, return_clusters=False, threshold=1):
@@ -142,8 +139,8 @@ class ClonotypeDataset:
         if self.__graph_object is not None:
             return self.__graph_object
         edges = []
-        for c1 in self.clonotypes_cdr3aa.keys():
-            for c2 in self.clonotypes_cdr3aa.keys():
+        for c1 in self.clonotypes_by_junction_aa.keys():
+            for c2 in self.clonotypes_by_junction_aa.keys():
                 if len(c1) == len(c2):
                     dist = sum(c1 != c2 for c1, c2 in zip(c1, c2))
                     if dist <= threshold:
@@ -161,7 +158,7 @@ class ClonotypeDataset:
         if self.__clusters_df is not None:
             return self.__clusters_df
         graph = self.graph
-        self.__clusters_df = pd.DataFrame(data={'cdr3aa': graph.get_vertex_dataframe().name,
+        self.__clusters_df = pd.DataFrame(data={'junction_aa': graph.get_vertex_dataframe().name,
                                                 'cluster': graph.components().membership})
         return self.__clusters_df
 
@@ -175,9 +172,9 @@ class ClonotypeDataset:
             return self.__pgen_df
         self.__pgen_df = {}
         olga = OlgaModel(model=get_resource_path('olga/default_models/human_T_beta'))
-        for clonotype in self.clonotypes_cdr3aa.keys():
-            self.__pgen_df[clonotype] = olga.compute_pgen_cdr3aa(clonotype)
-        self.__pgen_df = pd.DataFrame(data={'cdr3aa': self.__pgen_df.keys(),
+        for clonotype in self.clonotypes_by_junction_aa.keys():
+            self.__pgen_df[clonotype] = olga.compute_pgen_junction_aa(clonotype)
+        self.__pgen_df = pd.DataFrame(data={'junction_aa': self.__pgen_df.keys(),
                                             'pgen': self.__pgen_df.values()})
         return self.__pgen_df
 
@@ -192,7 +189,7 @@ class ClonotypeDataset:
         self.__cluster_pgen_dict = {}
         for cluster_index in self.clonotype_clustering.cluster.unique():
             self.__cluster_pgen_dict[cluster_index] = sum(
-                [self.pgens[x] for x in self.__clusters_df[self.__clusters_df.cluster == cluster_index].cdr3aa])
+                [self.pgens[x] for x in self.__clusters_df[self.__clusters_df.cluster == cluster_index].junction_aa])
         return self.__cluster_pgen_dict
 
     @property
@@ -201,7 +198,7 @@ class ClonotypeDataset:
         calculates clonotype cooredinates for plotting
         :return:
         """
-        if len(self.clonotypes_cdr3aa) < 1000:
+        if len(self.clonotypes_by_junction_aa) < 1000:
             viz_method = 'graphopt'
         else:
             viz_method = 'drl'
@@ -211,7 +208,7 @@ class ClonotypeDataset:
         coords = np.array(layout.coords)
 
         self.__graph_coords = pd.DataFrame(
-            {'cdr3aa': self.graph.vs()['name'],
+            {'junction_aa': self.graph.vs()['name'],
              'cluster': self.graph.components().membership,
              'x': coords[:, 0],
              'y': coords[:, 1]
@@ -266,7 +263,7 @@ class ClonotypeDataset:
         :return: the Fisher exact test p value of enrichment
         """
         matched_clonotypes = pd.Series(list(self.get_matching_clonotypes_for_set(database_records_for_comparison)))
-        matched_clonotypes_within_cluster = pd.DataFrame({'cdr3aa': matched_clonotypes}).merge(
+        matched_clonotypes_within_cluster = pd.DataFrame({'junction_aa': matched_clonotypes}).merge(
             self.clonotype_clustering[self.clonotype_clustering.cluster == cluster_idx])
 
         num_positive_within_cluster = len(matched_clonotypes_within_cluster)
@@ -316,5 +313,5 @@ class ClonotypeDataset:
         return pd.DataFrame({'cluster': sign_cluster, comparison_by: sign_epi, 'pval': sign_pval})
 
     def __repr__(self):
-        return f'A dataset of {len(self.clonotypes_cdr3aa)} clonotypes ' + \
+        return f'A dataset of {len(self.clonotypes_by_junction_aa)} clonotypes ' + \
             f'and {len(self.clonotype_clustering.cluster.unique())} clusters'

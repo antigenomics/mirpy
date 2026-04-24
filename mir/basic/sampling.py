@@ -40,7 +40,7 @@ class RepertoireSampling:
         old_run_frequencies = self.__preprocess_frequencies(old_usage_matrix, sample_name)
         new_run_frequencies = self.__preprocess_frequencies(new_usage_matrix, sample_name)
         for clone in repertoire:
-            clone.clone_metadata['expected_freq'] = clone.cells / repertoire.number_of_reads
+            clone.clone_metadata['expected_freq'] = clone.duplicate_count / repertoire.number_of_reads
             for segment_type in old_run_frequencies.keys():
                 segment_name = clone[segment_type.lower()].id
                 clone.clone_metadata['expected_freq'] *= old_run_frequencies[segment_type][segment_name] / \
@@ -61,7 +61,7 @@ class RepertoireSampling:
             if new_count == 0:
                 continue
             new_clone = copy(clone)
-            new_clone.cells = new_count
+            new_clone.duplicate_count = new_count
             copy_clonotypes.append(new_clone)
         return Repertoire(copy_clonotypes, is_sorted=False, metadata=repertoire.metadata)
 

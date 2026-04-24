@@ -56,8 +56,12 @@ import typing as t
 import numpy as np
 from functools import lru_cache
 
-from mir.common.clonotype import ClonotypeAA, PairedChainClone
-from mir.common.segments import Segment, SegmentLibrary
+from mir.common.clonotype import Clonotype
+from mir.common.gene_library import GeneEntry, GeneLibrary
+
+# Legacy aliases
+Segment = GeneEntry
+SegmentLibrary = GeneLibrary
 
 # ---------------------------------------------------------------------------
 # Lazy-load C acceleration from seqdist_c (score_max, selfscore)
@@ -429,19 +433,19 @@ class GermlineAligner:
         self.dist = dist
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
 
-    def score(self, g1: str | Segment, g2: str | Segment) -> float:
-        if isinstance(g1, Segment):
-            g1 = g1.id
-        if isinstance(g2, Segment):
-            g2 = g2.id
+    def score(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
+        if isinstance(g1, GeneEntry):
+            g1 = g1.allele
+        if isinstance(g2, GeneEntry):
+            g2 = g2.allele
         if (g1, g2) not in self.dist:
             raise ValueError(f'No pair {(g1, g2)} in distance dict!')
         return self.dist[(g1, g2)]
 
-    def score_norm(self, g1: str | Segment, g2: str | Segment) -> float:
+    def score_norm(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         return self.score(g1, g2) - max(self.score(g1, g1), self.score(g2, g2))
 
-    def score_dist(self, g1: str | Segment, g2: str | Segment) -> float:
+    def score_dist(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         return self.score(g1, g1) + self.score(g2, g2) - 2 * self.score(g1, g2)
 
     @classmethod
@@ -452,8 +456,8 @@ class GermlineAligner:
         scoring_wrapper = _Scoring_Wrapper(scoring)
         if type(seqs) is dict:
             seqs = seqs.items()
-        elif isinstance(seqs, list) and len(seqs) > 0 and isinstance(seqs[0], Segment):
-            seqs = [(s.id, s.seqaa) for s in seqs]
+        elif isinstance(seqs, list) and len(seqs) > 0 and isinstance(seqs[0], GeneEntry):
+            seqs = [(s.allele, s.sequence_aa) for s in seqs]
         gen = ((gs1, gs2) for gs1 in seqs for gs2 in seqs if gs1[0] >= gs2[0])
         if nproc == 1:
             dist = starmap(scoring_wrapper, gen)  # this operation is long, Bio issue :(
@@ -507,36 +511,27 @@ class ClonotypeAligner:
 
     @classmethod
     def from_library(cls,
-                     lib: SegmentLibrary = SegmentLibrary.load_default(),
-                     gene: str = None,
+                     lib: GeneLibrary = None,
+                     locus: str = None,
                      cdr3_aligner: CDRAligner = CDRAligner()):
-        v_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='V'))
-        j_aligner = GermlineAligner.from_seqs(lib.get_seqaas(gene=gene, stype='J'))
+        if lib is None:
+            lib = GeneLibrary.load_default()
+        v_aligner = GermlineAligner.from_seqs(lib.get_sequences_aa(locus=locus, gene='V'))
+        j_aligner = GermlineAligner.from_seqs(lib.get_sequences_aa(locus=locus, gene='J'))
         return cls(v_aligner, j_aligner, cdr3_aligner)
 
-    def score(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score(cln1.cdr3aa, cln2.cdr3aa))
+    def score(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
+        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score(cln1.junction_aa, cln2.junction_aa))
 
-    def score_norm(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score_norm(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score_norm(cln1.cdr3aa, cln2.cdr3aa))
+    def score_norm(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
+        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score_norm(cln1.junction_aa, cln2.junction_aa))
 
-    def score_dist(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v, cln2.v),
-                              j_score=self.j_aligner.score_dist(cln1.j, cln2.j),
-                              cdr3_score=self.cdr3_aligner.score_dist(cln1.cdr3aa, cln2.cdr3aa))
+    def score_dist(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
+        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
+                              j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
+                              cdr3_score=self.cdr3_aligner.score_dist(cln1.junction_aa, cln2.junction_aa))
 
-    def score_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score(cln1.chainA, cln2.chainA),
-                                self.score(cln1.chainB, cln2.chainB))
-
-    def score_norm_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score_norm(cln1.chainA, cln2.chainA),
-                                self.score_norm(cln1.chainB, cln2.chainB))
-
-    def score_dist_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score_dist(cln1.chainA, cln2.chainA),
-                                self.score_dist(cln1.chainB, cln2.chainB))

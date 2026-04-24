@@ -15,16 +15,26 @@ Core Workflows
    diversity_estimation
    repertoire_resampling
    segment_usage_analysis
-   segment_similarity
+   gene_similarity
+   sample_repertoire_overview
 
-Distance, Matching, And Embedding
-=================================
+Graph Analysis
+==============
 
 .. toctree::
    :maxdepth: 1
 
+   token_graph
+   edit_distance_graph
    cdr3_aln_benchmark
    cdr3_graph
+
+Distance, Matching, And Embedding
+==================================
+
+.. toctree::
+   :maxdepth: 1
+
    prototype_embedding
    proto_embedding_new
 
