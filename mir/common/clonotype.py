@@ -1,221 +1,225 @@
-import re
-import typing as t
+"""Immune-receptor clonotype as a single flat dataclass.
 
-from mir.basic.mirseq import translate_linear
-from mir.common.gene_library import GeneEntry, _GENE_LIBRARY_CACHE
+All gene-name fields store plain strings (IMGT allele names, e.g.
+``"TRBV3-1*01"``).  Junction coordinates follow the AIRR Rearrangement
+schema naming: *v_sequence_end*, *d_sequence_start*, *d_sequence_end*,
+*j_sequence_start*.
+"""
 
-_CODING_AA = re.compile('^[ARNDCQEGHILKMFPSTWYV]+$')
-_CANONICAL_AA = re.compile('^C[ARNDCQEGHILKMFPSTWYV]+[FW]$')
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import ClassVar, NamedTuple
+
+import polars as pl
+
+from mir.basic.mirseq import translate_bidi, is_coding as _c_is_coding, is_canonical as _c_is_canonical
 
 
-class ClonotypePayload:
-    """Optional read/sample count metadata attached to a clonotype."""
+# ---------------------------------------------------------------------------
+# Junction boundary type (derived from Clonotype int fields)
+# ---------------------------------------------------------------------------
 
-    def __init__(self) -> None:
-        self.number_of_reads = None
-        self.number_of_samples = None
+class JunctionMarkup(NamedTuple):
+    """V/D/J boundary positions within the junction sequence (AIRR names)."""
+    v_sequence_end: int = -1
+    d_sequence_start: int = -1
+    d_sequence_end: int = -1
+    j_sequence_start: int = -1
 
 
+# ---------------------------------------------------------------------------
+# Main dataclass
+# ---------------------------------------------------------------------------
+
+@dataclass(unsafe_hash=True)
 class Clonotype:
-    __slots__ = 'id', 'duplicate_count', 'payload', 'clone_metadata'
+    """Single immune-receptor rearrangement with AIRR-schema fields.
 
-    def __init__(self,
-                 id: int | str,
-                 duplicate_count: int | list[str] = 1,
-                 payload: t.Any = None):
-        self.id = id
-        self.duplicate_count = duplicate_count
-        self.payload = payload
-        self.clone_metadata = {}
+    All fields have safe defaults so instances can be constructed with any
+    subset of information.  ``junction_aa`` is auto-translated from
+    ``junction`` (via the C ``translate_bidi`` function) when omitted.
+    Gene-name arguments may be plain strings or legacy ``GeneEntry`` objects
+    (converted to ``str`` in ``__post_init__``).
+    """
+
+    sequence_id: str = ""
+    duplicate_count: int = 0
+    locus: str = ""
+    junction: str = ""
+    junction_aa: str = ""
+    v_gene: str = ""
+    j_gene: str = ""
+    d_gene: str = ""
+    c_gene: str = ""
+    v_sequence_end: int = -1
+    d_sequence_start: int = -1
+    d_sequence_end: int = -1
+    j_sequence_start: int = -1
+    # Mutable metadata dict excluded from eq/repr/init
+    clone_metadata: dict = field(default_factory=dict, repr=False,
+                                  compare=False, init=False)
+
+    def __post_init__(self) -> None:
+        # Auto-translate junction → junction_aa
+        if self.junction and not self.junction_aa:
+            self.junction_aa = translate_bidi(self.junction)
+        # Normalise gene fields: accept GeneEntry objects or None
+        for attr in ("v_gene", "d_gene", "j_gene", "c_gene"):
+            val = getattr(self, attr)
+            if val is None:
+                setattr(self, attr, "")
+            elif not isinstance(val, str):
+                setattr(self, attr, str(val))
+
+    # ------------------------------------------------------------------
+    # Derived properties
+    # ------------------------------------------------------------------
+
+    @property
+    def id(self) -> str:
+        """Backward-compat alias for ``sequence_id``."""
+        return self.sequence_id
+
+    @property
+    def junction_markup(self) -> JunctionMarkup:
+        """V/D/J boundary positions derived from the four int fields."""
+        return JunctionMarkup(
+            self.v_sequence_end, self.d_sequence_start,
+            self.d_sequence_end, self.j_sequence_start,
+        )
+
+    # ------------------------------------------------------------------
+    # Classification helpers (delegate to C extension for speed)
+    # ------------------------------------------------------------------
+
+    def is_coding(self) -> bool:
+        """True iff ``junction_aa`` contains only standard amino-acid letters."""
+        return bool(_c_is_coding(self.junction_aa)) if self.junction_aa else False
+
+    def is_canonical(self) -> bool:
+        """True iff ``junction_aa`` starts with C and ends with F or W."""
+        return bool(_c_is_canonical(self.junction_aa)) if self.junction_aa else False
+
+    # ------------------------------------------------------------------
+    # Size helper (supports int count or barcode lists)
+    # ------------------------------------------------------------------
 
     def size(self) -> int:
-        """Return the number of cells/reads associated with this clonotype."""
+        """Return read/cell count."""
         if isinstance(self.duplicate_count, int):
             return self.duplicate_count
-        else:
-            return len(self.duplicate_count)
+        return len(self.duplicate_count)
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
 
     def serialize(self) -> dict:
-        return {'id': self.id,
-                'duplicate_count': self.duplicate_count}
+        return {
+            "sequence_id":     self.sequence_id,
+            "duplicate_count": self.duplicate_count,
+            "locus":           self.locus,
+            "junction":        self.junction,
+            "junction_aa":     self.junction_aa,
+            "v_gene":          self.v_gene,
+            "d_gene":          self.d_gene,
+            "j_gene":          self.j_gene,
+            "c_gene":          self.c_gene,
+            "v_sequence_end":  self.v_sequence_end,
+            "d_sequence_start": self.d_sequence_start,
+            "d_sequence_end":  self.d_sequence_end,
+            "j_sequence_start": self.j_sequence_start,
+        }
 
-    def __str__(self):
-        return 'κ' + str(self.id)
+    # ------------------------------------------------------------------
+    # Polars I/O
+    # ------------------------------------------------------------------
 
-    def __repr__(self):
+    _POLARS_SCHEMA: ClassVar[dict[str, type]] = {
+        "sequence_id":      pl.Utf8,
+        "duplicate_count":  pl.Int64,
+        "locus":            pl.Utf8,
+        "junction":         pl.Utf8,
+        "junction_aa":      pl.Utf8,
+        "v_gene":           pl.Utf8,
+        "d_gene":           pl.Utf8,
+        "j_gene":           pl.Utf8,
+        "c_gene":           pl.Utf8,
+        "v_sequence_end":   pl.Int64,
+        "d_sequence_start": pl.Int64,
+        "d_sequence_end":   pl.Int64,
+        "j_sequence_start": pl.Int64,
+    }
+
+    @classmethod
+    def from_polars(cls, df: pl.DataFrame) -> list[Clonotype]:
+        """Build a list of :class:`Clonotype` from a Polars DataFrame.
+
+        Column names must use AIRR schema names (see :attr:`_POLARS_SCHEMA`).
+        Rows without a ``sequence_id`` column receive incremental string IDs
+        ``"0"``, ``"1"``, …
+        """
+        cols = set(df.columns)
+        has_id = "sequence_id" in cols
+
+        def _str(v) -> str:
+            return "" if v is None else str(v)
+
+        def _int(v, default: int = -1) -> int:
+            if v is None:
+                return default
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
+        clonotypes: list[Clonotype] = []
+        for i, row in enumerate(df.iter_rows(named=True)):
+            clonotypes.append(cls(
+                sequence_id=    _str(row["sequence_id"]) if has_id else str(i),
+                duplicate_count=_int(row.get("duplicate_count"), 0),
+                locus=          _str(row.get("locus")),
+                junction=       _str(row.get("junction")),
+                junction_aa=    _str(row.get("junction_aa")),
+                v_gene=         _str(row.get("v_gene")),
+                d_gene=         _str(row.get("d_gene")),
+                j_gene=         _str(row.get("j_gene")),
+                c_gene=         _str(row.get("c_gene")),
+                v_sequence_end= _int(row.get("v_sequence_end")),
+                d_sequence_start=_int(row.get("d_sequence_start")),
+                d_sequence_end= _int(row.get("d_sequence_end")),
+                j_sequence_start=_int(row.get("j_sequence_start")),
+            ))
+        return clonotypes
+
+    @staticmethod
+    def to_polars(clonotypes: list[Clonotype]) -> pl.DataFrame:
+        """Serialise a list of :class:`Clonotype` to a Polars DataFrame."""
+        if not clonotypes:
+            return pl.DataFrame(schema=Clonotype._POLARS_SCHEMA)
+        return pl.from_dicts([c.serialize() for c in clonotypes],
+                             schema_overrides=Clonotype._POLARS_SCHEMA)
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
+
+    def __str__(self) -> str:
+        return f"κ{self.sequence_id} {self.junction_aa}"
+
+    def __repr__(self) -> str:
         return self.__str__()
 
-    def __copy__(self):
-        return Clonotype(self.id, self.duplicate_count, self.payload)
 
+# ---------------------------------------------------------------------------
+# Backward-compat aliases  (no separate ClonotypeAA / ClonotypeNT classes)
+# ---------------------------------------------------------------------------
 
-class ClonotypeAA(Clonotype):
-    """Clonotype with amino-acid junction sequence (AIRR: junction_aa)."""
-    __slots__ = 'junction_aa', 'v_gene', 'd_gene', 'j_gene'
-
-    def __init__(self, junction_aa: str,
-                 v_gene: str | GeneEntry = None,
-                 d_gene: str | GeneEntry = None,
-                 j_gene: str | GeneEntry = None,
-                 id: int | str = -1,
-                 duplicate_count: int | list[str] = 1,
-                 payload: t.Any = None):
-        """
-        Parameters
-        ----------
-        junction_aa:
-            Junction amino-acid sequence (AIRR ``junction_aa``).
-        v_gene, d_gene, j_gene:
-            V/D/J gene entries or allele-name strings.  Strings are
-            resolved via the default OLGA gene-library cache.
-        id:
-            Clonotype identifier (integer row index or custom string).
-        duplicate_count:
-            Read / cell count, or a list of barcode strings for single-cell
-            (AIRR ``duplicate_count``).
-        payload:
-            Arbitrary metadata attached to this clonotype.
-        """
-        super().__init__(id, duplicate_count, payload)
-        self.junction_aa = junction_aa
-        if isinstance(v_gene, str):
-            v_gene = _GENE_LIBRARY_CACHE.get_or_create(v_gene)
-        self.v_gene = v_gene
-        if isinstance(d_gene, str):
-            d_gene = _GENE_LIBRARY_CACHE.get_or_create(d_gene)
-        self.d_gene = d_gene
-        if isinstance(j_gene, str):
-            j_gene = _GENE_LIBRARY_CACHE.get_or_create(j_gene)
-        self.j_gene = j_gene
-
-    def is_coding(self):
-        """Return True if junction_aa consists only of standard amino-acid characters."""
-        return _CODING_AA.match(self.junction_aa)
-
-    def is_canonical(self):
-        """Return True if junction_aa starts with C and ends with F or W."""
-        return _CANONICAL_AA.match(self.junction_aa)
-
-    def serialize(self) -> dict:
-        return {'id': self.id,
-                'duplicate_count': self.duplicate_count,
-                'junction_aa': self.junction_aa,
-                'v_gene': str(self.v_gene) if self.v_gene else None,
-                'd_gene': str(self.d_gene) if self.d_gene else None,
-                'j_gene': str(self.j_gene) if self.j_gene else None}
-
-    def __str__(self):
-        return super().__str__() + ' ' + self.junction_aa
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return ClonotypeAA(self.junction_aa, self.v_gene, self.d_gene, self.j_gene,
-                           self.id, self.duplicate_count, self.payload)
-
-    def __getitem__(self, segment):
-        if segment == 'v':
-            return self.v_gene
-        elif segment == 'd':
-            return self.d_gene
-        elif segment == 'j':
-            return self.j_gene
-        else:
-            raise Exception('You can get only v/d/j gene by itemization')
-
-
-class JunctionMarkup:
-    """Stores V/D/J boundary positions within the junction sequence."""
-    __slots__ = 'vend', 'dstart', 'dend', 'jstart'
-
-    def __init__(self,
-                 vend: int = None,
-                 dstart: int = None,
-                 dend: int = None,
-                 jstart: int = None):
-        self.vend = vend
-        self.dstart = dstart
-        self.dend = dend
-        self.jstart = jstart
-
-
-class ClonotypeNT(ClonotypeAA):
-    """Clonotype with nucleotide junction sequence (AIRR: junction)."""
-    __slots__ = 'junction', 'junction_markup'
-
-    def __init__(self,
-                 junction: str,
-                 junction_markup: JunctionMarkup = None,
-                 junction_aa: str = None,
-                 v_gene: str | GeneEntry = None,
-                 d_gene: str | GeneEntry = None,
-                 j_gene: str | GeneEntry = None,
-                 id: int | str = -1,
-                 duplicate_count: int | list[str] = 1,
-                 payload: t.Any = None):
-        """
-        Parameters
-        ----------
-        junction:
-            Junction nucleotide sequence (AIRR ``junction``).  ``junction_aa``
-            is auto-translated when not provided.
-        junction_markup:
-            Optional V/D/J boundary markup (positions within the junction).
-        junction_aa:
-            Junction amino-acid sequence.  Derived from *junction* if omitted.
-        v_gene, d_gene, j_gene:
-            V/D/J gene entries or allele-name strings.
-        """
-        if not junction_aa:
-            junction_aa = translate_linear(junction).rstrip('_')
-        super().__init__(junction_aa, v_gene, d_gene, j_gene, id, duplicate_count, payload)
-        self.junction = junction
-        self.junction_markup = junction_markup
-
-    def serialize(self) -> dict:
-        return {'id': self.id,
-                'duplicate_count': self.duplicate_count,
-                'junction_aa': self.junction_aa,
-                'junction': self.junction,
-                'v_gene': str(self.v_gene) if self.v_gene else None,
-                'd_gene': str(self.d_gene) if self.d_gene else None,
-                'j_gene': str(self.j_gene) if self.j_gene else None}
-
-    def __str__(self):
-        return super().__str__() + ' ' + self.junction
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return ClonotypeNT(self.junction, self.junction_markup, self.junction_aa,
-                           self.v_gene, self.d_gene, self.j_gene,
-                           self.id, self.duplicate_count, self.payload)
-
-
-class PairedChainClone(Clonotype):
-    """Paired alpha+beta (or heavy+light) clone."""
-    def __init__(self,
-                 chainA: Clonotype,
-                 chainB: Clonotype,
-                 id: int | str = -1,
-                 duplicate_count: int | list[str] = 1,
-                 payload: t.Any = None):
-        super().__init__(id, duplicate_count, payload)
-        self.chainA = chainA
-        self.chainB = chainB
-
-    def __str__(self):
-        return 'alpha ' + self.chainA.__str__() + ' beta ' + self.chainB.__str__()
-
-    def __repr__(self):
-        return self.__str__()
-
-    def __copy__(self):
-        return PairedChainClone(self.chainA, self.chainB)
+ClonotypeAA = Clonotype
+ClonotypeNT = Clonotype
 
 
 class ClonalLineage:
-    def __init__(self, clonotypes: list[Clonotype]):
+    def __init__(self, clonotypes: list[Clonotype]) -> None:
         self.clonotypes = clonotypes

@@ -2,7 +2,7 @@ from collections import defaultdict
 
 from mir import get_resource_path
 from mir.basic.pgen import OlgaModel
-from mir.common.clonotype import ClonotypeAA, ClonotypeNT
+from mir.common.clonotype import Clonotype
 import igraph as ig
 import numpy as np
 import pandas as pd
@@ -21,9 +21,9 @@ class ClonotypeDataset:
     """
 
     # TODO add loading clonotypeDataset from file
-    def __init__(self, clonotypes: list[ClonotypeAA]):
+    def __init__(self, clonotypes: list[Clonotype]):
         for clonotype in clonotypes:
-            if not isinstance(clonotype, ClonotypeAA):
+            if not isinstance(clonotype, Clonotype):
                 raise Exception('You must have junction_aa sequence for ClonotypeDataset creation')
         self.clonotypes_by_junction_aa = {x.junction_aa: x for x in clonotypes}
         self.additional_info = pd.DataFrame([x.serialize() for x in clonotypes])
@@ -46,15 +46,12 @@ class ClonotypeDataset:
         # TODO add payload?
         clonotypes = []
         for representation in clonotype_reprs:
-            if representation.junction is not None:
-                clonotypes.append(ClonotypeNT(junction=representation.junction,
-                                              junction_aa=representation.junction_aa,
-                                              v_gene=representation.v_gene,
-                                              j_gene=representation.j_gene))
-            else:
-                clonotypes.append(ClonotypeAA(junction_aa=representation.junction_aa,
-                                              v_gene=representation.v_gene,
-                                              j_gene=representation.j_gene))
+            clonotypes.append(Clonotype(
+                junction=representation.junction or "",
+                junction_aa=representation.junction_aa or "",
+                v_gene=str(representation.v_gene) if representation.v_gene else "",
+                j_gene=str(representation.j_gene) if representation.j_gene else "",
+            ))
         return cls(clonotypes)
 
     def serialize(self, file_name='biomarkers.csv'):

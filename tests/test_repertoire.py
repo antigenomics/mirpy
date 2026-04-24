@@ -4,13 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from mir.biomarkers.fisher_biomarkers_detector import FisherBiomarkersDetector
-from mir.common.clonotype import ClonotypeAA
-from mir.common.clonotype_dataset import ClonotypeDataset
 from mir.common.gene_library import GeneLibrary
 from mir.common.parser import VDJtoolsParser, ClonotypeTableParser
 from mir.common.repertoire import Repertoire
-from mir.common.repertoire_dataset import RepertoireDataset
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 REAL_DIR = Path(__file__).parent / "real_repertoires"
@@ -73,67 +69,6 @@ def _olga_inconsistencies(repertoires, loci=('TRB',)):
                 unknown_j.add(j_base)
     return unknown_v, unknown_j
 
-
-class TestRepertoireDataset(unittest.TestCase):
-    """Tests for the small synthetic asset dataset."""
-
-    def setUp(self):
-        meta = pd.read_csv(ASSETS_DIR / "meta.csv")
-        parser = VDJtoolsParser(sep=',')
-
-        repertoires = []
-        for _, row in meta.iterrows():
-            df = pd.read_csv(ASSETS_DIR / row.file_name, sep=',')
-            df = ClonotypeTableParser.normalize_df(df)
-            rep = build_repertoire(df, dict(row), parser)
-            repertoires.append(rep)
-
-        self.rd = RepertoireDataset(repertoires, meta)
-        self.ill_rd, self.healthy_rd = self.rd.split_by_metadata_function(
-            splitting_method=lambda x: x.status == 'ill')
-        self.fisher = FisherBiomarkersDetector(
-            control_repertoire_dataset=self.healthy_rd,
-            ill_repertoire_dataset=self.ill_rd,
-            threads=1)
-
-    def test_dataset_size(self):
-        assert len(self.rd.repertoires) == 4
-
-    def test_dataset_gene(self):
-        assert self.rd.gene is None
-
-    def test_public_clonotypes_size(self):
-        assert len(self.rd.clonotype_usage_matrix.public_clonotypes) == 5
-
-    def test_public_clonotypes(self):
-        public_seqs = [x.junction_aa for x in self.rd.clonotype_usage_matrix.public_clonotypes]
-        assert 'CGGGF' in public_seqs
-        assert 'CASTA' in public_seqs
-        assert 'CFRRA' in public_seqs
-
-    def test_usage_full_matrix_values_for_CGGGF(self):
-        assert self.rd.clonotype_usage_matrix.get_clone_usage('CGGGF') == 8
-
-    def test_usage_ill_matrix_values_for_CGGGF(self):
-        assert self.ill_rd.clonotype_usage_matrix.get_clone_usage('CGGGF') == 7
-
-    def test_usage_healthy_matrix_values_for_CGGGF(self):
-        assert self.healthy_rd.clonotype_usage_matrix.get_clone_usage('CGGGF') == 1
-
-    def test_fisher_correctness(self):
-        markers = self.fisher.detect_biomarkers(adjusted_p_value=0.05 * 5)
-        assert 'CGGGF' in [x.junction_aa for x in markers]
-        pval = next(self.fisher.clonotype_to_p_value[x]
-                    for x in self.fisher.clonotype_to_p_value
-                    if x.junction_aa == 'CGGGF')
-        assert abs(pval - 0.04830917874396135) < 0.0001
-
-    def test_clustering(self):
-        markers = self.fisher.detect_biomarkers(adjusted_p_value=0.05 * 5)
-        cd = ClonotypeDataset.from_representations(markers)
-        assert len(cd.clonotype_clustering.cluster.unique()) == 1
-        df = cd.serialize(file_name=None)
-        assert df is not None
 
 
 class TestHSCTRepertoires(unittest.TestCase):

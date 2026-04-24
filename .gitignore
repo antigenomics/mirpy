@@ -1,4 +1,7 @@
+.claude/
+
 ## Data
+tests/srx_repertoires/samples/
 notebooks/assets/*
 !notebooks/assets/samples
 !notebooks/assets/olga_humanTRB.txt
