@@ -56,7 +56,7 @@ import typing as t
 import numpy as np
 from functools import lru_cache
 
-from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary
 
 # Legacy aliases
@@ -520,29 +520,18 @@ class ClonotypeAligner:
         j_aligner = GermlineAligner.from_seqs(lib.get_sequences_aa(locus=locus, gene='J'))
         return cls(v_aligner, j_aligner, cdr3_aligner)
 
-    def score(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
+    def score(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
                               j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
                               cdr3_score=self.cdr3_aligner.score(cln1.junction_aa, cln2.junction_aa))
 
-    def score_norm(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
+    def score_norm(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
                               j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
                               cdr3_score=self.cdr3_aligner.score_norm(cln1.junction_aa, cln2.junction_aa))
 
-    def score_dist(self, cln1: ClonotypeAA, cln2: ClonotypeAA) -> ClonotypeScore:
+    def score_dist(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
                               j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
                               cdr3_score=self.cdr3_aligner.score_dist(cln1.junction_aa, cln2.junction_aa))
 
-    def score_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score(cln1.chainA, cln2.chainA),
-                                self.score(cln1.chainB, cln2.chainB))
-
-    def score_norm_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score_norm(cln1.chainA, cln2.chainA),
-                                self.score_norm(cln1.chainB, cln2.chainB))
-
-    def score_dist_paired(self, cln1: PairedChainClone, cln2: PairedChainClone) -> PairedCloneScore:
-        return PairedCloneScore(self.score_dist(cln1.chainA, cln2.chainA),
-                                self.score_dist(cln1.chainB, cln2.chainB))

@@ -10,7 +10,7 @@ from multiprocessing import Pool, Manager
 from pympler.asizeof import asizeof
 import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
-from mir.common.repertoire_dataset import RepertoireDataset
+from typing import Any as RepertoireDataset  # RepertoireDataset removed
 from mir.comparative.pair_matcher import PairMatcher
 from mir.distances.aligner import ClonotypeAligner, ClonotypeScore, CDRAligner, Scoring
 from tqdm.contrib.concurrent import process_map

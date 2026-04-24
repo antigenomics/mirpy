@@ -6,7 +6,7 @@ import numpy as np
 import math
 
 from mir.common.repertoire import Repertoire
-from mir.common.repertoire_dataset import RepertoireDataset
+from typing import Any as RepertoireDataset  # RepertoireDataset removed
 
 
 class FrequencyTable:

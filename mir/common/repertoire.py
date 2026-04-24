@@ -1,332 +1,477 @@
+"""Repertoire data structures.
+
+:class:`LocusRepertoire` — single-locus immune repertoire.
+:class:`SampleRepertoire` — multi-locus collection for one biological sample.
+``Repertoire`` is a backward-compatible alias for :class:`LocusRepertoire`.
+"""
+
+from __future__ import annotations
+
 import random
 from collections import defaultdict
-
-from tcrtrie import Trie
-import pandas as pd
-
-from mir.common.clonotype import ClonotypeAA
-from mir.common.parser import ClonotypeTableParser
-import os
-import pickle
 from pathlib import Path
+from typing import Iterator
+
+import polars as pl
+
+from mir.common.clonotype import Clonotype
 
 
-class Repertoire:
+_GENE_PREFIX_TO_LOCUS: dict[str, str] = {
+    "TRA": "TRA", "TRB": "TRB", "TRG": "TRG", "TRD": "TRD",
+    "IGH": "IGH", "IGK": "IGK", "IGL": "IGL",
+}
+
+
+def infer_locus(gene_name: str) -> str:
+    """Return the locus code for a gene name (e.g. ``'TRBV6-9'`` → ``'TRB'``)."""
+    prefix = gene_name[:3].upper()
+    return _GENE_PREFIX_TO_LOCUS.get(prefix, "")
+
+
+class LocusRepertoire:
+    """Single-locus immune repertoire.
+
+    Parameters
+    ----------
+    clonotypes:
+        List of :class:`~mir.common.clonotype.Clonotype` objects.  All
+        clonotypes that carry a non-empty ``locus`` field must match
+        *locus* (if provided).
+    locus:
+        IMGT locus code (``"TRB"``, ``"TRA"``, …).  Empty string means
+        the locus is unspecified.
+    repertoire_id:
+        Free-form identifier for this repertoire (e.g. a sample accession).
+    repertoire_metadata:
+        Arbitrary key/value metadata dict.
     """
-    The main object in the library is `Repertoire`. It stores the information of the immune repertoire for a \
-    single sample. By default it can contain any number of chains in it (e.g. TCRB clonotypes and TCRA clonotypes), \
-    but some code would only work if the repertoires contains a single gene data.
-    You can read the info, subsample, filter, resample, sort, evaluate segment usage and so on for the `Repertoire` \
-    object.
-    """
 
-    def __init__(self,
-                 clonotypes: list[ClonotypeAA],
-                 is_sorted: bool = False,
-                 metadata: dict[str, str] | pd.Series = dict(),
-                 gene: str = None):
-        """
-        The initializing function for the repertoire which creates an object using a list of clonotypes and other param
-        :param clonotypes: the list of clonotypes to create an object from. You *should do everything you can*\
-        to not use `Clonotype` class here. Please use one of: `ClonotypeAA`, `ClonotypeNT`, `PairedChainClonotype`
-        :param is_sorted: whether the repertoire clonotypes are sorted by usage or not
-        :param metadata: the metadata which was given along with clonotypes information. Usually contains \
-        age/sex/disease_status/HLA info
-        :param gene: TRA/TRB/IGH/IGL... By defauly can be None. In this case it can contain any number of chains \
-        in it (e.g. TCRB clonotypes and TCRA clonotypes), but some code would only work if the repertoires contains \
-        a single gene data.
-        """
-        if gene is not None:
-            self.clonotypes = [x for x in clonotypes if gene in x.v_gene.gene and gene in x.j_gene.gene and (
-                    x.d_gene is None or gene in x.d_gene.gene)]
-        else:
-            self.clonotypes = clonotypes
-        self.sorted = is_sorted
-        self.metadata = metadata
-        self.segment_usage = None
-        self.number_of_clones = len(self.clonotypes)
-        self.number_of_reads = sum(x.size() for x in self.clonotypes)
-        self.gene = gene
-    #     self._clonotypes_file = None
-    #
-    # def serialize_clonotypes(self, path: str):
-    #     if self.clonotypes is None:
-    #         raise ValueError("No clonotypes to serialize.")
-    #     self._clonotypes_file = path
-    #     with open(path, "wb") as f:
-    #         pickle.dump(self.clonotypes, f)
-    #     self.clonotypes = None
-    #
-    # def deserialize_clonotypes(self):
-    #     if self._clonotypes_file is None:
-    #         raise ValueError("No path stored for clonotypes.")
-    #     path = self._clonotypes_file
-    #     with open(path, "rb") as f:
-    #         self.clonotypes = pickle.load(f)
+    def __init__(
+        self,
+        clonotypes: list[Clonotype],
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+        # ---- legacy params (still accepted for backward compat) ----
+        is_sorted: bool = False,   # ignored — is_sorted is now a computed property
+        metadata=None,             # mapped to repertoire_metadata
+        gene: str | None = None,   # mapped to locus
+    ) -> None:
+        # Handle legacy constructor params
+        if metadata is not None and repertoire_metadata is None:
+            repertoire_metadata = dict(metadata) if metadata is not None else {}
+        if gene is not None and not locus:
+            locus = gene
 
-    @classmethod
-    def load(cls,
-             parser: ClonotypeTableParser,
-             metadata: dict[str, str] | pd.Series = dict(),
-             path: str = None,
-             n: int = None,
-             sample: bool = False,
-             gene: str = None):
-        """
-        The initializing function for the repertoire which creates an object using a list of clonotypes and other param
-        to not use `Clonotype` class here. Please use one of: `ClonotypeAA`, `ClonotypeNT`, `PairedChainClonotype`
-        :param metadata: the metadata which was given along with clonotypes information. Usually contains \
-        age/sex/disease_status/HLA info
-        :param gene: TRA/TRB/IGH/IGL... By defauly can be None. In this case it can contain any number of chains \
-        in it (e.g. TCRB clonotypes and TCRA clonotypes), but some code would only work if the repertoires contains \
-        a single gene data.
-        :param parser: the parser which would parse the initial file and create the clonotype list
-        :param path: the path to a file that we should parse
-        :param n: number of rows to parse or None (parse everything)
-        :param sample: whether to sample random rows from the initial file rows or not
-        """
-        if not path:
-            if 'path' not in metadata:
-                raise ValueError("'path' is missing in metadata")
-            path = metadata['path']
-        else:
-            metadata['path'] = path
-        return cls(clonotypes=parser.parse(path, n=n, sample=sample), metadata=metadata, gene=gene)
+        if locus:
+            bad = {c.locus for c in clonotypes if c.locus and c.locus != locus}
+            if bad:
+                raise ValueError(
+                    f"Clonotypes have loci {bad!r} inconsistent with "
+                    f"repertoire locus {locus!r}"
+                )
+        self.clonotypes = list(clonotypes)
+        self.locus = locus
+        self.repertoire_id = repertoire_id
+        self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
 
-    @classmethod
-    def load_from_df(cls,
-                     df: pd.DataFrame,
-                     metadata: dict[str, str] | pd.Series = dict(),
-                     cdr3_column='cdr3_b_aa',
-                     v_gene_column='v_b_gene',
-                     j_gene_column='j_b_gene',
-                     d_gene_column=None,
-                     gene: str = None
-                     ):
-        cur_df = df.copy()
-        cur_df['duplicate_count'] = 1
-        columns_to_use = ['duplicate_count'] + [cdr3_column, v_gene_column, j_gene_column]
-        if d_gene_column:
-            columns_to_use.append(d_gene_column)
-        cur_df = cur_df[columns_to_use].groupby(columns_to_use[1:], as_index=False).sum()
-        clonotypes = cur_df.apply(lambda x: ClonotypeAA(junction_aa=x[cdr3_column],
-                                                        v_gene=x[v_gene_column],
-                                                        d_gene=x[d_gene_column] if d_gene_column else None,
-                                                        j_gene=x[j_gene_column],
-                                                        duplicate_count=x['duplicate_count']), axis=1)
-        return cls(clonotypes=list(clonotypes), metadata=metadata, gene=gene)
+    # ------------------------------------------------------------------
+    # Counts
+    # ------------------------------------------------------------------
 
-    def __copy__(self):
-        return Repertoire(self.clonotypes, self.sorted, self.metadata)
+    @property
+    def clonotype_count(self) -> int:
+        """Number of distinct clonotypes."""
+        return len(self.clonotypes)
 
-    def sort(self):
-        """
-        The function which sorts the clonotypes by `cells` column
-        """
-        self.sorted = True
-        self.sorted_by = 'cells'
-        self.clonotypes.sort(key=lambda x: x.size(), reverse=True)
+    @property
+    def duplicate_count(self) -> int:
+        """Total read/cell count across all clonotypes."""
+        return sum(c.duplicate_count for c in self.clonotypes)
 
-    def sort_by_clone_metadata(self, sort_by: str, reverse=False):
-        """
-        The function which sorts the clonotypes by any metadata column
-        :param sort_by: the parameter to sort by
-        :param reverse: whether to sort low to high or high to low
-        """
-        self.sorted = True
-        self.sorted_by = sort_by
-        for clone in self.clonotypes:
-            if sort_by not in clone.clone_metadata:
-                raise Exception(f'Cannot sort by {sort_by}, {clone} has no such metadata!')
-        self.clonotypes.sort(key=lambda x: x.clone_metadata[sort_by], reverse=reverse)
+    # ------------------------------------------------------------------
+    # Sorting
+    # ------------------------------------------------------------------
 
-    def top(self, n: int = 100):
-        """
-        Get `n` top used clonotypes in a repertoire
-        :param n: number of clonotypes
-        :return: a list of top clonotypes
-        """
-        # TODO should we change to return the Repertoire with sampled clonotypes?
-        if not sorted:
+    @property
+    def is_sorted(self) -> bool:
+        """True iff clonotypes are ordered by decreasing duplicate_count."""
+        return all(
+            a.duplicate_count >= b.duplicate_count
+            for a, b in zip(self.clonotypes, self.clonotypes[1:])
+        )
+
+    def sort(self) -> None:
+        """Sort clonotypes by duplicate_count descending (in-place)."""
+        self.clonotypes.sort(key=lambda c: c.duplicate_count, reverse=True)
+
+    def top(self, n: int = 100) -> list[Clonotype]:
+        """Return the *n* most abundant clonotypes, sorting first if needed."""
+        if not self.is_sorted:
             self.sort()
-        return self.clonotypes[0:n]
+        return self.clonotypes[:n]
 
-    @property
-    def total(self):
-        """
-        returns the total size of all the clonotypes (number of reads/number of cells)
-        :return:
-        """
-        return sum(c.size() for c in self.clonotypes)
+    # ------------------------------------------------------------------
+    # Polars I/O
+    # ------------------------------------------------------------------
 
-    @property
-    def evaluate_segment_usage(self):
-        """
-        Evaluates the segment usage for the repertoire.
-        Creates the segment usage dictionary property in a `Repertoire` and returns it
-        :return: Creates the segment usage dictionary
-        """
-        if self.segment_usage is None:
-            self.segment_usage = defaultdict(int)
-            for c in self.clonotypes:
-                self.segment_usage[str(c.v_gene)] += 1
-                self.segment_usage[str(c.j_gene)] += 1
-                if c.d_gene is not None:
-                    self.segment_usage[str(c.d_gene)] += 1
-        return self.segment_usage
-    
-    @property
-    def trie(self) -> Trie:
-        if not hasattr(self, '_trie'):
-            seqs = [str(c.junction_aa) for c in self.clonotypes]
-            vgs = [str(c.v_gene) for c in self.clonotypes]
-            jgs = [str(c.j_gene) for c in self.clonotypes]
-            self._trie = Trie(sequences=seqs, vGenes=vgs, jGenes=jgs)
+    def to_polars(self) -> pl.DataFrame:
+        """Serialise clonotypes to a Polars DataFrame (AIRR schema)."""
+        return Clonotype.to_polars(self.clonotypes)
 
-        return self._trie
+    @classmethod
+    def from_polars(
+        cls,
+        df: pl.DataFrame,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> LocusRepertoire:
+        """Deserialise a Polars DataFrame (AIRR schema) into a :class:`LocusRepertoire`."""
+        return cls(
+            clonotypes=Clonotype.from_polars(df),
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
 
-    def serialize(self):
-        """
-        Performs serialization of the object.
-        Returns a `pd.DataFrame` where each row is a sample and each column represents the usage of a clonotype
-        :return:
-        """
-        serialization_dct = defaultdict(list)
-        for i, clonotype in enumerate(self.clonotypes):
-            serialization_res = clonotype.serialize()
-            keys_to_process = set(serialization_res.keys()).union(serialization_dct.keys())
-            for k in keys_to_process:
-                if k in serialization_res:
-                    serialization_dct[k].append(serialization_res[k])
-                else:
-                    serialization_dct[k].append(None)
-        return pd.DataFrame(serialization_dct, index=[x.id for x in self.clonotypes])
+    # ------------------------------------------------------------------
+    # Utility
+    # ------------------------------------------------------------------
 
-    def subtract_background(self, other, odds_ratio_threshold=2, compare_by=lambda x: (x.junction_aa, str(x.v_gene))):
-        """
-        subtracts another Repertoire from the given
-        the method is needed to remove noize clonotypes from the sample
-        :param other: the Repertoire object we should subtract
-        :param odds_ratio_threshold: the odds ratio threshold for considering the clonotype significantly changed (e.g. if it is equal to 2 it means that if the clonotype usage in cells has grown twice in self compared to other -- the clonotype is significant and should be saved)
-        :param compare_by: the lambda which we use for clonotype comparisons between objects; should be changed to PairMatcher!!
-        :return: the subtracted Repertoire object with the clonotypes and its usage
-        """
-        # TODO update with representations!!! PairMatcher!!!
-        pre_seq = set([compare_by(x) for x in other.clonotypes])
-        post_seq = set([compare_by(x) for x in self.clonotypes])
-        intersected = pre_seq.intersection(post_seq)
+    def subsample_functional(self) -> LocusRepertoire:
+        """Keep only coding clonotypes (no stop codons / non-standard AA)."""
+        return LocusRepertoire(
+            [x for x in self.clonotypes if x.is_coding()],
+            locus=self.locus,
+            repertoire_metadata=dict(self.repertoire_metadata),
+        )
 
-        old_clone_to_freq = {}
-        for i, clonotype in enumerate(other):
-            if compare_by(clonotype) in intersected:
-                old_clone_to_freq[compare_by(clonotype)] = clonotype.duplicate_count / other.number_of_reads
+    def subsample_nonfunctional(self) -> LocusRepertoire:
+        """Keep only non-coding clonotypes."""
+        return LocusRepertoire(
+            [x for x in self.clonotypes if not x.is_coding()],
+            locus=self.locus,
+            repertoire_metadata=dict(self.repertoire_metadata),
+        )
 
-        clonotypes = []
-        for clonotype in self:
-            if compare_by(clonotype) in intersected:
-                current_fraction = clonotype.duplicate_count / self.number_of_reads
-                old_fraction = old_clone_to_freq[compare_by(clonotype)]
-                if current_fraction / old_fraction > odds_ratio_threshold:
-                    clonotypes.append(clonotype)
-            else:
-                clonotypes.append(clonotype)
+    def subsample_by_lambda(self, function) -> LocusRepertoire:
+        return LocusRepertoire(
+            [x for x in self.clonotypes if function(x)],
+            locus=self.locus,
+            repertoire_metadata=dict(self.repertoire_metadata),
+        )
 
-        return Repertoire(clonotypes=clonotypes, metadata=self.metadata, gene=self.gene)
-
-    def subsample_functional(self):
-        """
-        drop all the nonfunctional sequences from the repertoire
-        :return:
-        """
-        return Repertoire(clonotypes=[x for x in self.clonotypes if x.junction_aa.isalpha()],
-                          metadata=self.metadata,
-                          gene=self.gene)
-
-    def subsample_nonfunctional(self):
-        """
-        keep only nonfunctional sequences
-        :return:
-        """
-        return Repertoire(clonotypes=[x for x in self.clonotypes if not x.junction_aa.isalpha()],
-                          metadata=self.metadata,
-                          gene=self.gene)
-
-    def subsample_by_lambda(self, function=lambda x: x.cdr3aa.isalpha()):
-        """
-        keep only sequences which match the given rule
-        :param function: the lambda function with the rule for keeping the clonotype
-        :return:
-        """
-        return Repertoire(clonotypes=[x for x in self.clonotypes if function(x)],
-                          metadata=self.metadata,
-                          gene=self.gene)
-
-    def sample_n(self, n=100, sample_random=False, random_seed=42):
+    def sample_n(self, n: int = 100, sample_random: bool = False, random_seed: int = 42) -> LocusRepertoire:
         if n is None:
             return self
         random.seed(random_seed)
-        return Repertoire(clonotypes=random.sample(self.clonotypes, n) if sample_random else self.clonotypes[:n],
-                          metadata=self.metadata, gene=self.gene)
+        selected = random.sample(self.clonotypes, n) if sample_random else self.clonotypes[:n]
+        return LocusRepertoire(selected, locus=self.locus, repertoire_metadata=dict(self.repertoire_metadata))
 
-    def make_chunks(self, number_of_chunks, save_path=None):
-        """
-        Split the repertoire into `number_of_chunks` with sequential clonotypes.
-        If `save_path` is provided, save each chunk to a separate file and return the file paths.
-        Otherwise, return the chunked Repertoire objects.
-        """
+    def subtract_background(
+        self,
+        other: LocusRepertoire,
+        odds_ratio_threshold: float = 2,
+        compare_by=lambda x: (x.junction_aa, str(x.v_gene)),
+    ) -> LocusRepertoire:
+        pre = {compare_by(x) for x in other.clonotypes}
+        post = {compare_by(x) for x in self.clonotypes}
+        shared = pre & post
+        old_freq = {
+            compare_by(c): c.duplicate_count / other.duplicate_count
+            for c in other if compare_by(c) in shared
+        }
+        result = []
+        for c in self:
+            key = compare_by(c)
+            if key in shared:
+                if c.duplicate_count / self.duplicate_count / old_freq[key] > odds_ratio_threshold:
+                    result.append(c)
+            else:
+                result.append(c)
+        return LocusRepertoire(result, locus=self.locus, repertoire_metadata=dict(self.repertoire_metadata))
+
+    @property
+    def evaluate_segment_usage(self) -> dict:
+        usage: dict[str, int] = defaultdict(int)
+        for c in self.clonotypes:
+            usage[c.v_gene] += 1
+            usage[c.j_gene] += 1
+            if c.d_gene:
+                usage[c.d_gene] += 1
+        return dict(usage)
+
+    def make_chunks(self, number_of_chunks: int, save_path=None) -> list:
+        """Split into *number_of_chunks* sub-repertoires (or pickle files)."""
+        import os, pickle
         if number_of_chunks < 1:
             raise ValueError("number_of_chunks must be at least 1")
-        if number_of_chunks > len(self.clonotypes):
-            raise ValueError("number_of_chunks cannot exceed number of clonotypes")
-
         chunk_size = (len(self.clonotypes) + number_of_chunks - 1) // number_of_chunks
         chunks = []
-
         for i in range(number_of_chunks):
             start = i * chunk_size
             end = min((i + 1) * chunk_size, len(self.clonotypes))
-            chunk_clonotypes = self.clonotypes[start:end]
-            chunk = Repertoire(clonotypes=chunk_clonotypes, is_sorted=self.sorted, metadata=self.metadata,
-                               gene=self.gene)
-
+            chunk = LocusRepertoire(self.clonotypes[start:end], locus=self.locus)
             if save_path:
                 Path(save_path).mkdir(parents=True, exist_ok=True)
-                file_path = os.path.join(save_path, f"chunk_{i}.pkl")
-                with open(file_path, "wb") as f:
+                fpath = os.path.join(save_path, f"chunk_{i}.pkl")
+                with open(fpath, "wb") as f:
                     pickle.dump(chunk, f)
-                chunks.append(file_path)
+                chunks.append(fpath)
             else:
                 chunks.append(chunk)
-
         return chunks
+
+    def serialize(self):
+        """Serialise to a pandas DataFrame (legacy helper)."""
+        import pandas as pd
+        from collections import defaultdict as _dd
+        d: dict[str, list] = _dd(list)
+        for c in self.clonotypes:
+            for k, v in c.serialize().items():
+                d[k].append(v)
+        return pd.DataFrame(d, index=[c.id for c in self.clonotypes])
+
+    # ------------------------------------------------------------------
+    # Backward-compat properties / attributes
+    # ------------------------------------------------------------------
+
+    @property
+    def number_of_clones(self) -> int:
+        return self.clonotype_count
+
+    @property
+    def number_of_reads(self) -> int:
+        return self.duplicate_count
+
+    @property
+    def total(self) -> int:
+        return self.duplicate_count
+
+    @property
+    def metadata(self) -> dict:
+        return self.repertoire_metadata
+
+    @metadata.setter
+    def metadata(self, value) -> None:
+        self.repertoire_metadata = dict(value) if value is not None else {}
+
+    @property
+    def gene(self) -> str:
+        return self.locus
+
+    @property
+    def sorted(self) -> bool:
+        return self.is_sorted
+
+    @sorted.setter
+    def sorted(self, value: bool) -> None:
+        pass  # is_sorted is computed; setter is a no-op for backward compat
+
+    @property
+    def segment_usage(self):
+        return None  # legacy attribute; use evaluate_segment_usage property
+
+    @segment_usage.setter
+    def segment_usage(self, value) -> None:
+        pass
+
+    # ------------------------------------------------------------------
+    # Trie property (kept for downstream code)
+    # ------------------------------------------------------------------
+
+    @property
+    def trie(self):
+        from tcrtrie import Trie
+        if not hasattr(self, '_trie'):
+            self._trie = Trie(
+                sequences=[str(c.junction_aa) for c in self.clonotypes],
+                vGenes=[str(c.v_gene) for c in self.clonotypes],
+                jGenes=[str(c.j_gene) for c in self.clonotypes],
+            )
+        return self._trie
+
+    # ------------------------------------------------------------------
+    # Dunder
+    # ------------------------------------------------------------------
+
+    def __len__(self) -> int:
+        return self.clonotype_count
+
+    def __iter__(self) -> Iterator[Clonotype]:
+        return iter(self.clonotypes)
 
     def __getitem__(self, idx):
         return self.clonotypes[idx]
 
-    def __len__(self):
-        return len(self.clonotypes)
+    def __add__(self, other: LocusRepertoire) -> LocusRepertoire:
+        if not isinstance(other, LocusRepertoire):
+            raise TypeError(f"Cannot add LocusRepertoire and {type(other).__name__}")
+        if self.locus and other.locus and self.locus != other.locus:
+            raise ValueError(
+                f"Cannot merge repertoires with different loci: "
+                f"{self.locus!r} and {other.locus!r}"
+            )
+        merged_meta = {**self.repertoire_metadata, **other.repertoire_metadata}
+        return LocusRepertoire(
+            self.clonotypes + other.clonotypes,
+            locus=self.locus or other.locus,
+            repertoire_metadata=merged_meta,
+        )
 
-    def __str__(self):
-        return f'Repertoire of {self.__len__()} clonotypes and {self.total} cells:\n' + \
-            '\n'.join([str(x) for x in self.clonotypes[0:5]]) + \
-            '\n' + str(self.metadata) + '\n...'
+    def __str__(self) -> str:
+        return (
+            f"LocusRepertoire(locus={self.locus!r}, "
+            f"clonotypes={self.clonotype_count}, "
+            f"duplicate_count={self.duplicate_count})"
+        )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
 
-    def __iter__(self):
-        return iter(self.clonotypes)
+    def __copy__(self) -> LocusRepertoire:
+        return LocusRepertoire(
+            list(self.clonotypes),
+            locus=self.locus,
+            repertoire_id=self.repertoire_id,
+            repertoire_metadata=dict(self.repertoire_metadata),
+        )
 
-    def __add__(self, other):
-        if not isinstance(other, Repertoire):
-            raise ValueError('Can only sum objects of class Repertoire')
-        new_metadata = dict(self.metadata)  # or orig.copy()
-        new_metadata.update(dict(other.metadata))
-        new_clonotypes = self.clonotypes + other.clonotypes
-        return Repertoire(
-            clonotypes=new_clonotypes,
-            is_sorted=False,
-            metadata=new_metadata)
 
-    # TODO aggregate redundant
-    # TODO group by and aggregate
+# ---------------------------------------------------------------------------
+# SampleRepertoire
+# ---------------------------------------------------------------------------
+
+class SampleRepertoire:
+    """Multi-locus immune repertoire for a single biological sample.
+
+    Parameters
+    ----------
+    loci:
+        Dict mapping locus code → :class:`LocusRepertoire`.
+    sample_id:
+        Sample identifier (e.g. SRX accession).
+    sample_metadata:
+        Arbitrary key/value metadata dict.
+    """
+
+    def __init__(
+        self,
+        loci: dict[str, LocusRepertoire],
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> None:
+        self.loci = dict(loci)
+        self.sample_id = sample_id
+        self.sample_metadata: dict = sample_metadata if sample_metadata is not None else {}
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_clonotypes(
+        cls,
+        clonotypes: list[Clonotype],
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> SampleRepertoire:
+        """Build a :class:`SampleRepertoire` by grouping *clonotypes* by locus."""
+        groups: dict[str, list[Clonotype]] = defaultdict(list)
+        for c in clonotypes:
+            groups[c.locus].append(c)
+        loci = {
+            locus: LocusRepertoire(clones, locus=locus)
+            for locus, clones in groups.items()
+        }
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    # ------------------------------------------------------------------
+    # Aggregated clonotype access
+    # ------------------------------------------------------------------
+
+    @property
+    def clonotypes(self) -> list[Clonotype]:
+        """All clonotypes across all loci (concatenated)."""
+        result: list[Clonotype] = []
+        for lr in self.loci.values():
+            result.extend(lr.clonotypes)
+        return result
+
+    # ------------------------------------------------------------------
+    # Sorting
+    # ------------------------------------------------------------------
+
+    @property
+    def is_sorted(self) -> bool:
+        """True iff every per-locus repertoire is sorted."""
+        return all(lr.is_sorted for lr in self.loci.values())
+
+    def sort(self) -> None:
+        """Sort every per-locus repertoire by duplicate_count descending."""
+        for lr in self.loci.values():
+            lr.sort()
+
+    # ------------------------------------------------------------------
+    # Polars I/O
+    # ------------------------------------------------------------------
+
+    def to_polars(self) -> pl.DataFrame:
+        """Concatenate all per-locus DataFrames into one."""
+        frames = [lr.to_polars() for lr in self.loci.values() if lr.clonotype_count]
+        if not frames:
+            return Clonotype.to_polars([])
+        return pl.concat(frames)
+
+    @classmethod
+    def from_polars(
+        cls,
+        df: pl.DataFrame,
+        locus_column: str = "locus",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> SampleRepertoire:
+        """Deserialise a Polars DataFrame, grouping rows by *locus_column*."""
+        loci: dict[str, LocusRepertoire] = {}
+        if locus_column in df.columns:
+            for locus_val in df[locus_column].unique().to_list():
+                locus_str = str(locus_val) if locus_val is not None else ""
+                group = df.filter(pl.col(locus_column) == locus_val)
+                loci[locus_str] = LocusRepertoire.from_polars(group, locus=locus_str)
+        else:
+            loci[""] = LocusRepertoire.from_polars(df)
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    # ------------------------------------------------------------------
+    # Dunder
+    # ------------------------------------------------------------------
+
+    def __getitem__(self, locus: str) -> LocusRepertoire:
+        return self.loci[locus]
+
+    def __contains__(self, locus: str) -> bool:
+        return locus in self.loci
+
+    def __iter__(self) -> Iterator[LocusRepertoire]:
+        return iter(self.loci.values())
+
+    def __len__(self) -> int:
+        return len(self.loci)
+
+    def __str__(self) -> str:
+        parts = ", ".join(
+            f"{k}: {v.clonotype_count}" for k, v in self.loci.items()
+        )
+        return f"SampleRepertoire(id={self.sample_id!r}, loci={{{parts}}})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat alias
+# ---------------------------------------------------------------------------
+
+Repertoire = LocusRepertoire

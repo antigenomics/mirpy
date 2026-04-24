@@ -5,7 +5,7 @@ from collections import namedtuple
 
 import pandas as pd
 
-from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT, PairedChainClone
+from mir.common.clonotype import JunctionMarkup, Clonotype, ClonotypeAA, ClonotypeNT
 from mir.common.gene_library import GeneLibrary, GeneEntry
 
 # Legacy aliases kept for callers that reference old names
@@ -31,11 +31,19 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'v':        'v_gene',
     'd':        'd_gene',
     'j':        'j_gene',
-    'VEnd':     'v_end',
-    'DStart':   'd_start',
-    'DEnd':     'd_end',
-    'JStart':   'j_start',
+    'VEnd':     'v_sequence_end',
+    'DStart':   'd_sequence_start',
+    'DEnd':     'd_sequence_end',
+    'JStart':   'j_sequence_start',
 }
+
+
+def _gene_str(val) -> str:
+    """Normalise a gene field value to a plain string."""
+    if val is None or (not isinstance(val, str) and pd.isna(val)):
+        return ""
+    s = str(val).strip().split(',')[0].split(';')[0]
+    return s if s not in ('.', '') else ""
 
 
 class SegmentParser:
@@ -131,45 +139,30 @@ class ClonotypeTableParser:
 
     def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
         """Parse an already-loaded DataFrame with AIRR-normalised column names."""
-        if {'duplicate_count'}.issubset(source.columns):
-            def get_cells(r):
-                return r['duplicate_count']
-        else:
-            def get_cells(_):
-                return 1
-        if {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(source.columns):
-            def get_junction(r):
-                return JunctionMarkup(r['v_end'],
-                                      r['d_start'],
-                                      r['d_end'],
-                                      r['j_start'])
-        else:
-            def get_junction(_):
-                return None
-        if {'junction_aa', 'v_gene', 'j_gene'}.issubset(source.columns):
-            if 'junction' in source.columns:
-                return [ClonotypeNT(duplicate_count=get_cells(row),
-                                    junction_aa=row['junction_aa'],
-                                    v_gene=self.segment_parser.parse(row['v_gene']),
-                                    d_gene=self.segment_parser.parse(row['d_gene']) if 'd_gene' in source.columns else None,
-                                    j_gene=self.segment_parser.parse(row['j_gene']),
-                                    junction=row['junction'],
-                                    junction_markup=get_junction(row),
-                                    id=index)
-                        for index, row in source.iterrows()]
-            else:
-                return [ClonotypeAA(duplicate_count=get_cells(row),
-                                    junction_aa=row['junction_aa'],
-                                    v_gene=self.segment_parser.parse(row['v_gene']),
-                                    d_gene=self.segment_parser.parse(row['d_gene']) if 'd_gene' in source.columns else None,
-                                    j_gene=self.segment_parser.parse(row['j_gene']),
-                                    id=index)
-                        for index, row in source.iterrows()]
-        else:
+        cols = set(source.columns)
+        if 'junction_aa' not in cols or 'v_gene' not in cols or 'j_gene' not in cols:
             raise ValueError(
                 f'Critical columns missing in df {list(source.columns)}. '
                 f'Expected junction_aa, v_gene, j_gene (AIRR names) or '
                 f'cdr3aa, v, j (VDJtools names — pass through normalize_df first).')
+        has_markup = {'v_sequence_end', 'd_sequence_start',
+                      'd_sequence_end', 'j_sequence_start'}.issubset(cols)
+        clonotypes = []
+        for index, row in source.iterrows():
+            clonotypes.append(Clonotype(
+                sequence_id=str(index),
+                duplicate_count=int(row['duplicate_count']) if 'duplicate_count' in cols else 1,
+                junction=str(row['junction']) if 'junction' in cols else "",
+                junction_aa=str(row['junction_aa']),
+                v_gene=_gene_str(row.get('v_gene')),
+                d_gene=_gene_str(row.get('d_gene')) if 'd_gene' in cols else "",
+                j_gene=_gene_str(row.get('j_gene')),
+                v_sequence_end=int(row['v_sequence_end']) if has_markup else -1,
+                d_sequence_start=int(row['d_sequence_start']) if has_markup else -1,
+                d_sequence_end=int(row['d_sequence_end']) if has_markup else -1,
+                j_sequence_start=int(row['j_sequence_start']) if has_markup else -1,
+            ))
+        return clonotypes
 
 
 VdjdbPayload = namedtuple(
@@ -192,7 +185,7 @@ class VDJdbSlimParser(ClonotypeTableParser):
         self.filter = filter
         self.warn = warn
 
-    def parse_inner(self, source: pd.DataFrame) -> list[ClonotypeAA]:
+    def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
         if self.species:
             source = source[source['species'] == self.species]
         if self.gene:
@@ -203,18 +196,19 @@ class VDJdbSlimParser(ClonotypeTableParser):
         wrn = 0
         for idx, row in source.iterrows():
             try:
-                res.append(ClonotypeAA(junction_aa=row['cdr3'],
-                                       v_gene=self.segment_parser.parse(row['v.segm']),
-                                       j_gene=self.segment_parser.parse(row['j.segm']),
-                                       id=idx,
-                                       payload={'vdjdb': VdjdbPayload(row['mhc.a'],
-                                                                      row['mhc.b'],
-                                                                      row['mhc.class'],
-                                                                      row['antigen.epitope'],
-                                                                      row['antigen.species'])}))
+                c = Clonotype(
+                    sequence_id=str(idx),
+                    junction_aa=str(row['cdr3']),
+                    v_gene=_gene_str(row.get('v.segm')),
+                    j_gene=_gene_str(row.get('j.segm')),
+                )
+                c.clone_metadata['vdjdb'] = VdjdbPayload(
+                    row['mhc.a'], row['mhc.b'], row['mhc.class'],
+                    row['antigen.epitope'], row['antigen.species'])
+                res.append(c)
             except Exception as e:
                 if wrn < self.warn:
-                    wrn = wrn + 1
+                    wrn += 1
                     warnings.warn(f'Error parsing VDJdb line {row} - {e}')
         return res
 
@@ -232,13 +226,14 @@ class OlgaParser(ClonotypeTableParser):
                            names=['junction', 'junction_aa', 'v_gene', 'j_gene'], sep='\t',
                            nrows=n)
 
-    def parse_inner(self, source: pd.DataFrame) -> list[ClonotypeNT]:
-        return [ClonotypeNT(junction=row['junction'],
-                            junction_aa=row['junction_aa'],
-                            v_gene=self.segment_parser.parse(row['v_gene']),
-                            j_gene=self.segment_parser.parse(row['j_gene']),
-                            id=index)
-                for index, row in source.iterrows()]
+    def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
+        return [Clonotype(
+                    sequence_id=str(index),
+                    junction=str(row['junction']),
+                    junction_aa=str(row['junction_aa']),
+                    v_gene=_gene_str(row.get('v_gene')),
+                    j_gene=_gene_str(row.get('j_gene')),
+                ) for index, row in source.iterrows()]
 
 
 class VDJtoolsParser(ClonotypeTableParser):
@@ -258,25 +253,26 @@ class VDJtoolsParser(ClonotypeTableParser):
                  sep='\t') -> None:
         super().__init__(lib, sep)
 
-    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        has_markup = {'v_end', 'd_start', 'd_end', 'j_start'}.issubset(df.columns)
-        if has_markup:
-            def get_junction(r):
-                return JunctionMarkup(r['v_end'], r['d_start'], r['d_end'], r['j_start'])
-        else:
-            def get_junction(_):
-                return JunctionMarkup()
-
-        return list(df.apply(lambda x: ClonotypeNT(
-            duplicate_count=x['duplicate_count'],
-            junction=x['junction'],
-            junction_aa=x['junction_aa'],
-            v_gene=self.segment_parser.parse(x['v_gene']),
-            d_gene=self.segment_parser.parse(x['d_gene']) if 'd_gene' in df.columns else None,
-            j_gene=self.segment_parser.parse(x['j_gene']),
-            junction_markup=get_junction(x),
-            id=x.name,
-        ), axis=1))
+    def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
+        cols = set(df.columns)
+        has_markup = {'v_sequence_end', 'd_sequence_start',
+                      'd_sequence_end', 'j_sequence_start'}.issubset(cols)
+        clonotypes = []
+        for index, row in df.iterrows():
+            clonotypes.append(Clonotype(
+                sequence_id=str(index),
+                duplicate_count=int(row['duplicate_count']),
+                junction=str(row['junction']),
+                junction_aa=str(row['junction_aa']),
+                v_gene=_gene_str(row.get('v_gene')),
+                d_gene=_gene_str(row.get('d_gene')) if 'd_gene' in cols else "",
+                j_gene=_gene_str(row.get('j_gene')),
+                v_sequence_end=int(row['v_sequence_end']) if has_markup else -1,
+                d_sequence_start=int(row['d_sequence_start']) if has_markup else -1,
+                d_sequence_end=int(row['d_sequence_end']) if has_markup else -1,
+                j_sequence_start=int(row['j_sequence_start']) if has_markup else -1,
+            ))
+        return clonotypes
 
 
 class DoubleChainVDJtoolsParser(ClonotypeTableParser):
@@ -301,25 +297,8 @@ class DoubleChainVDJtoolsParser(ClonotypeTableParser):
             }
         self.column_mapping = column_mapping
 
-    def parse_inner(self, source: pd.DataFrame) -> list[PairedChainClone]:
-        alpha_clonotypes = source.apply(
-            lambda x: ClonotypeAA(
-                junction_aa=x[self.column_mapping['cdr3a']],
-                v_gene=self.segment_parser.parse(x[self.column_mapping['Va']]),
-                j_gene=self.segment_parser.parse(x[self.column_mapping['Ja']]),
-                payload={'HLA': x[self.column_mapping['mhc.a']] if 'mhc.a' in self.column_mapping else None,
-                         'epitope': x[self.column_mapping['epitope']] if 'epitope' in self.column_mapping else None}),
-            axis=1)
-        beta_clonotypes = source.apply(
-            lambda x: ClonotypeAA(
-                junction_aa=x[self.column_mapping['cdr3b']],
-                v_gene=self.segment_parser.parse(x[self.column_mapping['Vb']]),
-                j_gene=self.segment_parser.parse(x[self.column_mapping['Jb']]),
-                payload={'HLA': x[self.column_mapping['mhc.a']] if 'mhc.a' in self.column_mapping else None,
-                         'epitope': x[self.column_mapping['epitope']] if 'epitope' in self.column_mapping else None}),
-            axis=1)
-        return [PairedChainClone(chainA=alpha, chainB=beta)
-                for alpha, beta in zip(alpha_clonotypes, beta_clonotypes)]
+    def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
+        raise NotImplementedError("DoubleChainVDJtoolsParser is not supported in this version")
 
 
 class AIRRParser(ClonotypeTableParser):
@@ -359,26 +338,27 @@ class AIRRParser(ClonotypeTableParser):
                 return False
         return True
 
-    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeAA]:
+    def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
         self.validate_columns(df)
         locus_aliases = self.get_locus_aliases()
         df = df[df.locus.astype(str).str.strip().str.lower().isin(locus_aliases)]
         clonotypes = []
         for i, row in df.iterrows():
             try:
-                if self.check_not_na_columns(row, i):
-                    clonotype = ClonotypeAA(
-                        junction_aa=row['junction_aa'],
-                        v_gene=self.segment_parser.parse(row['v_call']),
-                        j_gene=self.segment_parser.parse(row['j_call']),
-                        id=i if 'clone_id' not in df.columns else row['clone_id'],
-                        payload={x: y for x, y in row.items() if x not in self.mandatory_columns}
-                    )
-                    if clonotype.v_gene is None or clonotype.j_gene is None:
-                        raise ValueError(f'Error parsing {clonotype}')
-                    clonotypes.append(clonotype)
+                v = _gene_str(row.get('v_call'))
+                j = _gene_str(row.get('j_call'))
+                if not v or not j:
+                    raise ValueError(f'Missing v_call or j_call in row {i}')
+                seq_id = str(row['clone_id']) if 'clone_id' in df.columns else str(i)
+                clonotypes.append(Clonotype(
+                    sequence_id=seq_id,
+                    locus=str(row.get('locus', '')),
+                    junction_aa=str(row['junction_aa']),
+                    v_gene=v,
+                    j_gene=j,
+                ))
             except Exception as e:
-                logging.warn(f"Error parsing row {i + 1}: {e}")
+                logging.warning(f"Error parsing row {i + 1}: {e}")
         return clonotypes
 
 
@@ -405,27 +385,5 @@ class DoubleChainAIRRParser(AIRRParser):
             raise ValueError(f'TCR ids are not unique for {chain} chain!')
         return clone_ids
 
-    def parse_inner(self, df: pd.DataFrame) -> list[ClonotypeNT]:
-        self.validate_columns(df)
-
-        logging.info('Started processing TCR alpha chain clonotypes.')
-        alpha_clonotypes = self.alpha_parser.parse_inner(df)
-        alpha_ids_to_clonotype = self.get_tcr_ids_for_chain(alpha_clonotypes, 'alpha')
-
-        logging.info('Started processing TCR beta chain clonotypes.')
-        beta_clonotypes = self.beta_parser.parse_inner(df)
-        beta_ids_to_clonotype = self.get_tcr_ids_for_chain(beta_clonotypes, 'beta')
-
-        paired_clonotypes = []
-        all_ids = set(beta_ids_to_clonotype).union(set(alpha_ids_to_clonotype))
-        for id in all_ids:
-            if id not in alpha_ids_to_clonotype:
-                logging.warning(f'Filtered out clonotype {id}: not found in TRA data')
-            elif id not in beta_ids_to_clonotype:
-                logging.warning(f'Filtered out clonotype {id}: not found in TRB data')
-            else:
-                paired_clonotypes.append(PairedChainClone(
-                    chainA=alpha_ids_to_clonotype[id],
-                    chainB=beta_ids_to_clonotype[id],
-                    id=id))
-        return paired_clonotypes
+    def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
+        raise NotImplementedError("DoubleChainAIRRParser is not supported in this version")

@@ -165,7 +165,7 @@ class GeneLibrary:
         loci    = cls._as_set(loci)
         species = cls._as_set(species)
         fname   = f'{source}_gene_library.txt'
-        path    = Path(get_resource_path(f'segments/{fname}'))
+        path    = Path(get_resource_path(f'gene_library/{fname}'))
         entries: dict[str, GeneEntry] = {}
         with path.open(encoding='utf-8') as fh:
             next(fh)  # skip header

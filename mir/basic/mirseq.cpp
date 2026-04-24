@@ -294,6 +294,43 @@ static py::list c_tokenize_gapped_str(const py::object& obj, int k, int mask_byt
 }
 
 /* ================================================================
+ * Standard amino-acid lookup table (20 canonical letters only)
+ * ================================================================ */
+
+struct AAlut {
+    bool v[256];
+    constexpr AAlut() : v{} {
+        for (const char* p = "ARNDCQEGHILKMFPSTWYV"; *p; ++p)
+            v[(unsigned char)*p] = true;
+    }
+};
+static constexpr AAlut aa_lut{};
+
+/* Return True iff every character is one of the 20 standard AA letters. */
+static py::bool_ c_is_coding(const py::object& obj) {
+    auto sv = to_view(obj);
+    if (sv.len == 0) return py::bool_(false);
+    for (size_t i = 0; i < sv.len; ++i)
+        if (!aa_lut.v[(unsigned char)sv.data[i]])
+            return py::bool_(false);
+    return py::bool_(true);
+}
+
+/* Return True iff seq starts with 'C', ends with 'F' or 'W', and all
+ * characters are standard AA letters. */
+static py::bool_ c_is_canonical(const py::object& obj) {
+    auto sv = to_view(obj);
+    if (sv.len < 2) return py::bool_(false);
+    if (sv.data[0] != 'C') return py::bool_(false);
+    char last = sv.data[sv.len - 1];
+    if (last != 'F' && last != 'W') return py::bool_(false);
+    for (size_t i = 0; i < sv.len; ++i)
+        if (!aa_lut.v[(unsigned char)sv.data[i]])
+            return py::bool_(false);
+    return py::bool_(true);
+}
+
+/* ================================================================
  * Mask each position: seq with position i replaced by mask_char
  * Returns list[str] of length len(seq).
  * ================================================================ */
@@ -346,4 +383,10 @@ PYBIND11_MODULE(mirseq, m) {
     m.def("mask_positions", &c_mask_positions,
           py::arg("seq"), py::arg("mask_char") = 'X',
           "Return list[str] with each position replaced by mask_char");
+    m.def("is_coding", &c_is_coding,
+          py::arg("seq"),
+          "Return True iff all characters are standard amino-acid letters");
+    m.def("is_canonical", &c_is_canonical,
+          py::arg("seq"),
+          "Return True iff seq starts with C, ends with F or W, all standard AA");
 }
