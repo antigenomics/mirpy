@@ -52,8 +52,14 @@ def _row(
 
 def _rows_to_rearrangements(rows: list[dict]) -> list[Rearrangement]:
     return [
-        Rearrangement(d["locus"], d["id"], d["v_gene"], d["c_gene"],
-                      d["junction_aa"], d["duplicate_count"])
+        Rearrangement(
+            sequence_id=str(d["id"]),
+            locus=d["locus"],
+            v_gene=d["v_gene"],
+            c_gene=d["c_gene"],
+            junction_aa=d["junction_aa"],
+            duplicate_count=d["duplicate_count"],
+        )
         for d in rows
     ]
 

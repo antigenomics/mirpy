@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mir.resources.segments.build_gene_library import (
+from mir.resources.gene_library.build_gene_library import (
     IMGT_LOCI,
     LOCI_WITH_D,
     OLGA_MODEL_MAP,
@@ -35,7 +35,7 @@ from mir.resources.segments.build_gene_library import (
     compute_stats,
 )
 
-RESOURCES    = Path(__file__).parent.parent / "mir" / "resources" / "segments"
+RESOURCES    = Path(__file__).parent.parent / "mir" / "resources" / "gene_library"
 OLGA_LIB     = RESOURCES / "olga_gene_library.txt"
 IMGT_LIB     = RESOURCES / "imgt_gene_library.txt"
 
@@ -311,7 +311,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
             "TRAV.fasta": _imgt_fasta_entry("TRAV1*01", "ATGC"),
             "TRAJ.fasta": _imgt_fasta_entry("TRAJ1*01", "TTTT"),
         }
-        with patch("mir.resources.segments.build_gene_library.urllib.request.urlopen",
+        with patch("mir.resources.gene_library.build_gene_library.urllib.request.urlopen",
                    side_effect=self._urlopen_side_effect(url_map)):
             rows = build_imgt_library(
                 species_list=["human"],
@@ -326,7 +326,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
             "TRBJ.fasta": _imgt_fasta_entry("TRBJ1*01", "TTTT"),
             "TRBD.fasta": _imgt_fasta_entry("TRBD1*01", "GGGG"),
         }
-        with patch("mir.resources.segments.build_gene_library.urllib.request.urlopen",
+        with patch("mir.resources.gene_library.build_gene_library.urllib.request.urlopen",
                    side_effect=self._urlopen_side_effect(url_map)):
             rows = build_imgt_library(
                 species_list=["human"],
@@ -344,7 +344,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
             mock.read.return_value = b""
             return mock
 
-        with patch("mir.resources.segments.build_gene_library.urllib.request.urlopen",
+        with patch("mir.resources.gene_library.build_gene_library.urllib.request.urlopen",
                    side_effect=capture_url):
             build_imgt_library(
                 species_list=["human"],
@@ -358,7 +358,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
         def raise_error(url: str):
             raise OSError("network down")
 
-        with patch("mir.resources.segments.build_gene_library.urllib.request.urlopen",
+        with patch("mir.resources.gene_library.build_gene_library.urllib.request.urlopen",
                    side_effect=raise_error):
             rows = build_imgt_library(
                 species_list=["human"],
@@ -378,7 +378,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
                 mock.read.return_value = fasta_m.encode()
             return mock
 
-        with patch("mir.resources.segments.build_gene_library.urllib.request.urlopen",
+        with patch("mir.resources.gene_library.build_gene_library.urllib.request.urlopen",
                    side_effect=side_effect):
             rows = build_imgt_library(
                 species_list=["human", "mouse"],
