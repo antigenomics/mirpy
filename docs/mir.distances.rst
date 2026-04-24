@@ -20,26 +20,10 @@ mir.distances.graph module
    :undoc-members:
    :show-inheritance:
 
-mir.distances.search module
----------------------------
-
-.. automodule:: mir.distances.search
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.distances.seqdist module
 ----------------------------
 
 .. automodule:: mir.distances.seqdist
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.distances.seqdist\_c module
--------------------------------
-
-.. automodule:: mir.distances.seqdist_c
    :members:
    :undoc-members:
    :show-inheritance:

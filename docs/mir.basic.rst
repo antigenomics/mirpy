@@ -68,6 +68,30 @@ mir.basic.segment_usage module
    :undoc-members:
    :show-inheritance:
 
+mir.basic.token\_tables module
+------------------------------
+
+.. automodule:: mir.basic.token_tables
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.basic.token\_tables\_pl module
+-----------------------------------
+
+.. automodule:: mir.basic.token_tables_pl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.basic.tokens module
+-----------------------
+
+.. automodule:: mir.basic.tokens
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.basic.vdjstat module
 ------------------------
 
@@ -76,10 +100,3 @@ mir.basic.vdjstat module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
-
-.. automodule:: mir.basic
-   :members:
-   :undoc-members:
-   :show-inheritance:

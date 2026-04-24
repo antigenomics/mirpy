@@ -79,9 +79,8 @@ class KmerAnnotation(NamedTuple):
 class KmerStats(NamedTuple):
     """Aggregate statistics for a single k-mer (or annotation bucket).
 
-    Attributes:
-        rearrangement_count: Number of *unique* rearrangement IDs.
-        duplicate_count: Sum of ``Rearrangement.duplicate_count``.
+    ``rearrangement_count`` holds the number of unique rearrangement IDs;
+    ``duplicate_count`` holds the sum of ``Rearrangement.duplicate_count``.
     """
 
     rearrangement_count: int

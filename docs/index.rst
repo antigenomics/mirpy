@@ -82,48 +82,28 @@ Quick example
 
 .. code-block:: python
 
-   import time
+   import gzip
+   from pathlib import Path
 
-   from mir.common.parser import VDJtoolsParser
-   from mir.common.repertoire_dataset import RepertoireDataset
-   from mir.basic.segment_usage import StandardizedSegmentUsageTable
+   from mir.basic.token_tables import Rearrangement, filter_token_table, tokenize_rearrangements
+   from mir.graph.token_graph import build_token_graph
 
-   t0 = time.time()
-   dataset = RepertoireDataset.load(
-       parser=VDJtoolsParser(sep=","),
-       metadata=metadata,
-       threads=32,
-       paths=[f"assets/samples/fmba_healthy/{r['run']}.gz" for _, r in metadata.iterrows()],
-   )
-   print(time.time() - t0)
+   # Load CDR3 sequences and build an RS-filtered k-mer graph
+   with gzip.open("gilgfvftl_trb_cdr3.txt.gz", "rt") as fh:
+       cdr3s = [line.strip() for line in fh if line.strip()]
 
-   folder_to_run_mapping = {}
-   for folder in dataset.metadata[["run", "folder"]].folder.unique():
-       folder_to_run_mapping[folder] = set(
-           dataset.metadata[dataset.metadata.folder == folder].run
-       )
+   rearrangements = [
+       Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1)
+       for i, seq in enumerate(cdr3s)
+   ]
 
-   z_score_usage_table_v = StandardizedSegmentUsageTable.load_from_repertoire_dataset(
-       repertoire_dataset=dataset,
-       gene="TRB",
-       segment_type="V",
-       group_mapping=folder_to_run_mapping,
-       metadata_column_for_group_mapping_name="run",
-       standardization_method="log_exp",
-   )
-   z_score_usage_table_j = StandardizedSegmentUsageTable.load_from_repertoire_dataset(
-       repertoire_dataset=dataset,
-       gene="TRB",
-       segment_type="J",
-       group_mapping=folder_to_run_mapping,
-       metadata_column_for_group_mapping_name="run",
-       standardization_method="log_exp",
-   )
+   table    = tokenize_rearrangements(rearrangements, k=3)
+   rs_table = filter_token_table(table, kmer_pattern="RS")
+   g_rs     = build_token_graph(rearrangements, rs_table)
 
-   dataset = dataset.resample(
-       updated_segment_usage_tables=[z_score_usage_table_v, z_score_usage_table_j],
-       threads=32,
-   )
+   # Largest connected component — the RS-bearing rearrangement cluster
+   rs_cluster = g_rs.components().giant()
+   print(f"RS cluster: {rs_cluster.vcount()} nodes")
 
 Explore next
 ============

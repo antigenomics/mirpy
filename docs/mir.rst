@@ -13,6 +13,7 @@ Subpackages
    mir.comparative
    mir.distances
    mir.embedding
+   mir.graph
    mir.ml
 
 Module contents
