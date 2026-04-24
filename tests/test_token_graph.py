@@ -69,9 +69,9 @@ _K = 3
 
 
 def _make_mock():
-    r_rs1  = Rearrangement(_LOCUS, 0, _V, _C, SEQ_RS1,  1)
-    r_rs2  = Rearrangement(_LOCUS, 1, _V, _C, SEQ_RS2,  1)
-    r_none = Rearrangement(_LOCUS, 2, _V, _C, SEQ_NONE, 1)
+    r_rs1  = Rearrangement(sequence_id="0", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS1,  duplicate_count=1)
+    r_rs2  = Rearrangement(sequence_id="1", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS2,  duplicate_count=1)
+    r_none = Rearrangement(sequence_id="2", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_NONE, duplicate_count=1)
     rearrangements = [r_rs1, r_rs2, r_none]
     table = tokenize_rearrangements(rearrangements, k=_K)
     return rearrangements, table
@@ -366,8 +366,8 @@ class TestTokenGraphFiltered(unittest.TestCase):
 
     def test_diff_v_gene_makes_separate_kmer_vertices(self):
         """Two rearrangements with different v_gene produce separate Kmer nodes."""
-        r_v1 = Rearrangement(_LOCUS, 10, "TRBV1", _C, SEQ_RS1, 1)
-        r_v2 = Rearrangement(_LOCUS, 11, "TRBV2", _C, SEQ_RS1, 1)
+        r_v1 = Rearrangement(sequence_id="10", locus=_LOCUS, v_gene="TRBV1", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
+        r_v2 = Rearrangement(sequence_id="11", locus=_LOCUS, v_gene="TRBV2", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
         table = tokenize_rearrangements([r_v1, r_v2], k=_K)
         # SRS appears in both but under different Kmer keys (different v_gene)
         srs_kmers = [k for k in table if k.seq == b"SRS"]
@@ -392,7 +392,7 @@ _NONRS_LOSS_THRESHOLD = 0.90  # filtering must remove ≥90% of non-RS rearrange
 def _load_gilg():
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Rearrangement("TRB", i, "TRB", "", seq, 1) for i, seq in enumerate(seqs)]
+    return [Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(),

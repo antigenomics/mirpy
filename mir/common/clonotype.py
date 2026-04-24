@@ -106,16 +106,19 @@ class Clonotype:
     # ------------------------------------------------------------------
 
     def size(self) -> int:
-        """Return read/cell count."""
-        if isinstance(self.duplicate_count, int):
-            return self.duplicate_count
-        return len(self.duplicate_count)
+        """Return read/cell count (alias for ``duplicate_count``)."""
+        return self.duplicate_count
 
     # ------------------------------------------------------------------
     # Serialisation
     # ------------------------------------------------------------------
 
     def serialize(self) -> dict:
+        """Return all AIRR-schema fields as a plain ``dict``.
+
+        The returned keys match :attr:`_POLARS_SCHEMA` exactly, making the
+        output suitable for :func:`polars.from_dicts` or ``pd.DataFrame``.
+        """
         return {
             "sequence_id":     self.sequence_id,
             "duplicate_count": self.duplicate_count,
@@ -218,8 +221,3 @@ class Clonotype:
 
 ClonotypeAA = Clonotype
 ClonotypeNT = Clonotype
-
-
-class ClonalLineage:
-    def __init__(self, clonotypes: list[Clonotype]) -> None:
-        self.clonotypes = clonotypes
