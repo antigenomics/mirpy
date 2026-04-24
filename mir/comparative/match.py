@@ -10,7 +10,7 @@ from multiprocessing import Pool, Manager
 from pympler.asizeof import asizeof
 import pandas as pd
 from mir.common.clonotype import Clonotype, ClonotypeAA
-from mir.common.repertoire_dataset import RepertoireDataset
+from typing import Any as RepertoireDataset  # RepertoireDataset removed
 from mir.comparative.pair_matcher import PairMatcher
 from mir.distances.aligner import ClonotypeAligner, ClonotypeScore, CDRAligner, Scoring
 from tqdm.contrib.concurrent import process_map
@@ -97,7 +97,7 @@ class SubstitutionMatrixSearchRepertoire:
     def find_matches_count_in_database(self, clonotype):
         matches_count = 0
         for c in self.clonotypes:
-            if c.cdr3aa == clonotype.cdr3aa and self.matcher.check_repr_similar(c, clonotype):
+            if c.junction_aa == clonotype.junction_aa and self.matcher.check_repr_similar(c, clonotype):
                 matches_count += 1
         return matches_count
 
@@ -109,22 +109,22 @@ class XEncodedRepertoire:
         if with_counts:
             self.exact_cdr3_seqs = defaultdict(int)
             for x in repertoire:
-                self.exact_cdr3_seqs[pair_matcher.get_clonotype_repr(x)] += x.cells
+                self.exact_cdr3_seqs[pair_matcher.get_clonotype_repr(x)] += x.duplicate_count
         else:
             self.exact_cdr3_seqs = Counter([pair_matcher.get_clonotype_repr(x) for x in repertoire.clonotypes])
         self.length_to_clones = defaultdict(set)
         for clonotype in repertoire:
-            self.length_to_clones[len(clonotype.cdr3aa)].add(clonotype)
+            self.length_to_clones[len(clonotype.junction_aa)].add(clonotype)
         self.length_to_mismatch_clones = {}
         self.mismatch_clone_to_clono_representation = defaultdict(set)
         self.pair_matcher = pair_matcher
         for length, cdr_set in self.length_to_clones.items():
             self.length_to_mismatch_clones[length] = defaultdict(set)
             for clone in cdr_set:
-                if not clone.cdr3aa.isalpha():
+                if not clone.junction_aa.isalpha():
                     continue
-                for i in range(len(clone.cdr3aa)):
-                    mismatch_clone = clone.cdr3aa[:i] + 'X' + clone.cdr3aa[i + 1:]
+                for i in range(len(clone.junction_aa)):
+                    mismatch_clone = clone.junction_aa[:i] + 'X' + clone.junction_aa[i + 1:]
                     self.length_to_mismatch_clones[length][i].add(mismatch_clone)
                     self.mismatch_clone_to_clono_representation[mismatch_clone].add(
                         pair_matcher.get_clonotype_repr(clone))
@@ -134,7 +134,7 @@ class XEncodedRepertoire:
         if not self.pair_matcher.check_repr_similar(clone1, clone2):
             return False
         ans = 0
-        for c1, c2 in zip(clone1.cdr3aa, clone2.cdr3aa):
+        for c1, c2 in zip(clone1.junction_aa, clone2.junction_aa):
             if c1 != c2:
                 ans += 1
         return ans <= 1
@@ -150,8 +150,8 @@ class XEncodedRepertoire:
         return mismatch_occurences
 
     def find_matches_count_in_database(self, clonotype):
-        if len(clonotype.cdr3aa) in self.length_to_mismatch_clones:
-            mismatch_clones = self.check_mismatch_clone(clonotype.cdr3aa)
+        if len(clonotype.junction_aa) in self.length_to_mismatch_clones:
+            mismatch_clones = self.check_mismatch_clone(clonotype.junction_aa)
             found_mismatch_representations: set[set] = set()
             for mismatch_clone in mismatch_clones:
                 found_mismatch_representations.update(self.mismatch_clone_to_clono_representation[mismatch_clone])

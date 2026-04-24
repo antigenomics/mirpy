@@ -18,7 +18,6 @@ extensions = [
     "sphinx.ext.todo",
     "sphinx.ext.viewcode",
     "nbsphinx",
-    "nbsphinx_link",
 ]
 
 templates_path = ["_templates"]

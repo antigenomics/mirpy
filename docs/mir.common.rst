@@ -36,14 +36,6 @@ mir.common.repertoire module
    :undoc-members:
    :show-inheritance:
 
-mir.common.repertoire_dataset module
-------------------------------------
-
-.. automodule:: mir.common.repertoire_dataset
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.common.segments module
 --------------------------
 

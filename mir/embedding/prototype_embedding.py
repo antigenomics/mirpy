@@ -3,7 +3,7 @@ from multiprocessing import Pool
 import shutil
 
 from mir.common.repertoire import Repertoire
-from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.common.clonotype import Clonotype
 from mir.distances.aligner import ClonotypeAligner
 from mir.embedding.repertoire_embedding import Embedding
 from enum import Enum
@@ -22,7 +22,7 @@ class Metrics(Enum):
 import pickle
 import numpy as np
 from mir.embedding.prototype_embedding import Metrics
-from mir.common.clonotype import ClonotypeAA, PairedChainClone
+from mir.common.clonotype import Clonotype
 from mir.common.repertoire import Repertoire
 
 def worker_embed_clonotype_batch_to_file(args):
@@ -40,26 +40,14 @@ def worker_embed_clonotype_batch_to_file(args):
     n_clonotypes = len(clonotypes)
     n_prototypes = len(prototype_repertoire)
 
-    if isinstance(clonotypes[0], ClonotypeAA):
-        n_features_per_proto = 3
-    elif isinstance(clonotypes[0], PairedChainClone):
-        n_features_per_proto = 6
-    else:
-        raise ValueError(f"Unknown clonotype type: {type(clonotypes[0])}")
-
+    n_features_per_proto = 3
     n_features_total = n_prototypes * n_features_per_proto
 
     mmap = np.memmap(output_file, dtype='int16', mode='w+', shape=(n_clonotypes, n_features_total))
 
     for i, c in enumerate(clonotypes):
-        if isinstance(c, ClonotypeAA):
-            scores = [aligner.score_dist(anchor, c) if metrics == Metrics.DISSIMILARITY
-                      else aligner.score(anchor, c) for anchor in prototype_repertoire]
-        elif isinstance(c, PairedChainClone):
-            scores = [aligner.score_dist_paired(anchor, c) if metrics == Metrics.DISSIMILARITY
-                      else aligner.score_paired(anchor, c) for anchor in prototype_repertoire]
-        else:
-            raise ValueError(f"Unknown clonotype type: {type(c)}")
+        scores = [aligner.score_dist(anchor, c) if metrics == Metrics.DISSIMILARITY
+                  else aligner.score(anchor, c) for anchor in prototype_repertoire]
 
         flat = [s.get_flatten_score() for s in scores] if flatten else scores
         flat = [v for sub in flat for v in sub]

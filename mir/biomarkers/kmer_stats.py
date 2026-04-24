@@ -79,7 +79,7 @@ class KmerCounter:
         if self._counts is None:
             self._counts = Counter()
             for cl in self.repertoire.clonotypes:
-                self._counts.update(tokenize_str(cl.cdr3aa, self.k))
+                self._counts.update(tokenize_str(cl.junction_aa, self.k))
         return dict(self._counts)
 
     def counts_dataframe(self, column: str = "count") -> pd.DataFrame:

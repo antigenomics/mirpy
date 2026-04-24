@@ -29,44 +29,17 @@ from mir.basic.mirseq import (
     tokenize_bytes as _c_tokenize_bytes,
     tokenize_gapped_bytes as _c_tokenize_gapped_bytes,
 )
+from mir.common.clonotype import Clonotype
 
 
 # ---------------------------------------------------------------------------
 # Types
 # ---------------------------------------------------------------------------
 
-class Rearrangement:
-    """Immune receptor rearrangement with minimal annotation.
-
-    Uses ``__slots__`` for memory efficiency.
-
-    Attributes:
-        locus: Chain locus (e.g. ``"TRB"``, ``"TRA"``).
-        id: Unique integer identifier.
-        v_gene: Variable gene name.
-        c_gene: Constant gene name.
-        junction_aa: Amino-acid junction (CDR3) sequence.
-        duplicate_count: Number of duplicate reads.
-    """
-
-    __slots__ = ("locus", "id", "v_gene", "c_gene", "junction_aa",
-                 "duplicate_count")
-
-    def __init__(
-        self,
-        locus: str,
-        id: int,
-        v_gene: str,
-        c_gene: str,
-        junction_aa: str,
-        duplicate_count: int,
-    ) -> None:
-        self.locus = locus
-        self.id = id
-        self.v_gene = v_gene
-        self.c_gene = c_gene
-        self.junction_aa = junction_aa
-        self.duplicate_count = duplicate_count
+# Rearrangement is now an alias for Clonotype.  Existing code that constructs
+# Rearrangement(locus, id, v_gene, c_gene, junction_aa, duplicate_count) must
+# be updated to use Clonotype keyword arguments.
+Rearrangement = Clonotype
 
 
 class Kmer(NamedTuple):
@@ -106,9 +79,8 @@ class KmerAnnotation(NamedTuple):
 class KmerStats(NamedTuple):
     """Aggregate statistics for a single k-mer (or annotation bucket).
 
-    Attributes:
-        rearrangement_count: Number of *unique* rearrangement IDs.
-        duplicate_count: Sum of ``Rearrangement.duplicate_count``.
+    ``rearrangement_count`` holds the number of unique rearrangement IDs;
+    ``duplicate_count`` holds the sum of ``Rearrangement.duplicate_count``.
     """
 
     rearrangement_count: int

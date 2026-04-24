@@ -57,7 +57,7 @@ _C2 = "TRBC2"
 
 
 def _r(idx: int, seq: str, v: str = _V1, c: str = _C1) -> Rearrangement:
-    return Rearrangement(_LOCUS, idx, v, c, seq, 1)
+    return Rearrangement(sequence_id=str(idx), locus=_LOCUS, v_gene=v, c_gene=c, junction_aa=seq, duplicate_count=1)
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
 def _load_gilg_rearrangements() -> list[Rearrangement]:
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Rearrangement("TRB", i, "TRB", "", seq, 1) for i, seq in enumerate(seqs)]
+    return [Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(), "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")

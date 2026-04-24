@@ -35,16 +35,20 @@ def build_token_graph(
     edges are deduplicated (a kmer may match a rearrangement at multiple
     positions).
 
-    Vertex attributes
-    -----------------
-    ``node_type`` : ``"rearrangement"`` or ``"kmer"``
-    ``name``      : ``junction_aa`` for rearrangements; decoded kmer sequence
-                    for kmers.
-    ``r_id``      : :attr:`Rearrangement.id` for rearrangement vertices;
-                    ``-1`` for kmer vertices.
-    ``v_gene``    : ``v_gene`` field (rearrangements) or kmer v-gene annotation.
-    ``c_gene``    : ``c_gene`` field (rearrangements) or kmer c-gene annotation.
-    ``locus``     : locus field for both vertex types.
+    Each vertex carries the following attributes:
+
+    ``node_type``
+        ``"rearrangement"`` or ``"kmer"``
+    ``name``
+        ``junction_aa`` for rearrangements; decoded kmer sequence for kmers.
+    ``r_id``
+        :attr:`Rearrangement.id` for rearrangement vertices; ``-1`` for kmer vertices.
+    ``v_gene``
+        ``v_gene`` field (rearrangements) or kmer v-gene annotation.
+    ``c_gene``
+        ``c_gene`` field (rearrangements) or kmer c-gene annotation.
+    ``locus``
+        locus field for both vertex types.
 
     Args:
         rearrangements: Full list of rearrangements.  All are included as
