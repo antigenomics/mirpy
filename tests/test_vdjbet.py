@@ -169,6 +169,22 @@ class TestMockSanity:
         with pytest.raises(ValueError, match="Cannot determine locus"):
             generate_mock_repertoire(rep, seed=_SEED)
 
+    def test_duplicate_count_distribution_preserved(self) -> None:
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        seqs = model.generate_sequences_with_meta(5, pgens=False, seed=_SEED)
+        counts = [10, 5, 3, 1, 7]
+        rep = Repertoire(
+            clonotypes=[
+                Clonotype(sequence_id=str(i), locus="TRB",
+                          junction_aa=r["junction_aa"], v_gene=r["v_gene"],
+                          duplicate_count=dc)
+                for i, (r, dc) in enumerate(zip(seqs, counts))
+            ],
+            locus="TRB",
+        )
+        mock = generate_mock_repertoire(rep, seed=_SEED)
+        assert sorted(c.duplicate_count for c in mock.clonotypes) == sorted(counts)
+
 
 # ---------------------------------------------------------------------------
 # Benchmark histogram tests — opt-in via RUN_BENCHMARK=1
