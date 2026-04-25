@@ -1,5 +1,5 @@
-.claude/*
-tmp/*
+.claude/
+tmp/
 
 ## Data
 tests/srx_repertoires/samples/
