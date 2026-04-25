@@ -15,6 +15,8 @@ import polars as pl
 
 from mir.basic.mirseq import translate_bidi, is_coding as _c_is_coding, is_canonical as _c_is_canonical
 
+_LOCUS_PREFIXES: frozenset[str] = frozenset({"TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"})
+
 
 # ---------------------------------------------------------------------------
 # Junction boundary type (derived from Clonotype int fields)
@@ -71,6 +73,11 @@ class Clonotype:
                 setattr(self, attr, "")
             elif not isinstance(val, str):
                 setattr(self, attr, str(val))
+        # Infer locus from j_gene prefix when not explicitly set
+        if not self.locus and self.j_gene:
+            prefix = self.j_gene[:3].upper()
+            if prefix in _LOCUS_PREFIXES:
+                self.locus = prefix
 
     # ------------------------------------------------------------------
     # Derived properties
