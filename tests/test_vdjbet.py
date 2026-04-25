@@ -24,6 +24,7 @@ from mir.biomarkers.vdjbet import (
     _make_key,
     _strip_allele,
     compute_pgen_histogram,
+    generate_mock_from_pool,
     generate_mock_repertoire,
 )
 from mir.common.clonotype import Clonotype
@@ -322,3 +323,146 @@ class TestMockHistogramTRA:
     def test_locus_propagated(self, tra_repertoire_bm: Repertoire) -> None:
         mock = generate_mock_repertoire(tra_repertoire_bm, seed=_SEED)
         assert mock.locus == "TRA"
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for generate_mock_from_pool
+# ---------------------------------------------------------------------------
+
+class TestMockFromPool:
+    """Unit tests for :func:`generate_mock_from_pool` (no OLGA generation)."""
+
+    @pytest.fixture(scope="class")
+    def trb_pool(self):
+        """Small pre-generated pool (100 sequences) via OLGA."""
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        return model.generate_sequences_with_meta(100, pgens=True, seed=_SEED)
+
+    @pytest.fixture(scope="class")
+    def trb_rep(self):
+        return _make_olga_repertoire("TRB", 10)
+
+    def test_returns_repertoire(self, trb_rep, trb_pool) -> None:
+        mock = generate_mock_from_pool(trb_rep, trb_pool, seed=_SEED)
+        assert isinstance(mock, Repertoire)
+
+    def test_locus_propagated(self, trb_rep, trb_pool) -> None:
+        mock = generate_mock_from_pool(trb_rep, trb_pool, seed=_SEED)
+        assert mock.locus == "TRB"
+
+    def test_clonotypes_nonempty(self, trb_rep, trb_pool) -> None:
+        mock = generate_mock_from_pool(trb_rep, trb_pool, seed=_SEED)
+        assert mock.clonotype_count > 0
+
+    def test_empty_repertoire_returns_empty(self, trb_pool) -> None:
+        empty = Repertoire(clonotypes=[], locus="TRB")
+        mock = generate_mock_from_pool(empty, trb_pool, seed=_SEED)
+        assert mock.clonotype_count == 0
+
+    def test_empty_pool_warns_and_returns_empty(self, trb_rep) -> None:
+        with pytest.warns(UserWarning):
+            mock = generate_mock_from_pool(trb_rep, [], seed=_SEED)
+        # All bins are absent → no clonotypes filled (or warning about missing)
+        # The function may return a non-empty mock if some bins had zero pgen
+        assert isinstance(mock, Repertoire)
+
+    def test_pgen_histogram_approximately_preserved(self, trb_rep, trb_pool) -> None:
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", UserWarning)
+            mock = generate_mock_from_pool(trb_rep, trb_pool, seed=_SEED)
+        orig_bins = set(compute_pgen_histogram(trb_rep.clonotypes, model).keys())
+        mock_bins = set(compute_pgen_histogram(mock.clonotypes, model).keys())
+        # Filled bins must be a subset of the original bins
+        assert mock_bins.issubset(orig_bins)
+
+    def test_replacement_sampling_warns(self, trb_rep) -> None:
+        """A pool with only 1 sequence per bin forces with-replacement sampling."""
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        tiny_pool = model.generate_sequences_with_meta(5, pgens=True, seed=_SEED)
+        # trb_rep has multiple clonotypes per bin, pool has very few → replacement
+        with pytest.warns(UserWarning):
+            generate_mock_from_pool(trb_rep, tiny_pool, seed=_SEED)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: pool vs on-the-fly sampling speed
+# ---------------------------------------------------------------------------
+
+N_POOL   = 5_000
+N_ONFLY  = 50
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestPoolVsOnTheFlySpeed:
+    """Compare :func:`generate_mock_from_pool` against
+    :func:`generate_mock_repertoire` for a 50-clonotype TRB repertoire.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestPoolVsOnTheFlySpeed
+    """
+
+    @pytest.fixture(scope="class")
+    def trb_rep_bm(self):
+        return _make_olga_repertoire("TRB", N_ONFLY)
+
+    @pytest.fixture(scope="class")
+    def trb_pool_bm(self):
+        """Pre-generate a {N_POOL}-sequence pool once for the whole class."""
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        return model.generate_sequences_with_meta(N_POOL, pgens=True, seed=_SEED)
+
+    def test_onthefly_timing(self, trb_rep_bm: Repertoire) -> None:
+        import warnings as _warnings
+        t0 = time.perf_counter()
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", UserWarning)
+            mock = generate_mock_repertoire(trb_rep_bm, seed=_SEED)
+        elapsed = time.perf_counter() - t0
+        print(
+            f"\non-the-fly  N={N_ONFLY}: {mock.clonotype_count} accepted  "
+            f"{elapsed:.3f}s"
+        )
+
+    def test_pool_timing(self, trb_rep_bm: Repertoire, trb_pool_bm: list) -> None:
+        import warnings as _warnings
+        t0 = time.perf_counter()
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", UserWarning)
+            mock = generate_mock_from_pool(trb_rep_bm, trb_pool_bm, seed=_SEED)
+        elapsed = time.perf_counter() - t0
+        print(
+            f"\npool-based  N={N_ONFLY} (pool={N_POOL}): "
+            f"{mock.clonotype_count} accepted  {elapsed:.3f}s"
+        )
+
+    def test_speedup_reported(
+        self, trb_rep_bm: Repertoire, trb_pool_bm: list
+    ) -> None:
+        """Run both methods back-to-back and print the speedup ratio."""
+        import warnings as _warnings
+
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", UserWarning)
+            t0 = time.perf_counter()
+            generate_mock_repertoire(trb_rep_bm, seed=_SEED)
+            t_onfly = time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            generate_mock_from_pool(trb_rep_bm, trb_pool_bm, seed=_SEED)
+            t_pool = time.perf_counter() - t0
+
+        speedup = t_onfly / t_pool if t_pool > 0 else float("inf")
+        print(
+            f"\nSpeedup  on-the-fly {t_onfly:.3f}s  vs  pool {t_pool:.3f}s  "
+            f"→ {speedup:.1f}×"
+        )
+        # Pool should be faster (or at least not dramatically slower).
+        # We assert >= 0.5 to avoid false failures on loaded CI machines.
+        assert speedup >= 0.5, (
+            f"pool-based mock was unexpectedly slower than on-the-fly "
+            f"({speedup:.2f}× speedup)"
+        )

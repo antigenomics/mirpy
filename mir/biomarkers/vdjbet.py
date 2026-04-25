@@ -30,6 +30,9 @@ from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import Repertoire
 
+# Pool record type: dict with junction_aa, v_gene, j_gene, pgen (log10), junction, v_end, j_start
+_PoolRecord = dict
+
 # Bin key is either a plain int or a tuple of (gene(s), int).
 _BinKey = Union[int, tuple]
 
@@ -270,6 +273,155 @@ def generate_mock_repertoire(
             f"sequences but {n_missing} mock clonotype(s) are still missing "
             f"({len(remaining)} unfilled bin(s)).  "
             "Consider raising max_sequences or relaxing fix_v/fix_j constraints.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return Repertoire(
+        clonotypes=mock_clonotypes,
+        locus=locus,
+        repertoire_id=f"mock_{repertoire.repertoire_id}",
+    )
+
+
+def generate_mock_from_pool(
+    repertoire: Repertoire,
+    pool: list[_PoolRecord],
+    *,
+    fix_v_usage: bool = False,
+    fix_j_usage: bool = False,
+    seed: int = 42,
+) -> Repertoire:
+    """Generate a Pgen-matched mock repertoire by sampling a pre-computed pool.
+
+    Unlike :func:`generate_mock_repertoire`, which runs OLGA acceptance-rejection
+    sampling on the fly, this function draws from *pool* — a list of pre-generated
+    OLGA sequences that already carry ``pgen`` (log₁₀) values.  This is orders of
+    magnitude faster when many mock repertoires are needed for the same target
+    because no new sequence generation is required.
+
+    The pool should be large enough to fill every Pgen bin without replacement.
+    When a bin has fewer pool entries than required, sampling is done *with*
+    replacement and a :class:`UserWarning` is emitted.  Bins entirely absent from
+    the pool are silently skipped (same behaviour as
+    :func:`generate_mock_repertoire` when budget is exhausted).
+
+    Parameters
+    ----------
+    repertoire:
+        Input repertoire whose Pgen histogram is matched.
+    pool:
+        Pre-generated OLGA sequences.  Each element must be a ``dict`` with at
+        least ``junction_aa``, ``v_gene``, ``j_gene``, and ``pgen`` (log₁₀ Pgen
+        as returned by
+        :meth:`~mir.basic.pgen.OlgaModel.generate_sequences_with_meta`).
+    fix_v_usage:
+        Match V-gene usage within each Pgen bin.
+    fix_j_usage:
+        Match J-gene usage within each Pgen bin.
+    seed:
+        Seed for the NumPy RNG used when drawing from the pool.
+
+    Returns
+    -------
+    Repertoire
+        Mock repertoire with the same Pgen distribution as *repertoire*.
+    """
+    if not repertoire.clonotypes:
+        return Repertoire(clonotypes=[], locus=repertoire.locus,
+                          repertoire_id=f"mock_{repertoire.repertoire_id}")
+
+    locus = _resolve_locus(repertoire)
+    model = OlgaModel(locus=locus, seed=seed)
+
+    # --- index pool by bin key -----------------------------------------------
+    pool_by_key: dict[_BinKey, list[_PoolRecord]] = defaultdict(list)
+    for rec in pool:
+        log_pgen = rec.get("pgen", float("-inf"))
+        if math.isinf(log_pgen):
+            continue
+        bin_val = int(math.floor(log_pgen))
+        key = _make_key(
+            _strip_allele(rec.get("v_gene", "")),
+            _strip_allele(rec.get("j_gene", "")),
+            bin_val, fix_v_usage, fix_j_usage,
+        )
+        pool_by_key[key].append(rec)
+
+    # --- build target histogram and collect duplicate_counts -----------------
+    target: dict[_BinKey, int] = {}
+    valid_duplicate_counts: list[int] = []
+
+    for clone in repertoire.clonotypes:
+        pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
+        if pgen_val is None or pgen_val <= 0:
+            continue
+        bin_val = int(math.floor(math.log10(pgen_val)))
+        key = _make_key(
+            _strip_allele(clone.v_gene),
+            _strip_allele(clone.j_gene),
+            bin_val, fix_v_usage, fix_j_usage,
+        )
+        target[key] = target.get(key, 0) + 1
+        valid_duplicate_counts.append(clone.duplicate_count)
+
+    if not target:
+        warnings.warn(
+            "generate_mock_from_pool: all clonotypes have zero or undefined "
+            "Pgen; returning empty mock repertoire.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return Repertoire(clonotypes=[], locus=locus,
+                          repertoire_id=f"mock_{repertoire.repertoire_id}")
+
+    np.random.default_rng(seed).shuffle(valid_duplicate_counts)
+    count_iter = iter(valid_duplicate_counts)
+
+    # --- sample from pool by bin ---------------------------------------------
+    rng = np.random.default_rng(seed)
+    mock_clonotypes: list[Clonotype] = []
+    missing_keys: list[_BinKey] = []
+
+    for key, n_needed in target.items():
+        available = pool_by_key.get(key, [])
+        if not available:
+            missing_keys.append(key)
+            # consume duplicate_counts to keep count_iter in sync
+            for _ in range(n_needed):
+                next(count_iter, None)
+            continue
+        replace = len(available) < n_needed
+        if replace:
+            warnings.warn(
+                f"generate_mock_from_pool: bin {key!r} needs {n_needed} sequences "
+                f"but pool only has {len(available)}; sampling with replacement.",
+                UserWarning,
+                stacklevel=2,
+            )
+        idxs = rng.choice(len(available), n_needed, replace=replace)
+        for idx in idxs:
+            rec = available[int(idx)]
+            mock_clonotypes.append(
+                Clonotype(
+                    sequence_id=str(len(mock_clonotypes)),
+                    locus=locus,
+                    junction_aa=rec["junction_aa"],
+                    junction=rec.get("junction", ""),
+                    v_gene=rec.get("v_gene", ""),
+                    j_gene=rec.get("j_gene", ""),
+                    v_sequence_end=rec.get("v_end", -1),
+                    j_sequence_start=rec.get("j_start", -1),
+                    duplicate_count=next(count_iter, 1),
+                )
+            )
+
+    if missing_keys:
+        n_missing = sum(target[k] for k in missing_keys)
+        warnings.warn(
+            f"generate_mock_from_pool: {n_missing} mock clonotype(s) could not be "
+            f"filled ({len(missing_keys)} bin(s) absent from pool).  "
+            "Consider using a larger pool.",
             UserWarning,
             stacklevel=2,
         )

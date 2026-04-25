@@ -47,10 +47,6 @@ from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMa
 from mir.common.gene_library import GeneLibrary, GeneEntry
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
-# Legacy aliases kept for callers that reference old names
-SegmentLibrary = GeneLibrary
-Segment = GeneEntry
-
 # Mapping from VDJtools / legacy column names to AIRR column names.
 # Kept public because downstream test code imports it.
 _VDJTOOLS_TO_AIRR: dict[str, str] = {
@@ -98,7 +94,7 @@ class SegmentParser:
 
     def __init__(
         self,
-        lib: SegmentLibrary,
+        lib: GeneLibrary,
         select_most_probable: bool = True,
         mock_allele: bool = True,
         remove_allele: bool = False,
@@ -137,7 +133,7 @@ class ClonotypeTableParser:
 
     def __init__(
         self,
-        lib: SegmentLibrary = SegmentLibrary(),
+        lib: GeneLibrary = GeneLibrary(),
         sep: str = '\t',
     ) -> None:
         self.segment_parser = SegmentParser(lib)
@@ -212,7 +208,7 @@ class VDJtoolsParser(ClonotypeTableParser):
 
     def __init__(
         self,
-        lib: SegmentLibrary = SegmentLibrary(),
+        lib: GeneLibrary = GeneLibrary(),
         sep: str = '\t',
     ) -> None:
         super().__init__(lib, sep)
@@ -251,7 +247,7 @@ class AIRRParser(ClonotypeTableParser):
 
     def __init__(
         self,
-        lib: SegmentLibrary = SegmentLibrary(),
+        lib: GeneLibrary = GeneLibrary(),
         sep: str = '\t',
         locus: str = 'beta',
     ) -> None:
