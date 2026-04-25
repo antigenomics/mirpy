@@ -19,12 +19,25 @@ from __future__ import annotations
 
 import csv
 import gzip
+import io
+import json
 import logging
 import re
+import sys
+import tempfile
+import urllib.request
 import warnings
+import zipfile
 from collections import namedtuple
 from pathlib import Path
 from typing import Union
+
+# VDJdb slim files can contain fields larger than the default 131 072-byte limit
+# (e.g. long reference.id lists).  Set the limit as high as the platform allows.
+try:
+    csv.field_size_limit(sys.maxsize)
+except OverflowError:          # 32-bit Windows: sys.maxsize overflows C long
+    csv.field_size_limit(2**31 - 1)
 
 import pandas as pd
 import polars as pl
@@ -606,3 +619,130 @@ class AIRRWriter:
                 df.write_csv(fh, separator="\t", null_value="")
         else:
             df.write_csv(path, separator="\t", null_value="")
+
+
+# ---------------------------------------------------------------------------
+# load_vdjdb_latest — download latest VDJdb, return filtered LocusRepertoire
+# ---------------------------------------------------------------------------
+
+def load_vdjdb_latest(
+    epitope: str,
+    locus: str = "TRB",
+    species: str = "HomoSapiens",
+    mhc_a_contains: str = "",
+) -> LocusRepertoire:
+    """Download the latest VDJdb release and return a filtered LocusRepertoire.
+
+    Fetches the latest release ZIP from the antigenomics/vdjdb-db GitHub
+    repository, parses the slim TSV file inside it, and returns a
+    deduplicated :class:`~mir.common.repertoire.LocusRepertoire`.
+
+    Parameters
+    ----------
+    epitope:
+        Antigen epitope sequence to keep (``antigen.epitope`` column).
+    locus:
+        Receptor gene locus to keep (``gene`` column, e.g. ``"TRB"``).
+    species:
+        Host species to keep (``species`` column).  Empty string = no filter.
+    mhc_a_contains:
+        Keep only rows where the ``mhc.a`` field contains this substring
+        (e.g. ``"A*02"``).  Empty string = no filter.
+
+    Returns
+    -------
+    LocusRepertoire
+        Unique entries (deduplicated by junction_aa + V-gene base + J-gene
+        base), each with ``duplicate_count=1``.
+    """
+    # --- resolve latest release ZIP URL via GitHub API ----------------------
+    api_url = "https://api.github.com/repos/antigenomics/vdjdb-db/releases/latest"
+    req = urllib.request.Request(api_url, headers={"User-Agent": "mirpy"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        release = json.loads(resp.read())
+
+    zip_url = next(
+        (a["browser_download_url"] for a in release.get("assets", [])
+         if a["name"].endswith(".zip")),
+        None,
+    )
+    if not zip_url:
+        raise RuntimeError(
+            f"No .zip asset found in VDJdb release {release.get('tag_name')!r}"
+        )
+
+    # --- download to a temp file, parse in memory ---------------------------
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        print(f"Downloading: {zip_url}")
+        urllib.request.urlretrieve(zip_url, str(tmp_path))
+
+        with zipfile.ZipFile(tmp_path) as zf:
+            txt_entries = [n for n in zf.namelist() if n.endswith(".txt")]
+            slim_entries = [n for n in txt_entries if "slim" in n.lower()]
+            target = slim_entries[0] if slim_entries else (txt_entries[0] if txt_entries else None)
+            if target is None:
+                raise RuntimeError(f"No .txt file found inside VDJdb ZIP. Contents: {zf.namelist()}")
+
+            with zf.open(target) as raw:
+                content = io.TextIOWrapper(raw, encoding="utf-8")
+                reader = csv.DictReader(content, delimiter="\t")
+
+                seen: set[tuple] = set()
+                clonotypes: list[Clonotype] = []
+
+                for row in reader:
+                    if row.get("gene", "").strip() != locus:
+                        continue
+                    if species and row.get("species", "").strip() != species:
+                        continue
+                    if row.get("antigen.epitope", "").strip() != epitope:
+                        continue
+                    if mhc_a_contains and mhc_a_contains not in row.get("mhc.a", ""):
+                        continue
+
+                    junction_aa = row.get("cdr3", "").strip()
+                    if not junction_aa:
+                        continue
+
+                    v_gene = row.get("v.segm", "").strip()
+                    j_gene = row.get("j.segm", "").strip()
+
+                    dedup_key = (junction_aa, v_gene.split("*")[0], j_gene.split("*")[0])
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+
+                    try:
+                        v_end_aa = int(row.get("v.end", -1))
+                        v_seq_end = v_end_aa * 3 if v_end_aa >= 0 else -1
+                    except (ValueError, TypeError):
+                        v_seq_end = -1
+                    try:
+                        j_start_aa = int(row.get("j.start", -1))
+                        j_seq_start = j_start_aa * 3 if j_start_aa >= 0 else -1
+                    except (ValueError, TypeError):
+                        j_seq_start = -1
+
+                    clone = Clonotype(
+                        sequence_id=str(len(clonotypes)),
+                        duplicate_count=1,
+                        locus=locus,
+                        junction_aa=junction_aa,
+                        junction=back_translate(junction_aa),
+                        v_gene=v_gene,
+                        j_gene=j_gene,
+                        v_sequence_end=v_seq_end,
+                        j_sequence_start=j_seq_start,
+                    )
+                    clone.clone_metadata.update({
+                        col: row.get(col, "")
+                        for col in VDJdbSlimParser._METADATA_COLS
+                    })
+                    clonotypes.append(clone)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    print(f"{epitope}: {len(clonotypes)} unique {locus} clonotypes")
+    return LocusRepertoire(clonotypes=clonotypes, locus=locus)
