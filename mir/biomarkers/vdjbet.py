@@ -24,6 +24,8 @@ import warnings
 from collections import defaultdict
 from typing import Union
 
+import numpy as np
+
 from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import Repertoire
@@ -163,8 +165,11 @@ def generate_mock_repertoire(
     -------
     Repertoire
         Mock repertoire with the same Pgen (and optionally V/J) distribution
-        as *repertoire*.  May be smaller than *repertoire* if some clonotypes
-        have zero Pgen or if *max_sequences* is exhausted.
+        as *repertoire*.  ``duplicate_count`` values from the original
+        clonotypes (those with valid Pgen) are randomly shuffled and
+        re-assigned to the mock clonotypes so that the count distribution is
+        also preserved.  The repertoire may be smaller than *repertoire* if
+        some clonotypes have zero Pgen or if *max_sequences* is exhausted.
 
     Warns
     -----
@@ -178,11 +183,23 @@ def generate_mock_repertoire(
     locus = _resolve_locus(repertoire)
     model = OlgaModel(locus=locus, seed=seed)
 
-    # --- build target histogram -------------------------------------------
-    target = compute_pgen_histogram(
-        repertoire.clonotypes, model,
-        fix_v=fix_v_usage, fix_j=fix_j_usage,
-    )
+    # --- build target histogram and collect duplicate_counts in one pass ----
+    target: dict[_BinKey, int] = {}
+    valid_duplicate_counts: list[int] = []
+
+    for clone in repertoire.clonotypes:
+        pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
+        if pgen_val is None or pgen_val <= 0:
+            continue
+        bin_val = int(math.floor(math.log10(pgen_val)))
+        key = _make_key(
+            _strip_allele(clone.v_gene),
+            _strip_allele(clone.j_gene),
+            bin_val, fix_v_usage, fix_j_usage,
+        )
+        target[key] = target.get(key, 0) + 1
+        valid_duplicate_counts.append(clone.duplicate_count)
+
     if not target:
         warnings.warn(
             "generate_mock_repertoire: all clonotypes have zero or undefined "
@@ -192,6 +209,11 @@ def generate_mock_repertoire(
         )
         return Repertoire(clonotypes=[], locus=locus,
                           repertoire_id=f"mock_{repertoire.repertoire_id}")
+
+    # Shuffle duplicate_counts using a dedicated RNG so OLGA's global
+    # numpy state (used in acceptance-rejection sampling) is unaffected.
+    np.random.default_rng(seed).shuffle(valid_duplicate_counts)
+    count_iter = iter(valid_duplicate_counts)
 
     remaining: dict[_BinKey, int] = dict(target)
 
@@ -236,7 +258,7 @@ def generate_mock_repertoire(
                     j_gene=rec["j_gene"],
                     v_sequence_end=rec["v_end"],
                     j_sequence_start=rec["j_start"],
-                    duplicate_count=1,
+                    duplicate_count=next(count_iter),
                 )
             )
 
