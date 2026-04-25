@@ -6,6 +6,9 @@ No files are written; all assertions operate on in-memory objects only.
 
 from __future__ import annotations
 
+import gzip
+import io
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -256,6 +259,64 @@ def test_olga_locus_inferred_from_j_gene(olga_sample):
 def test_olga_custom_sample_id():
     sample = OlgaParser().parse_file(_OLGA_FILE, sample_id="my_olga")
     assert sample.sample_id == "my_olga"
+
+
+# ---------------------------------------------------------------------------
+# csv field size limit
+# ---------------------------------------------------------------------------
+
+def _make_vdjdb_slim_gz(oversized_reference_id: str) -> bytes:
+    """Return gzipped VDJdb slim TSV bytes with one TRB row containing an
+    intentionally large reference.id field (to trigger the 131072-byte limit
+    unless the module-level csv.field_size_limit fix is in place)."""
+    header = (
+        "gene\tcdr3\tspecies\tantigen.epitope\tantigen.gene\tantigen.species"
+        "\tcomplex.id\tv.segm\tj.segm\tmhc.a\tmhc.b\tmhc.class"
+        "\treference.id\tvdjdb.score\tvdjdb.pgen.score\tTCR_hash\tj.start\tv.end"
+    )
+    row = "\t".join([
+        "TRB",
+        "CASSEGFTGELFF",
+        "HomoSapiens",
+        "GILGFVFTL",
+        "M1",
+        "InfluenzaA",
+        "0",
+        "TRBV12-3*01",
+        "TRBJ2-2*01",
+        "HLA-A*02:01",
+        "B2M",
+        "MHCI",
+        oversized_reference_id,
+        "3",
+        "0",
+        "abc123",
+        "10",
+        "5",
+    ])
+    content = header + "\n" + row + "\n"
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+        gz.write(content.encode())
+    return buf.getvalue()
+
+
+def test_vdjdb_large_field_no_csv_error():
+    """VDJdbSlimParser must handle fields larger than csv's default 131072-byte
+    limit without raising csv.Error."""
+    big_ref = "PUBMED:" + "X" * 200_000
+    gz_bytes = _make_vdjdb_slim_gz(big_ref)
+
+    with tempfile.NamedTemporaryFile(suffix=".txt.gz", delete=False) as tmp:
+        tmp.write(gz_bytes)
+        tmp_path = Path(tmp.name)
+
+    try:
+        sample = VDJdbSlimParser().parse_file(tmp_path)
+        assert isinstance(sample, SampleRepertoire)
+        assert sample["TRB"].clonotype_count == 1
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def test_olga_locus_override():
