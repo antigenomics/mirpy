@@ -1,4 +1,5 @@
 .claude/
+tmp/
 
 ## Data
 tests/srx_repertoires/samples/
