@@ -545,7 +545,7 @@ class TestOlgaKmerSummary:
     def olga_rearrangements(self):
         from mir.basic.pgen import OlgaModel
 
-        model = OlgaModel(chain="TRB")
+        model = OlgaModel(locus="TRB")
         seqs = model.generate_sequences_with_meta(self.N, pgens=False)
         return [
             Rearrangement(
@@ -553,7 +553,7 @@ class TestOlgaKmerSummary:
                 locus="TRB",
                 v_gene=rec["v_gene"].split("*")[0],  # strip allele
                 c_gene="",
-                junction_aa=rec["cdr3"],
+                junction_aa=rec["junction_aa"],
                 duplicate_count=1,
             )
             for i, rec in enumerate(seqs)

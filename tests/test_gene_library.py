@@ -14,7 +14,7 @@ from mir.common.gene_library import GeneEntry, GeneLibrary
 # Legacy import path must still resolve
 from mir.common.segments import Segment, SegmentLibrary
 
-RESOURCES = Path(__file__).parent.parent / "mir" / "resources" / "segments"
+RESOURCES = Path(__file__).parent.parent / "mir" / "resources" / "gene_library"
 _OLGA_LIB = RESOURCES / "olga_gene_library.txt"
 _IMGT_LIB = RESOURCES / "imgt_gene_library.txt"
 
