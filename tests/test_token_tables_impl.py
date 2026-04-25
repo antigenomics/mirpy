@@ -278,11 +278,11 @@ class TestBenchmarkImplementations:
     def olga_data(self):
         from mir.basic.pgen import OlgaModel
 
-        model = OlgaModel(chain="TRB")
+        model = OlgaModel(locus="TRB")
         seqs = model.generate_sequences_with_meta(self.N, pgens=False)
         dicts = [
             _row(
-                rec["cdr3"],
+                rec["junction_aa"],
                 id=i,
                 locus="TRB",
                 v_gene=rec["v_gene"].split("*")[0],
