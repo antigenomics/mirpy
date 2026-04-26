@@ -66,6 +66,7 @@ def _make_olga_repertoire(locus: str, n: int, seed: int = _SEED) -> Repertoire:
             v_sequence_end=rec["v_end"],
             j_sequence_start=rec["j_start"],
             duplicate_count=1,
+            _validate=False,
         )
         for i, rec in enumerate(records)
     ]

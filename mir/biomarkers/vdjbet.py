@@ -280,6 +280,7 @@ def generate_mock_repertoire(
                     v_sequence_end=rec["v_end"],
                     j_sequence_start=rec["j_start"],
                     duplicate_count=next(count_iter),
+                    _validate=False,
                 )
             )
 
@@ -441,6 +442,7 @@ def generate_mock_from_pool(
                     v_sequence_end=rec.get("v_end", -1),
                     j_sequence_start=rec.get("j_start", -1),
                     duplicate_count=next(count_iter, 1),
+                    _validate=False,
                 )
             )
 

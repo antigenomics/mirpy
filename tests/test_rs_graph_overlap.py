@@ -26,10 +26,10 @@ from pathlib import Path
 
 from tests.conftest import skip_benchmarks
 from mir.basic.token_tables import (
-    Rearrangement,
     filter_token_table,
     tokenize_rearrangements,
 )
+from mir.common.clonotype import Clonotype
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 from mir.graph.token_graph import build_token_graph
 
@@ -53,11 +53,11 @@ _MIN_RS_KMER_COVERAGE = 0.80
 # Shared fixture loader
 # ---------------------------------------------------------------------------
 
-def _load_rearrangements() -> list[Rearrangement]:
+def _load_rearrangements() -> list[Clonotype]:
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as fh:
         seqs = [line.strip() for line in fh if line.strip()]
     return [
-        Rearrangement(
+        Clonotype(
             sequence_id=str(i),
             locus="TRB",
             v_gene="TRB",

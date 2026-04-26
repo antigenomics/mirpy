@@ -53,6 +53,7 @@ def _make_rep(
             v_gene=v_gene,
             j_gene=j_gene,
             duplicate_count=i + 1,
+            _validate=False,
         )
         for i, jaa in enumerate(junction_aas)
     ]

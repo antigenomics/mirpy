@@ -17,21 +17,31 @@ from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 # Helpers
 # ---------------------------------------------------------------------------
 
+_AA20 = "ACDEFGHIKLMNPQRSTVWY"
+
+
 def _make_trb_clonotypes(*vj_counts: tuple[str, str, int, int]) -> list[Clonotype]:
-    """Build a list of TRB Clonotypes from (v, j, n_clones, dc_per_clone) tuples."""
+    """Build TRB Clonotypes from (v, j, n_clones, dc_per_clone) tuples.
+
+    Junction sequences: ``CASS<X>F`` where X cycles through the 20 standard
+    amino-acid letters, yielding valid 6-residue CDR3s.
+    """
     clones = []
+    idx = 0
     for v, j, n, dc in vj_counts:
-        for i in range(n):
+        for _ in range(n):
+            junction_aa = "CASS" + _AA20[idx % len(_AA20)] + "F"
             clones.append(
                 Clonotype(
-                    sequence_id=f"{v}_{j}_{i}",
+                    sequence_id=str(idx),
                     locus="TRB",
-                    junction_aa=f"C{v}{j}{i}F",
+                    junction_aa=junction_aa,
                     v_gene=v,
                     j_gene=j,
                     duplicate_count=dc,
                 )
             )
+            idx += 1
     return clones
 
 
@@ -156,7 +166,7 @@ class TestGeneUsage:
         gu = GeneUsage.from_repertoire(rep)
         assert "TRB" in gu.loci
 
-    def test_pseudocount_affects_fraction(self) -> None:
+    def test_pseudocount_equal_counts_stay_equal(self) -> None:
         clones = _make_trb_clonotypes(
             ("TRBV1", "TRBJ1-1", 10, 1),
             ("TRBV2", "TRBJ1-1", 10, 1),
@@ -164,25 +174,68 @@ class TestGeneUsage:
         rep = LocusRepertoire(clonotypes=clones, locus="TRB")
         gu = GeneUsage.from_repertoire(rep)
 
-        # With zero pseudocount both pairs should be equal fractions
-        frac0 = gu.vj_fraction("TRB", pseudocount=0)
-        assert abs(frac0[("TRBV1", "TRBJ1-1")] - frac0[("TRBV2", "TRBJ1-1")]) < 1e-12
+        for pc in (0, 1, 5):
+            frac = gu.vj_fraction("TRB", pseudocount=pc)
+            assert abs(frac[("TRBV1", "TRBJ1-1")] - frac[("TRBV2", "TRBJ1-1")]) < 1e-12
 
-        # With pseudocount > 0 fractions should still be equal when counts equal
-        frac1 = gu.vj_fraction("TRB", pseudocount=1)
-        assert abs(frac1[("TRBV1", "TRBJ1-1")] - frac1[("TRBV2", "TRBJ1-1")]) < 1e-12
+
+# ---------------------------------------------------------------------------
+# TestClonotypeValidation
+# ---------------------------------------------------------------------------
+
+class TestClonotypeValidation:
+    """Tests that Clonotype rejects invalid junction_aa and inconsistent lengths."""
+
+    def test_invalid_character_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-standard amino-acid"):
+            Clonotype(junction_aa="CASS*F")
+
+    def test_digit_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-standard amino-acid"):
+            Clonotype(junction_aa="CASS1F")
+
+    def test_gene_name_in_junction_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-standard amino-acid"):
+            Clonotype(junction_aa="CTRBV1F")
+
+    def test_stop_codon_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-standard amino-acid"):
+            Clonotype(junction_aa="CASS*LAGQTLYF")
+
+    def test_valid_junction_aa_accepted(self) -> None:
+        c = Clonotype(junction_aa="CASSLAGQTLYF")
+        assert c.junction_aa == "CASSLAGQTLYF"
+
+    def test_empty_junction_aa_accepted(self) -> None:
+        c = Clonotype(junction_aa="")
+        assert c.junction_aa == ""
+
+    def test_junction_length_mismatch_accepted(self) -> None:
+        # Non-coding sequences may have junction_aa truncated at stop codon;
+        # length inconsistency is not an error.
+        c = Clonotype(junction="ATCATC", junction_aa="CASSF")
+        assert c.junction_aa == "CASSF"
+
+    def test_auto_translate(self) -> None:
+        c = Clonotype(junction="ATCATCATC")  # 9 nt → 3 AA via translate_bidi
+        assert len(c.junction_aa) == 3
 
 
 # ---------------------------------------------------------------------------
 # TestPgenGeneUsageAdjustment
 # ---------------------------------------------------------------------------
 
+# Most common VJ pairs in the OLGA TRB model (verified empirically):
+#   TRBV20-1/TRBJ2-7 ≈ 1.4%,  TRBV5-1/TRBJ2-7 ≈ 1.1%
+# These are used so that the IS property can be verified with < 5% error
+# using a finite sample of 300k sequences and a 200k OLGA cache.
+
 class TestPgenGeneUsageAdjustment:
     """Unit tests for :class:`PgenGeneUsageAdjustment`."""
 
-    # Two common TRB V/J gene pairs (both present in OLGA TRB model)
-    _V1, _J1 = "TRBV12-3", "TRBJ1-2"
-    _V2, _J2 = "TRBV20-1", "TRBJ2-1"
+    _V1, _J1 = "TRBV20-1", "TRBJ2-7"   # most common VJ pair in OLGA TRB
+    _V2, _J2 = "TRBV5-1",  "TRBJ2-7"   # second most common
+    _ABSENT_V, _ABSENT_J = "TRBV30", "TRBJ2-6"  # rare pair absent from target
 
     @pytest.fixture(scope="class")
     def target_gu(self) -> GeneUsage:
@@ -196,27 +249,23 @@ class TestPgenGeneUsageAdjustment:
 
     @pytest.fixture(scope="class")
     def adj(self, target_gu: GeneUsage) -> PgenGeneUsageAdjustment:
-        return PgenGeneUsageAdjustment(target_gu, cache_size=20_000, seed=42)
+        # 200k-sample cache gives ~2% relative SE for pairs at 1% frequency,
+        # which is sufficient for the < 5% IS-test tolerance below.
+        return PgenGeneUsageAdjustment(target_gu, cache_size=200_000, seed=42)
 
     def test_factor_positive_for_known_pair(self, adj: PgenGeneUsageAdjustment) -> None:
-        f = adj.factor("TRB", self._V1, self._J1)
-        assert f > 0
+        assert adj.factor("TRB", self._V1, self._J1) > 0
 
-    def test_factor_small_for_absent_pair(self, adj: PgenGeneUsageAdjustment) -> None:
-        # TRBV5-1/TRBJ2-7 is not in the target → factor should be < 1
-        f_absent = adj.factor("TRB", "TRBV5-1", "TRBJ2-7")
-        f_present = adj.factor("TRB", self._V1, self._J1)
-        assert f_absent < f_present
+    def test_factor_ordering_follows_target_counts(self, adj: PgenGeneUsageAdjustment) -> None:
+        # V1/J1 has 3 target clones vs V2/J2 with 1 → factor(V1,J1) > factor(V2,J2)
+        f1 = adj.factor("TRB", self._V1, self._J1)
+        f2 = adj.factor("TRB", self._V2, self._J2)
+        assert f1 > f2
 
     def test_factor_ratio_matches_target_ratio(
         self, target_gu: GeneUsage, adj: PgenGeneUsageAdjustment
     ) -> None:
-        """factor(v1,j1) / factor(v2,j2) == target_frac(v1,j1) / target_frac(v2,j2)
-        × [olga_frac(v2,j2) / olga_frac(v1,j1)].
-
-        The V-J adjustment is: f = target_frac / olga_frac.
-        Ratio of factors: f1/f2 = (t1/o1) / (t2/o2) = (t1*o2) / (t2*o1).
-        """
+        """factor(v1,j1)/factor(v2,j2) equals (t1/o1)/(t2/o2) to machine precision."""
         f1 = adj.factor("TRB", self._V1, self._J1)
         f2 = adj.factor("TRB", self._V2, self._J2)
         assert f1 > 0 and f2 > 0
@@ -235,22 +284,26 @@ class TestPgenGeneUsageAdjustment:
         t2 = (target_usage.get((self._V2, self._J2), 0) + 1.0) / (target_total + n_target)
 
         expected_ratio = (t1 * o2) / (t2 * o1)
-        actual_ratio = f1 / f2
-        assert abs(actual_ratio - expected_ratio) / expected_ratio < 1e-10
+        assert abs(f1 / f2 - expected_ratio) / expected_ratio < 1e-10
 
     def test_weighted_count_ratio_matches_target(
         self, target_gu: GeneUsage, adj: PgenGeneUsageAdjustment
     ) -> None:
-        """Importance-sampling property: ratio of weighted counts matches target ratio.
+        """Importance-sampling property: ratio of factor-weighted counts matches
+        the target fraction ratio to < 5%.
 
-        For sequences generated by OLGA:
-          weighted_count(v, j) = count(v, j) * factor(v, j)
-        In expectation this equals n * target_frac(v, j).
+        For n sequences generated by OLGA:
+          weighted_count(v, j) = count(v, j) × factor(v, j)
+        In expectation: weighted_count(v, j) = n × target_frac(v, j).
+        So ratio(v1,j1)/ratio(v2,j2) → target_frac(v1,j1)/target_frac(v2,j2).
 
-        So ratio(v1,j1) / ratio(v2,j2) → target_frac(v1,j1) / target_frac(v2,j2).
+        Pairs TRBV20-1/TRBJ2-7 and TRBV5-1/TRBJ2-7 appear at ~1.4% and ~1.1%
+        in the OLGA model.  With 300k generated sequences and a 200k cache the
+        combined relative standard error is < 3%, well within the 5% tolerance.
         """
         model = OlgaModel(locus="TRB", seed=42)
-        records = model.generate_sequences_with_meta(50_000, pgens=False, seed=42)
+        # pgens=False for speed — we only need V/J gene assignments
+        records = model.generate_sequences_with_meta(300_000, pgens=False, seed=42)
 
         weighted: dict[tuple, float] = defaultdict(float)
         for rec in records:
@@ -261,20 +314,16 @@ class TestPgenGeneUsageAdjustment:
         w1 = weighted.get((self._V1, self._J1), 0.0)
         w2 = weighted.get((self._V2, self._J2), 0.0)
 
-        if w1 == 0 or w2 == 0:
-            pytest.skip("One of the target V/J pairs not sampled — increase n")
+        assert w1 > 0 and w2 > 0, "Target VJ pairs must appear in 300k OLGA samples"
 
-        actual_ratio = w1 / w2
-
-        target_frac = target_gu.vj_fraction("TRB")
+        actual_ratio   = w1 / w2
+        target_frac    = target_gu.vj_fraction("TRB")
         expected_ratio = target_frac[(self._V1, self._J1)] / target_frac[(self._V2, self._J2)]
 
-        # Allow 60% deviation — finite-sample stochasticity with 50k samples
-        # and a 20k OLGA cache makes this inherently noisy.  The exact
-        # analytical relationship is verified in test_factor_ratio_matches_target_ratio.
-        assert abs(actual_ratio - expected_ratio) / expected_ratio < 0.60, (
-            f"IS ratio {actual_ratio:.3f} deviates from expected {expected_ratio:.3f} "
-            f"by > 60%"
+        rel_err = abs(actual_ratio - expected_ratio) / expected_ratio
+        assert rel_err < 0.05, (
+            f"IS ratio {actual_ratio:.4f} deviates from expected {expected_ratio:.4f} "
+            f"by {100*rel_err:.1f}% (> 5%)"
         )
 
     def test_adjust_pgen_multiplies_by_factor(self, adj: PgenGeneUsageAdjustment) -> None:
@@ -282,19 +331,20 @@ class TestPgenGeneUsageAdjustment:
         pgen_raw = 1e-10
         assert abs(adj.adjust_pgen("TRB", self._V1, self._J1, pgen_raw) - pgen_raw * f) < 1e-25
 
-    def test_generate_with_meta_stores_adjusted_pgen(self, adj: PgenGeneUsageAdjustment) -> None:
-        """When pgen_adjustment is provided, rec['pgen'] != log10(pgen_raw)."""
+    def test_generate_with_meta_stores_adjusted_pgen(
+        self, adj: PgenGeneUsageAdjustment
+    ) -> None:
+        """rec['pgen'] == log10(pgen_raw * factor) for every generated sequence."""
         model = OlgaModel(locus="TRB", seed=42)
-        recs_raw = model.generate_sequences_with_meta(10, pgens=True, seed=42)
-        recs_adj = model.generate_sequences_with_meta(10, pgens=True, seed=42,
+        recs_raw = model.generate_sequences_with_meta(20, pgens=True, seed=42)
+        recs_adj = model.generate_sequences_with_meta(20, pgens=True, seed=42,
                                                        pgen_adjustment=adj)
-        # pgen_raw should be identical (same seed, same model)
         for r_raw, r_adj in zip(recs_raw, recs_adj):
             assert r_adj["pgen_raw"] == r_raw["pgen_raw"]
-            # pgen (log10) should differ when factor != 1
             v = r_adj["v_gene"].split("*")[0]
             j = r_adj["j_gene"].split("*")[0]
             f = adj.factor("TRB", v, j)
-            if f != 1.0 and r_raw["pgen_raw"] is not None and r_raw["pgen_raw"] > 0:
-                expected_log_adj = math.log10(r_raw["pgen_raw"] * f) if r_raw["pgen_raw"] * f > 0 else float("-inf")
-                assert abs(r_adj["pgen"] - expected_log_adj) < 1e-12
+            p = r_raw["pgen_raw"]
+            if p is not None and p > 0:
+                expected = math.log10(p * f) if p * f > 0 else float("-inf")
+                assert abs(r_adj["pgen"] - expected) < 1e-12

@@ -1,8 +1,8 @@
-"""Bipartite token graph construction for Rearrangements and Kmers.
+"""Bipartite token graph construction for Clonotypes and Kmers.
 
 Builds an ``igraph.Graph`` with two vertex types:
 
-* **rearrangement** — one vertex per :class:`~mir.basic.token_tables.Rearrangement`.
+* **rearrangement** — one vertex per :class:`~mir.basic.token_tables.Clonotype`.
 * **kmer** — one vertex per unique :class:`~mir.basic.token_tables.Kmer` key
   present in the token table.
 
@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import igraph as ig
 
-from mir.basic.token_tables import Kmer, KmerMatch, Rearrangement
+from mir.basic.token_tables import Kmer, KmerMatch, Clonotype
 
 
 def build_token_graph(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     token_table: dict[Kmer, list[KmerMatch]],
 ) -> ig.Graph:
-    """Build a bipartite Rearrangement–Kmer graph from a token table.
+    """Build a bipartite Clonotype–Kmer graph from a token table.
 
     Vertices 0 … n_r-1 represent the rearrangements (in list order).
     Vertices n_r … n_r+n_k-1 represent the unique kmers (in token-table
@@ -42,7 +42,7 @@ def build_token_graph(
     ``name``
         ``junction_aa`` for rearrangements; decoded kmer sequence for kmers.
     ``r_id``
-        :attr:`Rearrangement.id` for rearrangement vertices; ``-1`` for kmer vertices.
+        :attr:`Clonotype.id` for rearrangement vertices; ``-1`` for kmer vertices.
     ``v_gene``
         ``v_gene`` field (rearrangements) or kmer v-gene annotation.
     ``c_gene``

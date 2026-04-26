@@ -1,6 +1,6 @@
 """Unit and benchmark tests for :mod:`mir.graph.edit_distance_graph`.
 
-Unit tests use hand-crafted Rearrangements whose pairwise distances are
+Unit tests use hand-crafted Clonotypes whose pairwise distances are
 known exactly, verifying all combinations of metric, threshold, and
 gene-match filters.
 
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import skip_benchmarks
-from mir.basic.token_tables import Rearrangement
+from mir.common.clonotype import Clonotype
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 # ---------------------------------------------------------------------------
@@ -56,8 +56,8 @@ _C1 = "TRBC1"
 _C2 = "TRBC2"
 
 
-def _r(idx: int, seq: str, v: str = _V1, c: str = _C1) -> Rearrangement:
-    return Rearrangement(sequence_id=str(idx), locus=_LOCUS, v_gene=v, c_gene=c, junction_aa=seq, duplicate_count=1)
+def _r(idx: int, seq: str, v: str = _V1, c: str = _C1) -> Clonotype:
+    return Clonotype(sequence_id=str(idx), locus=_LOCUS, v_gene=v, c_gene=c, junction_aa=seq, duplicate_count=1, _validate=False)
 
 
 # ---------------------------------------------------------------------------
@@ -277,10 +277,10 @@ ASSETS = Path(__file__).parent / "assets"
 GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
 
 
-def _load_gilg_rearrangements() -> list[Rearrangement]:
+def _load_gilg_rearrangements() -> list[Clonotype]:
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
+    return [Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(), "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")

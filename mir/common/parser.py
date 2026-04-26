@@ -178,7 +178,7 @@ class ClonotypeTableParser:
                       'd_sequence_end', 'j_sequence_start'}.issubset(cols)
         clonotypes = []
         for index, row in source.iterrows():
-            clonotypes.append(Clonotype(
+            clonotypes.append(Clonotype(_validate=False,
                 sequence_id=str(index),
                 duplicate_count=int(row['duplicate_count']) if 'duplicate_count' in cols else 1,
                 junction=str(row['junction']) if 'junction' in cols else "",
@@ -219,7 +219,7 @@ class VDJtoolsParser(ClonotypeTableParser):
                       'd_sequence_end', 'j_sequence_start'}.issubset(cols)
         clonotypes = []
         for index, row in df.iterrows():
-            clonotypes.append(Clonotype(
+            clonotypes.append(Clonotype(_validate=False,
                 sequence_id=str(index),
                 duplicate_count=int(row['duplicate_count']),
                 junction=str(row['junction']),
@@ -283,7 +283,7 @@ class AIRRParser(ClonotypeTableParser):
                 if not v or not j:
                     raise ValueError(f'Missing v_call or j_call in row {i}')
                 seq_id = str(row['clone_id']) if 'clone_id' in df.columns else str(i)
-                clonotypes.append(Clonotype(
+                clonotypes.append(Clonotype(_validate=False,
                     sequence_id=seq_id,
                     locus=str(row.get('locus', '')),
                     junction_aa=str(row['junction_aa']),
@@ -379,7 +379,7 @@ class OldMiXCRParser:
                 if not junction_aa:
                     continue
                 ref = row[self._COL_REF_POINTS].split(":")
-                clonotypes.append(Clonotype(
+                clonotypes.append(Clonotype(_validate=False,
                     sequence_id=      row[self._COL_CLONE_ID],
                     duplicate_count=  int(row[self._COL_COUNT]),
                     junction=         row[self._COL_JUNCTION],
@@ -476,7 +476,7 @@ class VDJdbSlimParser:
                 except (ValueError, TypeError):
                     j_sequence_start = -1
 
-                clone = Clonotype(
+                clone = Clonotype(_validate=False,
                     junction_aa=      junction_aa,
                     junction=         back_translate(junction_aa),
                     locus=            row.get("gene", "").strip(),
@@ -540,7 +540,7 @@ class OlgaParser:
             for i, row in enumerate(reader):
                 if len(row) < 4:
                     continue
-                clonotypes.append(Clonotype(
+                clonotypes.append(Clonotype(_validate=False,
                     sequence_id=str(i),
                     junction=    row[0].strip(),
                     junction_aa= row[1].strip(),
@@ -721,7 +721,7 @@ def load_vdjdb_latest(
                     except (ValueError, TypeError):
                         j_seq_start = -1
 
-                    clone = Clonotype(
+                    clone = Clonotype(_validate=False,
                         sequence_id=str(len(clonotypes)),
                         duplicate_count=1,
                         locus=locus,
