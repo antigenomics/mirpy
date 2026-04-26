@@ -773,8 +773,27 @@ class TestLLWOverlapYFV:
         import warnings as _w
         with _w.catch_warnings():
             _w.simplefilter("ignore", UserWarning)
+            return VDJBetOverlapAnalysis(llw_ref, n_mocks=100, seed=42)
+
+    @pytest.fixture(scope="class")
+    def pgen_adjustment(
+        self, yfv_d0: LocusRepertoire, yfv_d15: LocusRepertoire
+    ) -> PgenGeneUsageAdjustment:
+        """PgenGeneUsageAdjustment built from the combined YFV donor samples."""
+        from mir.common.repertoire import Repertoire as _Rep
+        combined_clones = yfv_d0.clonotypes + yfv_d15.clonotypes
+        combined = _Rep(clonotypes=combined_clones, locus="TRB")
+        gu = GeneUsage.from_repertoire(combined)
+        return PgenGeneUsageAdjustment(gu, seed=42)
+
+    @pytest.fixture(scope="class")
+    def analysis_adj(self, llw_ref, pgen_adjustment) -> VDJBetOverlapAnalysis:
+        """VDJBetOverlapAnalysis with V/J gene-usage adjustment."""
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
             return VDJBetOverlapAnalysis(
-                llw_ref, n_mocks=100, pool_size=10_000, seed=42
+                llw_ref, n_mocks=100, seed=42, pgen_adjustment=pgen_adjustment
             )
 
     # ---- sanity ----
@@ -881,14 +900,42 @@ class TestLLWOverlapYFV:
         import warnings as _w
         with _w.catch_warnings():
             _w.simplefilter("ignore", UserWarning)
-            r = analysis.score(
-                yfv_d15, allow_1mm=True, match_v=False, mock_v_fixed=True,
-            )
+            r = analysis.score(yfv_d15, allow_1mm=True, match_v=False)
         assert r.allow_1mm is True
         assert r.match_v is False
         assert r.match_j is True
-        assert r.mock_v_fixed is True
-        assert r.mock_j_fixed is False
+
+    # ---- with pgen_adjustment: d0 not significant, d15 still significant ----
+
+    def test_d0_not_significant_with_adjustment(
+        self,
+        analysis_adj: VDJBetOverlapAnalysis,
+        yfv_d0: LocusRepertoire,
+    ) -> None:
+        """With V/J gene-usage adjustment the day-0 sample should not be significant."""
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r = analysis_adj.score(yfv_d0, allow_1mm=False)
+        print(f"\nd0 adj pgen-exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n < 1.96, (
+            f"day-0 with pgen adjustment z={r.z_n:.2f} should be < 1.96 (not significant)"
+        )
+
+    def test_d15_significant_with_adjustment(
+        self,
+        analysis_adj: VDJBetOverlapAnalysis,
+        yfv_d15: LocusRepertoire,
+    ) -> None:
+        """With V/J gene-usage adjustment day-15 should still be significant."""
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r = analysis_adj.score(yfv_d15, allow_1mm=False)
+        print(f"\nd15 adj pgen-exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n > 1.96, (
+            f"day-15 with pgen adjustment z={r.z_n:.2f} should be > 1.96"
+        )
 
 
 # ---------------------------------------------------------------------------
