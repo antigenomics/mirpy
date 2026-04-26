@@ -24,6 +24,8 @@ from pathlib import Path
 
 from mir.basic.pgen import OlgaModel
 from mir.biomarkers.vdjbet import (
+    OverlapResult,
+    VDJBetOverlapAnalysis,
     _make_key,
     _strip_allele,
     build_olga_pool,
@@ -33,6 +35,7 @@ from mir.biomarkers.vdjbet import (
     generate_mock_repertoire,
 )
 from mir.common.clonotype import Clonotype
+from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire, Repertoire
 from tests.conftest import skip_benchmarks
 
@@ -703,3 +706,183 @@ class TestMockKeySetsVsOnTheFlyCGILG:
             f"pool method should be ≥ 2× faster than on-the-fly; "
             f"got {speedup:.1f}×"
         )
+
+
+# ---------------------------------------------------------------------------
+# LLW overlap test using YFV donor assets
+# ---------------------------------------------------------------------------
+
+_LLW_FILE  = ASSETS / "llwngpmav_trb_a02.tsv.gz"
+_YFV_D0    = ASSETS / "yfv_s1_d0_f1.airr.tsv.gz"
+_YFV_D15   = ASSETS / "yfv_s1_d15_f1.airr.tsv.gz"
+
+_LLW_AVAILABLE = _LLW_FILE.exists() and _YFV_D0.exists() and _YFV_D15.exists()
+
+
+def _load_llw_reference() -> LocusRepertoire:
+    """Load LLWNGPMAV TRB HLA-A*02 reference from the test asset."""
+    import pandas as pd
+    df = pd.read_csv(_LLW_FILE, sep="\t", compression="infer")
+    clones = ClonotypeTableParser().parse_inner(df)
+    return LocusRepertoire(clonotypes=clones, locus="TRB")
+
+
+def _load_yfv_sample(path: Path) -> LocusRepertoire:
+    """Load an YFV TRB sample from a gzipped AIRR TSV test asset."""
+    import pandas as pd
+    df = pd.read_csv(path, sep="\t", compression="infer")
+    if "locus" in df.columns:
+        df = df[df["locus"].fillna("") == "TRB"]
+    df = df.dropna(subset=["junction_aa"])
+    df = df[df["junction_aa"].str.strip().str.len() > 0]
+    clones = ClonotypeTableParser().parse_inner(df)
+    return LocusRepertoire(clonotypes=clones, locus="TRB")
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.skipif(not _LLW_AVAILABLE, reason="LLW / YFV test assets missing")
+class TestLLWOverlapYFV:
+    """LLWNGPMAV-reactive TRB overlap in YFV donor S1 at day 0 vs day 15.
+
+    Uses the small test assets (top-3000 clonotypes each timepoint) with a
+    compact mock null (n_mocks=100, pool=10k) for speed.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestLLWOverlapYFV
+    """
+
+    @pytest.fixture(scope="class")
+    def llw_ref(self) -> LocusRepertoire:
+        return _load_llw_reference()
+
+    @pytest.fixture(scope="class")
+    def yfv_d0(self) -> LocusRepertoire:
+        return _load_yfv_sample(_YFV_D0)
+
+    @pytest.fixture(scope="class")
+    def yfv_d15(self) -> LocusRepertoire:
+        return _load_yfv_sample(_YFV_D15)
+
+    @pytest.fixture(scope="class")
+    def analysis(self, llw_ref) -> VDJBetOverlapAnalysis:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            return VDJBetOverlapAnalysis(
+                llw_ref, n_mocks=100, pool_size=10_000, seed=42
+            )
+
+    # ---- sanity ----
+
+    def test_assets_nonempty(
+        self, llw_ref: LocusRepertoire, yfv_d0: LocusRepertoire, yfv_d15: LocusRepertoire
+    ) -> None:
+        assert len(llw_ref.clonotypes) > 0
+        assert len(yfv_d0.clonotypes) > 0
+        assert len(yfv_d15.clonotypes) > 0
+
+    # ---- match-mode comparisons: 1mm ≥ exact ----
+
+    def test_d15_1mm_ge_exact(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            exact = analysis.score(yfv_d15, allow_1mm=False)
+            mm    = analysis.score(yfv_d15, allow_1mm=True)
+        print(f"\nd15 exact n={exact.n}  1mm n={mm.n}")
+        assert mm.n >= exact.n
+
+    def test_d0_1mm_ge_exact(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d0: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            exact = analysis.score(yfv_d0, allow_1mm=False)
+            mm    = analysis.score(yfv_d0, allow_1mm=True)
+        assert mm.n >= exact.n
+
+    # ---- relaxing V/J constraints finds at least as many matches ----
+
+    def test_no_v_finds_ge_with_v(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            with_v = analysis.score(yfv_d15, match_v=True,  match_j=True)
+            no_v   = analysis.score(yfv_d15, match_v=False, match_j=True)
+        print(f"\nd15 match_v=T n={with_v.n}  match_v=F n={no_v.n}")
+        assert no_v.n >= with_v.n
+
+    def test_no_vj_finds_ge_with_vj(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            with_vj = analysis.score(yfv_d15, match_v=True,  match_j=True)
+            no_vj   = analysis.score(yfv_d15, match_v=False, match_j=False)
+        print(f"\nd15 match_vj=T n={with_vj.n}  match_vj=F n={no_vj.n}")
+        assert no_vj.n >= with_vj.n
+
+    # ---- day 15 shows significant enrichment ----
+
+    def test_d15_pgen_exact_significant(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r = analysis.score(yfv_d15, allow_1mm=False)
+        print(f"\nd15 pgen-exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n > 1.96, f"day-15 exact pgen z={r.z_n:.2f} should be > 1.96"
+
+    def test_d15_pgen_1mm_significant(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r = analysis.score(yfv_d15, allow_1mm=True)
+        print(f"\nd15 pgen-1mm:   z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n > 1.96
+
+    # ---- day 15 effect size exceeds day 0 ----
+
+    def test_d15_z_gt_d0_z(
+        self,
+        analysis: VDJBetOverlapAnalysis,
+        yfv_d0: LocusRepertoire,
+        yfv_d15: LocusRepertoire,
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r0  = analysis.score(yfv_d0,  allow_1mm=False)
+            r15 = analysis.score(yfv_d15, allow_1mm=False)
+        print(f"\nz day15={r15.z_n:.2f}  day0={r0.z_n:.2f}")
+        assert r15.z_n > r0.z_n, (
+            f"day-15 (z={r15.z_n:.2f}) should exceed day-0 (z={r0.z_n:.2f})"
+        )
+
+    # ---- OverlapResult stores the chosen options ----
+
+    def test_result_stores_options(
+        self, analysis: VDJBetOverlapAnalysis, yfv_d15: LocusRepertoire
+    ) -> None:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            r = analysis.score(
+                yfv_d15, allow_1mm=True, match_v=False, mock_v_fixed=True,
+            )
+        assert r.allow_1mm is True
+        assert r.match_v is False
+        assert r.match_j is True
+        assert r.mock_v_fixed is True
+        assert r.mock_j_fixed is False

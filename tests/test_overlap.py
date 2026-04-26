@@ -154,20 +154,20 @@ class TestCountOverlapExact:
     def test_exact_match(self) -> None:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["CASSF"])
-        n, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
-        assert n == 1
-        assert dc == query.clonotypes[0].duplicate_count
+        r = count_overlap(make_reference_keys(ref), make_query_index(query))
+        assert r.n == 1
+        assert r.dc == query.clonotypes[0].duplicate_count
 
     def test_no_match(self) -> None:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["CASSY"])
-        n, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
-        assert n == 0 and dc == 0
+        r = count_overlap(make_reference_keys(ref), make_query_index(query))
+        assert r.n == 0 and r.dc == 0
 
     def test_empty_reference(self) -> None:
         ref = LocusRepertoire(clonotypes=[], locus="TRB")
-        n, dc = count_overlap(make_reference_keys(ref), make_query_index(_make_rep(["CASSF"])))
-        assert n == 0 and dc == 0
+        r = count_overlap(make_reference_keys(ref), make_query_index(_make_rep(["CASSF"])))
+        assert r.n == 0 and r.dc == 0
 
     def test_duplicate_count_summed(self) -> None:
         ref = _make_rep(["CASSF"])
@@ -176,8 +176,8 @@ class TestCountOverlapExact:
         c2 = Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF",
                        v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=7)
         query = LocusRepertoire(clonotypes=[c1, c2], locus="TRB")
-        _, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
-        assert dc == 10
+        r = count_overlap(make_reference_keys(ref), make_query_index(query))
+        assert r.dc == 10
 
 
 # ---------------------------------------------------------------------------
@@ -191,22 +191,19 @@ class TestCountOverlapPreExpanded:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["AASSF"])  # one substitution away
         fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
-        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
-        assert n == 1
+        assert count_overlap(fuzzy_keys, make_query_index(query)).n == 1
 
     def test_2mm_not_matched(self) -> None:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["AASAF"])  # two substitutions
         fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
-        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
-        assert n == 0
+        assert count_overlap(fuzzy_keys, make_query_index(query)).n == 0
 
     def test_exact_still_matched(self) -> None:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["CASSF"])
         fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
-        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
-        assert n == 1
+        assert count_overlap(fuzzy_keys, make_query_index(query)).n == 1
 
 
 # ---------------------------------------------------------------------------
@@ -221,25 +218,20 @@ class TestCountOverlapLazy1mm:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["AASSF"])
         compact = make_reference_keys(ref, allow_1mm=False)
-        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
-        assert n == 1
+        assert count_overlap(compact, make_query_index(query), allow_1mm=True).n == 1
 
     def test_2mm_not_matched(self) -> None:
         ref = _make_rep(["CASSF"])
         query = _make_rep(["AASAF"])
         compact = make_reference_keys(ref, allow_1mm=False)
-        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
-        assert n == 0
+        assert count_overlap(compact, make_query_index(query), allow_1mm=True).n == 0
 
     def test_no_double_count_multiple_ref(self) -> None:
-        # Query "AASSF" is 1mm from both "CASSF" (C→A) and "BASSF" (if B existed,
-        # but let's use AASSF→CASSF and AASSF→CASSY path).
         # Two ref entries both 1mm from the same query entry → count once.
         ref = _make_rep(["CASSF", "CASSY"])  # AASSF is 1mm from CASSF, not CASSY
         query = _make_rep(["AASSF"])
         compact = make_reference_keys(ref, allow_1mm=False)
-        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
-        assert n == 1  # not 2 — AASSF should be counted once
+        assert count_overlap(compact, make_query_index(query), allow_1mm=True).n == 1
 
     def test_same_result_as_pre_expanded(self) -> None:
         ref = _make_rep(["CASSF", "CASSY", "CASSYA"])
@@ -247,10 +239,10 @@ class TestCountOverlapLazy1mm:
         qi = make_query_index(query)
         compact = make_reference_keys(ref, allow_1mm=False)
         pre_exp = make_reference_keys(ref, allow_1mm=True)
-        n_lazy, dc_lazy   = count_overlap(compact, qi, allow_1mm=True)
-        n_pre,  dc_pre    = count_overlap(pre_exp, qi)
-        assert n_lazy == n_pre
-        assert dc_lazy == dc_pre
+        r_lazy = count_overlap(compact, qi, allow_1mm=True)
+        r_pre  = count_overlap(pre_exp, qi)
+        assert r_lazy.n == r_pre.n
+        assert r_lazy.dc == r_pre.dc
 
 
 # ---------------------------------------------------------------------------
@@ -367,28 +359,28 @@ class TestOverlapSpeed:
     def test_overlap_exact_under_1ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         t0 = time.perf_counter()
-        n, dc = count_overlap(keys, query_index)
+        r = count_overlap(keys, query_index)
         elapsed = time.perf_counter() - t0
         print(f"\nexact  overlap ({self.N_REF} ref × {self.N_QUERY} query): "
-              f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+              f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
         assert elapsed < 0.001
 
     def test_overlap_1mm_pre_expanded_under_50ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=True)
         t0 = time.perf_counter()
-        n, dc = count_overlap(keys, query_index)
+        r = count_overlap(keys, query_index)
         elapsed = time.perf_counter() - t0
         print(f"\n1mm    overlap pre-exp ({self.N_REF} ref × {self.N_QUERY} query): "
-              f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+              f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
         assert elapsed < 0.05
 
     def test_overlap_1mm_compact_under_50ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         t0 = time.perf_counter()
-        n, dc = count_overlap(keys, query_index, allow_1mm=True)
+        r = count_overlap(keys, query_index, allow_1mm=True)
         elapsed = time.perf_counter() - t0
         print(f"\n1mm    overlap compact ({self.N_REF} ref × {self.N_QUERY} query): "
-              f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+              f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
         assert elapsed < 0.05
 
     # --- 1mm finds more matches with strict lower bound ---
@@ -398,13 +390,11 @@ class TestOverlapSpeed:
     ) -> None:
         exact_keys = make_reference_keys(ref_rep, allow_1mm=False)
         fuzzy_keys = make_reference_keys(ref_rep, allow_1mm=True)
-        n_exact, _ = count_overlap(exact_keys, query_index)
-        n_fuzzy, _ = count_overlap(fuzzy_keys, query_index)
+        n_exact = count_overlap(exact_keys, query_index).n
+        n_fuzzy = count_overlap(fuzzy_keys, query_index).n
         gain = n_fuzzy - n_exact
         print(f"\nexact={n_exact}  1mm={n_fuzzy}  gain={gain}  "
               f"ratio={n_fuzzy/n_exact:.2f}x")
-        # 1mm should find substantially more matches; on a uniform synthetic
-        # reference with 500 clonotypes vs 50k query the 1mm set covers 16× more.
         assert n_fuzzy >= 1.5 * n_exact, (
             f"1mm ({n_fuzzy}) should be ≥ 1.5× exact ({n_exact}); "
             f"got {n_fuzzy/n_exact:.2f}×"
