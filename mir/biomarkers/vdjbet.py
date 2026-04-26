@@ -154,6 +154,7 @@ def generate_mock_repertoire(
     fix_j_usage: bool = False,
     max_sequences: int = 10_000_000,
     seed: int = 42,
+    pgen_adjustment=None,
 ) -> Repertoire:
     """Generate a Pgen-matched mock repertoire for *repertoire*.
 
@@ -170,6 +171,10 @@ def generate_mock_repertoire(
         Defaults to 10 000 000.
     seed:
         numpy RNG seed for reproducibility.
+    pgen_adjustment:
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
+        supplied, Pgen values are multiplied by the V-J factor before binning
+        so the mock reflects the target V-J gene usage distribution.
 
     Returns
     -------
@@ -201,6 +206,10 @@ def generate_mock_repertoire(
         pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
         if pgen_val is None or pgen_val <= 0:
             continue
+        if pgen_adjustment is not None:
+            pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
+            if pgen_val <= 0:
+                continue
         bin_val = int(math.floor(math.log10(pgen_val)))
         key = _make_key(
             _strip_allele(clone.v_gene),
@@ -240,7 +249,9 @@ def generate_mock_repertoire(
             _MAX_BATCH,
             max_sequences - total_generated,
         )
-        batch = model.generate_sequences_with_meta(batch_n, pgens=True, seed=None)
+        batch = model.generate_sequences_with_meta(
+            batch_n, pgens=True, seed=None, pgen_adjustment=pgen_adjustment
+        )
         total_generated += len(batch)
 
         for rec in batch:
@@ -298,6 +309,7 @@ def generate_mock_from_pool(
     fix_v_usage: bool = False,
     fix_j_usage: bool = False,
     seed: int = 42,
+    pgen_adjustment=None,
 ) -> Repertoire:
     """Generate a Pgen-matched mock repertoire by sampling a pre-computed pool.
 
@@ -328,6 +340,11 @@ def generate_mock_from_pool(
         Match J-gene usage within each Pgen bin.
     seed:
         Seed for the NumPy RNG used when drawing from the pool.
+    pgen_adjustment:
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
+        supplied, reference clonotype Pgen values are multiplied by the V-J
+        factor before binning.  The *pool* is assumed to have been built with
+        the same adjustment (via :func:`build_olga_pool`).
 
     Returns
     -------
@@ -363,6 +380,10 @@ def generate_mock_from_pool(
         pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
         if pgen_val is None or pgen_val <= 0:
             continue
+        if pgen_adjustment is not None:
+            pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
+            if pgen_val <= 0:
+                continue
         bin_val = int(math.floor(math.log10(pgen_val)))
         key = _make_key(
             _strip_allele(clone.v_gene),
@@ -445,6 +466,7 @@ def build_olga_pool(
     n: int,
     *,
     seed: int = 42,
+    pgen_adjustment=None,
 ) -> list[_PoolRecord]:
     """Generate a pool of OLGA sequences with pre-computed log₁₀ Pgen values.
 
@@ -460,6 +482,12 @@ def build_olga_pool(
         Number of sequences to generate.
     seed:
         RNG seed for reproducibility.
+    pgen_adjustment:
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
+        supplied, each pool record's ``pgen`` field stores the V-J-adjusted
+        log₁₀ Pgen.  Pass the same object to :func:`generate_mock_from_pool`
+        or :func:`generate_mock_key_sets_from_pool` so that pool and reference
+        bins are consistent.
 
     Returns
     -------
@@ -469,7 +497,7 @@ def build_olga_pool(
         ``junction`` (nucleotide), ``v_end``, and ``j_start``.
     """
     model = OlgaModel(locus=locus, seed=seed)
-    return model.generate_sequences_with_meta(n, pgens=True, seed=seed)
+    return model.generate_sequences_with_meta(n, pgens=True, seed=seed, pgen_adjustment=pgen_adjustment)
 
 
 def generate_mock_key_sets_from_pool(
@@ -480,6 +508,7 @@ def generate_mock_key_sets_from_pool(
     fix_v_usage: bool = False,
     fix_j_usage: bool = False,
     seed: int = 42,
+    pgen_adjustment=None,
 ) -> list[frozenset[tuple[str, str, str]]]:
     """Generate *n_mocks* Pgen-matched mock reference key sets from a pool.
 
@@ -550,6 +579,10 @@ def generate_mock_key_sets_from_pool(
         pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
         if pgen_val is None or pgen_val <= 0:
             continue
+        if pgen_adjustment is not None:
+            pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
+            if pgen_val <= 0:
+                continue
         bin_val = int(math.floor(math.log10(pgen_val)))
         key = _make_key(
             _strip_allele(clone.v_gene or ""),
@@ -796,6 +829,7 @@ class VDJBetOverlapAnalysis:
         pool_size: int = 50_000,
         seed: int = 42,
         method: str = "pool",
+        pgen_adjustment=None,
     ) -> None:
         if method not in ("pool", "on_the_fly"):
             raise ValueError(f"method must be 'pool' or 'on_the_fly', got {method!r}")
@@ -804,13 +838,17 @@ class VDJBetOverlapAnalysis:
         self._pool_size = pool_size
         self._seed = seed
         self._method = method
+        self._pgen_adjustment = pgen_adjustment
         self._pool: list | None = None
         self._mock_cache: dict[tuple[bool, bool], list[frozenset]] = {}
 
     def _get_pool(self) -> list:
         if self._pool is None:
             locus = _resolve_locus(self._reference)
-            self._pool = build_olga_pool(locus, self._pool_size, seed=self._seed)
+            self._pool = build_olga_pool(
+                locus, self._pool_size, seed=self._seed,
+                pgen_adjustment=self._pgen_adjustment,
+            )
         return self._pool
 
     def _get_mocks(self, v_fixed: bool, j_fixed: bool) -> list[frozenset]:
@@ -824,6 +862,7 @@ class VDJBetOverlapAnalysis:
                     fix_v_usage=v_fixed,
                     fix_j_usage=j_fixed,
                     seed=self._seed,
+                    pgen_adjustment=self._pgen_adjustment,
                 )
             else:
                 mocks = []
@@ -835,6 +874,7 @@ class VDJBetOverlapAnalysis:
                             fix_v_usage=v_fixed,
                             fix_j_usage=j_fixed,
                             seed=self._seed + i,
+                            pgen_adjustment=self._pgen_adjustment,
                         )
                     mocks.append(make_reference_keys(mock_rep))
             self._mock_cache[key] = mocks
