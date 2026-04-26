@@ -616,46 +616,73 @@ def generate_mock_key_sets_from_pool(
 
 
 # ---------------------------------------------------------------------------
-# Overlap result and analysis class
+# Internal helper for mock key normalisation
+# ---------------------------------------------------------------------------
+
+def _normalize_mock_keys(
+    mock_key_sets: list[frozenset],
+    *,
+    match_v: bool,
+    match_j: bool,
+) -> list[frozenset]:
+    """Strip V/J gene fields from mock keys when the corresponding match flag is off.
+
+    Mock key sets always carry full ``(junction_aa, v_base, j_base)`` tuples.
+    When ``match_v`` or ``match_j`` is ``False``, the query index has ``""`` in
+    that field; we strip the mock keys to match so that :func:`count_overlap`
+    sees consistent keys on both sides.
+    """
+    if match_v and match_j:
+        return mock_key_sets
+    return [
+        frozenset(
+            (jaa, v if match_v else "", j if match_j else "")
+            for jaa, v, j in ks
+        )
+        for ks in mock_key_sets
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Overlap result (single-config)
 # ---------------------------------------------------------------------------
 
 @dataclass
 class OverlapResult:
-    """Overlap counts, fractions, and z/p-scores for one query sample.
+    """Overlap statistics for one query sample under one set of match options.
 
-    Produced by :meth:`VDJBetOverlapAnalysis.score`.  Raw mock distributions
-    are stored so the object is self-contained; fractions and z-scores are
-    computed lazily via :func:`functools.cached_property`.
+    Produced by :meth:`VDJBetOverlapAnalysis.score`.  Per-mock distributions
+    are stored so the object is self-contained; z/p-scores are computed lazily
+    via :func:`functools.cached_property`.
 
     Attributes
     ----------
     n_total, dc_total:
         Total unique clonotypes and total duplicate count in the query sample.
-    n_exact, dc_exact:
-        Clonotypes / cells overlapping the reference by exact match.
-    n_1mm, dc_1mm:
-        Clonotypes / cells overlapping the reference within 1 substitution.
-    mock_pgen_n_exact, ...:
-        Per-mock overlap counts under the pgen-only null (list length = n_mocks).
-    mock_pvj_n_exact, ...:
-        Per-mock overlap counts under the pgen+V+J null; ``None`` when not
-        provided to :class:`VDJBetOverlapAnalysis`.
+    n, dc:
+        Unique clonotypes and cells overlapping the reference under the
+        chosen match options.
+    mock_n, mock_dc:
+        Per-mock overlap counts (length == n_mocks).
+    allow_1mm:
+        Whether 1-substitution CDR3 matching was used.
+    match_v, match_j:
+        Whether V-gene / J-gene matching was required for the real overlap.
+    mock_v_fixed, mock_j_fixed:
+        Whether V-gene / J-gene usage was fixed when generating the mock null.
     """
 
     n_total: int
     dc_total: int
-    n_exact: int
-    dc_exact: int
-    n_1mm: int
-    dc_1mm: int
-    mock_pgen_n_exact: list
-    mock_pgen_dc_exact: list
-    mock_pgen_n_1mm: list
-    mock_pgen_dc_1mm: list
-    mock_pvj_n_exact: list | None = None
-    mock_pvj_dc_exact: list | None = None
-    mock_pvj_n_1mm: list | None = None
-    mock_pvj_dc_1mm: list | None = None
+    n: int
+    dc: int
+    mock_n: list[int]
+    mock_dc: list[int]
+    allow_1mm: bool = False
+    match_v: bool = True
+    match_j: bool = True
+    mock_v_fixed: bool = False
+    mock_j_fixed: bool = False
 
     # ---- internal z/p helper ---------------------------------------------
 
@@ -673,170 +700,155 @@ class OverlapResult:
     # ---- fractions -------------------------------------------------------
 
     @property
-    def frac_n_exact(self) -> float:
-        """Fraction of query clonotypes matching the reference (exact)."""
-        return self.n_exact / self.n_total if self.n_total else 0.0
+    def frac_n(self) -> float:
+        """Fraction of query clonotypes overlapping the reference."""
+        return self.n / self.n_total if self.n_total else 0.0
 
     @property
-    def frac_dc_exact(self) -> float:
-        """Fraction of query cells matching the reference (exact)."""
-        return self.dc_exact / self.dc_total if self.dc_total else 0.0
+    def frac_dc(self) -> float:
+        """Fraction of query cells overlapping the reference."""
+        return self.dc / self.dc_total if self.dc_total else 0.0
 
-    @property
-    def frac_n_1mm(self) -> float:
-        """Fraction of query clonotypes matching within 1 substitution."""
-        return self.n_1mm / self.n_total if self.n_total else 0.0
-
-    @property
-    def frac_dc_1mm(self) -> float:
-        """Fraction of query cells matching within 1 substitution."""
-        return self.dc_1mm / self.dc_total if self.dc_total else 0.0
-
-    # ---- log2 dc helpers (for dc z-scores and box plots) -----------------
+    # ---- clonotype-count z/p ---------------------------------------------
 
     @cached_property
-    def dc_exact_log2(self) -> float:
-        return math.log2(self.dc_exact + 1)
+    def _zp_n(self) -> tuple[float, float]:
+        return self._z_p(self.n, self.mock_n)
+
+    @property
+    def z_n(self) -> float:
+        """Z-score for unique-clonotype overlap vs the null distribution."""
+        return self._zp_n[0]
+
+    @property
+    def p_n(self) -> float:
+        """One-sided p-value for unique-clonotype overlap (upper tail)."""
+        return self._zp_n[1]
+
+    # ---- duplicate-count z/p (log₂-transformed) -------------------------
 
     @cached_property
-    def dc_1mm_log2(self) -> float:
-        return math.log2(self.dc_1mm + 1)
+    def _dc_log2(self) -> float:
+        return math.log2(self.dc + 1)
 
     @cached_property
-    def mock_pgen_dc_exact_log2(self) -> list:
-        return [math.log2(x + 1) for x in self.mock_pgen_dc_exact]
+    def _mock_dc_log2(self) -> list[float]:
+        return [math.log2(x + 1) for x in self.mock_dc]
 
     @cached_property
-    def mock_pgen_dc_1mm_log2(self) -> list:
-        return [math.log2(x + 1) for x in self.mock_pgen_dc_1mm]
-
-    # ---- pgen-only z/p ---------------------------------------------------
-
-    @cached_property
-    def _zp_n_exact_pgen(self) -> tuple[float, float]:
-        return self._z_p(self.n_exact, self.mock_pgen_n_exact)
+    def _zp_dc(self) -> tuple[float, float]:
+        return self._z_p(self._dc_log2, self._mock_dc_log2)
 
     @property
-    def z_n_exact_pgen(self) -> float:
-        return self._zp_n_exact_pgen[0]
+    def z_dc(self) -> float:
+        """Z-score for duplicate-count overlap (log₂-transformed)."""
+        return self._zp_dc[0]
 
     @property
-    def p_n_exact_pgen(self) -> float:
-        return self._zp_n_exact_pgen[1]
+    def p_dc(self) -> float:
+        """One-sided p-value for duplicate-count overlap (log₂, upper tail)."""
+        return self._zp_dc[1]
 
-    @cached_property
-    def _zp_n_1mm_pgen(self) -> tuple[float, float]:
-        return self._z_p(self.n_1mm, self.mock_pgen_n_1mm)
 
-    @property
-    def z_n_1mm_pgen(self) -> float:
-        return self._zp_n_1mm_pgen[0]
-
-    @property
-    def p_n_1mm_pgen(self) -> float:
-        return self._zp_n_1mm_pgen[1]
-
-    @cached_property
-    def _zp_dc_exact_pgen(self) -> tuple[float, float]:
-        return self._z_p(self.dc_exact_log2, self.mock_pgen_dc_exact_log2)
-
-    @property
-    def z_dc_exact_pgen(self) -> float:
-        return self._zp_dc_exact_pgen[0]
-
-    @property
-    def p_dc_exact_pgen(self) -> float:
-        return self._zp_dc_exact_pgen[1]
-
-    @cached_property
-    def _zp_dc_1mm_pgen(self) -> tuple[float, float]:
-        return self._z_p(self.dc_1mm_log2, self.mock_pgen_dc_1mm_log2)
-
-    @property
-    def z_dc_1mm_pgen(self) -> float:
-        return self._zp_dc_1mm_pgen[0]
-
-    @property
-    def p_dc_1mm_pgen(self) -> float:
-        return self._zp_dc_1mm_pgen[1]
-
-    # ---- pgen+V+J z/p (None when pvj mocks not provided) ----------------
-
-    @cached_property
-    def _zp_n_exact_pvj(self) -> tuple[float, float] | None:
-        if self.mock_pvj_n_exact is None:
-            return None
-        return self._z_p(self.n_exact, self.mock_pvj_n_exact)
-
-    @property
-    def z_n_exact_pvj(self) -> float | None:
-        r = self._zp_n_exact_pvj
-        return r[0] if r is not None else None
-
-    @property
-    def p_n_exact_pvj(self) -> float | None:
-        r = self._zp_n_exact_pvj
-        return r[1] if r is not None else None
-
-    @cached_property
-    def _zp_n_1mm_pvj(self) -> tuple[float, float] | None:
-        if self.mock_pvj_n_1mm is None:
-            return None
-        return self._z_p(self.n_1mm, self.mock_pvj_n_1mm)
-
-    @property
-    def z_n_1mm_pvj(self) -> float | None:
-        r = self._zp_n_1mm_pvj
-        return r[0] if r is not None else None
-
-    @property
-    def p_n_1mm_pvj(self) -> float | None:
-        r = self._zp_n_1mm_pvj
-        return r[1] if r is not None else None
-
+# ---------------------------------------------------------------------------
+# Analysis class
+# ---------------------------------------------------------------------------
 
 class VDJBetOverlapAnalysis:
-    """Holds an epitope-specific reference + Pgen-matched mock null distributions.
+    """Manages an epitope-specific reference with Pgen-matched mock null sets.
 
-    Pre-builds exact and 1mm reference key sets at construction time so that
-    :meth:`score` can be called repeatedly across many query samples without
-    rebuilding them.
+    Builds and caches the OLGA pool and mock null distributions internally so
+    that :meth:`score` can be called repeatedly with different match options
+    without redundant sequence generation.
 
     Parameters
     ----------
     reference:
         Real epitope-specific reference repertoire (e.g. VDJdb LLWNGPMAV TRB
         clonotypes).
-    mock_pgen:
-        Pgen-only mock key sets from :func:`generate_mock_key_sets_from_pool`.
-    mock_pvj:
-        Optional Pgen+V+J mock key sets.  When provided, :class:`OverlapResult`
-        objects will also expose pvj z/p-scores.
+    n_mocks:
+        Number of Pgen-matched mock key sets per null type.
+    pool_size:
+        OLGA pool size used when *method* is ``"pool"``.  Ignored when
+        *method* is ``"on_the_fly"``.
+    seed:
+        RNG seed for pool generation and mock sampling.
+    method:
+        ``"pool"`` (default) — build an OLGA pool once and draw from it for
+        each mock set (orders of magnitude faster for large *n_mocks*).
+        ``"on_the_fly"`` — run acceptance-rejection OLGA sampling for each
+        mock independently (no pool memory, slower for many mocks).
 
     Examples
     --------
-    >>> pool = build_olga_pool("TRB", 50_000, seed=42)
-    >>> mocks = generate_mock_key_sets_from_pool(ref_rep, pool, 1000)
-    >>> analysis = VDJBetOverlapAnalysis(ref_rep, mocks)
+    >>> analysis = VDJBetOverlapAnalysis(ref_repertoire, n_mocks=1000)
     >>> result = analysis.score(query_sample)
-    >>> print(result.z_n_exact_pgen, result.p_n_exact_pgen)
+    >>> print(result.z_n, result.p_n)
+    >>> result_pvj = analysis.score(query_sample, mock_v_fixed=True, mock_j_fixed=True)
+    >>> print(result_pvj.z_n, result_pvj.p_n)
     """
 
     def __init__(
         self,
         reference: Repertoire,
-        mock_pgen: list,
-        mock_pvj: list | None = None,
+        *,
+        n_mocks: int = 1000,
+        pool_size: int = 50_000,
+        seed: int = 42,
+        method: str = "pool",
     ) -> None:
-        self._ref_exact = make_reference_keys(reference, allow_1mm=False)
-        self._ref_1mm   = make_reference_keys(reference, allow_1mm=True)
-        self._mock_pgen = mock_pgen
-        self._mock_pvj  = mock_pvj
+        if method not in ("pool", "on_the_fly"):
+            raise ValueError(f"method must be 'pool' or 'on_the_fly', got {method!r}")
+        self._reference = reference
+        self._n_mocks = n_mocks
+        self._pool_size = pool_size
+        self._seed = seed
+        self._method = method
+        self._pool: list | None = None
+        self._mock_cache: dict[tuple[bool, bool], list[frozenset]] = {}
+
+    def _get_pool(self) -> list:
+        if self._pool is None:
+            locus = _resolve_locus(self._reference)
+            self._pool = build_olga_pool(locus, self._pool_size, seed=self._seed)
+        return self._pool
+
+    def _get_mocks(self, v_fixed: bool, j_fixed: bool) -> list[frozenset]:
+        key = (v_fixed, j_fixed)
+        if key not in self._mock_cache:
+            if self._method == "pool":
+                mocks = generate_mock_key_sets_from_pool(
+                    self._reference,
+                    self._get_pool(),
+                    self._n_mocks,
+                    fix_v_usage=v_fixed,
+                    fix_j_usage=j_fixed,
+                    seed=self._seed,
+                )
+            else:
+                mocks = []
+                for i in range(self._n_mocks):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", UserWarning)
+                        mock_rep = generate_mock_repertoire(
+                            self._reference,
+                            fix_v_usage=v_fixed,
+                            fix_j_usage=j_fixed,
+                            seed=self._seed + i,
+                        )
+                    mocks.append(make_reference_keys(mock_rep))
+            self._mock_cache[key] = mocks
+        return self._mock_cache[key]
 
     def score(
         self,
         sample: Repertoire,
         *,
+        allow_1mm: bool = False,
+        match_v: bool = True,
+        match_j: bool = True,
+        mock_v_fixed: bool = False,
+        mock_j_fixed: bool = False,
         n_jobs: int = 1,
     ) -> OverlapResult:
         """Compute overlap statistics for *sample* against the reference.
@@ -845,51 +857,48 @@ class VDJBetOverlapAnalysis:
         ----------
         sample:
             Query repertoire.
+        allow_1mm:
+            Count clonotypes within one amino-acid substitution of the
+            reference (in addition to exact matches).
+        match_v:
+            Require V-gene match for the real query↔reference overlap.
+        match_j:
+            Require J-gene match for the real query↔reference overlap.
+        mock_v_fixed:
+            Use V-gene-stratified Pgen mocks to control for V-gene bias.
+        mock_j_fixed:
+            Use J-gene-stratified Pgen mocks to control for J-gene bias.
         n_jobs:
-            Number of parallel worker processes for mock overlap computation.
-            ``1`` (default) runs single-threaded.
+            Parallel worker processes for mock overlap computation.
 
         Returns
         -------
         OverlapResult
-            All overlap counts, fractions, and z/p-scores.
+            Single-configuration overlap statistics with z/p-scores.
         """
-        qi       = make_query_index(sample)
+        qi = make_query_index(sample, match_v=match_v, match_j=match_j)
         n_total  = len(qi)
         dc_total = sum(qi.values())
 
-        n_exact, dc_exact = count_overlap(self._ref_exact, qi)
-        n_1mm,   dc_1mm   = count_overlap(self._ref_1mm,   qi)
-
-        pgen_exact = compute_overlaps(
-            self._mock_pgen, qi, allow_1mm=False, n_jobs=n_jobs,
+        ref_keys = make_reference_keys(
+            self._reference, allow_1mm=False, match_v=match_v, match_j=match_j,
         )
-        pgen_1mm = compute_overlaps(
-            self._mock_pgen, qi, allow_1mm=True, n_jobs=n_jobs,
-        )
+        real = count_overlap(ref_keys, qi, allow_1mm=allow_1mm)
 
-        pvj_exact = pvj_1mm = None
-        if self._mock_pvj is not None:
-            pvj_exact = compute_overlaps(
-                self._mock_pvj, qi, allow_1mm=False, n_jobs=n_jobs,
-            )
-            pvj_1mm = compute_overlaps(
-                self._mock_pvj, qi, allow_1mm=True, n_jobs=n_jobs,
-            )
+        raw_mocks  = self._get_mocks(mock_v_fixed, mock_j_fixed)
+        norm_mocks = _normalize_mock_keys(raw_mocks, match_v=match_v, match_j=match_j)
+        mock_res   = compute_overlaps(norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=n_jobs)
 
         return OverlapResult(
             n_total=n_total,
             dc_total=dc_total,
-            n_exact=n_exact,
-            dc_exact=dc_exact,
-            n_1mm=n_1mm,
-            dc_1mm=dc_1mm,
-            mock_pgen_n_exact=[r[0] for r in pgen_exact],
-            mock_pgen_dc_exact=[r[1] for r in pgen_exact],
-            mock_pgen_n_1mm=[r[0] for r in pgen_1mm],
-            mock_pgen_dc_1mm=[r[1] for r in pgen_1mm],
-            mock_pvj_n_exact=[r[0] for r in pvj_exact] if pvj_exact else None,
-            mock_pvj_dc_exact=[r[1] for r in pvj_exact] if pvj_exact else None,
-            mock_pvj_n_1mm=[r[0] for r in pvj_1mm] if pvj_1mm else None,
-            mock_pvj_dc_1mm=[r[1] for r in pvj_1mm] if pvj_1mm else None,
+            n=real.n,
+            dc=real.dc,
+            mock_n=[r.n for r in mock_res],
+            mock_dc=[r.dc for r in mock_res],
+            allow_1mm=allow_1mm,
+            match_v=match_v,
+            match_j=match_j,
+            mock_v_fixed=mock_v_fixed,
+            mock_j_fixed=mock_j_fixed,
         )
