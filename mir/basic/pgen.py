@@ -352,17 +352,23 @@ class OlgaModel:
         n: int = 1000,
         pgens: bool = True,
         seed: int | None = 42,
+        pgen_adjustment=None,
     ) -> list[dict]:
         """Generate *n* productive sequences with full annotation.
 
         Each record contains: junction_aa, junction, v_gene, j_gene, v_end,
         j_start, and (when *pgens* is ``True``) pgen_raw and pgen (log10).
+        When *pgen_adjustment* is provided, ``pgen`` stores the adjusted
+        log₁₀ Pgen (raw × V-J factor); ``pgen_raw`` is always the raw value.
 
         Args:
             n: Number of sequences to generate.
             pgens: Whether to compute and attach generation probabilities.
             seed: Seed for ``numpy.random`` before sampling.  Pass ``None``
                 to continue from the current RNG state.
+            pgen_adjustment: Optional :class:`PgenGeneUsageAdjustment`.
+                When supplied, ``rec["pgen"]`` is multiplied by the V-J factor
+                from the adjustment object.
 
         Returns:
             List of annotation dicts, one per generated sequence.
@@ -370,12 +376,156 @@ class OlgaModel:
         if seed is not None:
             np.random.seed(seed)
         _gen_one = self._gen_one_vdj_with_meta if self.is_d_present else self._gen_one_vj_with_meta
+        locus = self._init_kwargs.get("locus", "")
         res = []
         for _ in range(n):
             rec = _gen_one()
             if pgens:
                 p_raw = self.compute_pgen_junction_aa(rec["junction_aa"])
                 rec["pgen_raw"] = p_raw
-                rec["pgen"] = math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
+                if pgen_adjustment is not None and p_raw is not None and p_raw > 0:
+                    p_adj = pgen_adjustment.adjust_pgen(locus, rec["v_gene"], rec["j_gene"], p_raw)
+                    rec["pgen"] = math.log10(p_adj) if p_adj > 0 else float("-inf")
+                else:
+                    rec["pgen"] = math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
             res.append(rec)
         return res
+
+    def compute_usage_cache(
+        self,
+        n: int = 100_000,
+        *,
+        seed: int = 42,
+    ) -> "GeneUsage":
+        """Estimate V-J gene usage by a cold run of *n* OLGA samples.
+
+        Returns a :class:`~mir.basic.gene_usage.GeneUsage` that covers all
+        V-J pairs generated at frequency ≥ 1/*n*.  Intended for building a
+        :class:`PgenGeneUsageAdjustment` for importance-sampling-based mock
+        generation.
+
+        Args:
+            n: Number of sequences to sample (higher → more accurate).
+            seed: numpy RNG seed.
+
+        Returns:
+            GeneUsage with clonotype counts per V-J pair for this locus.
+        """
+        from mir.basic.gene_usage import GeneUsage
+
+        records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
+        locus = self._init_kwargs.get("locus", "")
+        gu = GeneUsage()
+        locus_data = gu._data.setdefault(locus, {})
+        locus_totals = gu._totals.setdefault(locus, [0, 0])
+        for rec in records:
+            v = rec["v_gene"].split("*")[0]
+            j = rec["j_gene"].split("*")[0]
+            entry = locus_data.setdefault((v, j), [0, 0])
+            entry[0] += 1
+            locus_totals[0] += 1
+        return gu
+
+
+# ---------------------------------------------------------------------------
+# Pgen gene-usage adjustment (importance sampling)
+# ---------------------------------------------------------------------------
+
+class PgenGeneUsageAdjustment:
+    """Adjusts OLGA generation probabilities to match a target V-J gene usage.
+
+    For each generated sequence with genes ``(v, j)``, multiplies its Pgen
+    by::
+
+        target_vj_fraction(v, j) / olga_vj_fraction(v, j)
+
+    where both fractions use Laplace smoothing (pseudocount = 1 over observed
+    pairs).  This re-weights the OLGA distribution so that Pgen-matched mock
+    sequences reflect the target V-J gene usage without requiring explicit V/J
+    stratification.
+
+    The OLGA gene usage cache is computed lazily per locus on first access.
+
+    Parameters
+    ----------
+    target:
+        :class:`~mir.basic.gene_usage.GeneUsage` describing the target gene
+        usage (e.g. computed from a real sample).
+    cache_size:
+        Number of OLGA sequences used to estimate the model's native gene
+        usage.  Higher values give more accurate factors for rare V-J pairs.
+    seed:
+        RNG seed for the OLGA cache run.
+
+    Examples
+    --------
+    >>> from mir.basic.gene_usage import GeneUsage
+    >>> gu = GeneUsage.from_repertoire(my_sample)
+    >>> adj = PgenGeneUsageAdjustment(gu, cache_size=100_000)
+    >>> pool = build_olga_pool("TRB", 50_000, pgen_adjustment=adj)
+    """
+
+    def __init__(
+        self,
+        target: "GeneUsage",
+        *,
+        cache_size: int = 100_000,
+        seed: int = 42,
+    ) -> None:
+        from mir.basic.gene_usage import GeneUsage as _GeneUsage  # local for TYPE_CHECKING compat
+
+        self._target = target
+        self._cache_size = cache_size
+        self._seed = seed
+        self._olga_cache: dict[str, _GeneUsage] = {}
+
+    def _get_olga_cache(self, locus: str):
+        if locus not in self._olga_cache:
+            model = OlgaModel(locus=locus, seed=self._seed)
+            self._olga_cache[locus] = model.compute_usage_cache(
+                self._cache_size, seed=self._seed
+            )
+        return self._olga_cache[locus]
+
+    def factor(self, locus: str, v: str, j: str) -> float:
+        """Pgen adjustment factor for (locus, v, j).
+
+        Returns ``target_vj_fraction / olga_vj_fraction`` with Laplace
+        pseudocount = 1 over observed pairs.
+
+        Args:
+            locus: IMGT locus code (e.g. ``"TRB"``).
+            v: V-gene name (allele stripped internally).
+            j: J-gene name (allele stripped internally).
+        """
+        v_base = v.split("*")[0]
+        j_base = j.split("*")[0]
+        pair = (v_base, j_base)
+
+        target_usage = self._target.vj_usage(locus)
+        target_total = self._target.total(locus)
+        n_target_pairs = len(target_usage)
+        t_n = target_usage.get(pair, 0)
+        t_denom = target_total + n_target_pairs
+        t_frac = (t_n + 1.0) / t_denom if t_denom > 0 else 1.0
+
+        olga = self._get_olga_cache(locus)
+        olga_usage = olga.vj_usage(locus)
+        olga_total = olga.total(locus)
+        n_olga_pairs = len(olga_usage)
+        o_n = olga_usage.get(pair, 0)
+        o_denom = olga_total + n_olga_pairs
+        o_frac = (o_n + 1.0) / o_denom if o_denom > 0 else 1.0
+
+        return t_frac / o_frac
+
+    def adjust_pgen(self, locus: str, v: str, j: str, pgen: float) -> float:
+        """Return ``pgen * factor(locus, v, j)``.
+
+        Args:
+            locus: IMGT locus code.
+            v: V-gene name.
+            j: J-gene name.
+            pgen: Raw generation probability (linear, not log).
+        """
+        return pgen * self.factor(locus, v, j)

@@ -15,6 +15,7 @@ Benchmark tests (``RUN_BENCHMARK=1``)
 
 from __future__ import annotations
 
+import math
 import time
 
 import pytest
@@ -22,7 +23,8 @@ import pytest
 import gzip
 from pathlib import Path
 
-from mir.basic.pgen import OlgaModel
+from mir.basic.gene_usage import GeneUsage
+from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.biomarkers.vdjbet import (
     OverlapResult,
     VDJBetOverlapAnalysis,
@@ -886,3 +888,82 @@ class TestLLWOverlapYFV:
         assert r.match_j is True
         assert r.mock_v_fixed is True
         assert r.mock_j_fixed is False
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: Pgen gene-usage adjustment improves V/J matching in mocks
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.skipif(not _LLW_AVAILABLE, reason="YFV test assets missing")
+class TestMockWithGeneUsageAdjustment:
+    """Benchmark: mock V-gene usage matches YFV d15 sample with Pgen adjustment.
+
+    Generates a mock repertoire for YFV S1 d15 with a
+    :class:`~mir.basic.pgen.PgenGeneUsageAdjustment` built from the same
+    sample and verifies that the mock's V-gene usage correlates with the real
+    sample (Pearson r > 0.7).
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestMockWithGeneUsageAdjustment
+    """
+
+    @pytest.fixture(scope="class")
+    def yfv_d15(self) -> LocusRepertoire:
+        return _load_yfv_sample(_YFV_D15)
+
+    @pytest.fixture(scope="class")
+    def adj(self, yfv_d15: LocusRepertoire) -> PgenGeneUsageAdjustment:
+        gu = GeneUsage.from_repertoire(yfv_d15)
+        return PgenGeneUsageAdjustment(gu, cache_size=20_000, seed=42)
+
+    @pytest.fixture(scope="class")
+    def mock_rep(self, yfv_d15: LocusRepertoire, adj: PgenGeneUsageAdjustment) -> LocusRepertoire:
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            return generate_mock_repertoire(yfv_d15, seed=42, pgen_adjustment=adj)
+
+    def test_mock_nonempty(self, mock_rep: LocusRepertoire) -> None:
+        assert len(mock_rep.clonotypes) > 0
+
+    def test_v_usage_correlation(
+        self, yfv_d15: LocusRepertoire, mock_rep: LocusRepertoire
+    ) -> None:
+        """V-gene usage in the adjusted mock should correlate with the real sample."""
+        from scipy.stats import pearsonr
+
+        real_gu = GeneUsage.from_repertoire(yfv_d15)
+        mock_gu = GeneUsage.from_repertoire(mock_rep)
+
+        real_v = real_gu.v_usage("TRB")
+        mock_v = mock_gu.v_usage("TRB")
+
+        all_genes = sorted(set(real_v) | set(mock_v))
+        real_vals = [real_v.get(g, 0) for g in all_genes]
+        mock_vals = [mock_v.get(g, 0) for g in all_genes]
+
+        r, p = pearsonr(real_vals, mock_vals)
+        print(f"\nV-gene Pearson r={r:.3f}  p={p:.4f}  "
+              f"n_real={real_gu.total('TRB')}  n_mock={mock_gu.total('TRB')}")
+        assert r > 0.7, f"V-gene usage Pearson r={r:.3f} should be > 0.7"
+
+    def test_adjusted_pgen_stored_in_pool(self, adj: PgenGeneUsageAdjustment) -> None:
+        """Pool built with pgen_adjustment stores adjusted log10 Pgen."""
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            pool = build_olga_pool("TRB", 100, seed=42, pgen_adjustment=adj)
+        model = OlgaModel(locus="TRB", seed=42)
+        pool_raw = build_olga_pool("TRB", 100, seed=42)
+
+        for r_adj, r_raw in zip(pool, pool_raw):
+            if math.isinf(r_raw["pgen"]) or math.isinf(r_adj["pgen"]):
+                continue
+            v = r_adj["v_gene"].split("*")[0]
+            j = r_adj["j_gene"].split("*")[0]
+            f = adj.factor("TRB", v, j)
+            expected = r_raw["pgen"] + math.log10(f) if f > 0 else float("-inf")
+            assert abs(r_adj["pgen"] - expected) < 1e-10

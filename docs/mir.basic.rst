@@ -4,6 +4,14 @@ mir.basic package
 Submodules
 ----------
 
+mir.basic.gene_usage module
+---------------------------
+
+.. automodule:: mir.basic.gene_usage
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.basic.clonotype_usage module
 --------------------------------
 
