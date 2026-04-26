@@ -1,4 +1,4 @@
-"""Tests and benchmarks for token_tables: Rearrangement / Kmer indexing."""
+"""Tests and benchmarks for token_tables: Clonotype / Kmer indexing."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from mir.basic.token_tables import (
     KmerMatch,
     KmerSeq,
     KmerStats,
-    Rearrangement,
     summarize_annotations,
     summarize_rearrangements,
     tokenize_rearrangements,
 )
+from mir.common.clonotype import Clonotype
 
 
 # ---------------------------------------------------------------------------
@@ -32,10 +32,11 @@ def _make_rearrangement(
     v_gene: str = "TRBV5-1",
     c_gene: str = "TRBC1",
     duplicate_count: int = 10,
-) -> Rearrangement:
-    return Rearrangement(
+) -> Clonotype:
+    return Clonotype(
         sequence_id=str(id), locus=locus, v_gene=v_gene, c_gene=c_gene,
         junction_aa=junction_aa, duplicate_count=duplicate_count,
+        _validate=False,
     )
 
 
@@ -43,7 +44,7 @@ def _make_rearrangement(
 # Unit tests — types
 # ---------------------------------------------------------------------------
 
-class TestRearrangement:
+class TestClonotype:
     def test_slots(self):
         r = _make_rearrangement()
         assert r.locus == "TRB"
@@ -84,7 +85,7 @@ class TestKmer:
 # Unit tests — tokenize_rearrangements
 # ---------------------------------------------------------------------------
 
-class TestTokenizeRearrangements:
+class TestTokenizeClonotypes:
     def test_basic_indexing(self):
         r = _make_rearrangement("CASSLAP")
         idx = tokenize_rearrangements([r], k=4)
@@ -126,7 +127,7 @@ class TestTokenizeRearrangements:
         assert r2 in rearrangements
 
     def test_skip_short_junction(self):
-        """Rearrangement with junction shorter than k is silently skipped."""
+        """Clonotype with junction shorter than k is silently skipped."""
         r = _make_rearrangement("CA")
         idx = tokenize_rearrangements([r], k=5)
         assert len(idx) == 0
@@ -136,8 +137,8 @@ class TestTokenizeRearrangements:
         assert idx == {}
 
     def test_different_loci(self):
-        r_trb = Rearrangement(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=1)
-        r_tra = Rearrangement(sequence_id="2", locus="TRA", v_gene="TRAV12", c_gene="TRAC", junction_aa="CASSLA", duplicate_count=1)
+        r_trb = Clonotype(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=1)
+        r_tra = Clonotype(sequence_id="2", locus="TRA", v_gene="TRAV12", c_gene="TRAC", junction_aa="CASSLA", duplicate_count=1)
         idx = tokenize_rearrangements([r_trb, r_tra], k=4)
         key_trb = Kmer("TRB", "TRBV5-1", "TRBC1", b"CASS")
         key_tra = Kmer("TRA", "TRAV12", "TRAC", b"CASS")
@@ -174,7 +175,7 @@ class TestTokenizeRearrangements:
 
 @skip_benchmarks
 @pytest.mark.benchmark
-class TestTokenizeRearrangementsBenchmark:
+class TestTokenizeClonotypesBenchmark:
     N = 100_000
     K = 5
     JUNCTION = "CASSLAPGATNEKLFF"  # 16 aa → 12 k-mers per rearrangement
@@ -182,7 +183,7 @@ class TestTokenizeRearrangementsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
+            Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
                           junction_aa=self.JUNCTION, duplicate_count=10)
             for i in range(self.N)
         ]
@@ -235,7 +236,7 @@ class TestTokenizeRearrangementsBenchmark:
 MASK = ord("X")
 
 
-class TestTokenizeRearrangementsGapped:
+class TestTokenizeClonotypesGapped:
     def test_gapped_kmer_count(self):
         """Each window produces k gapped variants."""
         r = _make_rearrangement("CASSLAP")  # 7 aa, k=4 → 4 windows × 4 = 16
@@ -272,7 +273,7 @@ class TestTokenizeRearrangementsGapped:
 # Unit tests — summarize_rearrangements
 # ---------------------------------------------------------------------------
 
-class TestSummarizeRearrangements:
+class TestSummarizeClonotypes:
     def test_single_rearrangement(self):
         r = _make_rearrangement("CASSLA", duplicate_count=5)
         stats = summarize_rearrangements([r], k=4)
@@ -308,8 +309,8 @@ class TestSummarizeRearrangements:
         assert summarize_rearrangements([r], k=5) == {}
 
     def test_different_loci_separate(self):
-        r1 = Rearrangement(sequence_id="1", locus="TRB", v_gene="V1", c_gene="C1", junction_aa="CASSLA", duplicate_count=1)
-        r2 = Rearrangement(sequence_id="2", locus="TRA", v_gene="V2", c_gene="C2", junction_aa="CASSLA", duplicate_count=4)
+        r1 = Clonotype(sequence_id="1", locus="TRB", v_gene="V1", c_gene="C1", junction_aa="CASSLA", duplicate_count=1)
+        r2 = Clonotype(sequence_id="2", locus="TRA", v_gene="V2", c_gene="C2", junction_aa="CASSLA", duplicate_count=4)
         stats = summarize_rearrangements([r1, r2], k=4)
         k_trb = Kmer("TRB", "V1", "C1", b"CASS")
         k_tra = Kmer("TRA", "V2", "C2", b"CASS")
@@ -350,7 +351,7 @@ class TestSummarizeRearrangements:
 
 @skip_benchmarks
 @pytest.mark.benchmark
-class TestSummarizeRearrangementsBenchmark:
+class TestSummarizeClonotypesBenchmark:
     N = 100_000
     K = 5
     JUNCTION = "CASSLAPGATNEKLFF"
@@ -358,7 +359,7 @@ class TestSummarizeRearrangementsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
+            Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
                           junction_aa=self.JUNCTION, duplicate_count=10)
             for i in range(self.N)
         ]
@@ -406,8 +407,8 @@ class TestSummarizeAnnotations:
     def test_different_genes_merge_under_same_kmer_seq(self):
         """Same locus+seq but different v_gene → single KmerSeq key,
         two KmerAnnotation entries."""
-        r1 = Rearrangement(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=3)
-        r2 = Rearrangement(sequence_id="2", locus="TRB", v_gene="TRBV6-2", c_gene="TRBC2", junction_aa="CASSLA", duplicate_count=7)
+        r1 = Clonotype(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=3)
+        r2 = Clonotype(sequence_id="2", locus="TRB", v_gene="TRBV6-2", c_gene="TRBC2", junction_aa="CASSLA", duplicate_count=7)
         ann = summarize_annotations([r1, r2], k=4)
         ks = KmerSeq("TRB", b"CASS")
         assert ks in ann
@@ -418,8 +419,8 @@ class TestSummarizeAnnotations:
         assert a2 in inner and inner[a2] == KmerStats(1, 7)
 
     def test_different_loci_separate(self):
-        r_trb = Rearrangement(sequence_id="1", locus="TRB", v_gene="V1", c_gene="C1", junction_aa="CASSLA", duplicate_count=1)
-        r_tra = Rearrangement(sequence_id="2", locus="TRA", v_gene="V2", c_gene="C2", junction_aa="CASSLA", duplicate_count=4)
+        r_trb = Clonotype(sequence_id="1", locus="TRB", v_gene="V1", c_gene="C1", junction_aa="CASSLA", duplicate_count=1)
+        r_tra = Clonotype(sequence_id="2", locus="TRA", v_gene="V2", c_gene="C2", junction_aa="CASSLA", duplicate_count=4)
         ann = summarize_annotations([r_trb, r_tra], k=4)
         ks_trb = KmerSeq("TRB", b"CASS")
         ks_tra = KmerSeq("TRA", b"CASS")
@@ -483,8 +484,8 @@ class TestSummarizeAnnotations:
     def test_gapped_different_genes_merge(self):
         """Gapped: different v_gene rearrangements with same locus+seq
         merge under one KmerSeq."""
-        r1 = Rearrangement(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=2)
-        r2 = Rearrangement(sequence_id="2", locus="TRB", v_gene="TRBV6-2", c_gene="TRBC2", junction_aa="CASSLA", duplicate_count=3)
+        r1 = Clonotype(sequence_id="1", locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1", junction_aa="CASSLA", duplicate_count=2)
+        r2 = Clonotype(sequence_id="2", locus="TRB", v_gene="TRBV6-2", c_gene="TRBC2", junction_aa="CASSLA", duplicate_count=3)
         ann = summarize_annotations([r1, r2], k=4, mask_byte=MASK)
         ks = KmerSeq("TRB", b"XASS")
         assert ks in ann
@@ -509,7 +510,7 @@ class TestSummarizeAnnotationsBenchmark:
     @pytest.fixture(scope="class")
     def rearrangements(self):
         return [
-            Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
+            Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRBV5-1", c_gene="TRBC1",
                           junction_aa=self.JUNCTION, duplicate_count=10)
             for i in range(self.N)
         ]
@@ -548,7 +549,7 @@ class TestOlgaKmerSummary:
         model = OlgaModel(locus="TRB")
         seqs = model.generate_sequences_with_meta(self.N, pgens=False)
         return [
-            Rearrangement(
+            Clonotype(
                 sequence_id=str(i),
                 locus="TRB",
                 v_gene=rec["v_gene"].split("*")[0],  # strip allele

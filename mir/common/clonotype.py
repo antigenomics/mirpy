@@ -8,7 +8,7 @@ schema naming: *v_sequence_end*, *d_sequence_start*, *d_sequence_end*,
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 from typing import ClassVar, NamedTuple
 
 import polars as pl
@@ -61,8 +61,11 @@ class Clonotype:
     # Mutable metadata dict excluded from eq/repr/init
     clone_metadata: dict = field(default_factory=dict, repr=False,
                                   compare=False, init=False)
+    # Pass _validate=False in performance-critical internal code to skip
+    # junction_aa character and length checks (values are already trusted).
+    _validate: InitVar[bool] = True
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, _validate: bool) -> None:
         # Auto-translate junction → junction_aa
         if self.junction and not self.junction_aa:
             self.junction_aa = translate_bidi(self.junction)
@@ -78,6 +81,13 @@ class Clonotype:
             prefix = self.j_gene[:3].upper()
             if prefix in _LOCUS_PREFIXES:
                 self.locus = prefix
+        if _validate:
+            # Validate junction_aa: only the 20 standard amino-acid letters
+            if self.junction_aa and not _c_is_coding(self.junction_aa):
+                raise ValueError(
+                    f"junction_aa contains non-standard amino-acid characters: "
+                    f"{self.junction_aa!r}"
+                )
 
     # ------------------------------------------------------------------
     # Derived properties
@@ -200,6 +210,7 @@ class Clonotype:
                 d_sequence_start=_int(row.get("d_sequence_start")),
                 d_sequence_end= _int(row.get("d_sequence_end")),
                 j_sequence_start=_int(row.get("j_sequence_start")),
+                _validate=False,
             ))
         return clonotypes
 

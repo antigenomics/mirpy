@@ -34,10 +34,10 @@ def expand_kmers(df: pl.DataFrame, k: int) -> pl.DataFrame:
 
     For each rearrangement with ``junction_aa`` of length *n ≥ k*, produces
     *n − k + 1* rows with new columns ``kmer_pos`` (``Int64``) and
-    ``kmer_seq`` (``Utf8``).  Rearrangements shorter than *k* are dropped.
+    ``kmer_seq`` (``Utf8``).  Clonotypes shorter than *k* are dropped.
 
     Args:
-        df: Rearrangement table with at least ``id``, ``locus``,
+        df: Clonotype table with at least ``id``, ``locus``,
             ``v_gene``, ``c_gene``, ``junction_aa``, ``duplicate_count``.
         k:  K-mer length.
 
