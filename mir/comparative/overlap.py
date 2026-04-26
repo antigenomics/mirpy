@@ -1,19 +1,21 @@
 """Repertoire overlap utilities.
 
 Functions for computing clonotype overlap between a query repertoire and
-one or more reference sets.  Matching is by (junction_aa, V-gene base,
-J-gene base) — allele suffixes are stripped before comparison.
+one or more reference sets.  Matching is by CDR3 junction_aa and, optionally,
+by V-gene and/or J-gene (allele suffixes are stripped before comparison).
 
 API
 ---
+* :class:`OverlapCounts` — named result object: ``n`` unique clonotypes and
+  ``dc`` total duplicate count.
 * :func:`expand_1mm` — expand a junction_aa to all single-substitution variants.
 * :func:`make_reference_keys` — build a ``frozenset`` of clonotype keys from a
   :class:`LocusRepertoire`.  Pass ``allow_1mm=True`` to include all single
-  amino-acid substitution variants of each junction_aa.
+  amino-acid substitution variants; ``match_v=False`` or ``match_j=False`` to
+  ignore gene requirements.
 * :func:`make_query_index` — build a ``{key: duplicate_count}`` lookup.
 * :func:`count_overlap` — count matching clonotypes and their total
-  ``duplicate_count``.  Pass ``allow_1mm=True`` to expand compact reference
-  key sets on-the-fly (avoids pre-storing millions of variant keys).
+  ``duplicate_count``.  Returns an :class:`OverlapCounts`.
 * :func:`compute_overlaps` — batch :func:`count_overlap` over a list of
   reference key sets, optionally dispatched across multiple processes.
 """
@@ -21,6 +23,7 @@ API
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
@@ -28,29 +31,47 @@ from mir.common.repertoire import LocusRepertoire
 # Standard 20 amino acids used for 1-mismatch expansion.
 _AA20 = "ACDEFGHIKLMNPQRSTVWY"
 
+# Clonotype key: (junction_aa, v_base, j_base).  Gene fields are "" when
+# the corresponding match requirement is disabled.
+_Key = tuple[str, str, str]
+
+
+# ---------------------------------------------------------------------------
+# Public result object
+# ---------------------------------------------------------------------------
+
+@dataclass
+class OverlapCounts:
+    """Clonotype and cell overlap between a query and a reference set.
+
+    Attributes
+    ----------
+    n:
+        Number of unique query clonotypes that match at least one reference
+        clonotype.
+    dc:
+        Sum of ``duplicate_count`` for the matching query clonotypes.
+    """
+
+    n: int
+    dc: int
+
 
 # ---------------------------------------------------------------------------
 # Module-level state shared with ProcessPoolExecutor worker processes.
-# _overlap_worker_init sets these once per worker; _overlap_worker_call uses
-# them for each task.  Defined at module level so pickle can resolve them.
 # ---------------------------------------------------------------------------
 
 _worker_qi: dict | None = None
 _worker_1mm: bool = False
 
 
-def _overlap_worker_init(
-    qi: dict[tuple[str, str, str], int],
-    allow_1mm: bool,
-) -> None:
+def _overlap_worker_init(qi: dict[_Key, int], allow_1mm: bool) -> None:
     global _worker_qi, _worker_1mm
     _worker_qi = qi
     _worker_1mm = allow_1mm
 
 
-def _overlap_worker_call(
-    ref_keys: frozenset[tuple[str, str, str]],
-) -> tuple[int, int]:
+def _overlap_worker_call(ref_keys: frozenset[_Key]) -> OverlapCounts:
     return count_overlap(ref_keys, _worker_qi, allow_1mm=_worker_1mm)
 
 
@@ -63,9 +84,22 @@ def _gene_base(gene: str) -> str:
     return gene.split("*")[0] if gene else ""
 
 
-def _clonotype_key(clone: Clonotype) -> tuple[str, str, str]:
-    """Return ``(junction_aa, v_base, j_base)`` for *clone*."""
-    return (clone.junction_aa, _gene_base(clone.v_gene), _gene_base(clone.j_gene))
+def _clonotype_key(
+    clone: Clonotype,
+    *,
+    match_v: bool = True,
+    match_j: bool = True,
+) -> _Key:
+    """Return a ``(junction_aa, v_base, j_base)`` key for *clone*.
+
+    When *match_v* or *match_j* is ``False``, the corresponding field is
+    set to ``""`` so that overlap matching ignores that gene.
+    """
+    return (
+        clone.junction_aa,
+        _gene_base(clone.v_gene) if match_v else "",
+        _gene_base(clone.j_gene) if match_j else "",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +136,9 @@ def make_reference_keys(
     repertoire: LocusRepertoire,
     *,
     allow_1mm: bool = False,
-) -> frozenset[tuple[str, str, str]]:
+    match_v: bool = True,
+    match_j: bool = True,
+) -> frozenset[_Key]:
     """Build a ``frozenset`` of ``(junction_aa, v_base, j_base)`` keys.
 
     Parameters
@@ -114,22 +150,24 @@ def make_reference_keys(
         substitution variants before inserting into the key set.  Use this for
         the *real* reference so that :func:`count_overlap` can match query
         clonotypes that differ by one substitution using the fast exact path.
-        For mock key sets generated by
-        :func:`~mir.biomarkers.vdjbet.generate_mock_key_sets_from_pool`, pass
-        the compact key sets to :func:`count_overlap` with ``allow_1mm=True``
-        instead — equivalent result, much lower memory cost.
+        For mock key sets pass them compact to :func:`count_overlap` with
+        ``allow_1mm=True`` — equivalent result, much lower memory cost.
+    match_v:
+        When ``False``, V-gene is ignored (key field set to ``""``).
+    match_j:
+        When ``False``, J-gene is ignored (key field set to ``""``).
 
     Returns
     -------
     frozenset
         One key per unique (possibly expanded) clonotype entry.
     """
-    keys: set[tuple[str, str, str]] = set()
+    keys: set[_Key] = set()
     for c in repertoire.clonotypes:
         if not c.junction_aa:
             continue
-        v = _gene_base(c.v_gene)
-        j = _gene_base(c.j_gene)
+        v = _gene_base(c.v_gene) if match_v else ""
+        j = _gene_base(c.j_gene) if match_j else ""
         if allow_1mm:
             for variant in expand_1mm(c.junction_aa):
                 keys.add((variant, v, j))
@@ -138,7 +176,12 @@ def make_reference_keys(
     return frozenset(keys)
 
 
-def make_query_index(repertoire: LocusRepertoire) -> dict[tuple[str, str, str], int]:
+def make_query_index(
+    repertoire: LocusRepertoire,
+    *,
+    match_v: bool = True,
+    match_j: bool = True,
+) -> dict[_Key, int]:
     """Build a ``{(junction_aa, v_base, j_base): duplicate_count}`` index.
 
     When the same key appears more than once (unlikely in a typical
@@ -148,27 +191,31 @@ def make_query_index(repertoire: LocusRepertoire) -> dict[tuple[str, str, str], 
     ----------
     repertoire:
         Query repertoire.
+    match_v:
+        When ``False``, V-gene is ignored (key field set to ``""``).
+    match_j:
+        When ``False``, J-gene is ignored (key field set to ``""``).
 
     Returns
     -------
     dict
         Maps each unique clonotype key to its total ``duplicate_count``.
     """
-    index: dict[tuple[str, str, str], int] = {}
+    index: dict[_Key, int] = {}
     for c in repertoire.clonotypes:
         if not c.junction_aa:
             continue
-        key = _clonotype_key(c)
+        key = _clonotype_key(c, match_v=match_v, match_j=match_j)
         index[key] = index.get(key, 0) + c.duplicate_count
     return index
 
 
 def count_overlap(
-    reference_keys: frozenset[tuple[str, str, str]],
-    query_index: dict[tuple[str, str, str], int],
+    reference_keys: frozenset[_Key],
+    query_index: dict[_Key, int],
     *,
     allow_1mm: bool = False,
-) -> tuple[int, int]:
+) -> OverlapCounts:
     """Count matching clonotypes and their aggregate ``duplicate_count``.
 
     Parameters
@@ -176,55 +223,53 @@ def count_overlap(
     reference_keys:
         Set of clonotype keys (from :func:`make_reference_keys` or
         :func:`~mir.biomarkers.vdjbet.generate_mock_key_sets_from_pool`).
+        Gene fields should already be ``""`` when the corresponding match
+        requirement is disabled (controlled by ``match_v/match_j`` when
+        building keys).
     query_index:
         Clonotype → duplicate_count mapping (from :func:`make_query_index`).
+        Must be built with the same ``match_v/match_j`` flags.
     allow_1mm:
         When ``True``, expand each reference ``junction_aa`` to all single
         amino-acid substitution variants and count unique query clonotypes
-        within Hamming distance 1.  A query clonotype that is within 1mm of
-        multiple reference clonotypes is counted only once.  Use this with
-        *compact* mock key sets to avoid pre-storing billions of variant keys.
+        within Hamming distance 1.  A query clonotype within 1mm of multiple
+        reference clonotypes is counted only once.
 
     Returns
     -------
-    (n_clonotypes, sum_duplicate_count)
-        * ``n_clonotypes`` — number of unique query clonotypes that match.
-        * ``sum_duplicate_count`` — sum of ``duplicate_count`` for those
-          matching clonotypes.
+    OverlapCounts
+        ``n`` — unique matching query clonotypes;
+        ``dc`` — sum of ``duplicate_count`` for those clonotypes.
     """
     if not allow_1mm:
         n = 0
         total_dc = 0
-        # Iterate over the smaller reference set and probe the larger query
-        # dict — for a ~400-entry reference vs 100k-entry repertoire this is
-        # ~250x faster than iterating the query index.
         for key in reference_keys:
             dc = query_index.get(key)
             if dc is not None:
                 n += 1
                 total_dc += dc
-        return n, total_dc
+        return OverlapCounts(n=n, dc=total_dc)
 
-    # 1mm path: expand each reference junction_aa to all single-substitution
-    # variants, probe the query dict, track matched keys to avoid
-    # double-counting when one query clonotype is 1mm from multiple reference
-    # clonotypes.
-    matched: set[tuple[str, str, str]] = set()
+    matched: set[_Key] = set()
     for jaa, v, j in reference_keys:
         for variant in expand_1mm(jaa):
             cand = (variant, v, j)
             if cand not in matched and cand in query_index:
                 matched.add(cand)
-    return len(matched), sum(query_index[k] for k in matched)
+    return OverlapCounts(
+        n=len(matched),
+        dc=sum(query_index[k] for k in matched),
+    )
 
 
 def compute_overlaps(
-    reference_key_sets: list[frozenset[tuple[str, str, str]]],
-    query_index: dict[tuple[str, str, str], int],
+    reference_key_sets: list[frozenset[_Key]],
+    query_index: dict[_Key, int],
     *,
     allow_1mm: bool = False,
     n_jobs: int = 1,
-) -> list[tuple[int, int]]:
+) -> list[OverlapCounts]:
     """Compute :func:`count_overlap` for every key set in *reference_key_sets*.
 
     Parameters
@@ -235,20 +280,17 @@ def compute_overlaps(
     query_index:
         Query clonotype index from :func:`make_query_index`.
     allow_1mm:
-        Passed through to :func:`count_overlap`; expands each reference key's
-        junction_aa to all single-substitution variants.
+        Passed through to :func:`count_overlap`.
     n_jobs:
         Number of parallel worker processes.  ``1`` (default) runs
         single-threaded.  Values > 1 use
         :class:`concurrent.futures.ProcessPoolExecutor` with an initializer
-        that sends *query_index* to each worker once, avoiding repeated
-        serialisation overhead.
+        that sends *query_index* to each worker once.
 
     Returns
     -------
-    list[tuple[int, int]]
-        One ``(n_clonotypes, sum_duplicate_count)`` pair per key set, in the
-        same order as *reference_key_sets*.
+    list[OverlapCounts]
+        One :class:`OverlapCounts` per key set, in the same order.
     """
     if n_jobs == 1 or len(reference_key_sets) <= 1:
         return [
