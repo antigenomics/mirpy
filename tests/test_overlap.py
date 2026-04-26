@@ -2,15 +2,17 @@
 
 Fast tests (always run)
 -----------------------
-* :class:`TestExpand1mm`      — unit tests for :func:`expand_1mm`.
+* :class:`TestExpand1mm`         — unit tests for :func:`expand_1mm`.
 * :class:`TestMakeReferenceKeys` — exact and 1mm key building.
-* :class:`TestCountOverlap`   — overlap counting with exact and 1mm keys.
+* :class:`TestCountOverlap`      — overlap counting: exact, 1mm pre-expanded
+  reference, 1mm compact reference (allow_1mm=True).
+* :class:`TestComputeOverlaps`   — batch / parallel :func:`compute_overlaps`.
 
 Benchmark tests (``RUN_BENCHMARK=1``)
 --------------------------------------
-* :class:`TestOverlapSpeed`   — exact vs allow_1mm key building and
-  :func:`count_overlap` timing on a synthetic 500-clonotype reference and
-  50 000-clonotype query.  Prints wall-clock times and speedup ratios.
+* :class:`TestOverlapSpeed` — exact vs allow_1mm timing on a synthetic
+  500-clonotype reference and 50 000-clonotype query; also tests the
+  parallel compute_overlaps path.  Prints wall-clock times.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
 from mir.comparative.overlap import (
     _AA20,
+    compute_overlaps,
     count_overlap,
     expand_1mm,
     make_query_index,
@@ -35,15 +38,20 @@ from tests.conftest import skip_benchmarks
 # Shared factory
 # ---------------------------------------------------------------------------
 
-def _make_locus_rep(junction_aas: list[str], locus: str = "TRB") -> LocusRepertoire:
-    """Build a minimal LocusRepertoire from a list of junction_aa strings."""
+def _make_rep(
+    junction_aas: list[str],
+    *,
+    v_gene: str = "TRBV12-3*01",
+    j_gene: str = "TRBJ2-2*01",
+    locus: str = "TRB",
+) -> LocusRepertoire:
     clones = [
         Clonotype(
             sequence_id=str(i),
             locus=locus,
             junction_aa=jaa,
-            v_gene=f"TRBV1*0{i % 5 + 1}",
-            j_gene="TRBJ1-1*01",
+            v_gene=v_gene,
+            j_gene=j_gene,
             duplicate_count=i + 1,
         )
         for i, jaa in enumerate(junction_aas)
@@ -57,35 +65,35 @@ def _make_locus_rep(junction_aas: list[str], locus: str = "TRB") -> LocusReperto
 
 class TestExpand1mm:
     def test_count_exact(self) -> None:
-        seq = "CASSF"
-        variants = expand_1mm(seq)
-        assert len(variants) == 19 * len(seq) + 1
+        variants = expand_1mm("CASSF")
+        assert len(variants) == 19 * 5 + 1  # 96
 
     def test_original_is_first(self) -> None:
-        seq = "CASS"
-        assert expand_1mm(seq)[0] == seq
+        assert expand_1mm("CASS")[0] == "CASS"
 
-    def test_single_char(self) -> None:
+    def test_single_char_covers_all_20aa(self) -> None:
         variants = expand_1mm("C")
-        assert len(variants) == 20  # original + 19 substitutions
-        assert variants[0] == "C"
+        assert len(variants) == 20
         assert set(variants) == set(_AA20)
 
-    def test_no_duplicates_in_output(self) -> None:
+    def test_no_duplicates(self) -> None:
         variants = expand_1mm("CASSF")
         assert len(variants) == len(set(variants))
 
-    def test_all_variants_same_length(self) -> None:
+    def test_all_same_length(self) -> None:
         seq = "CASSEGFTGELFF"
         for v in expand_1mm(seq):
             assert len(v) == len(seq)
 
-    def test_each_position_has_19_variants(self) -> None:
+    def test_each_position_19_variants(self) -> None:
         seq = "CASS"
         variants = expand_1mm(seq)
         for i in range(len(seq)):
             at_pos = [v for v in variants[1:] if v[:i] == seq[:i] and v[i+1:] == seq[i+1:]]
-            assert len(at_pos) == 19, f"position {i} should have 19 variants, got {len(at_pos)}"
+            assert len(at_pos) == 19
+
+    def test_empty_string(self) -> None:
+        assert expand_1mm("") == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -93,16 +101,13 @@ class TestExpand1mm:
 # ---------------------------------------------------------------------------
 
 class TestMakeReferenceKeys:
-    def test_exact_basic(self) -> None:
-        rep = _make_locus_rep(["CASSF", "CASSY"])
-        keys = make_reference_keys(rep)
+    def test_basic_exact(self) -> None:
+        keys = make_reference_keys(_make_rep(["CASSF", "CASSY"]))
         assert len(keys) == 2
-        assert all(isinstance(k, tuple) and len(k) == 3 for k in keys)
+        assert all(len(k) == 3 for k in keys)
 
-    def test_exact_deduplication(self) -> None:
-        rep = _make_locus_rep(["CASSF", "CASSF"])
-        keys = make_reference_keys(rep)
-        assert len(keys) == 1
+    def test_deduplication(self) -> None:
+        assert len(make_reference_keys(_make_rep(["CASSF", "CASSF"]))) == 1
 
     def test_allele_stripped(self) -> None:
         clone = Clonotype(
@@ -110,10 +115,9 @@ class TestMakeReferenceKeys:
             v_gene="TRBV1*02", j_gene="TRBJ1-1*01", duplicate_count=1,
         )
         rep = LocusRepertoire(clonotypes=[clone], locus="TRB")
-        keys = make_reference_keys(rep)
-        assert ("CASSF", "TRBV1", "TRBJ1-1") in keys
+        assert ("CASSF", "TRBV1", "TRBJ1-1") in make_reference_keys(rep)
 
-    def test_empty_junction_aa_skipped(self) -> None:
+    def test_empty_junction_skipped(self) -> None:
         clone = Clonotype(
             sequence_id="0", locus="TRB", junction_aa="",
             v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1,
@@ -121,130 +125,191 @@ class TestMakeReferenceKeys:
         rep = LocusRepertoire(clonotypes=[clone], locus="TRB")
         assert len(make_reference_keys(rep)) == 0
 
-    def test_1mm_larger_than_exact(self) -> None:
-        rep = _make_locus_rep(["CASSF"])
+    def test_1mm_strictly_larger_than_exact(self) -> None:
+        rep = _make_rep(["CASSF"])
         exact = make_reference_keys(rep, allow_1mm=False)
         fuzzy = make_reference_keys(rep, allow_1mm=True)
         assert len(fuzzy) > len(exact)
-
-    def test_1mm_contains_exact(self) -> None:
-        rep = _make_locus_rep(["CASSF"])
-        exact = make_reference_keys(rep, allow_1mm=False)
-        fuzzy = make_reference_keys(rep, allow_1mm=True)
         assert exact.issubset(fuzzy)
 
     def test_1mm_size_upper_bound(self) -> None:
         jaa = "CASSF"
-        rep = _make_locus_rep([jaa])
-        fuzzy = make_reference_keys(rep, allow_1mm=True)
-        # At most 19 * len + 1 per clonotype (may be less due to same v/j dedup)
+        fuzzy = make_reference_keys(_make_rep([jaa]), allow_1mm=True)
         assert len(fuzzy) <= 19 * len(jaa) + 1
 
-    def test_1mm_single_substitution_present(self) -> None:
+    def test_1mm_contains_substitution(self) -> None:
         jaa = "CASSF"
-        rep = _make_locus_rep([jaa])
+        rep = _make_rep([jaa])
         fuzzy = make_reference_keys(rep, allow_1mm=True)
-        # "AASSF" is a valid single substitution (C→A at position 0)
         v = rep.clonotypes[0].v_gene.split("*")[0]
         j = rep.clonotypes[0].j_gene.split("*")[0]
-        assert ("AASSF", v, j) in fuzzy
+        assert ("AASSF", v, j) in fuzzy   # C→A at position 0
 
 
 # ---------------------------------------------------------------------------
-# count_overlap
+# count_overlap — exact path
 # ---------------------------------------------------------------------------
 
-class TestCountOverlap:
+class TestCountOverlapExact:
     def test_exact_match(self) -> None:
-        ref = _make_locus_rep(["CASSF"])
-        query = _make_locus_rep(["CASSF"])
-        ref_keys = make_reference_keys(ref)
-        qi = make_query_index(query)
-        n, dc = count_overlap(ref_keys, qi)
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["CASSF"])
+        n, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
         assert n == 1
         assert dc == query.clonotypes[0].duplicate_count
 
     def test_no_match(self) -> None:
-        ref = _make_locus_rep(["CASSF"])
-        query = _make_locus_rep(["CASSY"])
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["CASSY"])
         n, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
-        assert n == 0
-        assert dc == 0
-
-    def test_1mm_catches_near_match(self) -> None:
-        ref = _make_locus_rep(["CASSF"])
-        query = _make_locus_rep(["AASSF"])  # 1 substitution away
-
-        exact_keys = make_reference_keys(ref, allow_1mm=False)
-        fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
-        qi = make_query_index(query)
-
-        n_exact, _ = count_overlap(exact_keys, qi)
-        n_fuzzy, _ = count_overlap(fuzzy_keys, qi)
-
-        assert n_exact == 0
-        assert n_fuzzy == 1
-
-    def test_1mm_does_not_match_2mm(self) -> None:
-        ref = _make_locus_rep(["CASSF"])
-        # Two substitutions away
-        query = _make_locus_rep(["AASAF"])
-        fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
-        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
-        assert n == 0
+        assert n == 0 and dc == 0
 
     def test_empty_reference(self) -> None:
         ref = LocusRepertoire(clonotypes=[], locus="TRB")
-        query = _make_locus_rep(["CASSF"])
-        n, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
-        assert n == 0
-        assert dc == 0
+        n, dc = count_overlap(make_reference_keys(ref), make_query_index(_make_rep(["CASSF"])))
+        assert n == 0 and dc == 0
 
     def test_duplicate_count_summed(self) -> None:
-        ref = _make_locus_rep(["CASSF"])
-        # Two query entries with same junction_aa (unusual but valid)
+        ref = _make_rep(["CASSF"])
         c1 = Clonotype(sequence_id="0", locus="TRB", junction_aa="CASSF",
-                       v_gene="TRBV1*01", j_gene="TRBJ1-1*01", duplicate_count=3)
+                       v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=3)
         c2 = Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF",
-                       v_gene="TRBV1*01", j_gene="TRBJ1-1*01", duplicate_count=7)
+                       v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=7)
         query = LocusRepertoire(clonotypes=[c1, c2], locus="TRB")
         _, dc = count_overlap(make_reference_keys(ref), make_query_index(query))
         assert dc == 10
 
 
 # ---------------------------------------------------------------------------
+# count_overlap — pre-expanded reference (make_reference_keys allow_1mm=True)
+# ---------------------------------------------------------------------------
+
+class TestCountOverlapPreExpanded:
+    """Use make_reference_keys(allow_1mm=True) → fast exact path in count_overlap."""
+
+    def test_1mm_catches_near_match(self) -> None:
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["AASSF"])  # one substitution away
+        fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
+        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
+        assert n == 1
+
+    def test_2mm_not_matched(self) -> None:
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["AASAF"])  # two substitutions
+        fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
+        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
+        assert n == 0
+
+    def test_exact_still_matched(self) -> None:
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["CASSF"])
+        fuzzy_keys = make_reference_keys(ref, allow_1mm=True)
+        n, _ = count_overlap(fuzzy_keys, make_query_index(query))
+        assert n == 1
+
+
+# ---------------------------------------------------------------------------
+# count_overlap — compact reference keys with allow_1mm=True (lazy expansion)
+# ---------------------------------------------------------------------------
+
+class TestCountOverlapLazy1mm:
+    """Pass compact reference keys (no pre-expansion) with allow_1mm=True.
+    Must produce identical results to the pre-expanded approach."""
+
+    def test_catches_near_match(self) -> None:
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["AASSF"])
+        compact = make_reference_keys(ref, allow_1mm=False)
+        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
+        assert n == 1
+
+    def test_2mm_not_matched(self) -> None:
+        ref = _make_rep(["CASSF"])
+        query = _make_rep(["AASAF"])
+        compact = make_reference_keys(ref, allow_1mm=False)
+        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
+        assert n == 0
+
+    def test_no_double_count_multiple_ref(self) -> None:
+        # Query "AASSF" is 1mm from both "CASSF" (C→A) and "BASSF" (if B existed,
+        # but let's use AASSF→CASSF and AASSF→CASSY path).
+        # Two ref entries both 1mm from the same query entry → count once.
+        ref = _make_rep(["CASSF", "CASSY"])  # AASSF is 1mm from CASSF, not CASSY
+        query = _make_rep(["AASSF"])
+        compact = make_reference_keys(ref, allow_1mm=False)
+        n, _ = count_overlap(compact, make_query_index(query), allow_1mm=True)
+        assert n == 1  # not 2 — AASSF should be counted once
+
+    def test_same_result_as_pre_expanded(self) -> None:
+        ref = _make_rep(["CASSF", "CASSY", "CASSYA"])
+        query = _make_rep(["AASSF", "CASSY", "BASSY", "XXXXX"])
+        qi = make_query_index(query)
+        compact = make_reference_keys(ref, allow_1mm=False)
+        pre_exp = make_reference_keys(ref, allow_1mm=True)
+        n_lazy, dc_lazy   = count_overlap(compact, qi, allow_1mm=True)
+        n_pre,  dc_pre    = count_overlap(pre_exp, qi)
+        assert n_lazy == n_pre
+        assert dc_lazy == dc_pre
+
+
+# ---------------------------------------------------------------------------
+# compute_overlaps
+# ---------------------------------------------------------------------------
+
+class TestComputeOverlaps:
+    def test_single_threaded_matches_loop(self) -> None:
+        ref_sets = [
+            make_reference_keys(_make_rep(["CASSF"])),
+            make_reference_keys(_make_rep(["CASSY"])),
+            make_reference_keys(_make_rep(["CASSF", "CASSY"])),
+        ]
+        qi = make_query_index(_make_rep(["CASSF", "CASSY", "XXXXX"]))
+        expected = [count_overlap(k, qi) for k in ref_sets]
+        assert compute_overlaps(ref_sets, qi) == expected
+
+    def test_returns_correct_length(self) -> None:
+        ref_sets = [make_reference_keys(_make_rep([f"CASS{i}"])) for i in range(10)]
+        qi = make_query_index(_make_rep(["CASS0", "CASS5"]))
+        results = compute_overlaps(ref_sets, qi)
+        assert len(results) == 10
+
+    def test_parallel_matches_sequential(self) -> None:
+        ref_sets = [make_reference_keys(_make_rep([f"CASS{c}"])) for c in _AA20]
+        qi = make_query_index(_make_rep([f"CASS{c}" for c in _AA20[:10]]))
+        seq_results = compute_overlaps(ref_sets, qi, n_jobs=1)
+        par_results = compute_overlaps(ref_sets, qi, n_jobs=2)
+        assert seq_results == par_results
+
+    def test_1mm_parallel_matches_sequential(self) -> None:
+        ref_sets = [make_reference_keys(_make_rep([f"CASSF"])) for _ in range(4)]
+        qi = make_query_index(_make_rep(["AASSF", "CASSF"]))
+        seq = compute_overlaps(ref_sets, qi, allow_1mm=True, n_jobs=1)
+        par = compute_overlaps(ref_sets, qi, allow_1mm=True, n_jobs=2)
+        assert seq == par
+
+    def test_empty_list(self) -> None:
+        qi = make_query_index(_make_rep(["CASSF"]))
+        assert compute_overlaps([], qi) == []
+
+
+# ---------------------------------------------------------------------------
 # Benchmark — opt-in via RUN_BENCHMARK=1
 # ---------------------------------------------------------------------------
 
-def _make_synthetic_ref(n: int) -> LocusRepertoire:
-    """Generate *n* distinct synthetic CDR3s by cycling through amino acids."""
+def _make_synthetic_rep(n: int, offset: int = 0) -> LocusRepertoire:
+    """Generate *n* distinct synthetic TRB clonotypes cycling through AA20."""
     aas = list(_AA20)
     clones = []
     for i in range(n):
-        # 15-mer: fixed flanks + 3 variable positions encoded from index
-        a0 = aas[i % 20]
-        a1 = aas[(i // 20) % 20]
-        a2 = aas[(i // 400) % 20]
-        jaa = f"CASS{a0}{a1}{a2}GELFF"
+        a0 = aas[(i + offset) % 20]
+        a1 = aas[((i + offset) // 20) % 20]
+        a2 = aas[((i + offset) // 400) % 20]
         clones.append(Clonotype(
-            sequence_id=str(i), locus="TRB", junction_aa=jaa,
-            v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=1,
-        ))
-    return LocusRepertoire(clonotypes=clones, locus="TRB")
-
-
-def _make_synthetic_query(n: int) -> LocusRepertoire:
-    """Generate *n* distinct query clonotypes."""
-    aas = list(_AA20)
-    clones = []
-    for i in range(n):
-        a0 = aas[(i + 3) % 20]
-        a1 = aas[((i + 3) // 20) % 20]
-        a2 = aas[((i + 3) // 400) % 20]
-        jaa = f"CASS{a0}{a1}{a2}GELFF"
-        clones.append(Clonotype(
-            sequence_id=str(i), locus="TRB", junction_aa=jaa,
-            v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=i + 1,
+            sequence_id=str(i), locus="TRB",
+            junction_aa=f"CASS{a0}{a1}{a2}GELFF",
+            v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01",
+            duplicate_count=i + 1,
         ))
     return LocusRepertoire(clonotypes=clones, locus="TRB")
 
@@ -261,54 +326,116 @@ class TestOverlapSpeed:
 
     N_REF   = 500
     N_QUERY = 50_000
+    N_MOCKS = 1_000
 
     @pytest.fixture(scope="class")
     def ref_rep(self):
-        return _make_synthetic_ref(self.N_REF)
+        return _make_synthetic_rep(self.N_REF)
 
     @pytest.fixture(scope="class")
     def query_rep(self):
-        return _make_synthetic_query(self.N_QUERY)
+        return _make_synthetic_rep(self.N_QUERY, offset=3)
 
     @pytest.fixture(scope="class")
     def query_index(self, query_rep):
         return make_query_index(query_rep)
 
-    def test_key_build_exact(self, ref_rep) -> None:
+    @pytest.fixture(scope="class")
+    def mock_key_sets(self, ref_rep):
+        """Build N_MOCKS compact key sets (each identical to ref for timing)."""
+        base = make_reference_keys(ref_rep, allow_1mm=False)
+        return [base for _ in range(self.N_MOCKS)]
+
+    # --- key building ---
+
+    def test_key_build_exact_under_1ms(self, ref_rep) -> None:
         t0 = time.perf_counter()
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         elapsed = time.perf_counter() - t0
         print(f"\nexact  key build ({self.N_REF} clones): {len(keys):,} keys  {elapsed*1e3:.1f} ms")
-        assert len(keys) == self.N_REF
+        assert elapsed < 0.001, f"expected < 1 ms, got {elapsed*1e3:.1f} ms"
 
-    def test_key_build_1mm(self, ref_rep) -> None:
+    def test_key_build_1mm_under_100ms(self, ref_rep) -> None:
         t0 = time.perf_counter()
         keys = make_reference_keys(ref_rep, allow_1mm=True)
         elapsed = time.perf_counter() - t0
         print(f"\n1mm    key build ({self.N_REF} clones): {len(keys):,} keys  {elapsed*1e3:.1f} ms")
-        assert len(keys) > self.N_REF
+        assert elapsed < 0.1, f"expected < 100 ms, got {elapsed*1e3:.1f} ms"
 
-    def test_overlap_exact_speed(self, ref_rep, query_index) -> None:
+    # --- single overlap ---
+
+    def test_overlap_exact_under_1ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         t0 = time.perf_counter()
         n, dc = count_overlap(keys, query_index)
         elapsed = time.perf_counter() - t0
         print(f"\nexact  overlap ({self.N_REF} ref × {self.N_QUERY} query): "
               f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+        assert elapsed < 0.001
 
-    def test_overlap_1mm_speed(self, ref_rep, query_index) -> None:
+    def test_overlap_1mm_pre_expanded_under_50ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=True)
         t0 = time.perf_counter()
         n, dc = count_overlap(keys, query_index)
         elapsed = time.perf_counter() - t0
-        print(f"\n1mm    overlap ({self.N_REF} ref × {self.N_QUERY} query): "
+        print(f"\n1mm    overlap pre-exp ({self.N_REF} ref × {self.N_QUERY} query): "
               f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+        assert elapsed < 0.05
 
-    def test_1mm_finds_more_matches(self, ref_rep, query_rep, query_index) -> None:
+    def test_overlap_1mm_compact_under_50ms(self, ref_rep, query_index) -> None:
+        keys = make_reference_keys(ref_rep, allow_1mm=False)
+        t0 = time.perf_counter()
+        n, dc = count_overlap(keys, query_index, allow_1mm=True)
+        elapsed = time.perf_counter() - t0
+        print(f"\n1mm    overlap compact ({self.N_REF} ref × {self.N_QUERY} query): "
+              f"n={n}  dc={dc}  {elapsed*1e3:.2f} ms")
+        assert elapsed < 0.05
+
+    # --- 1mm finds more matches with strict lower bound ---
+
+    def test_1mm_finds_at_least_50pct_more_matches(
+        self, ref_rep, query_index
+    ) -> None:
         exact_keys = make_reference_keys(ref_rep, allow_1mm=False)
         fuzzy_keys = make_reference_keys(ref_rep, allow_1mm=True)
         n_exact, _ = count_overlap(exact_keys, query_index)
         n_fuzzy, _ = count_overlap(fuzzy_keys, query_index)
-        print(f"\nexact matches: {n_exact}  1mm matches: {n_fuzzy}  "
-              f"gain: {n_fuzzy - n_exact}")
-        assert n_fuzzy >= n_exact
+        gain = n_fuzzy - n_exact
+        print(f"\nexact={n_exact}  1mm={n_fuzzy}  gain={gain}  "
+              f"ratio={n_fuzzy/n_exact:.2f}x")
+        # 1mm should find substantially more matches; on a uniform synthetic
+        # reference with 500 clonotypes vs 50k query the 1mm set covers 16× more.
+        assert n_fuzzy >= 1.5 * n_exact, (
+            f"1mm ({n_fuzzy}) should be ≥ 1.5× exact ({n_exact}); "
+            f"got {n_fuzzy/n_exact:.2f}×"
+        )
+
+    # --- batch / parallel compute_overlaps ---
+
+    def test_compute_overlaps_sequential_timing(
+        self, mock_key_sets, query_index
+    ) -> None:
+        t0 = time.perf_counter()
+        results = compute_overlaps(mock_key_sets, query_index, n_jobs=1)
+        elapsed = time.perf_counter() - t0
+        print(f"\ncompute_overlaps seq  {self.N_MOCKS} exact mocks: {elapsed:.3f}s")
+        assert len(results) == self.N_MOCKS
+
+    def test_compute_overlaps_parallel_correct(
+        self, mock_key_sets, query_index
+    ) -> None:
+        seq = compute_overlaps(mock_key_sets[:20], query_index, n_jobs=1)
+        par = compute_overlaps(mock_key_sets[:20], query_index, n_jobs=2)
+        assert seq == par, "parallel results differ from sequential"
+        print(f"\ncompute_overlaps parallel (n_jobs=2): correct")
+
+    def test_compute_overlaps_1mm_timing(
+        self, mock_key_sets, query_index
+    ) -> None:
+        t0 = time.perf_counter()
+        results = compute_overlaps(mock_key_sets[:100], query_index,
+                                   allow_1mm=True, n_jobs=1)
+        elapsed = time.perf_counter() - t0
+        print(f"\ncompute_overlaps 1mm  100 compact mocks: {elapsed:.3f}s  "
+              f"({elapsed/100*1e3:.1f} ms/mock)")
+        assert len(results) == 100

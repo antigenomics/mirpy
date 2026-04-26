@@ -48,3 +48,4 @@ Analysis And Modeling
    cluster_associations
    grid_search_clf
    kmer_generator
+   vdjbet_yf
