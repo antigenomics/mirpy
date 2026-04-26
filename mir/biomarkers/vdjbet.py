@@ -1,17 +1,29 @@
-"""VDJBet: Pgen-matched mock repertoire generation.
+"""VDJBet: Pgen-matched mock repertoire generation and overlap analysis.
 
 Generate a null-model (mock) repertoire that mirrors the log₁₀ Pgen
-histogram of an input repertoire.  Optionally the mock can also reproduce
-V-gene and/or J-gene usage within each Pgen bin.
+histogram of an input repertoire.
 
 Algorithm
 ---------
 1. Compute Pgen for every clonotype; bin by ``⌊log₁₀ Pgen⌋``.
-2. Optionally extend each bin key with the V-gene, J-gene, or both.
-3. Sample from the OLGA null model in batches; accept each generated
-   sequence when its bin is not yet full, discard otherwise.
-4. Stop when all bins reach their target count or *max_sequences* have
-   been generated.  Emit a :class:`UserWarning` for any unfilled bin.
+2. Sample from the OLGA null model; accept each generated sequence when
+   its bin is not yet full, discard otherwise.
+3. The :class:`VDJBetOverlapAnalysis` class manages a growing cache of
+   OLGA-generated sequences.  For each mock the cache is traversed first;
+   if a bin still needs sequences, new ones are generated on-the-fly and
+   added to the cache for future use.  The cache grows up to
+   *max_cache_size* sequences in total.
+
+V/J gene bias correction
+------------------------
+Pass a :class:`~mir.basic.pgen.PgenGeneUsageAdjustment` to
+:class:`VDJBetOverlapAnalysis` to re-weight each generated sequence's
+Pgen by its V-J factor (target usage / OLGA usage).  This calibrates the
+mock null to match the target repertoire's V/J gene usage and eliminates
+protocol-induced V/J bias without explicit V/J stratification of the
+histogram.  This is the recommended approach; the old *fix_v_usage* /
+*fix_j_usage* options in the lower-level functions are retained for
+backward compatibility only.
 """
 
 from __future__ import annotations
@@ -19,7 +31,7 @@ from __future__ import annotations
 import math
 import warnings
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Union
 
@@ -144,7 +156,7 @@ def compute_pgen_histogram(
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Public API — lower-level functions (retained for backward compat)
 # ---------------------------------------------------------------------------
 
 def generate_mock_repertoire(
@@ -164,11 +176,12 @@ def generate_mock_repertoire(
         Input repertoire.  Its locus is used to select the OLGA model.
     fix_v_usage:
         When ``True``, match V-gene usage within each Pgen bin.
+        Not recommended when *pgen_adjustment* is supplied — use V/J
+        matching in :func:`~mir.comparative.overlap.count_overlap` instead.
     fix_j_usage:
         When ``True``, match J-gene usage within each Pgen bin.
     max_sequences:
         Cap on OLGA sequences to generate before giving up.
-        Defaults to 10 000 000.
     seed:
         numpy RNG seed for reproducibility.
     pgen_adjustment:
@@ -179,12 +192,7 @@ def generate_mock_repertoire(
     Returns
     -------
     Repertoire
-        Mock repertoire with the same Pgen (and optionally V/J) distribution
-        as *repertoire*.  ``duplicate_count`` values from the original
-        clonotypes (those with valid Pgen) are randomly shuffled and
-        re-assigned to the mock clonotypes so that the count distribution is
-        also preserved.  The repertoire may be smaller than *repertoire* if
-        some clonotypes have zero Pgen or if *max_sequences* is exhausted.
+        Mock repertoire with the same Pgen distribution as *repertoire*.
 
     Warns
     -----
@@ -229,20 +237,14 @@ def generate_mock_repertoire(
         return Repertoire(clonotypes=[], locus=locus,
                           repertoire_id=f"mock_{repertoire.repertoire_id}")
 
-    # Shuffle duplicate_counts using a dedicated RNG so OLGA's global
-    # numpy state (used in acceptance-rejection sampling) is unaffected.
     np.random.default_rng(seed).shuffle(valid_duplicate_counts)
     count_iter = iter(valid_duplicate_counts)
 
     remaining: dict[_BinKey, int] = dict(target)
-
-    # --- acceptance-rejection sampling ------------------------------------
     mock_clonotypes: list[Clonotype] = []
     total_generated = 0
 
     while remaining and total_generated < max_sequences:
-        # Scale batch to remaining need: over-shoot by 5× so we fill bins
-        # quickly without wasting pgen computation on fully-filled bins.
         still_needed = sum(remaining.values())
         batch_n = min(
             max(still_needed * 5, _MIN_BATCH),
@@ -284,7 +286,6 @@ def generate_mock_repertoire(
                 )
             )
 
-    # --- warn if histogram not fully filled --------------------------------
     if remaining:
         n_missing = sum(remaining.values())
         warnings.warn(
@@ -314,43 +315,29 @@ def generate_mock_from_pool(
 ) -> Repertoire:
     """Generate a Pgen-matched mock repertoire by sampling a pre-computed pool.
 
-    Unlike :func:`generate_mock_repertoire`, which runs OLGA acceptance-rejection
-    sampling on the fly, this function draws from *pool* — a list of pre-generated
-    OLGA sequences that already carry ``pgen`` (log₁₀) values.  This is orders of
-    magnitude faster when many mock repertoires are needed for the same target
-    because no new sequence generation is required.
+    Unlike :func:`generate_mock_repertoire`, which runs OLGA sampling on the
+    fly, this function draws from *pool* — a list of pre-generated sequences
+    with ``pgen`` (log₁₀) values.  This is faster when many mocks are needed
+    for the same target but requires a large enough pool to avoid replacement
+    sampling.
 
-    The pool should be large enough to fill every Pgen bin without replacement.
-    When a bin has fewer pool entries than required, sampling is done *with*
-    replacement and a :class:`UserWarning` is emitted.  Bins entirely absent from
-    the pool are silently skipped (same behaviour as
-    :func:`generate_mock_repertoire` when budget is exhausted).
+    For the primary analysis pipeline prefer :class:`VDJBetOverlapAnalysis`,
+    which manages a growing cache automatically.
 
     Parameters
     ----------
     repertoire:
         Input repertoire whose Pgen histogram is matched.
     pool:
-        Pre-generated OLGA sequences.  Each element must be a ``dict`` with at
-        least ``junction_aa``, ``v_gene``, ``j_gene``, and ``pgen`` (log₁₀ Pgen
-        as returned by
-        :meth:`~mir.basic.pgen.OlgaModel.generate_sequences_with_meta`).
-    fix_v_usage:
-        Match V-gene usage within each Pgen bin.
-    fix_j_usage:
-        Match J-gene usage within each Pgen bin.
+        Pre-generated OLGA sequences (each a dict with at least
+        ``junction_aa``, ``v_gene``, ``j_gene``, ``pgen`` (log₁₀)).
+    fix_v_usage, fix_j_usage:
+        Match V/J gene usage within each Pgen bin (not recommended when
+        *pgen_adjustment* is supplied).
     seed:
         Seed for the NumPy RNG used when drawing from the pool.
     pgen_adjustment:
-        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
-        supplied, reference clonotype Pgen values are multiplied by the V-J
-        factor before binning.  The *pool* is assumed to have been built with
-        the same adjustment (via :func:`build_olga_pool`).
-
-    Returns
-    -------
-    Repertoire
-        Mock repertoire with the same Pgen distribution as *repertoire*.
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.
     """
     if not repertoire.clonotypes:
         return Repertoire(clonotypes=[], locus=repertoire.locus,
@@ -359,7 +346,6 @@ def generate_mock_from_pool(
     locus = _resolve_locus(repertoire)
     model = OlgaModel(locus=locus, seed=seed)
 
-    # --- index pool by bin key -----------------------------------------------
     pool_by_key: dict[_BinKey, list[_PoolRecord]] = defaultdict(list)
     for rec in pool:
         log_pgen = rec.get("pgen", float("-inf"))
@@ -373,7 +359,6 @@ def generate_mock_from_pool(
         )
         pool_by_key[key].append(rec)
 
-    # --- build target histogram and collect duplicate_counts -----------------
     target: dict[_BinKey, int] = {}
     valid_duplicate_counts: list[int] = []
 
@@ -407,7 +392,6 @@ def generate_mock_from_pool(
     np.random.default_rng(seed).shuffle(valid_duplicate_counts)
     count_iter = iter(valid_duplicate_counts)
 
-    # --- sample from pool by bin ---------------------------------------------
     rng = np.random.default_rng(seed)
     mock_clonotypes: list[Clonotype] = []
     missing_keys: list[_BinKey] = []
@@ -416,7 +400,6 @@ def generate_mock_from_pool(
         available = pool_by_key.get(key, [])
         if not available:
             missing_keys.append(key)
-            # consume duplicate_counts to keep count_iter in sync
             for _ in range(n_needed):
                 next(count_iter, None)
             continue
@@ -472,10 +455,6 @@ def build_olga_pool(
 ) -> list[_PoolRecord]:
     """Generate a pool of OLGA sequences with pre-computed log₁₀ Pgen values.
 
-    The returned records are used by :func:`generate_mock_from_pool` and
-    :func:`generate_mock_key_sets_from_pool`.  Building the pool once and
-    reusing it across many mock generations avoids repeated OLGA sampling.
-
     Parameters
     ----------
     locus:
@@ -485,18 +464,13 @@ def build_olga_pool(
     seed:
         RNG seed for reproducibility.
     pgen_adjustment:
-        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
-        supplied, each pool record's ``pgen`` field stores the V-J-adjusted
-        log₁₀ Pgen.  Pass the same object to :func:`generate_mock_from_pool`
-        or :func:`generate_mock_key_sets_from_pool` so that pool and reference
-        bins are consistent.
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.
 
     Returns
     -------
     list[dict]
         Each record contains at least ``junction_aa``, ``v_gene``, ``j_gene``,
-        ``pgen`` (log₁₀ Pgen — ``-inf`` for zero-probability sequences),
-        ``junction`` (nucleotide), ``v_end``, and ``j_start``.
+        ``pgen`` (log₁₀ Pgen), ``junction`` (nucleotide), ``v_end``, ``j_start``.
     """
     model = OlgaModel(locus=locus, seed=seed)
     return model.generate_sequences_with_meta(n, pgens=True, seed=seed, pgen_adjustment=pgen_adjustment)
@@ -519,49 +493,27 @@ def generate_mock_key_sets_from_pool(
     returns frozensets of ``(junction_aa, v_base, j_base)`` keys — the exact
     format consumed by :func:`~mir.comparative.overlap.count_overlap`.
 
-    The pool is binned once; subsequent mock generations are pure NumPy array
-    index operations, so generating 1 000 mocks from a 50k-sequence pool takes
-    milliseconds rather than minutes.
-
-    .. note::
-
-       When ``fix_v_usage=True`` or ``fix_j_usage=True`` the pool is indexed
-       by ``(v_base, bin)`` or ``(v_base, j_base, bin)`` cells.  These cells
-       are much sparser than pgen-only bins, so sampling with replacement is
-       common.  Use a larger pool (≥ 200k) or accept the :class:`UserWarning`.
+    For the primary analysis pipeline prefer :class:`VDJBetOverlapAnalysis`,
+    which manages a growing cache and pgen_adjustment automatically.
 
     Parameters
     ----------
     reference_repertoire:
-        Reference repertoire whose Pgen histogram is matched (e.g. a VDJdb
-        epitope-specific set).  Its locus selects the OLGA model.
+        Reference repertoire whose Pgen histogram is matched.
     pool:
         Pre-generated OLGA sequences from :func:`build_olga_pool`.
     n_mocks:
         Number of mock key sets to generate.
-    fix_v_usage:
-        Match V-gene usage within each Pgen bin.
-    fix_j_usage:
-        Match J-gene usage within each Pgen bin.
+    fix_v_usage, fix_j_usage:
+        Match V/J gene usage within each Pgen bin.
     seed:
         Seed for the NumPy RNG.
-
-    Returns
-    -------
-    list[frozenset[tuple[str, str, str]]]
-        *n_mocks* frozensets, each the same format as
-        :func:`~mir.comparative.overlap.make_reference_keys` output.
-
-    Warns
-    -----
-    UserWarning
-        When pool bins have fewer sequences than needed (sampling with
-        replacement) or are entirely absent from the pool.
+    pgen_adjustment:
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.
     """
     locus = _resolve_locus(reference_repertoire)
     model = OlgaModel(locus=locus, seed=seed)
 
-    # --- bin the pool by (optionally V/J-stratified) Pgen bin ----------------
     pool_by_key: dict[_BinKey, list[_PoolRecord]] = defaultdict(list)
     for rec in pool:
         log_pgen = rec.get("pgen", float("-inf"))
@@ -575,7 +527,6 @@ def generate_mock_key_sets_from_pool(
         )
         pool_by_key[key].append(rec)
 
-    # --- bin the reference clonotypes by the same key scheme -----------------
     ref_bins: dict[_BinKey, list[Clonotype]] = defaultdict(list)
     for clone in reference_repertoire.clonotypes:
         pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
@@ -602,12 +553,11 @@ def generate_mock_key_sets_from_pool(
         )
         return [frozenset() for _ in range(n_mocks)]
 
-    # --- warn once about bins that will need replacement sampling -------------
+    absent_bins = [key for key in ref_bins if key not in pool_by_key]
     replacement_bins = [
         key for key in ref_bins
-        if len(pool_by_key.get(key, [])) < len(ref_bins[key])
+        if key in pool_by_key and len(pool_by_key[key]) < len(ref_bins[key])
     ]
-    absent_bins = [key for key in ref_bins if key not in pool_by_key]
     if absent_bins:
         warnings.warn(
             f"generate_mock_key_sets_from_pool: {len(absent_bins)} bin(s) are "
@@ -625,7 +575,6 @@ def generate_mock_key_sets_from_pool(
             stacklevel=2,
         )
 
-    # --- sample n_mocks times ------------------------------------------------
     rng = np.random.default_rng(seed)
     mock_key_sets: list[frozenset[tuple[str, str, str]]] = []
 
@@ -660,13 +609,7 @@ def _normalize_mock_keys(
     match_v: bool,
     match_j: bool,
 ) -> list[frozenset]:
-    """Strip V/J gene fields from mock keys when the corresponding match flag is off.
-
-    Mock key sets always carry full ``(junction_aa, v_base, j_base)`` tuples.
-    When ``match_v`` or ``match_j`` is ``False``, the query index has ``""`` in
-    that field; we strip the mock keys to match so that :func:`count_overlap`
-    sees consistent keys on both sides.
-    """
+    """Strip V/J gene fields from mock keys when the corresponding match flag is off."""
     if match_v and match_j:
         return mock_key_sets
     return [
@@ -679,7 +622,7 @@ def _normalize_mock_keys(
 
 
 # ---------------------------------------------------------------------------
-# Overlap result (single-config)
+# Overlap result
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -687,24 +630,20 @@ class OverlapResult:
     """Overlap statistics for one query sample under one set of match options.
 
     Produced by :meth:`VDJBetOverlapAnalysis.score`.  Per-mock distributions
-    are stored so the object is self-contained; z/p-scores are computed lazily
-    via :func:`functools.cached_property`.
+    are stored so the object is self-contained; z/p-scores are computed lazily.
 
     Attributes
     ----------
     n_total, dc_total:
-        Total unique clonotypes and total duplicate count in the query sample.
+        Total unique clonotypes and total duplicate count in the query.
     n, dc:
-        Unique clonotypes and cells overlapping the reference under the
-        chosen match options.
+        Unique clonotypes and cells overlapping the reference.
     mock_n, mock_dc:
         Per-mock overlap counts (length == n_mocks).
     allow_1mm:
         Whether 1-substitution CDR3 matching was used.
     match_v, match_j:
-        Whether V-gene / J-gene matching was required for the real overlap.
-    mock_v_fixed, mock_j_fixed:
-        Whether V-gene / J-gene usage was fixed when generating the mock null.
+        Whether V-gene / J-gene matching was required for the overlap.
     """
 
     n_total: int
@@ -716,10 +655,6 @@ class OverlapResult:
     allow_1mm: bool = False
     match_v: bool = True
     match_j: bool = True
-    mock_v_fixed: bool = False
-    mock_j_fixed: bool = False
-
-    # ---- internal z/p helper ---------------------------------------------
 
     @staticmethod
     def _z_p(real: float, mocks: list) -> tuple[float, float]:
@@ -732,8 +667,6 @@ class OverlapResult:
         z = float((real - mean) / std)
         return z, float(1.0 - _scipy_norm.cdf(z))
 
-    # ---- fractions -------------------------------------------------------
-
     @property
     def frac_n(self) -> float:
         """Fraction of query clonotypes overlapping the reference."""
@@ -743,8 +676,6 @@ class OverlapResult:
     def frac_dc(self) -> float:
         """Fraction of query cells overlapping the reference."""
         return self.dc / self.dc_total if self.dc_total else 0.0
-
-    # ---- clonotype-count z/p ---------------------------------------------
 
     @cached_property
     def _zp_n(self) -> tuple[float, float]:
@@ -759,8 +690,6 @@ class OverlapResult:
     def p_n(self) -> float:
         """One-sided p-value for unique-clonotype overlap (upper tail)."""
         return self._zp_n[1]
-
-    # ---- duplicate-count z/p (log₂-transformed) -------------------------
 
     @cached_property
     def _dc_log2(self) -> float:
@@ -786,101 +715,234 @@ class OverlapResult:
 
 
 # ---------------------------------------------------------------------------
-# Analysis class
+# Analysis class — growing cache
 # ---------------------------------------------------------------------------
 
 class VDJBetOverlapAnalysis:
     """Manages an epitope-specific reference with Pgen-matched mock null sets.
 
-    Builds and caches the OLGA pool and mock null distributions internally so
-    that :meth:`score` can be called repeatedly with different match options
-    without redundant sequence generation.
+    On the first :meth:`score` call the class builds a growing cache of
+    OLGA-generated sequences.  For each mock it first draws from the cache; if
+    a Pgen bin still needs sequences, new ones are generated on-the-fly and
+    added to the cache for future use.  The cache never exceeds
+    *max_cache_size* sequences.
+
+    V/J gene bias (e.g. from sequencing protocol differences) should be
+    corrected via *pgen_adjustment* rather than V/J histogram stratification.
+    With adjustment, the mock null reflects the target's V/J distribution and
+    a plain Pgen histogram (no V/J fixing) is sufficient.
 
     Parameters
     ----------
     reference:
-        Real epitope-specific reference repertoire (e.g. VDJdb LLWNGPMAV TRB
-        clonotypes).
+        Epitope-specific reference repertoire (e.g. VDJdb LLW TRB clonotypes).
     n_mocks:
-        Number of Pgen-matched mock key sets per null type.
-    pool_size:
-        OLGA pool size used when *method* is ``"pool"``.  Ignored when
-        *method* is ``"on_the_fly"``.
+        Number of Pgen-matched mock key sets to generate.  100 is usually
+        sufficient for reliable z-scores.
+    cache_size:
+        When given, pre-generate this many OLGA sequences into the cache
+        before the first :meth:`score` call.  ``None`` (default) lets the
+        cache grow lazily on demand.
+    max_cache_size:
+        Hard cap on total OLGA sequences cached.  On-the-fly generation stops
+        when this limit is reached even if some histogram bins are still
+        under-represented.
     seed:
-        RNG seed for pool generation and mock sampling.
-    method:
-        ``"pool"`` (default) — build an OLGA pool once and draw from it for
-        each mock set (orders of magnitude faster for large *n_mocks*).
-        ``"on_the_fly"`` — run acceptance-rejection OLGA sampling for each
-        mock independently (no pool memory, slower for many mocks).
+        RNG seed for reproducibility.
+    pgen_adjustment:
+        Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`.  When
+        supplied, each generated sequence's Pgen is multiplied by its V-J
+        factor before binning so that the null distribution matches the target
+        V/J gene usage.  **Recommended** when analysing samples from a
+        specific sequencing protocol.
 
     Examples
     --------
-    >>> analysis = VDJBetOverlapAnalysis(ref_repertoire, n_mocks=1000)
+    >>> from mir.basic.gene_usage import GeneUsage
+    >>> from mir.basic.pgen import PgenGeneUsageAdjustment
+    >>> # Build adjustment from target (e.g. all query samples combined)
+    >>> gu = GeneUsage.from_list(query_samples)
+    >>> adj = PgenGeneUsageAdjustment(gu)
+    >>> analysis = VDJBetOverlapAnalysis(llw_ref, n_mocks=100, pgen_adjustment=adj)
     >>> result = analysis.score(query_sample)
     >>> print(result.z_n, result.p_n)
-    >>> result_pvj = analysis.score(query_sample, mock_v_fixed=True, mock_j_fixed=True)
-    >>> print(result_pvj.z_n, result_pvj.p_n)
     """
 
     def __init__(
         self,
         reference: Repertoire,
         *,
-        n_mocks: int = 1000,
-        pool_size: int = 50_000,
+        n_mocks: int = 100,
+        cache_size: int | None = None,
+        max_cache_size: int = 10_000_000,
         seed: int = 42,
-        method: str = "pool",
         pgen_adjustment=None,
     ) -> None:
-        if method not in ("pool", "on_the_fly"):
-            raise ValueError(f"method must be 'pool' or 'on_the_fly', got {method!r}")
         self._reference = reference
         self._n_mocks = n_mocks
-        self._pool_size = pool_size
+        self._cache_size = cache_size
+        self._max_cache_size = max_cache_size
         self._seed = seed
-        self._method = method
         self._pgen_adjustment = pgen_adjustment
-        self._pool: list | None = None
-        self._mock_cache: dict[tuple[bool, bool], list[frozenset]] = {}
 
-    def _get_pool(self) -> list:
-        if self._pool is None:
-            locus = _resolve_locus(self._reference)
-            self._pool = build_olga_pool(
-                locus, self._pool_size, seed=self._seed,
-                pgen_adjustment=self._pgen_adjustment,
-            )
-        return self._pool
+        # Lazy state — populated on first use
+        self._locus: str | None = None
+        self._model: OlgaModel | None = None
+        self._cache: list[_PoolRecord] = []
+        # bin value → list of indices into _cache (includes valid pgen records only)
+        self._cache_by_bin: dict[int, list[int]] = defaultdict(list)
+        self._mock_key_sets: list[frozenset] | None = None
 
-    def _get_mocks(self, v_fixed: bool, j_fixed: bool) -> list[frozenset]:
-        key = (v_fixed, j_fixed)
-        if key not in self._mock_cache:
-            if self._method == "pool":
-                mocks = generate_mock_key_sets_from_pool(
-                    self._reference,
-                    self._get_pool(),
-                    self._n_mocks,
-                    fix_v_usage=v_fixed,
-                    fix_j_usage=j_fixed,
-                    seed=self._seed,
-                    pgen_adjustment=self._pgen_adjustment,
+        if cache_size is not None:
+            self._ensure_cache(cache_size)
+
+    # ------------------------------------------------------------------
+    # Internal lazy helpers
+    # ------------------------------------------------------------------
+
+    def _get_locus(self) -> str:
+        if self._locus is None:
+            self._locus = _resolve_locus(self._reference)
+        return self._locus
+
+    def _get_model(self) -> OlgaModel:
+        if self._model is None:
+            self._model = OlgaModel(locus=self._get_locus(), seed=self._seed)
+        return self._model
+
+    def _add_records(self, records: list[_PoolRecord]) -> None:
+        """Append records to the cache and update the bin index."""
+        for rec in records:
+            log_pgen = rec.get("pgen", float("-inf"))
+            if math.isinf(log_pgen):
+                continue
+            idx = len(self._cache)
+            self._cache.append(rec)
+            bin_val = int(math.floor(log_pgen))
+            self._cache_by_bin[bin_val].append(idx)
+
+    def _grow_cache(self, n: int) -> None:
+        """Generate *n* more OLGA sequences and add to cache."""
+        model = self._get_model()
+        records = model.generate_sequences_with_meta(
+            n, pgens=True, seed=None,
+            pgen_adjustment=self._pgen_adjustment,
+        )
+        self._add_records(records)
+
+    def _ensure_cache(self, target_size: int) -> None:
+        """Pre-fill cache up to *target_size* (bounded by max_cache_size)."""
+        need = min(target_size, self._max_cache_size) - len(self._cache)
+        if need > 0:
+            self._grow_cache(need)
+
+    def _compute_ref_bins(self) -> dict[int, list[Clonotype]]:
+        """Bin reference clonotypes by ⌊log₁₀ Pgen⌋ (pgen-only, no V/J)."""
+        locus = self._get_locus()
+        model = self._get_model()
+        ref_bins: dict[int, list[Clonotype]] = defaultdict(list)
+        for clone in self._reference.clonotypes:
+            pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
+            if pgen_val is None or pgen_val <= 0:
+                continue
+            if self._pgen_adjustment is not None:
+                pgen_val = self._pgen_adjustment.adjust_pgen(
+                    locus, clone.v_gene or "", clone.j_gene or "", pgen_val
                 )
-            else:
-                mocks = []
-                for i in range(self._n_mocks):
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", UserWarning)
-                        mock_rep = generate_mock_repertoire(
-                            self._reference,
-                            fix_v_usage=v_fixed,
-                            fix_j_usage=j_fixed,
-                            seed=self._seed + i,
-                            pgen_adjustment=self._pgen_adjustment,
-                        )
-                    mocks.append(make_reference_keys(mock_rep))
-            self._mock_cache[key] = mocks
-        return self._mock_cache[key]
+                if pgen_val <= 0:
+                    continue
+            bin_val = int(math.floor(math.log10(pgen_val)))
+            ref_bins[bin_val].append(clone)
+        return dict(ref_bins)
+
+    def _grow_for_bins(self, ref_bins: dict[int, list]) -> None:
+        """Grow cache until every bin can serve *n_mocks* draws without replacement.
+
+        Stops early if *max_cache_size* is reached.
+        """
+        batch = 10_000
+        while True:
+            if len(self._cache) >= self._max_cache_size:
+                break
+            all_ok = all(
+                len(self._cache_by_bin.get(b, [])) >= len(clones) * self._n_mocks
+                for b, clones in ref_bins.items()
+            )
+            if all_ok:
+                break
+            self._grow_cache(min(batch, self._max_cache_size - len(self._cache)))
+
+    def _build_mock_key_sets(self) -> list[frozenset]:
+        """Build *n_mocks* mock key sets using the growing cache."""
+        ref_bins = self._compute_ref_bins()
+
+        if not ref_bins:
+            warnings.warn(
+                "VDJBetOverlapAnalysis: all reference clonotypes have zero or "
+                "undefined Pgen; mock key sets will be empty.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return [frozenset() for _ in range(self._n_mocks)]
+
+        # Grow cache as needed
+        self._grow_for_bins(ref_bins)
+
+        # Warn about bins that still lack sufficient sequences
+        absent = [b for b in ref_bins if b not in self._cache_by_bin]
+        under = [
+            b for b in ref_bins
+            if b in self._cache_by_bin
+            and len(self._cache_by_bin[b]) < len(ref_bins[b]) * self._n_mocks
+        ]
+        if absent:
+            warnings.warn(
+                f"VDJBetOverlapAnalysis: {len(absent)} Pgen bin(s) absent from "
+                f"cache after {len(self._cache):,} total sequences; those bins "
+                "will be skipped.  Consider increasing max_cache_size.",
+                UserWarning,
+                stacklevel=3,
+            )
+        elif under:
+            warnings.warn(
+                f"VDJBetOverlapAnalysis: {len(under)} Pgen bin(s) have fewer cache "
+                f"sequences than needed for {self._n_mocks} replacement-free mocks; "
+                "sampling with replacement.  Consider increasing max_cache_size.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        rng = np.random.default_rng(self._seed)
+        mock_key_sets: list[frozenset] = []
+
+        for _ in range(self._n_mocks):
+            keys: set[tuple[str, str, str]] = set()
+            for bin_val, clones in ref_bins.items():
+                indices = self._cache_by_bin.get(bin_val, [])
+                if not indices:
+                    continue
+                n_needed = len(clones)
+                replace = len(indices) < n_needed
+                chosen = rng.choice(len(indices), n_needed, replace=replace)
+                for ci in chosen:
+                    rec = self._cache[indices[int(ci)]]
+                    keys.add((
+                        rec["junction_aa"],
+                        rec.get("v_gene", "").split("*")[0],
+                        rec.get("j_gene", "").split("*")[0],
+                    ))
+            mock_key_sets.append(frozenset(keys))
+
+        return mock_key_sets
+
+    def _get_mock_key_sets(self) -> list[frozenset]:
+        if self._mock_key_sets is None:
+            self._mock_key_sets = self._build_mock_key_sets()
+        return self._mock_key_sets
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def score(
         self,
@@ -889,11 +951,14 @@ class VDJBetOverlapAnalysis:
         allow_1mm: bool = False,
         match_v: bool = True,
         match_j: bool = True,
-        mock_v_fixed: bool = False,
-        mock_j_fixed: bool = False,
         n_jobs: int = 1,
     ) -> OverlapResult:
         """Compute overlap statistics for *sample* against the reference.
+
+        The mock null distribution is built once (and cached) the first time
+        this method is called.  Subsequent calls with different *allow_1mm*,
+        *match_v*, or *match_j* values reuse the same mock key sets — only the
+        query normalization differs.
 
         Parameters
         ----------
@@ -901,22 +966,20 @@ class VDJBetOverlapAnalysis:
             Query repertoire.
         allow_1mm:
             Count clonotypes within one amino-acid substitution of the
-            reference (in addition to exact matches).
+            reference CDR3 (in addition to exact matches).
         match_v:
-            Require V-gene match for the real query↔reference overlap.
+            Require V-gene match for the query↔reference overlap.
+            V/J matching in the overlap is preferred over V/J stratification
+            of the mock null.
         match_j:
-            Require J-gene match for the real query↔reference overlap.
-        mock_v_fixed:
-            Use V-gene-stratified Pgen mocks to control for V-gene bias.
-        mock_j_fixed:
-            Use J-gene-stratified Pgen mocks to control for J-gene bias.
+            Require J-gene match for the query↔reference overlap.
         n_jobs:
             Parallel worker processes for mock overlap computation.
 
         Returns
         -------
         OverlapResult
-            Single-configuration overlap statistics with z/p-scores.
+            Overlap statistics with z/p-scores computed from the mock null.
         """
         qi = make_query_index(sample, match_v=match_v, match_j=match_j)
         n_total  = len(qi)
@@ -927,7 +990,7 @@ class VDJBetOverlapAnalysis:
         )
         real = count_overlap(ref_keys, qi, allow_1mm=allow_1mm)
 
-        raw_mocks  = self._get_mocks(mock_v_fixed, mock_j_fixed)
+        raw_mocks  = self._get_mock_key_sets()
         norm_mocks = _normalize_mock_keys(raw_mocks, match_v=match_v, match_j=match_j)
         mock_res   = compute_overlaps(norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=n_jobs)
 
@@ -941,6 +1004,4 @@ class VDJBetOverlapAnalysis:
             allow_1mm=allow_1mm,
             match_v=match_v,
             match_j=match_j,
-            mock_v_fixed=mock_v_fixed,
-            mock_j_fixed=mock_j_fixed,
         )
