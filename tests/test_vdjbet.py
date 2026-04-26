@@ -19,17 +19,25 @@ import time
 
 import pytest
 
+import gzip
+from pathlib import Path
+
 from mir.basic.pgen import OlgaModel
 from mir.biomarkers.vdjbet import (
     _make_key,
     _strip_allele,
+    build_olga_pool,
     compute_pgen_histogram,
     generate_mock_from_pool,
+    generate_mock_key_sets_from_pool,
     generate_mock_repertoire,
 )
 from mir.common.clonotype import Clonotype
-from mir.common.repertoire import Repertoire
+from mir.common.repertoire import LocusRepertoire, Repertoire
 from tests.conftest import skip_benchmarks
+
+ASSETS = Path(__file__).parent / "assets"
+_GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -465,4 +473,233 @@ class TestPoolVsOnTheFlySpeed:
         assert speedup >= 0.5, (
             f"pool-based mock was unexpectedly slower than on-the-fly "
             f"({speedup:.2f}× speedup)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# build_olga_pool fast unit tests
+# ---------------------------------------------------------------------------
+
+class TestBuildOlgaPool:
+    def test_returns_list_of_dicts(self) -> None:
+        pool = build_olga_pool("TRB", 10, seed=_SEED)
+        assert isinstance(pool, list)
+        assert len(pool) == 10
+        assert all(isinstance(r, dict) for r in pool)
+
+    def test_required_keys_present(self) -> None:
+        pool = build_olga_pool("TRB", 5, seed=_SEED)
+        for rec in pool:
+            assert "junction_aa" in rec
+            assert "v_gene" in rec
+            assert "j_gene" in rec
+            assert "pgen" in rec
+
+    def test_pgen_is_float_or_neginf(self) -> None:
+        import math
+        pool = build_olga_pool("TRB", 10, seed=_SEED)
+        for rec in pool:
+            p = rec["pgen"]
+            assert isinstance(p, float)
+            assert p <= 0 or math.isinf(p)  # log10 pgen ≤ 0 or -inf
+
+    def test_reproducible_with_same_seed(self) -> None:
+        pool_a = build_olga_pool("TRB", 20, seed=_SEED)
+        pool_b = build_olga_pool("TRB", 20, seed=_SEED)
+        assert [r["junction_aa"] for r in pool_a] == [r["junction_aa"] for r in pool_b]
+
+
+# ---------------------------------------------------------------------------
+# generate_mock_key_sets_from_pool fast unit tests
+# ---------------------------------------------------------------------------
+
+class TestMockKeySetsFromPool:
+    @pytest.fixture(scope="class")
+    def small_pool(self):
+        return build_olga_pool("TRB", 200, seed=_SEED)
+
+    @pytest.fixture(scope="class")
+    def trb_ref_rep(self):
+        return _make_olga_locus_rep("TRB", 10)
+
+    def test_returns_n_frozensets(self, trb_ref_rep, small_pool) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 5, seed=_SEED)
+        assert len(result) == 5
+        assert all(isinstance(s, frozenset) for s in result)
+
+    def test_keys_are_3_tuples(self, trb_ref_rep, small_pool) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 2, seed=_SEED)
+        for mock in result:
+            for key in mock:
+                assert len(key) == 3
+                assert all(isinstance(x, str) for x in key)
+
+    def test_nonempty_mocks(self, trb_ref_rep, small_pool) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 3, seed=_SEED)
+        assert all(len(m) > 0 for m in result)
+
+    def test_empty_reference_returns_empty_sets(self, small_pool) -> None:
+        empty = LocusRepertoire(clonotypes=[], locus="TRB")
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = generate_mock_key_sets_from_pool(empty, small_pool, 3, seed=_SEED)
+        assert all(len(m) == 0 for m in result)
+
+    def test_reproducible_with_same_seed(self, trb_ref_rep, small_pool) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            a = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 3, seed=_SEED)
+            b = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 3, seed=_SEED)
+        assert a == b
+
+    def test_different_seeds_differ(self, trb_ref_rep, small_pool) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            a = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 5, seed=1)
+            b = generate_mock_key_sets_from_pool(trb_ref_rep, small_pool, 5, seed=2)
+        assert a != b
+
+
+def _make_olga_locus_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
+    """Like _make_olga_repertoire but returns LocusRepertoire."""
+    model = OlgaModel(locus=locus, seed=seed)
+    records = model.generate_sequences_with_meta(n, pgens=False, seed=None)
+    clones = [
+        Clonotype(
+            sequence_id=str(i), locus=locus,
+            junction_aa=r["junction_aa"], junction=r["junction"],
+            v_gene=r["v_gene"], j_gene=r["j_gene"],
+            v_sequence_end=r["v_end"], j_sequence_start=r["j_start"],
+            duplicate_count=1,
+        )
+        for i, r in enumerate(records)
+    ]
+    return LocusRepertoire(clonotypes=clones, locus=locus)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: 100 mocks × 100 clonotypes — pool vs on-the-fly (GILG reference)
+# ---------------------------------------------------------------------------
+
+N_GILG_CLONES = 100
+N_GILG_MOCKS  = 100
+N_GILG_POOL   = 10_000
+
+
+def _load_gilg_reference(n: int = N_GILG_CLONES) -> LocusRepertoire:
+    """Build a LocusRepertoire from the first *n* GILGFVFTL CDR3 sequences."""
+    if _GILG_FILE.exists():
+        with gzip.open(_GILG_FILE, "rt") as fh:
+            cdrs = [ln.strip() for ln in fh if ln.strip()][:n]
+    else:
+        # Synthetic fallback if the asset hasn't been fetched yet
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        cdrs = model.generate_sequences(n, seed=_SEED)
+    clones = [
+        Clonotype(
+            sequence_id=str(i), locus="TRB", junction_aa=cdr,
+            duplicate_count=1,
+        )
+        for i, cdr in enumerate(cdrs)
+    ]
+    return LocusRepertoire(clonotypes=clones, locus="TRB")
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestMockKeySetsVsOnTheFlyCGILG:
+    """Benchmark: generate 100 Pgen-matched mock reference sets for a
+    100-clonotype GILGFVFTL-epitope TRB reference.
+
+    Compare:
+    * **Pool method** — ``generate_mock_key_sets_from_pool(ref, pool, 100)``:
+      bins pool once; all 100 mocks via NumPy index sampling.
+    * **On-the-fly method** — 100 × ``generate_mock_repertoire(ref)`` +
+      100 × ``make_reference_keys`` to produce the equivalent frozensets.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestMockKeySetsVsOnTheFlyCGILG
+    """
+
+    @pytest.fixture(scope="class")
+    def gilg_ref(self):
+        return _load_gilg_reference(N_GILG_CLONES)
+
+    @pytest.fixture(scope="class")
+    def gilg_pool(self):
+        print(f"\nBuilding pool of {N_GILG_POOL} TRB sequences (one-time) ...")
+        return build_olga_pool("TRB", N_GILG_POOL, seed=_SEED)
+
+    def test_pool_100_mocks_timing(self, gilg_ref, gilg_pool) -> None:
+        import warnings as _w
+        t0 = time.perf_counter()
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            mocks = generate_mock_key_sets_from_pool(
+                gilg_ref, gilg_pool, N_GILG_MOCKS, seed=_SEED
+            )
+        elapsed = time.perf_counter() - t0
+        print(
+            f"\npool   {N_GILG_MOCKS} mocks × {N_GILG_CLONES} clones: "
+            f"{elapsed:.3f}s  ({elapsed/N_GILG_MOCKS*1e3:.1f} ms/mock)"
+        )
+        assert len(mocks) == N_GILG_MOCKS
+
+    def test_onthefly_100_mocks_timing(self, gilg_ref) -> None:
+        from mir.comparative.overlap import make_reference_keys as _mk
+        import warnings as _w
+        t0 = time.perf_counter()
+        key_sets = []
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            for _ in range(N_GILG_MOCKS):
+                mock_rep = generate_mock_repertoire(gilg_ref, seed=_SEED)
+                key_sets.append(_mk(mock_rep))
+        elapsed = time.perf_counter() - t0
+        print(
+            f"\non-fly {N_GILG_MOCKS} mocks × {N_GILG_CLONES} clones: "
+            f"{elapsed:.3f}s  ({elapsed/N_GILG_MOCKS*1e3:.1f} ms/mock)"
+        )
+        assert len(key_sets) == N_GILG_MOCKS
+
+    def test_speedup_reported(self, gilg_ref, gilg_pool) -> None:
+        from mir.comparative.overlap import make_reference_keys as _mk
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+
+            t0 = time.perf_counter()
+            for _ in range(N_GILG_MOCKS):
+                mock_rep = generate_mock_repertoire(gilg_ref, seed=_SEED)
+                _mk(mock_rep)
+            t_onfly = time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            generate_mock_key_sets_from_pool(
+                gilg_ref, gilg_pool, N_GILG_MOCKS, seed=_SEED
+            )
+            t_pool = time.perf_counter() - t0
+
+        speedup = t_onfly / t_pool if t_pool > 0 else float("inf")
+        print(
+            f"\non-fly {t_onfly:.2f}s  vs  pool {t_pool:.3f}s  "
+            f"→ {speedup:.0f}× speedup"
+        )
+        assert speedup >= 2.0, (
+            f"pool method should be ≥ 2× faster than on-the-fly; "
+            f"got {speedup:.1f}×"
         )
