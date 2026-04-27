@@ -178,6 +178,84 @@ class TestGeneUsage:
             frac = gu.vj_fraction("TRB", pseudocount=pc)
             assert abs(frac[("TRBV1", "TRBJ1-1")] - frac[("TRBV2", "TRBJ1-1")]) < 1e-12
 
+    def test_count_mode_aliases(self) -> None:
+        clones = _make_trb_clonotypes(
+            ("TRBV1", "TRBJ1-1", 2, 7),
+            ("TRBV2", "TRBJ1-1", 1, 3),
+        )
+        rep = LocusRepertoire(clonotypes=clones, locus="TRB")
+        gu = GeneUsage.from_repertoire(rep)
+
+        assert gu.total("TRB", count="count_rearrangement") == 3
+        assert gu.total("TRB", count="count_duplicates") == 17
+        assert gu.v_usage("TRB", count="count_rearrangements")["TRBV1"] == 2
+        assert gu.v_usage("TRB", count="duplicates")["TRBV1"] == 14
+
+    def test_usage_comparison_uses_frequency_not_counts(self) -> None:
+        target = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(
+                ("TRBV1", "TRBJ1-1", 3, 1),
+                ("TRBV2", "TRBJ1-2", 1, 1),
+            ),
+            locus="TRB",
+        )
+        ref = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(
+                ("TRBV1", "TRBJ1-1", 1, 1),
+                ("TRBV2", "TRBJ1-2", 3, 1),
+            ),
+            locus="TRB",
+        )
+
+        tgt_gu = GeneUsage.from_repertoire(target)
+        ref_gu = GeneUsage.from_repertoire(ref)
+        cmp_v = tgt_gu.usage_comparison(ref_gu, "TRB", scope="v", count="count_rearrangement", pseudocount=1.0)
+
+        # with pseudocount=1 and 2 V genes in each set:
+        # p_target(TRBV1) = (3+1)/(4+2)=4/6, p_ref(TRBV1)=(1+1)/(4+2)=2/6
+        assert abs(cmp_v["TRBV1"]["p_self"] - (4.0 / 6.0)) < 1e-12
+        assert abs(cmp_v["TRBV1"]["p_reference"] - (2.0 / 6.0)) < 1e-12
+        assert abs(cmp_v["TRBV1"]["factor"] - 2.0) < 1e-12
+
+    def test_usage_comparison_weighted_mode(self) -> None:
+        target = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(
+                ("TRBV1", "TRBJ1-1", 1, 10),
+                ("TRBV2", "TRBJ1-2", 1, 2),
+            ),
+            locus="TRB",
+        )
+        ref = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(
+                ("TRBV1", "TRBJ1-1", 1, 3),
+                ("TRBV2", "TRBJ1-2", 1, 9),
+            ),
+            locus="TRB",
+        )
+
+        tgt_gu = GeneUsage.from_repertoire(target)
+        ref_gu = GeneUsage.from_repertoire(ref)
+        cmp_vj = tgt_gu.usage_comparison(ref_gu, "TRB", scope="vj", count="count_duplicates", pseudocount=1.0)
+
+        # Target: totals 12, Ref: totals 12, 2 keys each.
+        # p_target(v1j1)=(10+1)/(12+2)=11/14, p_ref(v1j1)=(3+1)/(12+2)=4/14
+        assert abs(cmp_vj[("TRBV1", "TRBJ1-1")]["p_self"] - (11.0 / 14.0)) < 1e-12
+        assert abs(cmp_vj[("TRBV1", "TRBJ1-1")]["p_reference"] - (4.0 / 14.0)) < 1e-12
+
+    def test_correction_factors_strip_alleles(self) -> None:
+        target = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(("TRBV1*01", "TRBJ1-1*01", 2, 1)),
+            locus="TRB",
+        )
+        ref = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(("TRBV1*02", "TRBJ1-1*02", 1, 1)),
+            locus="TRB",
+        )
+        tgt_gu = GeneUsage.from_repertoire(target)
+        ref_gu = GeneUsage.from_repertoire(ref)
+        factors = tgt_gu.correction_factors(ref_gu, "TRB", scope="vj", count="count_rearrangement", pseudocount=1.0)
+        assert ("TRBV1", "TRBJ1-1") in factors
+
 
 # ---------------------------------------------------------------------------
 # TestClonotypeValidation

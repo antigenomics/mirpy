@@ -14,7 +14,6 @@ Core Workflows
    parsing_airr
    diversity_estimation
    repertoire_resampling
-   segment_usage_analysis
    gene_similarity
    sample_repertoire_overview
 

@@ -68,14 +68,6 @@ mir.basic.mirseq module
    :undoc-members:
    :show-inheritance:
 
-mir.basic.segment_usage module
-------------------------------
-
-.. automodule:: mir.basic.segment_usage
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.basic.token\_tables module
 ------------------------------
 
