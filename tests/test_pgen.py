@@ -7,6 +7,7 @@ Mean log10 Pgen for each model is printed for reference.
 """
 import math
 import time
+import tracemalloc
 
 import pytest
 
@@ -142,3 +143,41 @@ class TestParallelGenerationBenchmark:
         # Soft lower bound: parallel must not be catastrophically slower.
         # On macOS spawn-start adds ~1-2 s overhead; true speedup appears at N ≥ 100k.
         assert speedup > 0.1, f"4-core generation is >10x slower than 1-core ({speedup:.2f}x)"
+
+    def test_pgen_cache_speedup_and_memory(self, trb_model):
+        """Benchmark repeated Pgen calls to verify cache effectiveness.
+
+        Pattern mirrors real analyses: many repeated CDR3 aa queries across
+        samples and mock builds.
+        """
+        seqs = trb_model.generate_sequences(300, seed=123)
+        # Force repeats so cache hits are measurable.
+        repeated = seqs + seqs + seqs
+
+        tracemalloc.start()
+        t0 = time.perf_counter()
+        p1 = trb_model.compute_pgen_junction_aa_bulk(repeated)
+        t_first = time.perf_counter() - t0
+        _, peak_first = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        tracemalloc.start()
+        t1 = time.perf_counter()
+        p2 = trb_model.compute_pgen_junction_aa_bulk(repeated)
+        t_second = time.perf_counter() - t1
+        _, peak_second = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        speedup = (t_first / t_second) if t_second > 0 else float("inf")
+        print(
+            "\nPgen cache benchmark: "
+            f"first={t_first:.3f}s second={t_second:.3f}s speedup={speedup:.2f}x "
+            f"peak_mem_first={peak_first/(1024**2):.1f}MiB "
+            f"peak_mem_second={peak_second/(1024**2):.1f}MiB"
+        )
+
+        assert p1 == p2, "Cached and uncached bulk Pgen outputs must match exactly"
+        # Cache should not make repeated pass slower by a large margin.
+        assert speedup >= 0.8, f"Unexpected cache regression: {speedup:.2f}x"
+        # Guardrail against runaway memory growth in cache-heavy paths.
+        assert peak_first < 1_500 * 1024 * 1024, "Pgen first-pass peak memory unexpectedly high"
