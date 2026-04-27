@@ -587,13 +587,22 @@ class PgenGeneUsageAdjustment:
         *,
         cache_size: int = 100_000,
         seed: int = 42,
+        count: str = "count_rearrangement",
+        pseudocount: float = 1.0,
+        reference: "GeneUsage | None" = None,
     ) -> None:
         from mir.basic.gene_usage import GeneUsage as _GeneUsage  # local for TYPE_CHECKING compat
 
         self._target = target
         self._cache_size = cache_size
         self._seed = seed
+        self._count = count
+        self._pseudocount = pseudocount
         self._olga_cache: dict[str, _GeneUsage] = {}
+        if reference is not None:
+            for locus in reference.loci:
+                self._olga_cache[locus] = reference
+        self._factor_cache: dict[str, dict[tuple[str, str], float]] = {}
 
     def _get_olga_cache(self, locus: str):
         if locus not in self._olga_cache:
@@ -602,6 +611,23 @@ class PgenGeneUsageAdjustment:
                 self._cache_size, seed=self._seed
             )
         return self._olga_cache[locus]
+
+    def _get_factor_cache(self, locus: str) -> dict[tuple[str, str], float]:
+        if locus not in self._factor_cache:
+            olga = self._get_olga_cache(locus)
+            factors = self._target.correction_factors(
+                olga,
+                locus,
+                scope="vj",
+                count=self._count,
+                pseudocount=self._pseudocount,
+            )
+            self._factor_cache[locus] = {
+                key: float(val)
+                for key, val in factors.items()
+                if isinstance(key, tuple) and len(key) == 2
+            }
+        return self._factor_cache[locus]
 
     def factor(self, locus: str, v: str, j: str) -> float:
         """Pgen adjustment factor for (locus, v, j).
@@ -617,23 +643,7 @@ class PgenGeneUsageAdjustment:
         v_base = v.split("*")[0]
         j_base = j.split("*")[0]
         pair = (v_base, j_base)
-
-        target_usage = self._target.vj_usage(locus)
-        target_total = self._target.total(locus)
-        n_target_pairs = len(target_usage)
-        t_n = target_usage.get(pair, 0)
-        t_denom = target_total + n_target_pairs
-        t_frac = (t_n + 1.0) / t_denom if t_denom > 0 else 1.0
-
-        olga = self._get_olga_cache(locus)
-        olga_usage = olga.vj_usage(locus)
-        olga_total = olga.total(locus)
-        n_olga_pairs = len(olga_usage)
-        o_n = olga_usage.get(pair, 0)
-        o_denom = olga_total + n_olga_pairs
-        o_frac = (o_n + 1.0) / o_denom if o_denom > 0 else 1.0
-
-        return t_frac / o_frac
+        return self._get_factor_cache(locus).get(pair, 1.0)
 
     def adjust_pgen(self, locus: str, v: str, j: str, pgen: float) -> float:
         """Return ``pgen * factor(locus, v, j)``.

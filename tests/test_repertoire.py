@@ -8,8 +8,9 @@ import pandas as pd
 import pytest
 
 from mir.common.gene_library import GeneLibrary
+from mir.common.clonotype import Clonotype
 from mir.common.parser import VDJtoolsParser, ClonotypeTableParser
-from mir.common.repertoire import Repertoire
+from mir.common.repertoire import Repertoire, SampleRepertoire
 from tests.conftest import skip_benchmarks
 
 ASSETS_DIR = Path(__file__).parent / "assets"
@@ -158,6 +159,64 @@ class TestTimeSeriesRepertoires(unittest.TestCase):
                 f"Time-series cohort genes absent from OLGA TRB library — "
                 f"V genes: {sorted(unknown_v)}, J genes: {sorted(unknown_j)}"
             )
+
+
+class TestRepertoirePickleRoundTrip:
+    def test_locus_repertoire_pickle_round_trip(self, tmp_path) -> None:
+        rep = Repertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSLGQETQYF",
+                    v_gene="TRBV5-1*01",
+                    j_gene="TRBJ2-7*01",
+                    duplicate_count=7,
+                )
+            ],
+            locus="TRB",
+            repertoire_id="rep1",
+            repertoire_metadata={"run": "sample-1"},
+        )
+        path = tmp_path / "rep.pkl"
+        rep.to_pickle(path)
+        loaded = Repertoire.from_pickle(path)
+
+        assert loaded.locus == rep.locus
+        assert loaded.repertoire_id == rep.repertoire_id
+        assert loaded.repertoire_metadata == rep.repertoire_metadata
+        assert loaded.clonotype_count == rep.clonotype_count
+        assert loaded.duplicate_count == rep.duplicate_count
+        assert loaded.clonotypes[0].junction_aa == rep.clonotypes[0].junction_aa
+
+    def test_sample_repertoire_pickle_round_trip(self, tmp_path) -> None:
+        rep = Repertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRA",
+                    junction_aa="CAVRDSNYQLIW",
+                    v_gene="TRAV1-2*01",
+                    j_gene="TRAJ33*01",
+                    duplicate_count=3,
+                )
+            ],
+            locus="TRA",
+            repertoire_id="rep-tra",
+        )
+        sample = SampleRepertoire(
+            loci={"TRA": rep},
+            sample_id="sample-1",
+            sample_metadata={"cohort": "test"},
+        )
+        path = tmp_path / "sample.pkl"
+        sample.to_pickle(path)
+        loaded = SampleRepertoire.from_pickle(path)
+
+        assert loaded.sample_id == sample.sample_id
+        assert loaded.sample_metadata == sample.sample_metadata
+        assert set(loaded.loci) == {"TRA"}
+        assert loaded.loci["TRA"].clonotype_count == 1
 
 
 @skip_benchmarks

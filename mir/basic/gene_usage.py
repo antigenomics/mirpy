@@ -16,6 +16,35 @@ if TYPE_CHECKING:
 
 _VJPair = tuple[str, str]
 
+_COUNT_MODE_ALIASES = {
+    "clonotypes": "clonotypes",
+    "clonotype": "clonotypes",
+    "rearrangement": "clonotypes",
+    "rearrangements": "clonotypes",
+    "count_rearrangement": "clonotypes",
+    "count_rearrangements": "clonotypes",
+    "duplicates": "duplicates",
+    "duplicate": "duplicates",
+    "count_duplicates": "duplicates",
+}
+
+
+def _normalize_count_mode(count: str) -> str:
+    """Normalize public count-mode aliases.
+
+    Supported modes:
+    - ``clonotypes`` / ``count_rearrangement`` (unweighted, default)
+    - ``duplicates`` / ``count_duplicates`` (weighted by duplicate_count)
+    """
+    normalized = _COUNT_MODE_ALIASES.get(str(count).strip().lower())
+    if normalized is None:
+        raise ValueError(
+            f"Unknown count mode: {count!r}. "
+            "Use 'clonotypes'/'count_rearrangement' or "
+            "'duplicates'/'count_duplicates'."
+        )
+    return normalized
+
 
 def _strip_allele(gene: str) -> str:
     """``"TRBV1*01"`` → ``"TRBV1"``."""
@@ -129,8 +158,9 @@ class GeneUsage:
             locus: IMGT locus code.
             count: ``"clonotypes"`` (unique rearrangements) or ``"duplicates"``.
         """
+        normalized = _normalize_count_mode(count)
         totals = self._totals.get(locus, [0, 0])
-        return totals[0] if count == "clonotypes" else totals[1]
+        return totals[0] if normalized == "clonotypes" else totals[1]
 
     # ------------------------------------------------------------------
     # Usage accessors
@@ -151,7 +181,8 @@ class GeneUsage:
         Returns:
             Dict mapping ``(v_base, j_base)`` to the requested count.
         """
-        idx = 0 if count == "clonotypes" else 1
+        normalized = _normalize_count_mode(count)
+        idx = 0 if normalized == "clonotypes" else 1
         return {pair: vals[idx] for pair, vals in self._data.get(locus, {}).items()}
 
     def v_usage(
@@ -161,7 +192,8 @@ class GeneUsage:
         count: str = "clonotypes",
     ) -> dict[str, int]:
         """Marginal V-gene usage (sum over all J) for *locus*."""
-        idx = 0 if count == "clonotypes" else 1
+        normalized = _normalize_count_mode(count)
+        idx = 0 if normalized == "clonotypes" else 1
         result: dict[str, int] = defaultdict(int)
         for (v, _j), vals in self._data.get(locus, {}).items():
             result[v] += vals[idx]
@@ -174,7 +206,8 @@ class GeneUsage:
         count: str = "clonotypes",
     ) -> dict[str, int]:
         """Marginal J-gene usage (sum over all V) for *locus*."""
-        idx = 0 if count == "clonotypes" else 1
+        normalized = _normalize_count_mode(count)
+        idx = 0 if normalized == "clonotypes" else 1
         result: dict[str, int] = defaultdict(int)
         for (_v, j), vals in self._data.get(locus, {}).items():
             result[j] += vals[idx]
@@ -241,3 +274,98 @@ class GeneUsage:
         if denom == 0:
             return {}
         return {j: (n + pseudocount) / denom for j, n in usage.items()}
+
+    # ------------------------------------------------------------------
+    # Cross-dataset comparison helpers
+    # ------------------------------------------------------------------
+
+    def usage_comparison(
+        self,
+        reference: "GeneUsage",
+        locus: str,
+        *,
+        scope: str = "vj",
+        count: str = "count_rearrangement",
+        pseudocount: float = 1.0,
+    ) -> dict[object, dict[str, float]]:
+        """Compare smoothed usage frequencies against another GeneUsage.
+
+        Frequencies are computed independently for ``self`` and ``reference``
+        using Laplace smoothing with the same pseudocount:
+
+        ``(n_key + pseudocount) / (total + n_observed_keys * pseudocount)``.
+
+        Args:
+            reference: Baseline gene usage to compare against (e.g. OLGA).
+            locus: IMGT locus code.
+            scope: ``"v"``, ``"j"``, or ``"vj"``.
+            count: Count mode alias (default ``count_rearrangement``).
+            pseudocount: Additive smoothing constant (must be >= 0).
+
+        Returns:
+            Mapping from key (gene or VJ tuple) to:
+            ``{"p_self": ..., "p_reference": ..., "factor": ...}``.
+        """
+        if pseudocount < 0:
+            raise ValueError("pseudocount must be non-negative")
+
+        scope_norm = str(scope).strip().lower()
+        if scope_norm == "v":
+            self_usage = self.v_usage(locus, count=count)
+            ref_usage = reference.v_usage(locus, count=count)
+        elif scope_norm == "j":
+            self_usage = self.j_usage(locus, count=count)
+            ref_usage = reference.j_usage(locus, count=count)
+        elif scope_norm == "vj":
+            self_usage = self.vj_usage(locus, count=count)
+            ref_usage = reference.vj_usage(locus, count=count)
+        else:
+            raise ValueError("scope must be one of: 'v', 'j', 'vj'")
+
+        self_total = self.total(locus, count=count)
+        ref_total = reference.total(locus, count=count)
+        n_self = len(self_usage)
+        n_ref = len(ref_usage)
+
+        self_denom = self_total + n_self * pseudocount
+        ref_denom = ref_total + n_ref * pseudocount
+
+        all_keys = sorted(set(self_usage) | set(ref_usage))
+        result: dict[object, dict[str, float]] = {}
+        for key in all_keys:
+            p_self = (
+                (self_usage.get(key, 0) + pseudocount) / self_denom
+                if self_denom > 0
+                else 0.0
+            )
+            p_ref = (
+                (ref_usage.get(key, 0) + pseudocount) / ref_denom
+                if ref_denom > 0
+                else 0.0
+            )
+            factor = (p_self / p_ref) if p_ref > 0 else float("inf")
+            result[key] = {
+                "p_self": float(p_self),
+                "p_reference": float(p_ref),
+                "factor": float(factor),
+            }
+        return result
+
+    def correction_factors(
+        self,
+        reference: "GeneUsage",
+        locus: str,
+        *,
+        scope: str = "vj",
+        count: str = "count_rearrangement",
+        pseudocount: float = 1.0,
+    ) -> dict[object, float]:
+        """Return correction factors ``P_self / P_reference`` by key."""
+        comparison = self.usage_comparison(
+            reference,
+            locus,
+            scope=scope,
+            count=count,
+            pseudocount=pseudocount,
+        )
+        return {k: v["factor"] for k, v in comparison.items()}

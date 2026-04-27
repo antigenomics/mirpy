@@ -786,7 +786,7 @@ class TestYFVP1SignificanceAndPgenBins:
     @pytest.fixture(scope="class")
     def pgen_adj(self, yfv_meta: pd.DataFrame) -> PgenGeneUsageAdjustment:
         gu = self._build_gene_usage(yfv_meta)
-        return PgenGeneUsageAdjustment(gu, cache_size=25_000, seed=42)
+        return PgenGeneUsageAdjustment(gu, cache_size=100_000, seed=42)
 
     @pytest.fixture(scope="class")
     def pool(self, pgen_adj: PgenGeneUsageAdjustment) -> PgenBinPool:
@@ -830,6 +830,23 @@ class TestYFVP1SignificanceAndPgenBins:
         r = self._score(analysis, yfv_samples, "P1", 15)
         print(f"\nP1 F1 d15: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
         assert r.z_n > 1.96
+
+    def test_p1_f1_d0_duplicate_count_below_d15(self, analysis, yfv_samples) -> None:
+        """Day-0 duplicate-count effect should remain below day-15."""
+        r = self._score(analysis, yfv_samples, "P1", 0)
+        r15 = self._score(analysis, yfv_samples, "P1", 15)
+        print(
+            f"\nP1 F1 dc d0: z={r.z_dc:.2f}  p={r.p_dc:.4f}; "
+            f"d15 z={r15.z_dc:.2f}"
+        )
+        assert r.z_dc < r15.z_dc
+        assert r.z_dc <= 0.6 * r15.z_dc
+
+    def test_p1_f1_d15_duplicate_count_significant(self, analysis, yfv_samples) -> None:
+        """Day-15 duplicate-count enrichment should be significant."""
+        r = self._score(analysis, yfv_samples, "P1", 15)
+        print(f"\nP1 F1 d15 duplicate_count: z={r.z_dc:.2f}  p={r.p_dc:.4f}  dc={r.dc}")
+        assert r.z_dc > 1.96
 
     def test_mock_distribution_quality(self, analysis) -> None:
         """200 mock distributions must be close to reference by multiple metrics.
