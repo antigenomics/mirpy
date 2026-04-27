@@ -5,7 +5,7 @@ histogram of an input repertoire.
 
 Algorithm
 ---------
-1. Compute Pgen for every clonotype; bin by ``⌊log₁₀ Pgen⌋``.
+1. Compute Pgen for every clonotype; bin by ``round(log₂ Pgen)``.
 2. Sample from the OLGA null model; accept each generated sequence when
    its bin is not yet full, discard otherwise.
 3. The :class:`VDJBetOverlapAnalysis` class manages a growing cache of
@@ -31,6 +31,7 @@ from __future__ import annotations
 import math
 import warnings
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor as _ProcessPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Union
@@ -47,6 +48,34 @@ from mir.comparative.overlap import (
     make_query_index,
     make_reference_keys,
 )
+
+_LOG2_10 = math.log2(10)  # convert stored log10 Pgen to log2
+
+
+def _pgen_bin(log10_pgen: float) -> int:
+    """Convert stored log10 Pgen to a log2 bin (round to nearest integer)."""
+    return round(log10_pgen * _LOG2_10)
+
+
+def _raw_pgen_bin(pgen: float) -> int:
+    """Convert raw linear Pgen to a log2 bin."""
+    return round(math.log2(pgen))
+
+
+def _olga_meta_worker(args: tuple) -> list[dict]:
+    """Worker for parallel OLGA sequence generation."""
+    init_kwargs, n, seed, pgen_adjustment = args
+    from mir.basic.pgen import OlgaModel as _M
+    model = _M(**init_kwargs)
+    return model.generate_sequences_with_meta(
+        n, pgens=True, seed=seed, pgen_adjustment=pgen_adjustment
+    )
+
+
+def _split_n(n: int, k: int) -> list[int]:
+    """Split *n* into *k* approximately equal parts."""
+    base, rem = divmod(n, k)
+    return [base + (1 if i < rem else 0) for i in range(k)]
 
 # Pool record: dict with junction_aa, v_gene, j_gene, pgen (log10 Pgen),
 # junction (nt), v_end, j_start — as returned by generate_sequences_with_meta.
@@ -143,7 +172,7 @@ def compute_pgen_histogram(
         pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
         if pgen_val is None or pgen_val <= 0:
             continue
-        bin_val = int(math.floor(math.log10(pgen_val)))
+        bin_val = _raw_pgen_bin(pgen_val)
         key = _make_key(
             _strip_allele(clone.v_gene),
             _strip_allele(clone.j_gene),
@@ -218,7 +247,7 @@ def generate_mock_repertoire(
             pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
             if pgen_val <= 0:
                 continue
-        bin_val = int(math.floor(math.log10(pgen_val)))
+        bin_val = _raw_pgen_bin(pgen_val)
         key = _make_key(
             _strip_allele(clone.v_gene),
             _strip_allele(clone.j_gene),
@@ -262,7 +291,7 @@ def generate_mock_repertoire(
             log_pgen = rec["pgen"]
             if math.isinf(log_pgen):
                 continue
-            bin_val = int(math.floor(log_pgen))
+            bin_val = _pgen_bin(log_pgen)
             v = _strip_allele(rec["v_gene"]) if fix_v_usage else ""
             j = _strip_allele(rec["j_gene"]) if fix_j_usage else ""
             key = _make_key(v, j, bin_val, fix_v_usage, fix_j_usage)
@@ -351,7 +380,7 @@ def generate_mock_from_pool(
         log_pgen = rec.get("pgen", float("-inf"))
         if math.isinf(log_pgen):
             continue
-        bin_val = int(math.floor(log_pgen))
+        bin_val = _pgen_bin(log_pgen)
         key = _make_key(
             _strip_allele(rec.get("v_gene", "")),
             _strip_allele(rec.get("j_gene", "")),
@@ -370,7 +399,7 @@ def generate_mock_from_pool(
             pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
             if pgen_val <= 0:
                 continue
-        bin_val = int(math.floor(math.log10(pgen_val)))
+        bin_val = _raw_pgen_bin(pgen_val)
         key = _make_key(
             _strip_allele(clone.v_gene),
             _strip_allele(clone.j_gene),
@@ -519,7 +548,7 @@ def generate_mock_key_sets_from_pool(
         log_pgen = rec.get("pgen", float("-inf"))
         if math.isinf(log_pgen):
             continue
-        bin_val = int(math.floor(log_pgen))
+        bin_val = _pgen_bin(log_pgen)
         key = _make_key(
             _strip_allele(rec.get("v_gene", "")),
             _strip_allele(rec.get("j_gene", "")),
@@ -536,7 +565,7 @@ def generate_mock_key_sets_from_pool(
             pgen_val = pgen_adjustment.adjust_pgen(locus, clone.v_gene or "", clone.j_gene or "", pgen_val)
             if pgen_val <= 0:
                 continue
-        bin_val = int(math.floor(math.log10(pgen_val)))
+        bin_val = _raw_pgen_bin(pgen_val)
         key = _make_key(
             _strip_allele(clone.v_gene or ""),
             _strip_allele(clone.j_gene or ""),
@@ -777,6 +806,7 @@ class VDJBetOverlapAnalysis:
         max_cache_size: int = 10_000_000,
         seed: int = 42,
         pgen_adjustment=None,
+        n_jobs: int = 1,
     ) -> None:
         self._reference = reference
         self._n_mocks = n_mocks
@@ -784,6 +814,8 @@ class VDJBetOverlapAnalysis:
         self._max_cache_size = max_cache_size
         self._seed = seed
         self._pgen_adjustment = pgen_adjustment
+        self._n_jobs = n_jobs
+        self._gen_count: int = 0
 
         # Lazy state — populated on first use
         self._locus: str | None = None
@@ -818,16 +850,27 @@ class VDJBetOverlapAnalysis:
                 continue
             idx = len(self._cache)
             self._cache.append(rec)
-            bin_val = int(math.floor(log_pgen))
+            bin_val = _pgen_bin(log_pgen)
             self._cache_by_bin[bin_val].append(idx)
 
     def _grow_cache(self, n: int) -> None:
         """Generate *n* more OLGA sequences and add to cache."""
         model = self._get_model()
-        records = model.generate_sequences_with_meta(
-            n, pgens=True, seed=None,
-            pgen_adjustment=self._pgen_adjustment,
-        )
+        if self._n_jobs <= 1:
+            records = model.generate_sequences_with_meta(
+                n, pgens=True, seed=None,
+                pgen_adjustment=self._pgen_adjustment,
+            )
+        else:
+            sizes = _split_n(n, self._n_jobs)
+            args = [
+                (model._init_kwargs, sz, self._seed + self._gen_count + i, self._pgen_adjustment)
+                for i, sz in enumerate(sizes)
+            ]
+            with _ProcessPoolExecutor(max_workers=self._n_jobs) as ex:
+                chunks = list(ex.map(_olga_meta_worker, args))
+            records = [r for chunk in chunks for r in chunk]
+        self._gen_count += n
         self._add_records(records)
 
     def _ensure_cache(self, target_size: int) -> None:
@@ -837,7 +880,7 @@ class VDJBetOverlapAnalysis:
             self._grow_cache(need)
 
     def _compute_ref_bins(self) -> dict[int, list[Clonotype]]:
-        """Bin reference clonotypes by ⌊log₁₀ Pgen⌋ (pgen-only, no V/J)."""
+        """Bin reference clonotypes by round(log₂ Pgen) (pgen-only, no V/J)."""
         locus = self._get_locus()
         model = self._get_model()
         ref_bins: dict[int, list[Clonotype]] = defaultdict(list)
@@ -851,7 +894,7 @@ class VDJBetOverlapAnalysis:
                 )
                 if pgen_val <= 0:
                     continue
-            bin_val = int(math.floor(math.log10(pgen_val)))
+            bin_val = _raw_pgen_bin(pgen_val)
             ref_bins[bin_val].append(clone)
         return dict(ref_bins)
 
@@ -951,7 +994,6 @@ class VDJBetOverlapAnalysis:
         allow_1mm: bool = False,
         match_v: bool = True,
         match_j: bool = True,
-        n_jobs: int = 1,
     ) -> OverlapResult:
         """Compute overlap statistics for *sample* against the reference.
 
@@ -973,8 +1015,6 @@ class VDJBetOverlapAnalysis:
             of the mock null.
         match_j:
             Require J-gene match for the query↔reference overlap.
-        n_jobs:
-            Parallel worker processes for mock overlap computation.
 
         Returns
         -------
@@ -992,7 +1032,7 @@ class VDJBetOverlapAnalysis:
 
         raw_mocks  = self._get_mock_key_sets()
         norm_mocks = _normalize_mock_keys(raw_mocks, match_v=match_v, match_j=match_j)
-        mock_res   = compute_overlaps(norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=n_jobs)
+        mock_res   = compute_overlaps(norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=self._n_jobs)
 
         return OverlapResult(
             n_total=n_total,

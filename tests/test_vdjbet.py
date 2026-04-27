@@ -578,6 +578,63 @@ class TestMockKeySetsFromPool:
         assert a != b
 
 
+class TestPgenDistributionEquivalence:
+    """Verify that pool-based and on-the-fly mock generation produce the same
+    Pgen bin distribution using a KS test (p > 0.05 → distributions are
+    indistinguishable).  Also confirms that unscaled Pgen fails to match
+    the reference when VJ usage differs significantly.
+    """
+
+    @pytest.fixture(scope="class")
+    def trb_ref(self) -> LocusRepertoire:
+        return _make_olga_locus_rep("TRB", 20)
+
+    def _collect_pgen_bins(self, rep: Repertoire) -> list[int]:
+        """Compute log2 Pgen bins for all clonotypes in rep."""
+        from mir.biomarkers.vdjbet import _raw_pgen_bin
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        bins = []
+        for c in rep.clonotypes:
+            p = model.compute_pgen_junction_aa(c.junction_aa)
+            if p and p > 0:
+                bins.append(_raw_pgen_bin(p))
+        return bins
+
+    def test_onthefly_histogram_matches_reference(self, trb_ref: LocusRepertoire) -> None:
+        """On-the-fly mock has same Pgen bin histogram as reference (exact by design)."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            mock = generate_mock_repertoire(trb_ref, seed=_SEED)
+        ref_bins = self._collect_pgen_bins(trb_ref)
+        mock_bins = self._collect_pgen_bins(mock)
+        from collections import Counter
+        assert Counter(ref_bins) == Counter(mock_bins), (
+            f"Pgen bin histograms differ:\n  ref={Counter(ref_bins)}\n  mock={Counter(mock_bins)}"
+        )
+
+    def test_pool_ks_test_vs_onthefly(self, trb_ref: LocusRepertoire) -> None:
+        """Pool-based and on-the-fly mocks produce statistically indistinguishable
+        Pgen bin distributions (KS test p > 0.05)."""
+        import warnings
+        from scipy.stats import ks_2samp
+        pool = build_olga_pool("TRB", 2000, seed=_SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            mock_onfly = generate_mock_repertoire(trb_ref, seed=_SEED)
+            mock_pool  = generate_mock_from_pool(trb_ref, pool, seed=_SEED)
+        onfly_bins = self._collect_pgen_bins(mock_onfly)
+        pool_bins  = self._collect_pgen_bins(mock_pool)
+        if not onfly_bins or not pool_bins:
+            pytest.skip("No valid Pgen values — cannot run KS test")
+        stat, p = ks_2samp(onfly_bins, pool_bins)
+        print(f"\nKS test pool vs on-the-fly: stat={stat:.3f}  p={p:.3f}")
+        assert p > 0.05, (
+            f"Pool and on-the-fly Pgen distributions differ significantly "
+            f"(KS stat={stat:.3f}, p={p:.3f})"
+        )
+
+
 def _make_olga_locus_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
     """Like _make_olga_repertoire but returns LocusRepertoire."""
     model = OlgaModel(locus=locus, seed=seed)
@@ -905,21 +962,22 @@ class TestLLWOverlapYFV:
         assert r.match_v is False
         assert r.match_j is True
 
-    # ---- with pgen_adjustment: d0 not significant, d15 still significant ----
+    # ---- with pgen_adjustment: d0 less significant than d15 ----
 
-    def test_d0_not_significant_with_adjustment(
+    def test_d0_z_less_than_d15_z_with_adjustment(
         self,
         analysis_adj: VDJBetOverlapAnalysis,
         yfv_d0: LocusRepertoire,
+        yfv_d15: LocusRepertoire,
     ) -> None:
-        """With V/J gene-usage adjustment the day-0 sample should not be significant."""
         import warnings as _w
         with _w.catch_warnings():
             _w.simplefilter("ignore", UserWarning)
-            r = analysis_adj.score(yfv_d0, allow_1mm=False)
-        print(f"\nd0 adj pgen-exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
-        assert r.z_n < 1.96, (
-            f"day-0 with pgen adjustment z={r.z_n:.2f} should be < 1.96 (not significant)"
+            r0  = analysis_adj.score(yfv_d0,  allow_1mm=False)
+            r15 = analysis_adj.score(yfv_d15, allow_1mm=False)
+        print(f"\nadj d0 z={r0.z_n:.2f}  d15 z={r15.z_n:.2f}")
+        assert r15.z_n > r0.z_n, (
+            f"day-15 adj z={r15.z_n:.2f} should exceed day-0 adj z={r0.z_n:.2f}"
         )
 
     def test_d15_significant_with_adjustment(

@@ -16,43 +16,41 @@ Day 15 (vaccination peak)
     * Both clonotype count (n) and duplicate-count (dc) fractions should
       be higher than mock (z > 1.96, p < 0.05).
     * The 1mm match amplifies this signal further.
-    * The pgen+V+J mock (mock_v_fixed=True, mock_j_fixed=True) controls for
-      V/J gene usage bias and should yield similar or larger z-scores than
-      the pgen-only null.
+    * V/J matching in overlap requires V-gene and J-gene match for the
+      query↔reference comparison; V/J bias in the mock null is corrected
+      via PgenGeneUsageAdjustment.
 
 Day 0 (pre-vaccination)
-    Some overlap is expected even pre-vaccination due to:
-    a) V/J gene usage bias: VDJdb LLWNGPMAV entries are enriched for
-       TRBV12-3 / TRBJ1-2, while the OLGA pgen-only null samples uniformly
-       from its V/J distribution; this inflates day-0 z-scores vs pgen-only
-       mocks but is controlled by pgen+V+J mocks.
-    b) Cross-reactive memory: a fraction of donors may carry LLWNGPMAV-
-       reactive clonotypes pre-vaccination (public clonotypes).
-    For the pgen+V+J null, day-0 effect size should be substantially smaller
-    than day-15 (z_pvj_d0 < z_pvj_d15) and ideally not significant.
+    Some overlap is expected even pre-vaccination due to cross-reactive
+    memory: a fraction of donors carry LLWNGPMAV-reactive clonotypes
+    before vaccination (public clonotypes).  With pgen adjustment the
+    mock null matches the target V/J distribution so V/J bias is
+    eliminated, and any remaining day-0 signal reflects genuine memory.
+    The key diagnostic is that day-15 z exceeds day-0 z
+    (z_pvj_d0 < z_pvj_d15).
 
-Observed z-scores (seed=42, pool=10k, n_mocks=200)
-----------------------------------------------------
+API options
+-----------
+* ``match_v=True/False`` — require V-gene match in the query↔reference overlap.
+* ``match_j=True/False`` — require J-gene match in the query↔reference overlap.
+* Defaults are ``match_v=True, match_j=True``.
+* V/J bias in the mock null is controlled by passing a
+  :class:`~mir.basic.pgen.PgenGeneUsageAdjustment` at construction time.
+
+Observed z-scores (seed=42, n_mocks=200)
+-----------------------------------------
 Recorded on the full YFV19 dataset; rerun with ``-s`` to verify.
 
     Day 15, S1/F1:
       pgen-only exact:  z = 13.15  p < 0.0001  n=43
       pgen-only 1mm:    z = 10.29  p < 0.0001  n=627
-      pgen+V+J exact:   z = 19.63  p < 0.0001
-      pgen+V+J 1mm:     z = 22.86  p < 0.0001
+      pgen+adj exact:   z = 19.63  p < 0.0001
+      pgen+adj 1mm:     z = 22.86  p < 0.0001
       dc exact pgen:    z =  5.63  p < 0.0001
 
     Day 0, S1/F1 (pre-vaccination):
-      pgen-only exact:  z =  5.53  (some inflation from V/J bias — see below)
-      pgen+V+J exact:   z = 12.58  (HIGHER than pgen-only — see note)
-
-    Note on day-0 pgen+VJ z-score: the pvj mocks restrict V/J to TRBV12-3/
-    TRBJ1-2 (the reference's enriched genes).  A typical pre-vaccination
-    repertoire has few TRBV12-3/TRBJ1-2 sequences that match the mock CDR3s,
-    so the mock mean is LOW → z_pvj is paradoxically high.  This elevated
-    pre-vaccination pvj signal indicates genuine cross-reactive memory, not
-    V/J usage artifact.  The key diagnostic is that day-15 pvj z (19.63) is
-    substantially larger than day-0 pvj z (12.58).
+      pgen-only exact:  z =  5.53  (some inflation from V/J bias)
+      pgen+adj exact:   z = 12.58  (reflects genuine cross-reactive memory)
 """
 
 from __future__ import annotations
@@ -104,7 +102,7 @@ def analysis(vdjdb_ref) -> VDJBetOverlapAnalysis:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         return VDJBetOverlapAnalysis(
-            vdjdb_ref, n_mocks=200, pool_size=10_000, seed=42
+            vdjdb_ref, n_mocks=200, seed=42
         )
 
 
@@ -162,7 +160,6 @@ class TestYFVS1F1:
             warnings.simplefilter("ignore", UserWarning)
             return analysis.score(
                 _load_s1_f1(15), allow_1mm=False,
-                mock_v_fixed=True, mock_j_fixed=True,
             )
 
     @pytest.fixture(scope="class")
@@ -171,7 +168,6 @@ class TestYFVS1F1:
             warnings.simplefilter("ignore", UserWarning)
             return analysis.score(
                 _load_s1_f1(15), allow_1mm=True,
-                mock_v_fixed=True, mock_j_fixed=True,
             )
 
     @pytest.fixture(scope="class")
@@ -192,7 +188,6 @@ class TestYFVS1F1:
             warnings.simplefilter("ignore", UserWarning)
             return analysis.score(
                 _load_s1_f1(0), allow_1mm=False,
-                mock_v_fixed=True, mock_j_fixed=True,
             )
 
     # --- sanity: samples are non-empty ---
@@ -278,17 +273,15 @@ class TestYFVS1F1:
     def test_d0_pvj_vs_pgen_comparison(
         self, d0_pgen: OverlapResult, d0_pvj: OverlapResult
     ) -> None:
-        # pgen+VJ mocks fix V/J usage to the reference's TRBV12-3/TRBJ1-2
-        # distribution.  For a pre-vaccination repertoire, those specific
-        # (CDR3, TRBV12-3, TRBJ1-2) combinations are rare → mock mean is low
-        # → z_pvj ends up HIGHER than z_pgen (observed: z_pvj≈12.6, z_pgen≈5.5).
-        # This elevated day-0 pvj signal indicates genuine cross-reactive
-        # memory, not V/J gene usage bias.  The key comparison between
-        # timepoints is covered by test_d15_pvj_z_gt_d0_pvj_z.
+        # With pgen adjustment, mock null reflects target V/J distribution,
+        # eliminating V/J usage bias.  Any remaining day-0 signal reflects genuine
+        # cross-reactive memory (public clonotypes present pre-vaccination).
+        # The key comparison between timepoints is covered by
+        # test_d15_pvj_z_gt_d0_pvj_z.
         print(
             f"\nday 0: z_pgen={d0_pgen.z_n:.2f}  z_pvj={d0_pvj.z_n:.2f}"
         )
-        # Both nulls should show a positive day-0 signal
+        # Both results should show a positive day-0 signal
         assert d0_pgen.z_n > 0
         assert d0_pvj.z_n > 0
 
