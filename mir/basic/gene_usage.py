@@ -55,8 +55,22 @@ class GeneUsage:
     """Joint and marginal V-J gene usage statistics.
 
     Stores per-locus clonotype counts and duplicate-count totals for every
-    observed (V-gene, J-gene) pair.  Alleles are stripped automatically so
-    ``TRBV1*01`` and ``TRBV1`` are treated as the same gene.
+    observed (V-gene, J-gene) pair.  **Gene alleles are automatically stripped**
+    so ``TRBV1*01`` and ``TRBV1`` are treated as the same gene for usage
+    statistics.
+
+    Important Notes on Allele Normalization
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    When computing gene usage, this class normalizes gene identifiers by
+    removing allele information (e.g., ``TRBV1*01`` → ``TRBV1``). This allows
+    comparison of repertoires that may use different allele naming conventions.
+
+    When using gene usage statistics as targets for resampling (see
+    :func:`mir.common.sampling.resample_to_gene_usage`), clonotypes retain
+    their original alleles; only the gene base (stripped form) is used for
+    computing and comparing gene usage frequencies. This ensures that
+    downsampled/resampled repertoires preserve the original allele information
+    from the input data.
 
     Build with the class-method constructors rather than calling ``__init__``
     directly.
@@ -66,6 +80,12 @@ class GeneUsage:
     >>> gu = GeneUsage.from_repertoire(trb_repertoire)
     >>> gu.vj_fraction("TRB")
     {('TRBV12-3', 'TRBJ1-2'): 0.42, ...}
+
+    Warns
+    ------
+    When comparing gene usage between repertoires with different allele
+    naming conventions, results will be normalized to base genes. For
+    detailed allele-specific analysis, examine repertoires directly.
     """
 
     def __init__(self) -> None:

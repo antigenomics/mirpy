@@ -3,6 +3,21 @@
 This module provides functions to downsample immune repertoires by randomly
 sampling clonotypes according to their abundance, and to resample them to
 match target gene usage distributions.
+
+Important Notes on Allele Handling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This module preserves the original allele information from clonotypes while
+using stripped gene bases for gene usage comparisons. For example:
+- When comparing gene usage, ``TRBV1*01`` and ``TRBV1*02`` are treated as
+  the same V-gene (``TRBV1``)
+- Clonotypes in the output repertoire retain their original alleles
+- Target gene usage dicts should use base gene names (without alleles)
+
+This design ensures:
+1. Downsampled/resampled repertoires preserve input allele information
+2. Gene usage statistics are comparable across datasets with different
+   allele naming conventions
+3. No accidental data loss due to allele normalization
 """
 
 from __future__ import annotations
@@ -319,6 +334,79 @@ def resample_to_gene_usage(
 
     return SampleRepertoire(
         loci=resampled_loci,
+        sample_id=repertoire.sample_id,
+        sample_metadata=dict(repertoire.sample_metadata),
+    )
+
+
+# ------------------------------------------------------------------
+# Select top clonotypes
+# ------------------------------------------------------------------
+
+
+def select_top(
+    repertoire: LocusRepertoire | SampleRepertoire,
+    top_n: int,
+) -> LocusRepertoire | SampleRepertoire:
+    """Select the top *top_n* most abundant clonotypes by duplicate count.
+
+    Clonotypes are ranked by duplicate_count in descending order. If *top_n*
+    exceeds the number of clonotypes, a warning is issued and all clonotypes
+    are returned.
+
+    Parameters
+    ----------
+    repertoire:
+        The repertoire to subsample.
+    top_n:
+        Number of top clonotypes to keep. Must be > 0.
+
+    Returns
+    -------
+    LocusRepertoire | SampleRepertoire
+        Repertoire containing only the top *top_n* clonotypes, sorted by
+        duplicate_count descending.
+
+    Warnings
+    --------
+    UserWarning
+        If *top_n* exceeds the number of clonotypes in the repertoire.
+    """
+    if top_n <= 0:
+        raise ValueError(f"top_n must be > 0, got {top_n}")
+
+    if isinstance(repertoire, LocusRepertoire):
+        if top_n >= len(repertoire.clonotypes):
+            warnings.warn(
+                f"top_n ({top_n}) >= number of clonotypes ({len(repertoire.clonotypes)}); "
+                "returning all clonotypes",
+                UserWarning,
+            )
+            selected = list(repertoire.clonotypes)
+        else:
+            # Sort by duplicate count descending and take top N
+            sorted_clonotypes = sorted(
+                repertoire.clonotypes,
+                key=lambda c: c.duplicate_count,
+                reverse=True,
+            )
+            selected = sorted_clonotypes[:top_n]
+
+        return LocusRepertoire(
+            clonotypes=selected,
+            locus=repertoire.locus,
+            repertoire_id=repertoire.repertoire_id,
+            repertoire_metadata=dict(repertoire.repertoire_metadata),
+        )
+
+    # For SampleRepertoire, select top from each locus independently
+    top_loci = {
+        locus: select_top(lr, top_n)
+        for locus, lr in repertoire.loci.items()
+    }
+
+    return SampleRepertoire(
+        loci=top_loci,
         sample_id=repertoire.sample_id,
         sample_metadata=dict(repertoire.sample_metadata),
     )
