@@ -20,6 +20,14 @@ mir.common.clonotype_dataset module
    :undoc-members:
    :show-inheritance:
 
+mir.common.filter module
+------------------------
+
+.. automodule:: mir.common.filter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.parser module
 ------------------------
 
