@@ -4,10 +4,22 @@ Functions for computing clonotype overlap between a query repertoire and
 one or more reference sets.  Matching is by CDR3 junction_aa and, optionally,
 by V-gene and/or J-gene (allele suffixes are stripped before comparison).
 
+Normalization
+~~~~~~~~~~~~~
+Overlap counts can be normalized by the target (reference) repertoire size
+by passing ``target_n`` and ``target_dc`` parameters. When provided:
+
+* ``n_normalized = matched_clonotypes / target_n``
+* ``dc_normalized = matched_duplicate_count / target_dc``
+
+This allows comparison of overlap across repertoires of different sizes.
+The interpretation is: "Among all clonotypes in the target repertoire,
+what fraction matched the query?"
+
 API
 ---
-* :class:`OverlapCounts` — named result object: ``n`` unique clonotypes and
-  ``dc`` total duplicate count.
+* :class:`OverlapCounts` — named result object with raw and normalized counts:
+  ``n``, ``dc`` (absolute), and ``n_normalized``, ``dc_normalized`` (relative).
 * :func:`expand_1mm` — expand a junction_aa to all single-substitution variants.
 * :func:`make_reference_keys` — build a ``frozenset`` of clonotype keys from a
   :class:`LocusRepertoire`.  Pass ``allow_1mm=True`` to include all single
@@ -15,7 +27,7 @@ API
   ignore gene requirements.
 * :func:`make_query_index` — build a ``{key: duplicate_count}`` lookup.
 * :func:`count_overlap` — count matching clonotypes and their total
-  ``duplicate_count``.  Returns an :class:`OverlapCounts`.
+  ``duplicate_count`` with optional normalization.  Returns an :class:`OverlapCounts`.
 * :func:`compute_overlaps` — batch :func:`count_overlap` over a list of
   reference key sets, optionally dispatched across multiple processes.
 """
@@ -46,15 +58,23 @@ class OverlapCounts:
 
     Attributes
     ----------
-    n:
+    n : int
         Number of unique query clonotypes that match at least one reference
         clonotype.
-    dc:
+    dc : int
         Sum of ``duplicate_count`` for the matching query clonotypes.
+    n_normalized : float, optional
+        Normalized count: ``n`` divided by target repertoire clonotype count.
+        Only set when target_n is provided to the overlap function.
+    dc_normalized : float, optional
+        Normalized duplicate_count: ``dc`` divided by target repertoire
+        total duplicate_count. Only set when target_dc is provided.
     """
 
     n: int
     dc: int
+    n_normalized: float | None = None
+    dc_normalized: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -63,16 +83,31 @@ class OverlapCounts:
 
 _worker_qi: dict | None = None
 _worker_1mm: bool = False
+_worker_target_n: int | None = None
+_worker_target_dc: int | None = None
 
 
-def _overlap_worker_init(qi: dict[_Key, int], allow_1mm: bool) -> None:
-    global _worker_qi, _worker_1mm
+def _overlap_worker_init(
+    qi: dict[_Key, int],
+    allow_1mm: bool,
+    target_n: int | None = None,
+    target_dc: int | None = None,
+) -> None:
+    global _worker_qi, _worker_1mm, _worker_target_n, _worker_target_dc
     _worker_qi = qi
     _worker_1mm = allow_1mm
+    _worker_target_n = target_n
+    _worker_target_dc = target_dc
 
 
 def _overlap_worker_call(ref_keys: frozenset[_Key]) -> OverlapCounts:
-    return count_overlap(ref_keys, _worker_qi, allow_1mm=_worker_1mm)
+    return count_overlap(
+        ref_keys,
+        _worker_qi,
+        allow_1mm=_worker_1mm,
+        target_n=_worker_target_n,
+        target_dc=_worker_target_dc,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +250,8 @@ def count_overlap(
     query_index: dict[_Key, int],
     *,
     allow_1mm: bool = False,
+    target_n: int | None = None,
+    target_dc: int | None = None,
 ) -> OverlapCounts:
     """Count matching clonotypes and their aggregate ``duplicate_count``.
 
@@ -235,12 +272,22 @@ def count_overlap(
         amino-acid substitution variants and count unique query clonotypes
         within Hamming distance 1.  A query clonotype within 1mm of multiple
         reference clonotypes is counted only once.
+    target_n:
+        Total number of clonotypes in the target (reference) repertoire.
+        When provided, normalized overlap count is computed as
+        ``matched_n / target_n``.
+    target_dc:
+        Total duplicate_count in the target (reference) repertoire.
+        When provided, normalized duplicate_count is computed as
+        ``matched_dc / target_dc``.
 
     Returns
     -------
     OverlapCounts
         ``n`` — unique matching query clonotypes;
-        ``dc`` — sum of ``duplicate_count`` for those clonotypes.
+        ``dc`` — sum of ``duplicate_count`` for those clonotypes;
+        ``n_normalized`` — matched clonotypes / target_n (if target_n provided);
+        ``dc_normalized`` — matched duplicate_count / target_dc (if target_dc provided).
     """
     if not allow_1mm:
         n = 0
@@ -250,17 +297,26 @@ def count_overlap(
             if dc is not None:
                 n += 1
                 total_dc += dc
-        return OverlapCounts(n=n, dc=total_dc)
+    else:
+        matched: set[_Key] = set()
+        for jaa, v, j in reference_keys:
+            for variant in expand_1mm(jaa):
+                cand = (variant, v, j)
+                if cand not in matched and cand in query_index:
+                    matched.add(cand)
+        n = len(matched)
+        total_dc = sum(query_index[k] for k in matched)
 
-    matched: set[_Key] = set()
-    for jaa, v, j in reference_keys:
-        for variant in expand_1mm(jaa):
-            cand = (variant, v, j)
-            if cand not in matched and cand in query_index:
-                matched.add(cand)
+    n_normalized = (n / target_n) if target_n is not None and target_n > 0 else None
+    dc_normalized = (
+        (total_dc / target_dc) if target_dc is not None and target_dc > 0 else None
+    )
+
     return OverlapCounts(
-        n=len(matched),
-        dc=sum(query_index[k] for k in matched),
+        n=n,
+        dc=total_dc,
+        n_normalized=n_normalized,
+        dc_normalized=dc_normalized,
     )
 
 
@@ -269,6 +325,8 @@ def compute_overlaps(
     query_index: dict[_Key, int],
     *,
     allow_1mm: bool = False,
+    target_n: int | None = None,
+    target_dc: int | None = None,
     n_jobs: int = 1,
 ) -> list[OverlapCounts]:
     """Compute :func:`count_overlap` for every key set in *reference_key_sets*.
@@ -283,6 +341,12 @@ def compute_overlaps(
         Query clonotype index from :func:`make_query_index`.
     allow_1mm:
         Passed through to :func:`count_overlap`.
+    target_n:
+        Total number of clonotypes in target (reference) repertoire.
+        Passed through to :func:`count_overlap` for normalization.
+    target_dc:
+        Total duplicate_count in target (reference) repertoire.
+        Passed through to :func:`count_overlap` for normalization.
     n_jobs:
         Number of parallel worker processes.  ``1`` (default) runs
         single-threaded.  Values > 1 use
@@ -296,7 +360,13 @@ def compute_overlaps(
     """
     if n_jobs == 1 or len(reference_key_sets) <= 1:
         return [
-            count_overlap(k, query_index, allow_1mm=allow_1mm)
+            count_overlap(
+                k,
+                query_index,
+                allow_1mm=allow_1mm,
+                target_n=target_n,
+                target_dc=target_dc,
+            )
             for k in reference_key_sets
         ]
 
@@ -304,7 +374,7 @@ def compute_overlaps(
     with ProcessPoolExecutor(
         max_workers=n_jobs,
         initializer=_overlap_worker_init,
-        initargs=(query_index, allow_1mm),
+        initargs=(query_index, allow_1mm, target_n, target_dc),
     ) as pool:
         return list(pool.map(
             _overlap_worker_call,

@@ -4,6 +4,17 @@
 :class:`~mir.common.repertoire.LocusRepertoire` or
 :class:`~mir.common.repertoire.SampleRepertoire` objects and exposes joint and
 marginal usage statistics together with Laplace-smoothed fractions.
+
+Allele Handling
+~~~~~~~~~~~~~~~
+By default, gene allele suffixes are stripped during initialization
+(e.g., ``TRBV1*01`` → ``TRBV1``) so that different allele naming conventions
+are treated as the same gene. This behavior can be disabled by setting
+``strip_alleles=False`` when constructing a ``GeneUsage`` object.
+
+When resampling using :func:`mir.common.sampling.resample_to_gene_usage`,
+clonotypes retain their original alleles while only stripped gene bases are
+used for frequency comparison.
 """
 
 from __future__ import annotations
@@ -47,52 +58,49 @@ def _normalize_count_mode(count: str) -> str:
 
 
 def _strip_allele(gene: str) -> str:
-    """``"TRBV1*01"`` → ``"TRBV1"``."""
-    return gene.split("*")[0]
+    """Strip allele suffix: ``"TRBV1*01"`` → ``"TRBV1"``."""
+    return gene.split("*")[0] if gene else ""
 
 
 class GeneUsage:
     """Joint and marginal V-J gene usage statistics.
 
     Stores per-locus clonotype counts and duplicate-count totals for every
-    observed (V-gene, J-gene) pair.  **Gene alleles are automatically stripped**
-    so ``TRBV1*01`` and ``TRBV1`` are treated as the same gene for usage
-    statistics.
+    observed (V-gene, J-gene) pair.
 
-    Important Notes on Allele Normalization
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    When computing gene usage, this class normalizes gene identifiers by
-    removing allele information (e.g., ``TRBV1*01`` → ``TRBV1``). This allows
-    comparison of repertoires that may use different allele naming conventions.
+    Parameters
+    ----------
+    strip_alleles : bool, optional
+        When ``True`` (default), remove allele suffixes during initialization
+        so that ``TRBV1*01`` and ``TRBV1`` are treated as the same gene.
+        When ``False``, alleles are preserved as-is.
 
-    When using gene usage statistics as targets for resampling (see
-    :func:`mir.common.sampling.resample_to_gene_usage`), clonotypes retain
-    their original alleles; only the gene base (stripped form) is used for
-    computing and comparing gene usage frequencies. This ensures that
-    downsampled/resampled repertoires preserve the original allele information
-    from the input data.
-
-    Build with the class-method constructors rather than calling ``__init__``
-    directly.
+    Attributes
+    ----------
+    strip_alleles : bool
+        Whether allele suffixes were stripped during initialization.
 
     Examples
     --------
-    >>> gu = GeneUsage.from_repertoire(trb_repertoire)
-    >>> gu.vj_fraction("TRB")
-    {('TRBV12-3', 'TRBJ1-2'): 0.42, ...}
+    Build from a repertoire, automatically stripping alleles::
 
-    Warns
-    ------
-    When comparing gene usage between repertoires with different allele
-    naming conventions, results will be normalized to base genes. For
-    detailed allele-specific analysis, examine repertoires directly.
+        gu = GeneUsage.from_repertoire(trb_repertoire)
+        gu.vj_fraction("TRB")
+        {('TRBV12-3', 'TRBJ1-2'): 0.42, ...}
+
+    Build with alleles preserved::
+
+        gu = GeneUsage.from_repertoire(trb_repertoire, strip_alleles=False)
+        gu.vj_fraction("TRB")
+        {('TRBV12-3*01', 'TRBJ1-2*01'): 0.42, ...}
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, strip_alleles: bool = True) -> None:
         # locus → {(v_base, j_base): [n_clones, n_dc]}
         self._data: dict[str, dict[_VJPair, list[int]]] = {}
         # locus → [total_clones, total_dc]
         self._totals: dict[str, list[int]] = {}
+        self.strip_alleles = strip_alleles
 
     # ------------------------------------------------------------------
     # Construction
@@ -104,38 +112,68 @@ class GeneUsage:
         repertoire: "LocusRepertoire",
         *,
         locus: str = "",
+        strip_alleles: bool = True,
     ) -> "GeneUsage":
         """Build from a :class:`~mir.common.repertoire.LocusRepertoire`.
 
-        Args:
-            repertoire: Source locus repertoire.
-            locus: Override locus.  When empty the repertoire's own locus is used.
+        Parameters
+        ----------
+        repertoire
+            Source locus repertoire.
+        locus
+            Override locus.  When empty the repertoire's own locus is used.
+        strip_alleles
+            Whether to strip allele suffixes (default ``True``).
         """
-        obj = cls()
+        obj = cls(strip_alleles=strip_alleles)
         obj._add_locus_repertoire(repertoire, locus=locus)
         return obj
 
     @classmethod
-    def from_sample(cls, sample: "SampleRepertoire") -> "GeneUsage":
+    def from_sample(
+        cls,
+        sample: "SampleRepertoire",
+        *,
+        strip_alleles: bool = True,
+    ) -> "GeneUsage":
         """Build from a :class:`~mir.common.repertoire.SampleRepertoire`.
 
         Iterates over all loci in the sample.
+
+        Parameters
+        ----------
+        sample
+            Source sample repertoire.
+        strip_alleles
+            Whether to strip allele suffixes (default ``True``).
         """
-        obj = cls()
+        obj = cls(strip_alleles=strip_alleles)
         for loc, locus_rep in sample.loci.items():
             obj._add_locus_repertoire(locus_rep, locus=loc)
         return obj
 
     @classmethod
-    def from_list(cls, repertoires) -> "GeneUsage":
+    def from_list(
+        cls,
+        repertoires,
+        *,
+        strip_alleles: bool = True,
+    ) -> "GeneUsage":
         """Build by accumulating data from a list of repertoire objects.
 
         Each element may be a :class:`~mir.common.repertoire.LocusRepertoire`
         or a :class:`~mir.common.repertoire.SampleRepertoire`.
+
+        Parameters
+        ----------
+        repertoires
+            List of LocusRepertoire or SampleRepertoire objects.
+        strip_alleles
+            Whether to strip allele suffixes (default ``True``).
         """
         from mir.common.repertoire import SampleRepertoire
 
-        obj = cls()
+        obj = cls(strip_alleles=strip_alleles)
         for rep in repertoires:
             if isinstance(rep, SampleRepertoire):
                 for loc, locus_rep in rep.loci.items():
@@ -149,14 +187,18 @@ class GeneUsage:
         locus_data = self._data.setdefault(loc, {})
         locus_totals = self._totals.setdefault(loc, [0, 0])
         for clone in repertoire.clonotypes:
-            v = _strip_allele(clone.v_gene or "")
-            j = _strip_allele(clone.j_gene or "")
+            v = self._normalize_gene(clone.v_gene or "")
+            j = self._normalize_gene(clone.j_gene or "")
             dc = clone.duplicate_count or 0
             entry = locus_data.setdefault((v, j), [0, 0])
             entry[0] += 1
             entry[1] += dc
             locus_totals[0] += 1
             locus_totals[1] += dc
+
+    def _normalize_gene(self, gene: str) -> str:
+        """Apply gene normalization based on strip_alleles setting."""
+        return _strip_allele(gene) if self.strip_alleles else gene
 
     # ------------------------------------------------------------------
     # Loci
