@@ -81,6 +81,14 @@ from mir.common.repertoire import Repertoire
 repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
 print(repertoire.total)
 print(repertoire.number_of_clones)
+
+# Functional/canonical filtering using IMGT functionality annotations.
+from mir.common.filter import filter_functional, filter_canonical
+from mir.common.gene_library import GeneLibrary
+
+imgt_lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"}, source="imgt")
+functional_rep = filter_functional(repertoire, gene_library=imgt_lib)
+canonical_rep = filter_canonical(repertoire, gene_library=imgt_lib)
 ```
 
 You can also load a repertoire directly from a file:

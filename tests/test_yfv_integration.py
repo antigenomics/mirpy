@@ -64,6 +64,8 @@ import pytest
 from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import PgenGeneUsageAdjustment
 from mir.biomarkers.vdjbet import OverlapResult, VDJBetOverlapAnalysis
+from mir.common.filter import filter_functional
+from mir.common.gene_library import GeneLibrary
 from mir.common.parser import ClonotypeTableParser, VDJdbSlimParser
 from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_integration
@@ -144,6 +146,23 @@ def _load_s1_f1(day: int) -> LocusRepertoire:
     row = meta[(meta["donor"] == "S1") & (meta["day"] == day) & (meta["replica"] == "F1")]
     if row.empty:
         pytest.skip(f"S1/F1/day={day} not found in metadata")
+    fname = row.iloc[0]["file_name"]
+    df = pd.read_csv(_YFV_DIR / fname, sep="\t", compression="infer")
+    if "locus" in df.columns:
+        df = df[df["locus"].fillna("") == "TRB"]
+    df = df.dropna(subset=["junction_aa"])
+    df = df[df["junction_aa"].str.strip().str.len() > 0]
+    parser = ClonotypeTableParser()
+    clones = parser.parse_inner(df)
+    return LocusRepertoire(clonotypes=clones, locus="TRB", repertoire_id=fname)
+
+
+def _load_p1_f1(day: int) -> LocusRepertoire:
+    """Load P1 replica F1 for the given *day* from the YFV dataset."""
+    meta = pd.read_csv(_YFV_DIR / "metadata.txt", sep="\t")
+    row = meta[(meta["donor"] == "P1") & (meta["day"] == day) & (meta["replica"] == "F1")]
+    if row.empty:
+        pytest.skip(f"P1/F1/day={day} not found in metadata")
     fname = row.iloc[0]["file_name"]
     df = pd.read_csv(_YFV_DIR / fname, sep="\t", compression="infer")
     if "locus" in df.columns:
@@ -332,3 +351,35 @@ class TestYFVS1F1:
             f"1mm z ({d15_pgen_1mm.z_n:.2f}) should be >= 70% of "
             f"exact z ({d15_pgen.z_n:.2f})"
         )
+
+
+@skip_integration
+@pytest.mark.skipif(not _VDJDB_AVAILABLE, reason="vdjdb.slim.txt.gz asset missing")
+@pytest.mark.skipif(not _YFV_AVAILABLE,   reason="YFV dataset not found in notebooks/assets/large/yfv19/")
+@pytest.mark.integration
+class TestFunctionalFilteringCounts:
+    """Integration checks for repertoire functional filtering counts."""
+
+    @pytest.fixture(scope="class")
+    def imgt_trb_lib(self) -> GeneLibrary:
+        return GeneLibrary.load_default(loci={"TRB"}, species={"human"}, source="imgt")
+
+    def test_p1_day0_functional_filter_count(self, imgt_trb_lib: GeneLibrary) -> None:
+        rep = _load_p1_f1(0)
+        filtered = filter_functional(rep, gene_library=imgt_trb_lib)
+        assert isinstance(filtered, LocusRepertoire)
+        assert rep.clonotype_count == 624081
+        assert filtered.clonotype_count == 604303
+
+    def test_p1_day15_functional_filter_count(self, imgt_trb_lib: GeneLibrary) -> None:
+        rep = _load_p1_f1(15)
+        filtered = filter_functional(rep, gene_library=imgt_trb_lib)
+        assert isinstance(filtered, LocusRepertoire)
+        assert rep.clonotype_count == 982154
+        assert filtered.clonotype_count == 930938
+
+    def test_llw_functional_filter_count(self, vdjdb_ref: LocusRepertoire, imgt_trb_lib: GeneLibrary) -> None:
+        filtered = filter_functional(vdjdb_ref, gene_library=imgt_trb_lib)
+        assert isinstance(filtered, LocusRepertoire)
+        assert vdjdb_ref.clonotype_count == 409
+        assert filtered.clonotype_count == 409

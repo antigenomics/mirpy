@@ -10,11 +10,12 @@ Two output files are written next to this script:
 
 Both files share the same tab-separated schema::
 
-    species   locus   gene   allele   sequence
+    species   locus   gene   allele   sequence   functionality
 
 where *species* is ``human`` or ``mouse``, *locus* is ``TRB`` / ``TRA`` /
 etc., *gene* is ``V``, ``D``, or ``J``, *allele* is the full IMGT name
-(e.g. ``TRBV3-1*02``), and *sequence* is the nucleotide sequence.
+(e.g. ``TRBV3-1*02``), *sequence* is the nucleotide sequence, and
+*functionality* is one of ``F`` / ``ORF`` / ``P``.
 
 On every run a dated entry is appended to ``build_gene_library.log`` with the
 build timestamp, current git commit hash, and per-(species, locus, gene) allele
@@ -98,26 +99,26 @@ _OLGA_SEGMENT_KEYS: dict[str, str] = {
 }
 
 #: Type alias for a single gene-library row.
-Row = tuple[str, str, str, str, str]  # (species, locus, gene, allele, sequence)
+Row = tuple[str, str, str, str, str, str]  # (species, locus, gene, allele, sequence, functionality)
 
 
 # ---------------------------------------------------------------------------
 # OLGA library
 # ---------------------------------------------------------------------------
 
-def _parse_olga_model_params(path: Path) -> list[tuple[str, str, str]]:
+def _parse_olga_model_params(path: Path) -> list[tuple[str, str, str, str]]:
     """Parse an OLGA ``model_params.txt`` file.
 
     Args:
         path: Path to a ``model_params.txt`` file.
 
     Returns:
-        List of ``(gene, allele, sequence)`` triples where *gene* is
-        ``"V"``, ``"D"``, or ``"J"``.  Entries whose allele name does not
+        List of ``(gene, allele, sequence, functionality)`` tuples where
+        *gene* is ``"V"``, ``"D"``, or ``"J"``. Entries whose allele name does not
         contain ``*`` (e.g. combinatorial D-D numeric indices in TRD models)
         are silently skipped.
     """
-    records: list[tuple[str, str, str]] = []
+    records: list[tuple[str, str, str, str]] = []
     current_gene: str | None = None
 
     with path.open(encoding="utf-8") as fh:
@@ -140,7 +141,7 @@ def _parse_olga_model_params(path: Path) -> list[tuple[str, str, str]]:
                     allele   = parts[0].strip()
                     sequence = parts[1].strip()
                     if allele and sequence and "*" in allele:
-                        records.append((current_gene, allele, sequence))
+                        records.append((current_gene, allele, sequence, "F"))
 
     return records
 
@@ -177,8 +178,8 @@ def build_olga_library(models_dirs: list[Path] | None = None) -> list[Row]:
             print(f"  [skip] {model_name}: model_params.txt not found", file=sys.stderr)
             continue
 
-        for gene, allele, sequence in _parse_olga_model_params(params_file):
-            rows.append((species, locus, gene, allele, sequence))
+        for gene, allele, sequence, functionality in _parse_olga_model_params(params_file):
+            rows.append((species, locus, gene, allele, sequence, functionality))
 
     return rows
 
@@ -194,11 +195,26 @@ def _default_olga_dirs() -> list[Path]:
 # IMGT library
 # ---------------------------------------------------------------------------
 
+def _normalize_imgt_functionality(raw: str) -> str:
+    """Normalize IMGT functionality tokens to ``F`` / ``ORF`` / ``P``.
+
+    IMGT may provide values as plain symbols (``F``) or wrapped forms
+    (``[F]``, ``(F)``).
+    """
+    token = str(raw or "").strip().upper()
+    if token.startswith("[") and token.endswith("]"):
+        token = token[1:-1].strip()
+    if token.startswith("(") and token.endswith(")"):
+        token = token[1:-1].strip()
+    return token or "P"
+
+
 def _parse_imgt_fasta(text: str, species: str, locus: str, gene: str) -> list[Row]:
     """Parse IMGT V-QUEST FASTA text into gene-library rows.
 
-    IMGT FASTA headers are pipe-separated; field[1] is the allele name and
-    field[15] is the nucleotide sequence (gaps represented by ``.``).
+    IMGT FASTA headers are pipe-separated; field[1] is the allele name,
+    field[3] is functionality (F/ORF/P), and field[15] is the nucleotide
+    sequence (gaps represented by ``.``).
 
     Args:
         text: Raw FASTA text downloaded from IMGT.
@@ -224,7 +240,8 @@ def _parse_imgt_fasta(text: str, species: str, locus: str, gene: str) -> list[Ro
             allele += "*01"
         sequence = fields[15].replace(".", "").upper()
         if sequence:
-            rows.append((species, locus, gene, allele, sequence))
+                functionality = _normalize_imgt_functionality(fields[3])
+                rows.append((species, locus, gene, allele, sequence, functionality))
     return rows
 
 
@@ -291,7 +308,7 @@ def write_library(rows: list[Row], output_path: Path) -> None:
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as out:
-        out.write("species\tlocus\tgene\tallele\tsequence\n")
+        out.write("species\tlocus\tgene\tallele\tsequence\tfunctionality\n")
         for row in rows:
             out.write("\t".join(row) + "\n")
     print(f"Wrote {len(rows)} allele entries → {output_path}")
@@ -304,8 +321,10 @@ def _load_rows(path: Path) -> list[Row]:
         next(fh)
         for line in fh:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) == 5:
+            if len(parts) == 6:
                 rows.append(tuple(parts))  # type: ignore[arg-type]
+            elif len(parts) == 5:
+                rows.append((parts[0], parts[1], parts[2], parts[3], parts[4], "F"))
     return rows
 
 
@@ -324,7 +343,7 @@ def compute_stats(
     """
     total: dict[tuple[str, str, str], int] = defaultdict(int)
     major: dict[tuple[str, str, str], int] = defaultdict(int)
-    for species, locus, gene, allele, _ in rows:
+    for species, locus, gene, allele, _, _ in rows:
         key = (species, locus, gene)
         total[key] += 1
         if allele.endswith("*01"):
@@ -418,9 +437,9 @@ def check_library_consistency(
     """
     olga_by_key: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     imgt_by_key: dict[tuple[str, str, str], set[str]] = defaultdict(set)
-    for s, l, g, allele, _ in olga_rows:
+    for s, l, g, allele, _, _ in olga_rows:
         olga_by_key[(s, l, g)].add(allele)
-    for s, l, g, allele, _ in imgt_rows:
+    for s, l, g, allele, _, _ in imgt_rows:
         imgt_by_key[(s, l, g)].add(allele)
 
     olga_keys = set(olga_by_key)
