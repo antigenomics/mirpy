@@ -356,7 +356,12 @@ class LocusRepertoire:
 
     @classmethod
     def from_pickle(cls, path: str | Path) -> LocusRepertoire:
-        """Load a pickled :class:`LocusRepertoire` from disk."""
+        """Load a pickled :class:`LocusRepertoire` from disk.
+
+        Warning:
+            ``pickle`` is not secure against untrusted input. Only load files
+            you trust.
+        """
         with Path(path).open("rb") as fh:
             obj = pickle.load(fh)
         if not isinstance(obj, cls):
@@ -534,7 +539,12 @@ class SampleRepertoire:
 
     @classmethod
     def from_pickle(cls, path: str | Path) -> SampleRepertoire:
-        """Load a pickled :class:`SampleRepertoire` from disk."""
+        """Load a pickled :class:`SampleRepertoire` from disk.
+
+        Warning:
+            ``pickle`` is not secure against untrusted input. Only load files
+            you trust.
+        """
         with Path(path).open("rb") as fh:
             obj = pickle.load(fh)
         if not isinstance(obj, cls):

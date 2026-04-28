@@ -61,6 +61,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from mir.basic.gene_usage import GeneUsage
+from mir.basic.pgen import PgenGeneUsageAdjustment
 from mir.biomarkers.vdjbet import OverlapResult, VDJBetOverlapAnalysis
 from mir.common.parser import ClonotypeTableParser, VDJdbSlimParser
 from mir.common.repertoire import LocusRepertoire
@@ -98,12 +100,42 @@ def vdjdb_ref() -> LocusRepertoire:
 
 @pytest.fixture(scope="module")
 def analysis(vdjdb_ref) -> VDJBetOverlapAnalysis:
-    """Analysis object: builds 10k OLGA pool, caches mocks on first score() call."""
+    """Analysis object using default OLGA pool size (100k)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         return VDJBetOverlapAnalysis(
             vdjdb_ref, n_mocks=200, seed=42
         )
+
+
+def _build_yfv_gene_usage() -> GeneUsage:
+    """Build TRB gene usage from all YFV repertoires listed in metadata."""
+    meta = pd.read_csv(_YFV_DIR / "metadata.txt", sep="\t")
+    parser = ClonotypeTableParser()
+    all_clones = []
+    for _, row in meta.iterrows():
+        fpath = _YFV_DIR / row["file_name"]
+        if not fpath.exists():
+            continue
+        df = pd.read_csv(fpath, sep="\t", compression="infer")
+        if "locus" in df.columns:
+            df = df[df["locus"].fillna("") == "TRB"]
+        df = df.dropna(subset=["junction_aa"])
+        df = df[df["junction_aa"].str.strip().str.len() > 0]
+        all_clones.extend(parser.parse_inner(df))
+
+    rep = LocusRepertoire(clonotypes=all_clones, locus="TRB", repertoire_id="yfv19-all-trb")
+    return GeneUsage.from_repertoire(rep)
+
+
+@pytest.fixture(scope="module")
+def analysis_pvj(vdjdb_ref) -> VDJBetOverlapAnalysis:
+    """Analysis object with pgen+V/J-adjusted null model."""
+    target_gu = _build_yfv_gene_usage()
+    adj = PgenGeneUsageAdjustment(target_gu, cache_size=100_000, seed=42)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return VDJBetOverlapAnalysis(vdjdb_ref, n_mocks=200, seed=42, pgen_adjustment=adj)
 
 
 def _load_s1_f1(day: int) -> LocusRepertoire:
@@ -155,18 +187,18 @@ class TestYFVS1F1:
             return analysis.score(_load_s1_f1(15), allow_1mm=True)
 
     @pytest.fixture(scope="class")
-    def d15_pvj(self, analysis) -> OverlapResult:
+    def d15_pvj(self, analysis_pvj) -> OverlapResult:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(
+            return analysis_pvj.score(
                 _load_s1_f1(15), allow_1mm=False,
             )
 
     @pytest.fixture(scope="class")
-    def d15_pvj_1mm(self, analysis) -> OverlapResult:
+    def d15_pvj_1mm(self, analysis_pvj) -> OverlapResult:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(
+            return analysis_pvj.score(
                 _load_s1_f1(15), allow_1mm=True,
             )
 
@@ -183,10 +215,10 @@ class TestYFVS1F1:
             return analysis.score(_load_s1_f1(0), allow_1mm=True)
 
     @pytest.fixture(scope="class")
-    def d0_pvj(self, analysis) -> OverlapResult:
+    def d0_pvj(self, analysis_pvj) -> OverlapResult:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(
+            return analysis_pvj.score(
                 _load_s1_f1(0), allow_1mm=False,
             )
 
