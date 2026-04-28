@@ -13,7 +13,26 @@ from typing import ClassVar, NamedTuple
 
 import polars as pl
 
-from mir.basic.mirseq import translate_bidi, is_coding as _c_is_coding, is_canonical as _c_is_canonical
+from mir.basic.mirseq import translate_bidi
+
+# Try to import C-optimized functions, fall back to Python implementations if not available
+try:
+    from mir.basic.mirseq import is_coding as _c_is_coding, is_canonical as _c_is_canonical
+except ImportError:
+    # Fallback Python implementations when C extension doesn't provide them
+    def _c_is_coding(junction_aa: str) -> bool:
+        """Check if junction_aa contains only standard amino acid letters."""
+        if not junction_aa:
+            return False
+        # Standard amino acids: ACDEFGHIKLMNPQRSTVWY
+        standard_aa = set('ACDEFGHIKLMNPQRSTVWY')
+        return all(c in standard_aa for c in junction_aa.upper())
+    
+    def _c_is_canonical(junction_aa: str) -> bool:
+        """Check if junction_aa starts with C and ends with F or W."""
+        if not junction_aa or len(junction_aa) < 2:
+            return False
+        return junction_aa[0].upper() == 'C' and junction_aa[-1].upper() in ('F', 'W')
 
 _LOCUS_PREFIXES: frozenset[str] = frozenset({"TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"})
 
