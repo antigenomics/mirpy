@@ -1,8 +1,15 @@
 import numpy as np
 from copy import copy
+from typing import Protocol
 
-from mir.basic.segment_usage import SegmentUsageTable
 from mir.common.repertoire import Repertoire
+
+
+class _UsageTableLike(Protocol):
+    segment_type: str
+
+    def __getitem__(self, item):
+        ...
 
 
 class RepertoireSampling:
@@ -21,8 +28,8 @@ class RepertoireSampling:
         """
         self.random_seed = random_seed
 
-    def sample(self, repertoire: Repertoire, old_usage_matrix: list[SegmentUsageTable],
-               new_usage_matrix: list[SegmentUsageTable] = None, n: int = None):
+    def sample(self, repertoire: Repertoire, old_usage_matrix: list[_UsageTableLike],
+               new_usage_matrix: list[_UsageTableLike] = None, n: int = None):
         """
         A function which samples a new repertoire based on the given one and its usage matrix
 

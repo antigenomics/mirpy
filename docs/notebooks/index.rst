@@ -14,7 +14,6 @@ Core Workflows
    parsing_airr
    diversity_estimation
    repertoire_resampling
-   segment_usage_analysis
    gene_similarity
    sample_repertoire_overview
 
@@ -48,3 +47,4 @@ Analysis And Modeling
    cluster_associations
    grid_search_clf
    kmer_generator
+   vdjbet_yf

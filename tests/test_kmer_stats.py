@@ -63,7 +63,7 @@ def _load_gilgfvftl_cdr3s() -> list[str]:
 
 def _make_repertoire(cdr3s: list[str]) -> Repertoire:
     """Build a minimal Repertoire from a list of CDR3aa strings."""
-    clonotypes = [ClonotypeAA(cdr3aa=s) for s in cdr3s]
+    clonotypes = [ClonotypeAA(junction_aa=s) for s in cdr3s]
     return Repertoire(clonotypes)
 
 
@@ -71,8 +71,7 @@ def _generate_olga_background(n: int = 1000, seed: int = 42) -> list[str]:
     """Generate *n* random TRB CDR3aa sequences using OLGA."""
     from mir.basic.pgen import OlgaModel
 
-    np.random.seed(seed)
-    model = OlgaModel(chain="TRB")
+    model = OlgaModel(locus="TRB", seed=seed)
     return model.generate_sequences(n)
 
 

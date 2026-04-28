@@ -1,6 +1,6 @@
-"""Edit-distance graph construction for Rearrangements.
+"""Edit-distance graph construction for Clonotypes.
 
-Builds an ``igraph.Graph`` from a list of :class:`~mir.basic.token_tables.Rearrangement`
+Builds an ``igraph.Graph`` from a list of :class:`~mir.basic.token_tables.Clonotype`
 objects where edges connect sequences whose pairwise Hamming or Levenshtein
 distance is at most *threshold*.  Computation is parallelised over pair chunks
 via :class:`multiprocessing.Pool`.
@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import igraph as ig
 
-from mir.basic.token_tables import Rearrangement
+from mir.common.clonotype import Clonotype
 from mir.distances.seqdist import hamming as _hamming
 from mir.distances.seqdist import levenshtein as _levenshtein
 
@@ -60,7 +60,7 @@ def _process_chunk(
 
 
 def _iter_chunks(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     chunk_sz: int,
 ) -> t.Generator[list[_PairRecord], None, None]:
     n = len(rearrangements)
@@ -80,7 +80,7 @@ def _iter_chunks(
 
 
 def build_edit_distance_graph(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     metric: str = "hamming",
     threshold: int = 1,
     v_gene_match: bool = False,
@@ -88,7 +88,7 @@ def build_edit_distance_graph(
     nproc: int = 4,
     chunk_sz: int = 2048,
 ) -> ig.Graph:
-    """Build an edit-distance graph from a list of Rearrangements.
+    """Build an edit-distance graph from a list of Clonotypes.
 
     One vertex is created per rearrangement (duplicates are preserved).
     An edge is added between every pair whose ``junction_aa`` distance is
@@ -107,7 +107,7 @@ def build_edit_distance_graph(
 
     Returns:
         Undirected ``igraph.Graph`` with vertex attributes ``name``
-        (``junction_aa``), ``r_id`` (:attr:`Rearrangement.id`),
+        (``junction_aa``), ``r_id`` (:attr:`Clonotype.id`),
         ``v_gene``, and ``c_gene``.
     """
     if metric not in ("hamming", "levenshtein"):
