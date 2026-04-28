@@ -11,6 +11,7 @@ from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+from tests.conftest import skip_benchmarks
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +328,12 @@ class TestPgenGeneUsageAdjustment:
 
     @pytest.fixture(scope="class")
     def adj(self, target_gu: GeneUsage) -> PgenGeneUsageAdjustment:
-        # 200k-sample cache gives ~2% relative SE for pairs at 1% frequency,
-        # which is sufficient for the < 5% IS-test tolerance below.
+        # Keep default unit-test runtime small.
+        return PgenGeneUsageAdjustment(target_gu, cache_size=25_000, seed=42)
+
+    @pytest.fixture(scope="class")
+    def adj_large(self, target_gu: GeneUsage) -> PgenGeneUsageAdjustment:
+        # Large cache is used only for benchmark/statistical checks.
         return PgenGeneUsageAdjustment(target_gu, cache_size=200_000, seed=42)
 
     def test_factor_positive_for_known_pair(self, adj: PgenGeneUsageAdjustment) -> None:
@@ -364,8 +369,10 @@ class TestPgenGeneUsageAdjustment:
         expected_ratio = (t1 * o2) / (t2 * o1)
         assert abs(f1 / f2 - expected_ratio) / expected_ratio < 1e-10
 
+    @skip_benchmarks
+    @pytest.mark.benchmark
     def test_weighted_count_ratio_matches_target(
-        self, target_gu: GeneUsage, adj: PgenGeneUsageAdjustment
+        self, target_gu: GeneUsage, adj_large: PgenGeneUsageAdjustment
     ) -> None:
         """Importance-sampling property: ratio of factor-weighted counts matches
         the target fraction ratio to < 5%.
@@ -387,7 +394,7 @@ class TestPgenGeneUsageAdjustment:
         for rec in records:
             v = rec["v_gene"].split("*")[0]
             j = rec["j_gene"].split("*")[0]
-            weighted[(v, j)] += adj.factor("TRB", v, j)
+            weighted[(v, j)] += adj_large.factor("TRB", v, j)
 
         w1 = weighted.get((self._V1, self._J1), 0.0)
         w2 = weighted.get((self._V2, self._J2), 0.0)

@@ -292,8 +292,7 @@ class OlgaModel:
             List of CDR3 amino-acid strings (length == *n*).
         """
         if n_jobs <= 1:
-            np.random.seed(seed)
-            return self.generate_sequences(n)
+            return self.generate_sequences(n, seed=seed)
 
         sizes = _split_n(n, n_jobs)
         args = [
