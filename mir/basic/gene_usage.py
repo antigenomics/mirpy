@@ -39,6 +39,8 @@ _COUNT_MODE_ALIASES = {
     "count_duplicates": "duplicates",
 }
 
+_COUNT_INDEX = {"clonotypes": 0, "duplicates": 1}
+
 
 def _normalize_count_mode(count: str) -> str:
     """Normalize public count-mode aliases.
@@ -55,6 +57,20 @@ def _normalize_count_mode(count: str) -> str:
             "'duplicates'/'count_duplicates'."
         )
     return normalized
+
+
+def _count_index(count: str) -> int:
+    """Return storage index for normalized count mode."""
+    return _COUNT_INDEX[_normalize_count_mode(count)]
+
+
+def _laplace_fraction(usage: dict, total: int, pseudocount: float) -> dict:
+    """Compute Laplace-smoothed fractions for an observed usage map."""
+    n_keys = len(usage)
+    denom = total + n_keys * pseudocount
+    if denom == 0:
+        return {}
+    return {k: (n + pseudocount) / denom for k, n in usage.items()}
 
 
 def _strip_allele(gene: str) -> str:
@@ -243,9 +259,22 @@ class GeneUsage:
         Returns:
             Dict mapping ``(v_base, j_base)`` to the requested count.
         """
-        normalized = _normalize_count_mode(count)
-        idx = 0 if normalized == "clonotypes" else 1
+        idx = _count_index(count)
         return {pair: vals[idx] for pair, vals in self._data.get(locus, {}).items()}
+
+    def _marginal_usage(self, locus: str, *, count: str, axis: int) -> dict[str, int]:
+        """Generic V/J marginal usage helper.
+
+        Parameters
+        ----------
+        axis
+            0 for V-gene aggregation, 1 for J-gene aggregation.
+        """
+        idx = _count_index(count)
+        result: dict[str, int] = defaultdict(int)
+        for pair, vals in self._data.get(locus, {}).items():
+            result[pair[axis]] += vals[idx]
+        return dict(result)
 
     def v_usage(
         self,
@@ -254,12 +283,7 @@ class GeneUsage:
         count: str = "clonotypes",
     ) -> dict[str, int]:
         """Marginal V-gene usage (sum over all J) for *locus*."""
-        normalized = _normalize_count_mode(count)
-        idx = 0 if normalized == "clonotypes" else 1
-        result: dict[str, int] = defaultdict(int)
-        for (v, _j), vals in self._data.get(locus, {}).items():
-            result[v] += vals[idx]
-        return dict(result)
+        return self._marginal_usage(locus, count=count, axis=0)
 
     def j_usage(
         self,
@@ -268,12 +292,7 @@ class GeneUsage:
         count: str = "clonotypes",
     ) -> dict[str, int]:
         """Marginal J-gene usage (sum over all V) for *locus*."""
-        normalized = _normalize_count_mode(count)
-        idx = 0 if normalized == "clonotypes" else 1
-        result: dict[str, int] = defaultdict(int)
-        for (_v, j), vals in self._data.get(locus, {}).items():
-            result[j] += vals[idx]
-        return dict(result)
+        return self._marginal_usage(locus, count=count, axis=1)
 
     # ------------------------------------------------------------------
     # Fractions with Laplace smoothing
@@ -298,12 +317,7 @@ class GeneUsage:
             pseudocount: Added to each count and the denominator term.
         """
         usage = self.vj_usage(locus, count=count)
-        total = self.total(locus, count=count)
-        n_pairs = len(usage)
-        denom = total + n_pairs * pseudocount
-        if denom == 0:
-            return {}
-        return {pair: (n + pseudocount) / denom for pair, n in usage.items()}
+        return _laplace_fraction(usage, self.total(locus, count=count), pseudocount)
 
     def v_fraction(
         self,
@@ -314,12 +328,7 @@ class GeneUsage:
     ) -> dict[str, float]:
         """Laplace-smoothed marginal V-gene fraction for *locus*."""
         usage = self.v_usage(locus, count=count)
-        total = self.total(locus, count=count)
-        n_genes = len(usage)
-        denom = total + n_genes * pseudocount
-        if denom == 0:
-            return {}
-        return {v: (n + pseudocount) / denom for v, n in usage.items()}
+        return _laplace_fraction(usage, self.total(locus, count=count), pseudocount)
 
     def j_fraction(
         self,
@@ -330,12 +339,18 @@ class GeneUsage:
     ) -> dict[str, float]:
         """Laplace-smoothed marginal J-gene fraction for *locus*."""
         usage = self.j_usage(locus, count=count)
-        total = self.total(locus, count=count)
-        n_genes = len(usage)
-        denom = total + n_genes * pseudocount
-        if denom == 0:
-            return {}
-        return {j: (n + pseudocount) / denom for j, n in usage.items()}
+        return _laplace_fraction(usage, self.total(locus, count=count), pseudocount)
+
+    def _usage_by_scope(self, locus: str, *, scope: str, count: str) -> dict:
+        """Dispatch helper for v/j/vj usage maps."""
+        scope_norm = str(scope).strip().lower()
+        if scope_norm == "v":
+            return self.v_usage(locus, count=count)
+        if scope_norm == "j":
+            return self.j_usage(locus, count=count)
+        if scope_norm == "vj":
+            return self.vj_usage(locus, count=count)
+        raise ValueError("scope must be one of: 'v', 'j', 'vj'")
 
     # ------------------------------------------------------------------
     # Cross-dataset comparison helpers
@@ -371,18 +386,8 @@ class GeneUsage:
         if pseudocount < 0:
             raise ValueError("pseudocount must be non-negative")
 
-        scope_norm = str(scope).strip().lower()
-        if scope_norm == "v":
-            self_usage = self.v_usage(locus, count=count)
-            ref_usage = reference.v_usage(locus, count=count)
-        elif scope_norm == "j":
-            self_usage = self.j_usage(locus, count=count)
-            ref_usage = reference.j_usage(locus, count=count)
-        elif scope_norm == "vj":
-            self_usage = self.vj_usage(locus, count=count)
-            ref_usage = reference.vj_usage(locus, count=count)
-        else:
-            raise ValueError("scope must be one of: 'v', 'j', 'vj'")
+        self_usage = self._usage_by_scope(locus, scope=scope, count=count)
+        ref_usage = reference._usage_by_scope(locus, scope=scope, count=count)
 
         self_total = self.total(locus, count=count)
         ref_total = reference.total(locus, count=count)

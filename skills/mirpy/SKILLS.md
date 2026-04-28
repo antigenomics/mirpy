@@ -1,6 +1,7 @@
 # mirpy Agentic Skills
 
-This document describes agentic skills for programmatic use of the mirpy library. Each skill represents a distinct capability within the immune repertoire analysis ecosystem.
+This guide summarizes high-value, reusable analysis skills for programmatic work with mirpy.
+Each section highlights the main API surface, recommended patterns, and common pitfalls.
 
 ## Skill Categories
 
@@ -30,6 +31,16 @@ rep = LocusRepertoire.from_pickle("cache.pkl")
 - Large dataset ingestion and caching
 - Multi-sample batch processing
 - Format conversion (AIRR → pickle → analysis)
+
+**Parallel Load Defaults (io_parallel)**:
+- `load_airr_parallel(..., n_jobs=4)` uses parallel parsing by default.
+- Automatic sequential fallback occurs when:
+    - `n_jobs == 1`
+    - row count `< 10,000` (`parallel_min_rows`)
+    - row count `<= chunk_size`
+- Practical estimate for narrow AIRR TSVs similar to bundled YFV examples:
+    - about 43,000 rows per MB of gzipped file size
+    - about 0.23 MB gz ≈ 10,000 rows
 
 ---
 
@@ -73,7 +84,9 @@ functional_subset = filter_functional(rep, gene_library=library)
 
 **Configuration**:
 - `strip_alleles` (default `True`) — Normalize TRBV1*01 → TRBV1
-- `count` — Count mode: "clonotypes" (unweighted) or "duplicates" (weighted)
+- `count` — Count mode aliases normalized internally:
+    - `clonotypes`, `clonotype`, `rearrangement`, `rearrangements`, `count_rearrangement`, `count_rearrangements`
+    - `duplicates`, `duplicate`, `count_duplicates`
 - `pseudocount` — Laplace smoothing parameter
 
 **Common Patterns**:
@@ -88,6 +101,9 @@ gu_alleles = GeneUsage.from_repertoire(rep, strip_alleles=False)
 
 # Compare against reference (e.g., OLGA mock)
 factors = gu.correction_factors(reference_gu, "TRB", scope="vj")
+
+# factors is Dict[key, float]
+enriched = {k: f for k, f in factors.items() if f > 2.0}
 ```
 
 **Use Cases**:
@@ -338,7 +354,7 @@ v_frac = gu.v_fraction("TRB", count="duplicates")
 
 # 3. Compare to reference
 factors = gu.correction_factors(reference_gu, "TRB")
-print(f"Genes with > 2-fold enrichment: {sum(1 for f in factors.values() if f['factor'] > 2)}")
+print(f"Genes with > 2-fold enrichment: {sum(1 for f in factors.values() if f > 2)}")
 ```
 
 ### Workflow 2: Sample Normalization → Comparison

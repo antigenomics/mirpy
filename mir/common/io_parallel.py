@@ -1,12 +1,12 @@
 """Parallel I/O optimization for large repertoire files.
 
 This module provides parallel reading and parsing of large AIRR/VDJtools files
-using chunked reads with Polars and multiprocessing for improved performance.
+using chunked pandas reads and multiprocessing for improved performance.
 
 Key Optimizations
 ~~~~~~~~~~~~~~~~~
-1. **Chunked Reading**: Use ``polars.scan_csv()`` for lazy evaluation and
-   automatic memory management
+1. **Chunked Parsing**: Split DataFrame into configurable chunks
+    for process-based parsing
 2. **Parallel Parsing**: Multiple worker processes each parse a chunk independently
 3. **Batch Object Creation**: Create Clonotype and LocusRepertoire objects in parallel
 4. **Memory Efficiency**: Streaming processing avoids loading entire file into memory
@@ -39,21 +39,15 @@ Default Parallel/Fallback Policy
 
 from __future__ import annotations
 
-import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Callable
 
 import pandas as pd
-import polars as pl
 
-from mir.common.clonotype import Clonotype
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
-
-if TYPE_CHECKING:
-    pass
 
 
 DEFAULT_PARALLEL_MIN_ROWS = 10_000
@@ -92,6 +86,27 @@ def _parse_chunk_worker(chunk_df: pd.DataFrame, locus: str = "") -> LocusReperto
     chunk_df = parser.normalize_df(chunk_df)
     clonotypes = parser.parse_inner(chunk_df)
     return LocusRepertoire(clonotypes=clonotypes, locus=locus or "")
+
+
+def _is_parallel_worthwhile(
+    n_rows: int,
+    *,
+    n_jobs: int,
+    chunk_size: int,
+    parallel_min_rows: int,
+) -> bool:
+    """Return True when process-based parallel parsing is expected to help."""
+    return n_jobs > 1 and n_rows >= parallel_min_rows and n_rows > chunk_size
+
+
+def _parse_chunks_parallel(chunks: list[pd.DataFrame], *, locus: str, n_jobs: int) -> LocusRepertoire:
+    """Parse pre-split chunks in parallel and merge into one repertoire."""
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        repertoires = list(executor.map(_parse_chunk_worker, chunks, [locus] * len(chunks)))
+
+    all_clonotypes = [c for rep in repertoires for c in rep.clonotypes]
+    rep_locus = locus or (repertoires[0].locus if repertoires else "")
+    return LocusRepertoire(clonotypes=all_clonotypes, locus=rep_locus)
 
 
 def load_airr_parallel(
@@ -155,39 +170,20 @@ def load_airr_parallel(
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
-    if n_jobs == 1:
-        # Sequential path: use pandas directly
-        df = pd.read_csv(path, sep=sep, compression=compression)
-        return _parse_chunk_worker(df, locus=locus)
-
-    # Parallel path: read, chunk, and parse with workers
-    # Note: Polars streaming is lazy, so we still need to read chunks ourselves
+    # Read once and choose best parsing strategy.
     df = pd.read_csv(path, sep=sep, compression=compression)
     n_rows = len(df)
 
-    if n_rows < parallel_min_rows or n_rows <= chunk_size:
-        # File fits in one chunk, no parallelization benefit
+    if not _is_parallel_worthwhile(
+        n_rows,
+        n_jobs=n_jobs,
+        chunk_size=chunk_size,
+        parallel_min_rows=parallel_min_rows,
+    ):
         return _parse_chunk_worker(df, locus=locus)
 
-    # Split into chunks
     chunks = [df.iloc[i : i + chunk_size] for i in range(0, n_rows, chunk_size)]
-
-    # Parse chunks in parallel
-    repertoires = []
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [
-            executor.submit(_parse_chunk_worker, chunk, locus)
-            for chunk in chunks
-        ]
-        for future in futures:
-            repertoires.append(future.result())
-
-    # Merge all repertoires
-    all_clonotypes = [c for rep in repertoires for c in rep.clonotypes]
-    return LocusRepertoire(
-        clonotypes=all_clonotypes,
-        locus=locus or repertoires[0].locus if repertoires else "",
-    )
+    return _parse_chunks_parallel(chunks, locus=locus, n_jobs=n_jobs)
 
 
 def load_airr_with_filter(
@@ -198,7 +194,7 @@ def load_airr_with_filter(
     parallel_min_rows: int = DEFAULT_PARALLEL_MIN_ROWS,
     sep: str = "\t",
     compression: str | None = "infer",
-    filter_fn=None,
+    filter_fn: Callable[[pd.Series], bool] | None = None,
 ) -> LocusRepertoire:
     """Load AIRR file with optional row-level filtering before parsing.
 
@@ -234,25 +230,16 @@ def load_airr_with_filter(
     if filter_fn is not None:
         df = df[df.apply(filter_fn, axis=1)]
 
-    if n_jobs == 1 or len(df) < parallel_min_rows or len(df) <= chunk_size:
+    if not _is_parallel_worthwhile(
+        len(df),
+        n_jobs=n_jobs,
+        chunk_size=chunk_size,
+        parallel_min_rows=parallel_min_rows,
+    ):
         return _parse_chunk_worker(df, locus=locus)
 
-    # Parallel processing
     chunks = [df.iloc[i : i + chunk_size] for i in range(0, len(df), chunk_size)]
-    repertoires = []
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [
-            executor.submit(_parse_chunk_worker, chunk, locus)
-            for chunk in chunks
-        ]
-        for future in futures:
-            repertoires.append(future.result())
-
-    all_clonotypes = [c for rep in repertoires for c in rep.clonotypes]
-    return LocusRepertoire(
-        clonotypes=all_clonotypes,
-        locus=locus or repertoires[0].locus if repertoires else "",
-    )
+    return _parse_chunks_parallel(chunks, locus=locus, n_jobs=n_jobs)
 
 
 # ============================================================================
