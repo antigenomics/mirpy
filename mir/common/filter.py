@@ -6,24 +6,7 @@ quality and gene-library functionality annotations.
 
 from __future__ import annotations
 
-# Try to import C-optimized functions, fall back to Python implementations if not available
-try:
-    from mir.basic.mirseq import is_canonical, is_coding
-except ImportError:
-    # Fallback Python implementations when C extension doesn't provide them
-    def is_coding(junction_aa: str) -> bool:
-        """Check if junction_aa contains only standard amino acid letters."""
-        if not junction_aa:
-            return False
-        # Standard amino acids: ACDEFGHIKLMNPQRSTVWY
-        standard_aa = set('ACDEFGHIKLMNPQRSTVWY')
-        return all(c in standard_aa for c in junction_aa.upper())
-    
-    def is_canonical(junction_aa: str) -> bool:
-        """Check if junction_aa starts with C and ends with F or W."""
-        if not junction_aa or len(junction_aa) < 2:
-            return False
-        return junction_aa[0].upper() == 'C' and junction_aa[-1].upper() in ('F', 'W')
+from mir.basic.mirseq_compat import is_canonical, is_coding
 from mir.common.gene_library import GeneLibrary
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 
