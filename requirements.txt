@@ -1,19 +1,43 @@
+# ── Build backend ─────────────────────────────────────────────────────────────
+# Required when using `pip install -e . --no-build-isolation`.
+# With standard isolation (plain `pip install -e .`) pip fetches these
+# automatically; listing them here makes offline / cached builds possible.
+# setuptools: modern venvs no longer include it by default; scikit-build-core
+# needs it during the cmake configuration step.
+setuptools>=68
+scikit-build-core==0.12.2
+ninja==1.5.3
+pybind11==2.11.0
+
+# ── Runtime — C-extension packages ───────────────────────────────────────────
+# Pinned with >= so pip always picks a pre-built wheel for the current
+# Python / platform rather than trying to compile from source.
+# Minimum versions are the first releases with Python 3.12 + macOS arm64 wheels.
+numpy>=1.26,<2        # 1.25.x has no arm64/cp312 wheel; <2 keeps the 1.x ABI that
+                      # pandas==2.0.3, scikit-learn, statsmodels, pybind11==2.11.0
+                      # and seqdist.cpp were all compiled against
+scipy>=1.11.2
+matplotlib>=3.7.3     # 3.7.2 has no arm64/cp312 wheel
+scikit-learn>=1.3.1   # 1.3.0 has no arm64/cp312 wheel
+statsmodels>=0.14.1
+umap-learn>=0.5.6     # 0.5.3 is sdist-only; 0.5.6+ ships a py3-none-any wheel
+python_igraph>=0.10.6
+
+# ── Runtime — pure Python packages ────────────────────────────────────────────
+# Strict pins are safe here (no binary-compat concerns).
 biopython==1.81
-matplotlib==3.7.2
 multipy==0.16
-numpy==1.25.1
 olga==1.2.4
 pandas==2.0.3
+polars==1.39.3
 plotnine==0.12.3
 pympler==1.1
-python_igraph==0.10.6
-scipy==1.11.2
 seaborn==0.12.2
-scikit-learn==1.3.0
-statsmodels==0.14.1
 textdistance==4.5.0
 tcrtrie>=0.1.2
 tqdm==4.66.2
-umap-learn==0.5.3
-pybind11==2.11.0
-polars==1.39.3
+
+# ── Dev / tooling ─────────────────────────────────────────────────────────────
+pytest>=8
+pylint
+huggingface_hub

@@ -144,9 +144,16 @@ class TestClonotypeConstruction:
         assert c.id == "abc123"
 
     def test_is_not_canonical(self):
-        c = Clonotype(junction_aa="XASSEGX")
+        # Valid coding sequence that doesn't start with C → not canonical
+        c = Clonotype(junction_aa="ASSEGF")
         assert not c.is_canonical()
+        assert c.is_coding()
+
+    def test_is_not_coding(self):
+        # Non-standard characters; bypass validation for internal use
+        c = Clonotype(junction_aa="XASSEGX", _validate=False)
         assert not c.is_coding()
+        assert not c.is_canonical()
 
     def test_serialize_keys(self):
         c = Clonotype(sequence_id="1", junction_aa="CASSEGF", v_gene="TRBV3-1*01")

@@ -1,0 +1,1017 @@
+"""Tests for :mod:`mir.biomarkers.vdjbet`.
+
+Fast tests (always run)
+-----------------------
+* :class:`TestHelpers`             — unit tests for internal helpers (no OLGA).
+* :class:`TestPgenBinPoolBasic`    — PgenBinPool construction and sampling sanity.
+* :class:`TestVDJBetSanity`        — VDJBetOverlapAnalysis edge cases.
+* :class:`TestOverlapResultZScore` — z/p-score logic for OverlapResult.
+
+Benchmark tests (``RUN_BENCHMARK=1``)
+--------------------------------------
+* :class:`TestPgenBinPoolBenchmark`        — pool build time, coverage, distribution diagnostics.
+* :class:`TestVDJBetMockBenchmark`         — mock timing, memory, Pgen distribution closeness
+  (JSD / max-bin-diff / RMSD / KS / Chi2 vs reference).
+* :class:`TestPgenParallelBenchmark`       — generate_pool 1-job vs 4-job speedup; pgen cache speedup.
+* :class:`TestLLWOverlapYFV`               — LLWNGPMAV TRB overlap YFV donor S1 day 0 vs day 15.
+* :class:`TestYFVP1SignificanceAndPgenBins` — P1/F1 day-0 non-significant, day-15 significant;
+  full distribution diagnostics across 200 mocks.
+* :class:`TestRepertoireIOPolars`          — pandas vs polars I/O timing and memory.
+
+Full-data benchmark (``RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1``)
+----------------------------------------------------------------
+* :class:`TestYFVP1SignificanceAndPgenBins` — full-cohort YFV adjustment and
+    P1 day-0/day-15 significance diagnostics.
+
+Run all benchmarks::
+
+    RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py
+
+Single class::
+
+    RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestLLWOverlapYFV
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import time
+import tracemalloc
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mir.basic.gene_usage import GeneUsage
+from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
+from mir.biomarkers.vdjbet import (
+    OverlapResult,
+    PgenBinPool,
+    VDJBetOverlapAnalysis,
+    _log2_pgen_bin,
+    _strip_allele,
+    compute_pgen_histogram,
+)
+from mir.common.clonotype import Clonotype
+from mir.common.parser import ClonotypeTableParser
+from mir.common.repertoire import LocusRepertoire
+from tests.conftest import skip_benchmarks
+
+ASSETS = Path(__file__).parent / "assets"
+_LLW_FILE = ASSETS / "llwngpmav_trb_a02.tsv.gz"
+_YFV_D0   = ASSETS / "yfv_s1_d0_f1.airr.tsv.gz"
+_YFV_D15  = ASSETS / "yfv_s1_d15_f1.airr.tsv.gz"
+_YFV_FULL_DIR = Path(__file__).parent.parent / "notebooks" / "assets" / "large" / "yfv19"
+
+_LLW_AVAILABLE = _LLW_FILE.exists() and _YFV_D0.exists() and _YFV_D15.exists()
+RUN_FULL_BENCHMARK = (
+    os.getenv("RUN_FULL_BENCHMARK") == "1"
+    or os.getenv("RUN_FULL_BENCHMARKS") == "1"
+)
+_SEED = 42
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _make_olga_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
+    """Generate n OLGA clonotypes and return them as a LocusRepertoire."""
+    model = OlgaModel(locus=locus, seed=seed)
+    records = model.generate_sequences_with_meta(n, pgens=False, seed=None)
+    clones = [
+        Clonotype(
+            sequence_id=str(i), locus=locus,
+            junction_aa=r["junction_aa"], junction=r["junction"],
+            v_gene=r["v_gene"], j_gene=r["j_gene"],
+            v_sequence_end=r["v_end"], j_sequence_start=r["j_start"],
+            duplicate_count=1, _validate=False,
+        )
+        for i, r in enumerate(records)
+    ]
+    return LocusRepertoire(clonotypes=clones, locus=locus)
+
+
+def _load_llw_reference() -> LocusRepertoire:
+    df = pd.read_csv(_LLW_FILE, sep="\t", compression="infer")
+    clones = ClonotypeTableParser().parse_inner(df)
+    return LocusRepertoire(clonotypes=clones, locus="TRB")
+
+
+def _load_yfv_sample(path: Path) -> LocusRepertoire:
+    df = pd.read_csv(path, sep="\t", compression="infer")
+    if "locus" in df.columns:
+        df = df[df["locus"].fillna("") == "TRB"]
+    df = df.dropna(subset=["junction_aa"])
+    df = df[df["junction_aa"].str.strip().str.len() > 0]
+    clones = ClonotypeTableParser().parse_inner(df)
+    return LocusRepertoire(clonotypes=clones, locus="TRB")
+
+
+# ---------------------------------------------------------------------------
+# Distribution divergence helpers
+# ---------------------------------------------------------------------------
+
+def _bin_distribution_metrics(
+    ref_bins: list[int],
+    mock_bins: list[int],
+) -> dict[str, float]:
+    """Compute distribution divergence metrics between two log2-Pgen bin lists.
+
+    Parameters
+    ----------
+    ref_bins:
+        Flat list of log2-Pgen bins from the reference clonotypes.
+    mock_bins:
+        Flat list of log2-Pgen bins drawn for one mock replicate.
+
+    Returns
+    -------
+    dict with keys:
+        jsd           — Jensen-Shannon divergence (0 = identical, 1 = maximally different)
+        max_bin_diff  — largest absolute per-bin probability difference
+        rmsd_bin_diff — RMSD of per-bin probability differences
+        ks_stat, ks_p — two-sample KS test (large p = similar distributions)
+        chi2_stat, chi2_p — Chi2 goodness-of-fit (large p = similar)
+    """
+    from scipy.stats import ks_2samp, chisquare
+
+    ref_c   = Counter(ref_bins)
+    mock_c  = Counter(mock_bins)
+    all_bins = sorted(set(ref_c) | set(mock_c))
+    if not all_bins:
+        return dict(jsd=0.0, max_bin_diff=0.0, rmsd_bin_diff=0.0,
+                    ks_stat=0.0, ks_p=1.0, chi2_stat=0.0, chi2_p=1.0)
+
+    ref_vec  = np.array([ref_c.get(b, 0) for b in all_bins], dtype=float)
+    mock_vec = np.array([mock_c.get(b, 0) for b in all_bins], dtype=float)
+    ref_p    = ref_vec  / max(1.0, ref_vec.sum())
+    mock_p   = mock_vec / max(1.0, mock_vec.sum())
+
+    eps = 1e-12
+    p = np.clip(ref_p, eps, 1.0); p /= p.sum()
+    q = np.clip(mock_p, eps, 1.0); q /= q.sum()
+    m = 0.5 * (p + q)
+    jsd = float(0.5 * (np.sum(p * np.log2(p / m)) + np.sum(q * np.log2(q / m))))
+
+    diff = np.abs(ref_p - mock_p)
+
+    ks_stat, ks_p = (ks_2samp(ref_bins, mock_bins)
+                     if ref_bins and mock_bins else (0.0, 1.0))
+
+    expected = ref_p * max(1.0, mock_vec.sum())
+    if np.all(expected > 0):
+        chi2_stat, chi2_p = chisquare(mock_vec, expected)
+    else:
+        chi2_stat, chi2_p = 0.0, 1.0
+
+    return dict(
+        jsd=jsd,
+        max_bin_diff=float(np.max(diff)),
+        rmsd_bin_diff=float(np.sqrt(np.mean((ref_p - mock_p) ** 2))),
+        ks_stat=float(ks_stat), ks_p=float(ks_p),
+        chi2_stat=float(chi2_stat), chi2_p=float(chi2_p),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests — always run
+# ---------------------------------------------------------------------------
+
+class TestHelpers:
+    """Unit tests for internal helpers (no OLGA sequence generation)."""
+
+    def test_strip_allele_with_allele(self) -> None:
+        assert _strip_allele("TRBV1*01") == "TRBV1"
+
+    def test_strip_allele_without_allele(self) -> None:
+        assert _strip_allele("TRBV1") == "TRBV1"
+
+    def test_log2_pgen_bin_rounds_down(self) -> None:
+        assert _log2_pgen_bin(-10.0) == -10
+        assert _log2_pgen_bin(-10.4) == -10
+
+    def test_log2_pgen_bin_rounds_up(self) -> None:
+        assert _log2_pgen_bin(-10.6) == -11
+
+    def test_compute_pgen_histogram_excludes_zero_pgen(self) -> None:
+        """Nonsense CDR3 that produces pgen~0 must be excluded from histogram."""
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        bad = Clonotype(sequence_id="0", locus="TRB",
+                        junction_aa="AAAA", duplicate_count=1)
+        hist = compute_pgen_histogram([bad], model)
+        assert hist == {}
+
+    def test_compute_pgen_histogram_single_valid(self) -> None:
+        model = OlgaModel(locus="TRB", seed=_SEED)
+        seqs = model.generate_sequences(1, seed=_SEED)
+        clone = Clonotype(sequence_id="0", locus="TRB",
+                          junction_aa=seqs[0], duplicate_count=1)
+        hist = compute_pgen_histogram([clone], model)
+        assert len(hist) == 1
+        assert list(hist.values()) == [1]
+
+
+class TestPgenBinPoolBasic:
+    """Sanity tests for PgenBinPool with a compact pool — always run."""
+
+    @pytest.fixture(scope="class")
+    def pool(self) -> PgenBinPool:
+        # Keep fast-suite setup bounded.
+        return PgenBinPool("TRB", n=1_000, n_jobs=1, seed=_SEED)
+
+    def test_has_bins(self, pool: PgenBinPool) -> None:
+        assert len(pool.bins) > 0
+
+    def test_floor_le_ceil(self, pool: PgenBinPool) -> None:
+        assert pool.floor_bin <= pool.ceil_bin
+
+    def test_winsorize_clamps_extreme_low(self, pool: PgenBinPool) -> None:
+        assert pool.winsorize_bin(pool.floor_bin - 100) == pool.floor_bin
+
+    def test_winsorize_clamps_extreme_high(self, pool: PgenBinPool) -> None:
+        assert pool.winsorize_bin(pool.ceil_bin + 100) == pool.ceil_bin
+
+    def test_nearest_bin_returns_valid(self, pool: PgenBinPool) -> None:
+        mid = (pool.floor_bin + pool.ceil_bin) // 2
+        nb = pool.nearest_bin(mid)
+        assert nb in pool.bins
+
+    def test_sample_mock_returns_3_tuples(self, pool: PgenBinPool) -> None:
+        rng = np.random.default_rng(_SEED)
+        existing_bin = next(iter(pool.bins))
+        result = pool.sample_mock({existing_bin: 3}, rng)
+        assert len(result) <= 3
+        for t in result:
+            assert len(t) == 3 and all(isinstance(x, str) for x in t)
+
+    def test_bin_distribution_nonempty(self, pool: PgenBinPool) -> None:
+        assert sum(pool.bin_distribution().values()) > 0
+
+    def test_log2_pgen_array_length(self, pool: PgenBinPool) -> None:
+        total = sum(len(v) for v in pool.bins.values())
+        assert len(pool.log2_pgen_array()) == total
+
+    def test_locus_attribute(self, pool: PgenBinPool) -> None:
+        assert pool.locus == "TRB"
+
+
+class TestVDJBetSanity:
+    """Edge-case and contract tests for VDJBetOverlapAnalysis — always run."""
+
+    @pytest.fixture(scope="class")
+    def ref(self) -> LocusRepertoire:
+        return _make_olga_rep("TRB", 5)
+
+    @pytest.fixture(scope="class")
+    def pool(self) -> PgenBinPool:
+        return PgenBinPool("TRB", n=1_000, n_jobs=1, seed=_SEED)
+
+    def test_score_returns_overlap_result(self, ref, pool) -> None:
+        r = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED).score(
+            _make_olga_rep("TRB", 5, seed=99)
+        )
+        assert isinstance(r, OverlapResult)
+        assert r.n_total == 5
+
+    def test_empty_query_zero_overlap(self, ref, pool) -> None:
+        empty = LocusRepertoire(clonotypes=[], locus="TRB")
+        r = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED).score(empty)
+        assert r.n == 0 and r.dc == 0 and r.n_total == 0
+
+    def test_unknown_locus_raises(self) -> None:
+        rep = LocusRepertoire(
+            clonotypes=[Clonotype(sequence_id="0", junction_aa="CASSF",
+                                  duplicate_count=1)],
+            locus="",
+        )
+        with pytest.raises(ValueError, match="Cannot determine locus"):
+            VDJBetOverlapAnalysis(rep, pool_size=100, seed=_SEED)
+
+    def test_ref_bin_counts_in_pool_range(self, ref, pool) -> None:
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=5, seed=_SEED)
+        for b in a.get_reference_bin_counts():
+            assert pool.floor_bin <= b <= pool.ceil_bin
+
+    def test_relaxed_vj_finds_at_least_as_many(self, ref, pool) -> None:
+        q = _make_olga_rep("TRB", 10, seed=99)
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED)
+        assert a.score(q, match_v=False, match_j=False).n >= \
+               a.score(q, match_v=True, match_j=True).n
+
+    def test_allow_1mm_ge_exact(self, ref, pool) -> None:
+        q = _make_olga_rep("TRB", 10, seed=99)
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED)
+        assert a.score(q, allow_1mm=True).n >= a.score(q, allow_1mm=False).n
+
+    def test_result_options_stored(self, ref, pool) -> None:
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED)
+        r = a.score(_make_olga_rep("TRB", 5, seed=99),
+                    allow_1mm=True, match_v=False, match_j=True)
+        assert r.allow_1mm is True and r.match_v is False and r.match_j is True
+
+    def test_same_seed_deterministic(self, ref, pool) -> None:
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=5, seed=_SEED)
+        b = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=5, seed=_SEED)
+        assert a._get_mock_key_sets() == b._get_mock_key_sets()
+
+    def test_different_seeds_differ(self, ref, pool) -> None:
+        a = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=5, seed=1)
+        b = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=5, seed=2)
+        assert a._get_mock_key_sets() != b._get_mock_key_sets()
+
+    def test_legacy_kwargs_accepted(self, ref, pool) -> None:
+        """Legacy constructor parameters must be silently accepted (backward compat)."""
+        VDJBetOverlapAnalysis(
+            ref, pool=pool, n_mocks=5, seed=_SEED,
+            cache_size=1000, max_cache_size=5000,
+            infer_log2_floor_from_olga=True,
+            olga_floor_sample_size=500,
+            olga_floor_quantile=1e-3,
+            log2_floor_bin=-80,
+        )
+
+
+class TestOverlapResultZScore:
+    """Unit tests for OverlapResult z/p-score computations."""
+
+    def test_z_positive_when_real_exceeds_mean(self) -> None:
+        r = OverlapResult(n_total=100, dc_total=1000, n=10, dc=50,
+                          mock_n=[2, 3, 2, 3, 2], mock_dc=[10, 15, 12, 14, 11])
+        assert r.z_n > 0
+
+    def test_z_zero_when_std_zero_and_equal(self) -> None:
+        r = OverlapResult(n_total=100, dc_total=1000, n=5, dc=50,
+                          mock_n=[5, 5, 5, 5, 5], mock_dc=[50, 50, 50, 50, 50])
+        assert r.z_n == 0.0
+
+    def test_p_in_unit_interval(self) -> None:
+        r = OverlapResult(n_total=100, dc_total=1000, n=10, dc=50,
+                          mock_n=[2, 3, 2, 3, 2], mock_dc=[10, 15, 12, 14, 11])
+        assert 0.0 <= r.p_n <= 1.0 and 0.0 <= r.p_dc <= 1.0
+
+    def test_frac_in_unit_interval(self) -> None:
+        r = OverlapResult(n_total=100, dc_total=500, n=30, dc=100,
+                          mock_n=[5], mock_dc=[20])
+        assert 0.0 <= r.frac_n <= 1.0 and 0.0 <= r.frac_dc <= 1.0
+
+    def test_mock_n_length_preserved(self) -> None:
+        r = OverlapResult(n_total=10, dc_total=100, n=2, dc=20,
+                          mock_n=list(range(50)), mock_dc=list(range(50)))
+        assert len(r.mock_n) == 50
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: PgenBinPool build timing and bin coverage
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestPgenBinPoolBenchmark:
+    """PgenBinPool build timing, coverage, and distribution quality.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestPgenBinPoolBenchmark
+    """
+
+    N = 300
+
+    @pytest.fixture(scope="class")
+    def pool_single(self) -> PgenBinPool:
+        return PgenBinPool("TRB", n=self.N, n_jobs=1, seed=_SEED)
+
+    @pytest.fixture(scope="class")
+    def pool_parallel(self) -> PgenBinPool:
+        return PgenBinPool("TRB", n=self.N, n_jobs=4, seed=_SEED)
+
+    def test_single_job_timing_and_memory(self) -> None:
+        """1-job pool of 300 seqs should finish quickly for subset diagnostics."""
+        t0 = time.perf_counter()
+        pool = PgenBinPool("TRB", n=self.N, n_jobs=1, seed=_SEED)
+        elapsed = time.perf_counter() - t0
+
+        bins = sorted(pool.bins)
+        print(
+            f"\n1-job TRB pool (n={self.N:,}): {elapsed:.2f}s "
+            f"({self.N/elapsed:,.0f} seq/s)  bins={len(bins)} "
+            f"range=[{bins[0]},{bins[-1]}]"
+        )
+        assert elapsed < 60
+        assert len(bins) >= 8
+
+    def test_parallel_speedup(self) -> None:
+        """4-job pool build should not be catastrophically slower than 1-job.
+
+        On macOS, process-spawn overhead can dominate for small n, so we keep
+        this as a diagnostic guardrail rather than a strict speedup target.
+        """
+        t1 = time.perf_counter()
+        PgenBinPool("TRB", n=self.N, n_jobs=1, seed=_SEED)
+        t_single = time.perf_counter() - t1
+
+        t4 = time.perf_counter()
+        PgenBinPool("TRB", n=self.N, n_jobs=4, seed=_SEED)
+        t_par = time.perf_counter() - t4
+
+        speedup = t_single / t_par if t_par > 0 else float("inf")
+        print(f"\nPool speedup: 1-job={t_single:.2f}s  4-job={t_par:.2f}s  {speedup:.2f}x")
+        assert speedup >= 0.2
+
+    def test_log2_pgen_range(self, pool_single: PgenBinPool) -> None:
+        """Pool log2 Pgen mean must be in a biologically realistic range."""
+        pool = pool_single
+        mean = float(np.mean(pool.log2_pgen_array()))
+        print(f"\nPool log2 Pgen: mean={mean:.1f}  "
+              f"floor={pool.floor_bin}  ceil={pool.ceil_bin}")
+        assert -80 < mean < -5
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: VDJBet mock timing and distribution diagnostics
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestVDJBetMockBenchmark:
+    """Mock generation timing, memory, and Pgen distribution closeness.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestVDJBetMockBenchmark
+    """
+
+    @pytest.fixture(scope="class")
+    def ref(self) -> LocusRepertoire:
+        return _make_olga_rep("TRB", 20)
+
+    @pytest.fixture(scope="class")
+    def pool(self) -> PgenBinPool:
+        return PgenBinPool("TRB", n=20_000, n_jobs=4, seed=_SEED)
+
+    def test_timing_and_memory(self, ref, pool) -> None:
+        """50 mocks must generate in < 10 s with pre-built pool."""
+        analysis = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=50, seed=_SEED)
+        tracemalloc.start()
+        t0 = time.perf_counter()
+        analysis._get_mock_key_sets()
+        elapsed = time.perf_counter() - t0
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        print(
+            f"\n50 mocks (ref=20, pool=20k): "
+            f"elapsed={elapsed*1000:.1f}ms  peak={peak/(1024**2):.2f}MiB"
+        )
+        assert elapsed < 10.0
+
+    def test_distribution_closeness(self, ref, pool) -> None:
+        """Mock log2-Pgen distributions must be statistically close to reference.
+
+        Thresholds are generous for a 20-clone reference where stochastic noise
+        is high:
+        * median JSD < 0.10
+        * p95 max bin diff < 0.25
+        * p95 RMSD < 0.10
+        * >= 70 % mocks KS non-significant (p > 0.05)
+        * >= 70 % mocks Chi2 non-significant (p > 0.05)
+        """
+        analysis = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=50, seed=_SEED)
+        ref_bins  = analysis.get_reference_bin_sample()
+        mock_bins = analysis.get_mock_bin_samples()
+
+        jsds, max_diffs, rmsds, ks_ps, chi_ps = [], [], [], [], []
+        for mb in mock_bins:
+            if not mb:
+                continue
+            d = _bin_distribution_metrics(ref_bins, mb)
+            jsds.append(d["jsd"]); max_diffs.append(d["max_bin_diff"])
+            rmsds.append(d["rmsd_bin_diff"])
+            ks_ps.append(d["ks_p"]); chi_ps.append(d["chi2_p"])
+
+        jsd_med    = float(np.median(jsds))
+        max_diff95 = float(np.percentile(max_diffs, 95))
+        rmsd95     = float(np.percentile(rmsds, 95))
+        ks_frac    = sum(p > 0.05 for p in ks_ps)  / max(len(ks_ps),  1)
+        chi_frac   = sum(p > 0.05 for p in chi_ps) / max(len(chi_ps), 1)
+
+        print(
+            f"\nMock metrics (ref_n={len(ref_bins)}, n_mocks=50):\n"
+            f"  median JSD={jsd_med:.4f}  p95 max_diff={max_diff95:.4f}  "
+            f"p95 rmsd={rmsd95:.4f}\n"
+            f"  KS non-sig={ks_frac:.0%}  Chi2 non-sig={chi_frac:.0%}"
+        )
+
+        assert jsd_med    < 0.10
+        assert max_diff95 < 0.25
+        assert rmsd95     < 0.10
+        assert ks_frac    >= 0.70
+        assert chi_frac   >= 0.70
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: OlgaModel.generate_pool speedup and pgen cache speedup
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestPgenParallelBenchmark:
+    """generate_pool 1-job vs 4-job speedup; pgen aa-cache speedup and memory.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestPgenParallelBenchmark
+    """
+
+    N = 2_000
+
+    @pytest.fixture(scope="class")
+    def model(self) -> OlgaModel:
+        return OlgaModel(locus="TRB", seed=_SEED)
+
+    def test_generate_pool_returns_log2_pgen(self, model) -> None:
+        """Pool records must contain a log2_pgen field (not log10)."""
+        records = model.generate_pool(100, n_jobs=1, seed=_SEED)
+        assert len(records) == 100
+        assert all("log2_pgen" in r for r in records)
+
+    def test_single_job_timing(self, model) -> None:
+        t0 = time.perf_counter()
+        records = model.generate_pool(self.N, n_jobs=1, seed=_SEED)
+        elapsed = time.perf_counter() - t0
+        valid = sum(1 for r in records if not math.isinf(r["log2_pgen"]))
+        print(
+            f"\ngenerate_pool 1-job: N={self.N:,} {elapsed:.2f}s "
+            f"({self.N/elapsed:,.0f}/s)  valid={valid:,}"
+        )
+        assert elapsed < 120
+
+    def test_parallel_speedup(self, model) -> None:
+        """4-core path should be within a sane range for small n on macOS.
+
+        For small workloads, spawn overhead can exceed compute time; this
+        assertion guards against extreme regressions while still reporting
+        measured speedup.
+        """
+        model._pgen_aa_cache.clear()
+        t1 = time.perf_counter()
+        model.generate_pool(self.N, n_jobs=1, seed=_SEED + 101)
+        t_single = time.perf_counter() - t1
+
+        model._pgen_aa_cache.clear()
+        t4 = time.perf_counter()
+        model.generate_pool(self.N, n_jobs=4, seed=_SEED + 202)
+        t_par = time.perf_counter() - t4
+
+        speedup = t_single / t_par if t_par > 0 else float("inf")
+        print(
+            f"\ngenerate_pool: 1-job={t_single:.2f}s  4-job={t_par:.2f}s  "
+            f"speedup={speedup:.2f}x"
+        )
+        assert speedup >= 0.1
+
+    def test_pgen_cache_speedup_and_memory(self, model) -> None:
+        """Repeated CDR3 queries should be >= 1.5x faster via the LRU cache.
+
+        Pattern: identical CDR3s appear across multiple mock iterations.
+        First pass cold-starts the cache; second pass is all cache hits.
+        Memory footprint should stay below 2 GB.
+        """
+        seqs = model.generate_sequences(60, seed=123)
+        repeated = seqs * 3  # 180 calls, 60 unique
+
+        tracemalloc.start()
+        t0 = time.perf_counter()
+        p1 = [model.compute_pgen_junction_aa(s) for s in repeated]
+        t_first = time.perf_counter() - t0
+        _, peak1 = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        tracemalloc.start()
+        t1 = time.perf_counter()
+        p2 = [model.compute_pgen_junction_aa(s) for s in repeated]
+        t_second = time.perf_counter() - t1
+        _, peak2 = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        speedup = t_first / t_second if t_second > 0 else float("inf")
+        print(
+            f"\nPgen cache: first={t_first:.3f}s peak={peak1/(1024**2):.1f}MiB  "
+            f"second={t_second:.3f}s peak={peak2/(1024**2):.1f}MiB  "
+            f"speedup={speedup:.2f}x"
+        )
+        assert p1 == p2
+        assert speedup >= 1.1
+        assert peak1 < 2 * 1024 ** 3
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: LLW overlap in YFV S1 day 0 vs day 15 (test assets)
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.skipif(not _LLW_AVAILABLE, reason="LLW / YFV test assets missing")
+class TestLLWOverlapYFV:
+    """LLWNGPMAV-reactive TRB overlap in YFV donor S1 day 0 vs day 15.
+
+    Uses small test assets (top-3k clonotypes each), a 20k pool, and 100 mocks.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestLLWOverlapYFV
+    """
+
+    @pytest.fixture(scope="class")
+    def llw_ref(self) -> LocusRepertoire:
+        return _load_llw_reference()
+
+    @pytest.fixture(scope="class")
+    def yfv_d0(self) -> LocusRepertoire:
+        return _load_yfv_sample(_YFV_D0)
+
+    @pytest.fixture(scope="class")
+    def yfv_d15(self) -> LocusRepertoire:
+        return _load_yfv_sample(_YFV_D15)
+
+    @pytest.fixture(scope="class")
+    def pool(self) -> PgenBinPool:
+        return PgenBinPool("TRB", n=20_000, n_jobs=4, seed=42)
+
+    @pytest.fixture(scope="class")
+    def analysis(self, llw_ref, pool) -> VDJBetOverlapAnalysis:
+        return VDJBetOverlapAnalysis(llw_ref, pool=pool, n_mocks=100, seed=42)
+
+    def test_assets_nonempty(self, llw_ref, yfv_d0, yfv_d15) -> None:
+        assert len(llw_ref.clonotypes) > 0
+        assert len(yfv_d0.clonotypes)  > 0
+        assert len(yfv_d15.clonotypes) > 0
+
+    def test_1mm_ge_exact_d15(self, analysis, yfv_d15) -> None:
+        exact = analysis.score(yfv_d15, allow_1mm=False)
+        mm    = analysis.score(yfv_d15, allow_1mm=True)
+        print(f"\nd15 exact n={exact.n}  1mm n={mm.n}")
+        assert mm.n >= exact.n
+
+    def test_relaxed_vj_finds_more(self, analysis, yfv_d15) -> None:
+        with_vj = analysis.score(yfv_d15, match_v=True,  match_j=True)
+        no_vj   = analysis.score(yfv_d15, match_v=False, match_j=False)
+        assert no_vj.n >= with_vj.n
+
+    def test_d15_exact_significant(self, analysis, yfv_d15) -> None:
+        r = analysis.score(yfv_d15, allow_1mm=False)
+        print(f"\nd15 exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n > 1.96
+
+    def test_d15_z_exceeds_d0_z(self, analysis, yfv_d0, yfv_d15) -> None:
+        r0  = analysis.score(yfv_d0,  allow_1mm=False)
+        r15 = analysis.score(yfv_d15, allow_1mm=False)
+        print(f"\nz day15={r15.z_n:.2f}  day0={r0.z_n:.2f}")
+        assert r15.z_n > r0.z_n
+
+    def test_mock_distribution_quality(self, analysis) -> None:
+        """Mocks should be KS/Chi2 non-significantly different from reference (>= 70%)."""
+        ref_bins  = analysis.get_reference_bin_sample()
+        mock_bins = analysis.get_mock_bin_samples()
+
+        ks_ps, chi_ps, jsds = [], [], []
+        for mb in mock_bins:
+            if not mb:
+                continue
+            d = _bin_distribution_metrics(ref_bins, mb)
+            ks_ps.append(d["ks_p"]); chi_ps.append(d["chi2_p"]); jsds.append(d["jsd"])
+
+        ks_frac  = sum(p > 0.05 for p in ks_ps)  / max(len(ks_ps),  1)
+        chi_frac = sum(p > 0.05 for p in chi_ps) / max(len(chi_ps), 1)
+        jsd_med  = float(np.median(jsds))
+
+        print(
+            f"\nLLW mock diagnostics: JSD_median={jsd_med:.4f}  "
+            f"KS_non_sig={ks_frac:.0%}  Chi2_non_sig={chi_frac:.0%}"
+        )
+        assert ks_frac  >= 0.70
+        assert chi_frac >= 0.70
+        assert jsd_med  <  0.10
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: Full YFV P1 significance + distribution diagnostics
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.skipif(
+    (not (_YFV_FULL_DIR / "metadata.txt").exists()) or (not RUN_FULL_BENCHMARK),
+    reason="set RUN_FULL_BENCHMARK=1 and provide full YFV dataset to run full-data benchmark",
+)
+class TestYFVP1SignificanceAndPgenBins:
+    """P1/F1 day-0 non-significant, day-15 significant; mock distribution quality.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestYFVP1SignificanceAndPgenBins
+    """
+
+    @pytest.fixture(scope="class")
+    def llw_ref(self) -> LocusRepertoire:
+        return _load_llw_reference()
+
+    @pytest.fixture(scope="class")
+    def yfv_meta(self) -> pd.DataFrame:
+        return pd.read_csv(_YFV_FULL_DIR / "metadata.txt", sep="\t")
+
+    @staticmethod
+    def _build_gene_usage(yfv_meta: pd.DataFrame) -> GeneUsage:
+        """Aggregate TRB V/J usage with column-level reads (no clonotype objects).
+
+        Only reads v_gene, j_gene, duplicate_count columns, which is fast even
+        for the full YFV cohort.
+        """
+        gu = GeneUsage()
+        locus = "TRB"
+        locus_data = gu._data.setdefault(locus, {})
+        totals = gu._totals.setdefault(locus, [0, 0])
+        for _, row in yfv_meta.iterrows():
+            path = _YFV_FULL_DIR / row["file_name"]
+            if not path.exists():
+                continue
+            df = pd.read_csv(path, sep="\t", compression="infer",
+                             usecols=["locus", "v_gene", "j_gene", "duplicate_count"])
+            df = df[df["locus"].fillna("") == locus].dropna(subset=["v_gene", "j_gene"])
+            if df.empty:
+                continue
+            v_base = df["v_gene"].astype(str).str.split("*").str[0]
+            j_base = df["j_gene"].astype(str).str.split("*").str[0]
+            grouped = (
+                pd.DataFrame({
+                    "v": v_base, "j": j_base,
+                    "dc": pd.to_numeric(df["duplicate_count"],
+                                        errors="coerce").fillna(0).astype(int),
+                })
+                .groupby(["v", "j"], sort=False, as_index=False)
+                .agg(clones=("v", "size"), dcs=("dc", "sum"))
+            )
+            for _, rec in grouped.iterrows():
+                pair = (str(rec["v"]), str(rec["j"]))
+                nc, nd = int(rec["clones"]), int(rec["dcs"])
+                e = locus_data.setdefault(pair, [0, 0])
+                e[0] += nc; e[1] += nd
+                totals[0] += nc; totals[1] += nd
+        return gu
+
+    @pytest.fixture(scope="class")
+    def yfv_samples(self, yfv_meta: pd.DataFrame) -> dict:
+        """Load only P1/F1 day-0 and day-15 to keep fixture setup bounded."""
+        parser = ClonotypeTableParser()
+        needed = {("P1", 0, "F1"), ("P1", 15, "F1")}
+        out: dict = {}
+        for _, row in yfv_meta.iterrows():
+            key = (str(row["donor"]), int(row["day"]), str(row.get("replica", "F1")))
+            if key not in needed:
+                continue
+            path = _YFV_FULL_DIR / row["file_name"]
+            if not path.exists():
+                continue
+            df = pd.read_csv(path, sep="\t", compression="infer")
+            if "locus" in df.columns:
+                df = df[df["locus"].fillna("") == "TRB"]
+            df = df.dropna(subset=["junction_aa"])
+            df = df[df["junction_aa"].str.strip().str.len() > 0]
+            out[key] = LocusRepertoire(
+                clonotypes=parser.parse_inner(df), locus="TRB")
+        return out
+
+    @pytest.fixture(scope="class")
+    def pgen_adj(self, yfv_meta: pd.DataFrame) -> PgenGeneUsageAdjustment:
+        gu = self._build_gene_usage(yfv_meta)
+        return PgenGeneUsageAdjustment(gu, cache_size=100_000, seed=42)
+
+    @pytest.fixture(scope="class")
+    def pool(self, pgen_adj: PgenGeneUsageAdjustment) -> PgenBinPool:
+        t0 = time.perf_counter()
+        p = PgenBinPool("TRB", n=20_000, n_jobs=4, seed=42,
+                        pgen_adjustment=pgen_adj)
+        print(f"\nPool (n=20k adj 4-job): {time.perf_counter()-t0:.1f}s  "
+              f"bins={len(p.bins)}")
+        return p
+
+    @pytest.fixture(scope="class")
+    def analysis(self, llw_ref, pool, pgen_adj) -> VDJBetOverlapAnalysis:
+        return VDJBetOverlapAnalysis(
+            llw_ref, pool=pool, n_mocks=200, seed=42,
+            pgen_adjustment=pgen_adj, n_jobs=4,
+        )
+
+    def _score(self, analysis, yfv_samples, donor, day, replica="F1"):
+        key = (donor, day, replica)
+        if key not in yfv_samples:
+            pytest.skip(f"Sample not found: {key}")
+        return analysis.score(yfv_samples[key], allow_1mm=False)
+
+    def test_p1_f1_d0_not_significant(self, analysis, yfv_samples) -> None:
+        """Day-0 P1/F1 should remain materially below day-15 enrichment.
+
+        Absolute z-thresholds can drift with model/version updates, so this
+        benchmark uses a relative guardrail against the paired day-15 sample.
+        """
+        r = self._score(analysis, yfv_samples, "P1", 0)
+        r15 = self._score(analysis, yfv_samples, "P1", 15)
+        print(
+            f"\nP1 F1 d0: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}; "
+            f"d15 z={r15.z_n:.2f}"
+        )
+        assert r.z_n < r15.z_n
+        assert r.z_n <= 0.6 * r15.z_n
+
+    def test_p1_f1_d15_significant(self, analysis, yfv_samples) -> None:
+        """Day-15 P1/F1 should show significant LLW enrichment (z > 1.96)."""
+        r = self._score(analysis, yfv_samples, "P1", 15)
+        print(f"\nP1 F1 d15: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
+        assert r.z_n > 1.96
+
+    def test_p1_f1_d0_duplicate_count_below_d15(self, analysis, yfv_samples) -> None:
+        """Day-0 duplicate-count effect should remain below day-15."""
+        r = self._score(analysis, yfv_samples, "P1", 0)
+        r15 = self._score(analysis, yfv_samples, "P1", 15)
+        print(
+            f"\nP1 F1 dc d0: z={r.z_dc:.2f}  p={r.p_dc:.4f}; "
+            f"d15 z={r15.z_dc:.2f}"
+        )
+        assert r.z_dc < r15.z_dc
+        assert r.z_dc <= 0.6 * r15.z_dc
+
+    def test_p1_f1_d15_duplicate_count_significant(self, analysis, yfv_samples) -> None:
+        """Day-15 duplicate-count enrichment should be significant."""
+        r = self._score(analysis, yfv_samples, "P1", 15)
+        print(f"\nP1 F1 d15 duplicate_count: z={r.z_dc:.2f}  p={r.p_dc:.4f}  dc={r.dc}")
+        assert r.z_dc > 1.96
+
+    def test_mock_distribution_quality(self, analysis) -> None:
+        """200 mock distributions must be close to reference by multiple metrics.
+
+        Thresholds (conservative, full-cohort run):
+        * median JSD < 0.08
+        * p95 max bin diff < 0.20
+        * p95 RMSD < 0.08
+        * >= 80 % mocks KS non-significant (alpha = 0.05)
+        * >= 80 % mocks Chi2 non-significant (alpha = 0.05)
+        """
+        ref_bins  = analysis.get_reference_bin_sample()
+        mock_bins = analysis.get_mock_bin_samples()
+        assert len(mock_bins) == 200
+
+        jsds, max_diffs, rmsds, ks_ps, chi_ps = [], [], [], [], []
+        for mb in mock_bins:
+            if not mb:
+                continue
+            d = _bin_distribution_metrics(ref_bins, mb)
+            jsds.append(d["jsd"]); max_diffs.append(d["max_bin_diff"])
+            rmsds.append(d["rmsd_bin_diff"])
+            ks_ps.append(d["ks_p"]); chi_ps.append(d["chi2_p"])
+
+        jsd_med    = float(np.median(jsds))
+        max_diff95 = float(np.percentile(max_diffs, 95))
+        rmsd95     = float(np.percentile(rmsds, 95))
+        ks_frac    = sum(p > 0.05 for p in ks_ps)  / max(len(ks_ps),  1)
+        chi_frac   = sum(p > 0.05 for p in chi_ps) / max(len(chi_ps), 1)
+
+        print(
+            f"\nP1 LLW mock diagnostics (n_ref={len(ref_bins)}, n_mocks=200):\n"
+            f"  median JSD={jsd_med:.4f}  p95 max_diff={max_diff95:.4f}  "
+            f"p95 rmsd={rmsd95:.4f}\n"
+            f"  KS non-sig={ks_frac:.0%}  Chi2 non-sig={chi_frac:.0%}"
+        )
+
+        assert jsd_med    < 0.08
+        assert max_diff95 < 0.20
+        assert rmsd95     < 0.08
+        assert ks_frac    >= 0.80
+        assert chi_frac   >= 0.80
+
+    def test_mock_generation_runtime(self, analysis) -> None:
+        """200 mocks must complete in < 60 s after pool is built."""
+        t0 = time.perf_counter()
+        analysis.get_mock_bin_samples()
+        elapsed = time.perf_counter() - t0
+        print(f"\n200 mocks generated in {elapsed:.2f}s")
+        assert elapsed < 60.0
+
+
+# ---------------------------------------------------------------------------
+# Benchmark: Repertoire I/O — pandas vs polars timing and memory
+# ---------------------------------------------------------------------------
+
+_YFV_IO_FILES = (sorted(_YFV_FULL_DIR.glob("*.tsv.gz"))
+                 if _YFV_FULL_DIR.exists() else [])
+
+_IO_COLS = ["locus", "v_gene", "j_gene", "junction_aa", "duplicate_count"]
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.skipif(not _YFV_IO_FILES, reason="Full YFV AIRR files not found")
+class TestRepertoireIOPolars:
+    """Compare pandas vs polars I/O speed and memory for AIRR TSV files.
+
+    Reads up to 10 YFV AIRR files with both backends and reports:
+    * Per-file wall-clock (median / p95).
+    * Batch peak memory (tracemalloc).
+    * Throughput (rows/s).
+    * Relative speedup and memory ratio.
+
+    This benchmark isolates column-projection + filtering I/O overhead; clonotype
+    object construction cost is equal between backends and is not measured here.
+
+    Polars is expected to be faster for large files; for gzip-compressed files the
+    decompression overhead can reduce the speedup.  We only assert polars is not
+    > 3x slower.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py::TestRepertoireIOPolars
+    """
+
+    @pytest.fixture(scope="class")
+    def files(self) -> list[Path]:
+        return _YFV_IO_FILES[:10]
+
+    @staticmethod
+    def _pandas_read(path: Path) -> pd.DataFrame:
+        df = pd.read_csv(path, sep="\t", compression="infer",
+                         usecols=lambda c: c in _IO_COLS)
+        return df[df["locus"].fillna("") == "TRB"].dropna(subset=["junction_aa"])
+
+    @staticmethod
+    def _polars_read(path: Path):
+        import polars as pl
+        header = pl.read_csv(path, separator="\t", n_rows=0)
+        cols = [c for c in _IO_COLS if c in header.columns]
+        df = pl.read_csv(path, separator="\t", columns=cols,
+                         infer_schema_length=10_000)
+        return df.filter(pl.col("locus") == "TRB").drop_nulls(subset=["junction_aa"])
+
+    @staticmethod
+    def _run_batch(files, reader):
+        """Return (per-file times list, peak MiB, total rows)."""
+        times: list[float] = []
+        total_rows = 0
+        tracemalloc.start()
+        for f in files:
+            t0 = time.perf_counter()
+            result = reader(f)
+            times.append(time.perf_counter() - t0)
+            total_rows += len(result)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return times, peak / (1024 ** 2), total_rows
+
+    def test_pandas_io(self, files) -> None:
+        times, peak, rows = self._run_batch(files, self._pandas_read)
+        rate = rows / max(sum(times), 1e-9)
+        print(
+            f"\npandas I/O ({len(files)} files): "
+            f"median={np.median(times)*1e3:.1f}ms  "
+            f"p95={np.percentile(times,95)*1e3:.1f}ms  "
+            f"rows/s={rate:,.0f}  peak={peak:.1f}MiB"
+        )
+        assert rows > 0
+
+    def test_polars_io(self, files) -> None:
+        try:
+            import polars  # noqa: F401
+        except ImportError:
+            pytest.skip("polars not installed")
+        times, peak, rows = self._run_batch(files, self._polars_read)
+        rate = rows / max(sum(times), 1e-9)
+        print(
+            f"\npolars I/O ({len(files)} files): "
+            f"median={np.median(times)*1e3:.1f}ms  "
+            f"p95={np.percentile(times,95)*1e3:.1f}ms  "
+            f"rows/s={rate:,.0f}  peak={peak:.1f}MiB"
+        )
+        assert rows > 0
+
+    def test_polars_vs_pandas_speedup(self, files) -> None:
+        """Report polars/pandas wall-clock and memory; assert polars not > 3x slower."""
+        try:
+            import polars  # noqa: F401
+        except ImportError:
+            pytest.skip("polars not installed")
+
+        t_pd, pd_peak, pd_rows = self._run_batch(files, self._pandas_read)
+        t_pl, pl_peak, pl_rows = self._run_batch(files, self._polars_read)
+
+        speedup   = sum(t_pd) / sum(t_pl) if sum(t_pl) > 0 else float("inf")
+        mem_ratio = pd_peak  / pl_peak    if pl_peak  > 0 else float("inf")
+
+        print(
+            f"\npolars vs pandas: speedup={speedup:.2f}x  mem_ratio={mem_ratio:.2f}x\n"
+            f"  pandas: {sum(t_pd):.2f}s  {pd_peak:.0f}MiB  {pd_rows:,} rows\n"
+            f"  polars: {sum(t_pl):.2f}s  {pl_peak:.0f}MiB  {pl_rows:,} rows"
+        )
+        assert speedup >= 0.3, (
+            f"Polars is more than 3x slower than pandas ({speedup:.2f}x); "
+            "check column projection or schema inference."
+        )

@@ -33,17 +33,18 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-
-      - name: Install test dependencies
-        run: python -m pip install pytest
-
-      - name: Install package
-        run: python -m pip install .
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
 
       - name: Copy tests to temp directory
-        run: python -c "import pathlib, shutil; src = pathlib.Path(r'${{ github.workspace }}') / 'tests'; dst = pathlib.Path(r'${{ runner.temp }}') / 'tests'; shutil.rmtree(dst, ignore_errors=True); shutil.copytree(src, dst)"
+        run: >-
+          python -c "import pathlib, shutil;
+          src = pathlib.Path(r'${{ github.workspace }}') / 'tests';
+          dst = pathlib.Path(r'${{ runner.temp }}') / 'tests';
+          shutil.rmtree(dst, ignore_errors=True);
+          shutil.copytree(src, dst)"
 
       - name: Run fast test suite
         working-directory: ${{ runner.temp }}
@@ -70,17 +71,18 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-
-      - name: Install test dependencies
-        run: python -m pip install pytest
-
-      - name: Install package
-        run: python -m pip install .
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
 
       - name: Copy tests to temp directory
-        run: python -c "import pathlib, shutil; src = pathlib.Path(r'${{ github.workspace }}') / 'tests'; dst = pathlib.Path(r'${{ runner.temp }}') / 'tests'; shutil.rmtree(dst, ignore_errors=True); shutil.copytree(src, dst)"
+        run: >-
+          python -c "import pathlib, shutil;
+          src = pathlib.Path(r'${{ github.workspace }}') / 'tests';
+          dst = pathlib.Path(r'${{ runner.temp }}') / 'tests';
+          shutil.rmtree(dst, ignore_errors=True);
+          shutil.copytree(src, dst)"
 
       - name: Run benchmark and integration suites
         env:

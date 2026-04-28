@@ -1,6 +1,6 @@
-"""Rearrangement-level k-mer indexing.
+"""Clonotype-level k-mer indexing.
 
-Provides a lightweight ``Rearrangement`` type and hashable k-mer
+Provides a lightweight ``Clonotype`` type and hashable k-mer
 named-tuples, together with functions that build inverted indices,
 summary statistics, and filtered views of token tables.
 
@@ -36,10 +36,9 @@ from mir.common.clonotype import Clonotype
 # Types
 # ---------------------------------------------------------------------------
 
-# Rearrangement is now an alias for Clonotype.  Existing code that constructs
-# Rearrangement(locus, id, v_gene, c_gene, junction_aa, duplicate_count) must
-# be updated to use Clonotype keyword arguments.
-Rearrangement = Clonotype
+
+
+
 
 
 class Kmer(NamedTuple):
@@ -57,7 +56,7 @@ class Kmer(NamedTuple):
 class KmerMatch(NamedTuple):
     """A single k-mer occurrence linking back to its source."""
 
-    rearrangement: Rearrangement
+    rearrangement: Clonotype
     position: int
 
 
@@ -80,7 +79,7 @@ class KmerStats(NamedTuple):
     """Aggregate statistics for a single k-mer (or annotation bucket).
 
     ``rearrangement_count`` holds the number of unique rearrangement IDs;
-    ``duplicate_count`` holds the sum of ``Rearrangement.duplicate_count``.
+    ``duplicate_count`` holds the sum of ``Clonotype.duplicate_count``.
     """
 
     rearrangement_count: int
@@ -121,7 +120,7 @@ def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]
 # ---------------------------------------------------------------------------
 
 def tokenize_rearrangements(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     k: int,
     mask_byte: int | None = None,
 ) -> dict[Kmer, list[KmerMatch]]:
@@ -164,7 +163,7 @@ def tokenize_rearrangements(
 
 
 def summarize_rearrangements(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     k: int,
     mask_byte: int | None = None,
 ) -> dict[Kmer, KmerStats]:
@@ -174,7 +173,7 @@ def summarize_rearrangements(
 
     * ``rearrangement_count`` — number of *unique* rearrangement IDs
       contributing that k-mer.
-    * ``duplicate_count`` — sum of :attr:`Rearrangement.duplicate_count`
+    * ``duplicate_count`` — sum of :attr:`Clonotype.duplicate_count`
       across those rearrangements.
 
     Args:
@@ -212,7 +211,7 @@ def summarize_rearrangements(
 
 
 def summarize_annotations(
-    rearrangements: list[Rearrangement],
+    rearrangements: list[Clonotype],
     k: int,
     mask_byte: int | None = None,
 ) -> dict[KmerSeq, dict[KmerAnnotation, KmerStats]]:

@@ -346,6 +346,30 @@ class LocusRepertoire:
                 data[k].append(v)
         return pd.DataFrame(data, index=[c.id for c in self.clonotypes])
 
+    def to_pickle(self, path: str | Path) -> Path:
+        """Serialize this repertoire to a pickle file and return the path."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("wb") as fh:
+            pickle.dump(self, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        return out
+
+    @classmethod
+    def from_pickle(cls, path: str | Path) -> LocusRepertoire:
+        """Load a pickled :class:`LocusRepertoire` from disk.
+
+        Warning:
+            ``pickle`` is not secure against untrusted input. Only load files
+            you trust.
+        """
+        with Path(path).open("rb") as fh:
+            obj = pickle.load(fh)
+        if not isinstance(obj, cls):
+            raise TypeError(
+                f"Expected pickled {cls.__name__}, got {type(obj).__name__}"
+            )
+        return obj
+
     # ------------------------------------------------------------------
     # Backward-compat properties
     # ------------------------------------------------------------------
@@ -504,6 +528,30 @@ class SampleRepertoire:
         self.loci: dict[str, LocusRepertoire] = dict(loci)
         self.sample_id: str = sample_id
         self.sample_metadata: dict = sample_metadata if sample_metadata is not None else {}
+
+    def to_pickle(self, path: str | Path) -> Path:
+        """Serialize this sample repertoire to a pickle file and return the path."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("wb") as fh:
+            pickle.dump(self, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        return out
+
+    @classmethod
+    def from_pickle(cls, path: str | Path) -> SampleRepertoire:
+        """Load a pickled :class:`SampleRepertoire` from disk.
+
+        Warning:
+            ``pickle`` is not secure against untrusted input. Only load files
+            you trust.
+        """
+        with Path(path).open("rb") as fh:
+            obj = pickle.load(fh)
+        if not isinstance(obj, cls):
+            raise TypeError(
+                f"Expected pickled {cls.__name__}, got {type(obj).__name__}"
+            )
+        return obj
 
     # ------------------------------------------------------------------
     # Construction

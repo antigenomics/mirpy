@@ -33,10 +33,10 @@ import pytest
 from tests.conftest import skip_benchmarks
 from mir.basic.token_tables import (
     Kmer,
-    Rearrangement,
     filter_token_table,
     tokenize_rearrangements,
 )
+from mir.common.clonotype import Clonotype
 from mir.graph.token_graph import build_token_graph
 
 # RS retention threshold for count-based filtering benchmarks
@@ -69,9 +69,9 @@ _K = 3
 
 
 def _make_mock():
-    r_rs1  = Rearrangement(sequence_id="0", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS1,  duplicate_count=1)
-    r_rs2  = Rearrangement(sequence_id="1", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS2,  duplicate_count=1)
-    r_none = Rearrangement(sequence_id="2", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_NONE, duplicate_count=1)
+    r_rs1  = Clonotype(sequence_id="0", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS1,  duplicate_count=1)
+    r_rs2  = Clonotype(sequence_id="1", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS2,  duplicate_count=1)
+    r_none = Clonotype(sequence_id="2", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_NONE, duplicate_count=1)
     rearrangements = [r_rs1, r_rs2, r_none]
     table = tokenize_rearrangements(rearrangements, k=_K)
     return rearrangements, table
@@ -220,7 +220,7 @@ class TestTokenGraphRId(unittest.TestCase):
         self.g = build_token_graph(self.rearrangements, self.table)
 
     def test_rearrangement_vertices_have_correct_r_id(self):
-        """Each rearrangement vertex r_id matches Rearrangement.id."""
+        """Each rearrangement vertex r_id matches Clonotype.id."""
         for r in self.rearrangements:
             v = next(v for v in self.g.vs
                      if v["node_type"] == "rearrangement" and v["name"] == r.junction_aa)
@@ -366,8 +366,8 @@ class TestTokenGraphFiltered(unittest.TestCase):
 
     def test_diff_v_gene_makes_separate_kmer_vertices(self):
         """Two rearrangements with different v_gene produce separate Kmer nodes."""
-        r_v1 = Rearrangement(sequence_id="10", locus=_LOCUS, v_gene="TRBV1", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
-        r_v2 = Rearrangement(sequence_id="11", locus=_LOCUS, v_gene="TRBV2", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
+        r_v1 = Clonotype(sequence_id="10", locus=_LOCUS, v_gene="TRBV1", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
+        r_v2 = Clonotype(sequence_id="11", locus=_LOCUS, v_gene="TRBV2", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
         table = tokenize_rearrangements([r_v1, r_v2], k=_K)
         # SRS appears in both but under different Kmer keys (different v_gene)
         srs_kmers = [k for k in table if k.seq == b"SRS"]
@@ -392,7 +392,7 @@ _NONRS_LOSS_THRESHOLD = 0.90  # filtering must remove ≥90% of non-RS rearrange
 def _load_gilg():
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
+    return [Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(),
@@ -445,12 +445,12 @@ class TestTokenGraphBenchmark(unittest.TestCase):
         self.assertGreater(len(rs_kmer_names), 0)
 
     def test_filtered_largest_cc_has_rs_rearrangements(self):
-        """Rearrangement nodes in the largest filtered CC contain 'RS' in junction_aa."""
+        """Clonotype nodes in the largest filtered CC contain 'RS' in junction_aa."""
         g = build_token_graph(self.rearrangements, self.rs_table)
         largest = g.components().giant()
         r_seqs = [v["name"] for v in largest.vs if v["node_type"] == "rearrangement"]
         rs_r_seqs = [s for s in r_seqs if "RS" in s]
-        print(f"\n  Rearrangements in largest filtered CC: {len(r_seqs)}")
+        print(f"\n  Clonotypes in largest filtered CC: {len(r_seqs)}")
         print(f"  Of which contain 'RS': {len(rs_r_seqs)}")
         self.assertGreater(len(rs_r_seqs), 0)
 
