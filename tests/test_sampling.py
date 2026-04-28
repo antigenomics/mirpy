@@ -3,10 +3,13 @@ import warnings
 from pathlib import Path
 
 import pytest
+import numpy as np
+from scipy import stats
 
-from mir.common.sampling import downsample, downsample_locus
+from mir.common.sampling import downsample, downsample_locus, resample_to_gene_usage
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.parser import ClonotypeTableParser
+from mir.basic.gene_usage import GeneUsage
 from tests.conftest import skip_integration
 
 import pandas as pd
@@ -365,5 +368,378 @@ class TestDownsampleYFVPerformance:
         assert down1.clonotype_count == down2.clonotype_count
         # Check same clonotypes in same order
         for c1, c2 in zip(down1.clonotypes, down2.clonotypes):
+            assert c1.sequence_id == c2.sequence_id
+            assert c1.duplicate_count == c2.duplicate_count
+
+
+# ------------------------------------------------------------------
+# Resample to gene usage tests
+# ------------------------------------------------------------------
+
+
+class TestResampleToGeneUsageBasic:
+    """Basic functionality tests for resample_to_gene_usage."""
+
+    def test_raises_on_invalid_gene_type(self):
+        from mir.common.clonotype import Clonotype
+        
+        rep = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene="TRBV1",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=100,
+                ),
+            ],
+            locus="TRB",
+        )
+        
+        target_usage = {"TRBV1": 100}
+        
+        with pytest.raises(ValueError, match="gene_type must be"):
+            resample_to_gene_usage(rep, target_usage, gene_type="invalid")
+
+    def test_resample_exact_duplicate_count(self):
+        """Verify resampled repertoire has same total duplicates."""
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id="1",
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene="TRBV1",
+                j_gene="TRBJ1-1",
+                duplicate_count=100,
+            ),
+            Clonotype(
+                sequence_id="2",
+                locus="TRB",
+                junction_aa="CASSGF",
+                v_gene="TRBV2",
+                j_gene="TRBJ1-1",
+                duplicate_count=200,
+            ),
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        original_duplicates = rep.duplicate_count
+        
+        target_usage = {"TRBV1": 200, "TRBV2": 100}
+        resampled = resample_to_gene_usage(rep, target_usage, gene_type="v", random_seed=42)
+        
+        assert resampled.duplicate_count == original_duplicates
+        assert isinstance(resampled, LocusRepertoire)
+
+    def test_resample_v_weighted(self):
+        """Test V-gene resampling with weighted mode."""
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id="1",
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene="TRBV1",
+                j_gene="TRBJ1-1",
+                duplicate_count=100,
+            ),
+            Clonotype(
+                sequence_id="2",
+                locus="TRB",
+                junction_aa="CASSGF",
+                v_gene="TRBV2",
+                j_gene="TRBJ1-1",
+                duplicate_count=300,
+            ),
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        original_gu = GeneUsage.from_repertoire(rep)
+        
+        # Target: reverse the usage (favor TRBV1 over TRBV2)
+        target_usage = {"TRBV1": 300, "TRBV2": 100}
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        assert resampled.duplicate_count == rep.duplicate_count
+
+    def test_resample_vj_unweighted(self):
+        """Test V-J resampling with unweighted mode."""
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id="1",
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene="TRBV1",
+                j_gene="TRBJ1-1",
+                duplicate_count=50,
+            ),
+            Clonotype(
+                sequence_id="2",
+                locus="TRB",
+                junction_aa="CASSGF",
+                v_gene="TRBV1",
+                j_gene="TRBJ2-1",
+                duplicate_count=50,
+            ),
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        target_usage = {("TRBV1", "TRBJ1-1"): 50, ("TRBV1", "TRBJ2-1"): 50}
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="vj", weighted=False, random_seed=42
+        )
+        
+        assert resampled.duplicate_count == 100
+
+    def test_resample_sample_repertoire(self):
+        """Test resampling SampleRepertoire."""
+        from mir.common.clonotype import Clonotype
+        
+        trb = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene="TRBV1",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=200,
+                ),
+            ],
+            locus="TRB",
+        )
+        
+        sample = SampleRepertoire(loci={"TRB": trb}, sample_id="s1")
+        target_usage = {"TRBV1": 200}
+        resampled = resample_to_gene_usage(sample, target_usage, gene_type="v", random_seed=42)
+        
+        assert isinstance(resampled, SampleRepertoire)
+        assert resampled.loci["TRB"].duplicate_count == 200
+
+
+class TestResampleToGeneUsageStatistical:
+    """Statistical tests to verify resampled gene usage matches target."""
+
+    def test_chi2_test_v_usage_convergence(self):
+        """Use Chi-square test to verify V-gene usage similarity."""
+        from mir.common.clonotype import Clonotype
+        
+        # Create repertoire with 5 V genes, each with 200 duplicates
+        clonotypes = []
+        for i in range(1, 6):
+            clonotypes.append(
+                Clonotype(
+                    sequence_id=str(i),
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene=f"TRBV{i}",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=200,
+                )
+            )
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        
+        # Target: make V1 and V2 more abundant, V3-V5 less abundant
+        target_usage = {
+            "TRBV1": 400,
+            "TRBV2": 300,
+            "TRBV3": 150,
+            "TRBV4": 100,
+            "TRBV5": 50,
+        }
+        
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        # Compute resulting gene usage
+        resampled_gu = GeneUsage.from_repertoire(resampled)
+        resulting_usage = resampled_gu.v_usage(rep.locus, count="duplicates")
+        
+        # Prepare for chi-square test: observed vs expected
+        genes = sorted(target_usage.keys())
+        observed = np.array([resulting_usage.get(g, 0) for g in genes])
+        expected = np.array([target_usage[g] for g in genes])
+        
+        # Chi-square test: should not be significantly different (p > 0.05)
+        # In practice, with finite sampling, we may be lenient
+        chi2_stat, p_value = stats.chisquare(observed, expected)
+        assert p_value > 0.01, f"Chi-square p-value {p_value} too low; usage diverged from target"
+
+    def test_ks_test_v_fractions(self):
+        """Use Kolmogorov-Smirnov test on V-gene fractions."""
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = []
+        for i in range(1, 11):
+            clonotypes.append(
+                Clonotype(
+                    sequence_id=str(i),
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene=f"TRBV{i}",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=100,
+                )
+            )
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        
+        # Target: uniform distribution over all V genes
+        target_usage = {f"TRBV{i}": 100 for i in range(1, 11)}
+        
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        resampled_gu = GeneUsage.from_repertoire(resampled)
+        resulting_usage = resampled_gu.v_usage(rep.locus, count="duplicates")
+        
+        # Get fractions
+        genes = sorted(target_usage.keys())
+        resulting_fracs = np.array([resulting_usage.get(g, 0) / rep.duplicate_count for g in genes])
+        target_fracs = np.array([target_usage[g] / sum(target_usage.values()) for g in genes])
+        
+        # KS test
+        ks_stat, p_value = stats.ks_2samp(resulting_fracs, target_fracs)
+        assert p_value > 0.01, f"KS p-value {p_value} too low; fractions diverged from target"
+
+    def test_resample_alters_gene_usage(self):
+        """Verify resampling actually changes gene usage in the direction of target."""
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id="1",
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene="TRBV1",
+                j_gene="TRBJ1-1",
+                duplicate_count=900,  # 90%
+            ),
+            Clonotype(
+                sequence_id="2",
+                locus="TRB",
+                junction_aa="CASSGF",
+                v_gene="TRBV2",
+                j_gene="TRBJ1-1",
+                duplicate_count=100,  # 10%
+            ),
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        
+        # Original: heavily skewed toward TRBV1
+        original_gu = GeneUsage.from_repertoire(rep)
+        orig_v1_frac = original_gu.v_usage(rep.locus, count="duplicates")["TRBV1"] / rep.duplicate_count
+        
+        # Target: reverse (90% V2, 10% V1)
+        target_usage = {"TRBV1": 100, "TRBV2": 900}
+        
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        resampled_gu = GeneUsage.from_repertoire(resampled)
+        resampled_v1_frac = resampled_gu.v_usage(rep.locus, count="duplicates")["TRBV1"] / resampled.duplicate_count
+        
+        # V1 fraction should decrease
+        assert resampled_v1_frac < orig_v1_frac, "Resampling did not move toward target usage"
+
+
+@skip_integration
+@pytest.mark.skipif(not _YFV_AVAILABLE, reason="YFV dataset not found")
+@pytest.mark.integration
+class TestResampleToGeneUsageYFV:
+    """Integration tests using YFV data."""
+
+    def test_resample_p1_day0_to_balanced_v_usage(self):
+        """Resample P1 day 0 to have more balanced V-gene usage."""
+        rep = _load_p1_f1(0)
+        
+        # Compute original usage
+        orig_gu = GeneUsage.from_repertoire(rep)
+        orig_v_usage = orig_gu.v_usage(rep.locus, count="duplicates")
+        
+        # Create target: uniform usage over observed V genes
+        n_v_genes = len(orig_v_usage)
+        target_per_gene = rep.duplicate_count // n_v_genes
+        target_usage = {v: target_per_gene for v in orig_v_usage.keys()}
+        
+        resampled = resample_to_gene_usage(
+            rep, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        assert resampled.duplicate_count == rep.duplicate_count
+        
+        # Check that resampling moved closer to uniform
+        resampled_gu = GeneUsage.from_repertoire(resampled)
+        resampled_v_usage = resampled_gu.v_usage(rep.locus, count="duplicates")
+        
+        orig_fracs = np.array(list(orig_v_usage.values())) / rep.duplicate_count
+        resampled_fracs = np.array([resampled_v_usage[v] for v in orig_v_usage.keys()]) / resampled.duplicate_count
+        
+        # Variance should decrease (more uniform)
+        assert np.var(resampled_fracs) < np.var(orig_fracs)
+
+    def test_resample_p1_day0_to_day15_usage(self):
+        """Resample P1 day 0 to match P1 day 15 V-gene usage proportions."""
+        rep_d0 = _load_p1_f1(0)
+        rep_d15 = _load_p1_f1(15)
+        
+        # Get day 15 V-gene usage as target (need to scale to day 0's duplicate count)
+        d15_gu = GeneUsage.from_repertoire(rep_d15)
+        d15_usage = d15_gu.v_usage(rep_d15.locus, count="duplicates")
+        
+        # Scale target to day 0's duplicate count
+        d15_total = rep_d15.duplicate_count
+        d0_total = rep_d0.duplicate_count
+        target_usage = {g: int(count * d0_total / d15_total) for g, count in d15_usage.items()}
+        
+        # Resample day 0 to match day 15
+        resampled = resample_to_gene_usage(
+            rep_d0, target_usage, gene_type="v", weighted=True, random_seed=42
+        )
+        
+        # Compare resulting usage to target
+        resampled_gu = GeneUsage.from_repertoire(resampled)
+        resulting_usage = resampled_gu.v_usage(rep_d0.locus, count="duplicates")
+        
+        # Get common V genes
+        common_genes = set(target_usage.keys()) & set(resulting_usage.keys())
+        
+        if common_genes:
+            # Compare proportions, not absolute counts
+            target_vals = np.array([target_usage[g] / sum(target_usage.values()) for g in common_genes])
+            resulting_vals = np.array([resulting_usage[g] / resampled.duplicate_count for g in common_genes])
+            
+            # Use KS test for proportions
+            ks_stat, p_value = stats.ks_2samp(resulting_vals, target_vals)
+            print(f"\nResample D0→D15: KS stat={ks_stat:.4f}, p={p_value:.4f}")
+            assert p_value > 0.001, f"Resampled usage diverged from target (p={p_value})"
+
+    def test_resample_reproducibility(self):
+        """Verify reproducibility with same random seed."""
+        rep = _load_p1_f1(0)
+        
+        gu = GeneUsage.from_repertoire(rep)
+        target_usage = gu.v_usage(rep.locus, count="duplicates")
+        
+        resamp1 = resample_to_gene_usage(rep, target_usage, gene_type="v", random_seed=42)
+        resamp2 = resample_to_gene_usage(rep, target_usage, gene_type="v", random_seed=42)
+        
+        assert resamp1.duplicate_count == resamp2.duplicate_count
+        assert resamp1.clonotype_count == resamp2.clonotype_count
+        
+        for c1, c2 in zip(resamp1.clonotypes, resamp2.clonotypes):
             assert c1.sequence_id == c2.sequence_id
             assert c1.duplicate_count == c2.duplicate_count

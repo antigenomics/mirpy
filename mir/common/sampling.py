@@ -1,7 +1,8 @@
-"""Repertoire downsampling utilities.
+"""Repertoire downsampling and resampling utilities.
 
 This module provides functions to downsample immune repertoires by randomly
-sampling clonotypes according to their abundance, using multinomial sampling.
+sampling clonotypes according to their abundance, and to resample them to
+match target gene usage distributions.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from copy import copy
 
 import numpy as np
 
+from mir.basic.gene_usage import GeneUsage, _strip_allele
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 
 
@@ -132,6 +134,191 @@ def downsample(
 
     return SampleRepertoire(
         loci=downsampled_loci,
+        sample_id=repertoire.sample_id,
+        sample_metadata=dict(repertoire.sample_metadata),
+    )
+
+
+# ------------------------------------------------------------------
+# Resample to gene usage
+# ------------------------------------------------------------------
+
+
+def _resample_to_gene_usage_locus(
+    repertoire: LocusRepertoire,
+    target_gene_usage: dict[str, int] | dict[tuple[str, str], int],
+    original_gene_usage: dict[str, int] | dict[tuple[str, str], int] | None = None,
+    *,
+    gene_type: str = "v",
+    weighted: bool = True,
+    random_seed: int | None = None,
+) -> LocusRepertoire:
+    """Resample a LocusRepertoire to match target gene usage.
+
+    Uses correction factors based on the ratio of target to original gene usage,
+    then applies multinomial sampling.
+
+    Parameters
+    ----------
+    repertoire:
+        The repertoire to resample.
+    target_gene_usage:
+        Dict mapping gene (or VJ pair) to desired count.
+    original_gene_usage:
+        Dict mapping gene (or VJ pair) to original count. If None, computed
+        from the repertoire using weighted/gene_type settings.
+    gene_type:
+        ``"v"`` for V-gene usage or ``"vj"`` for V-J usage.
+    weighted:
+        If True, compute gene usage weighted by duplicate_count.
+        If False, count by clonotypes.
+    random_seed:
+        Numpy random seed for reproducibility.
+
+    Returns
+    -------
+    LocusRepertoire
+        Resampled repertoire with gene usage closer to target.
+    """
+    if gene_type not in ("v", "vj"):
+        raise ValueError(f"gene_type must be 'v' or 'vj', got {gene_type}")
+
+    # Compute original gene usage if not provided
+    if original_gene_usage is None:
+        gu = GeneUsage.from_repertoire(repertoire)
+        count_mode = "duplicates" if weighted else "clonotypes"
+        if gene_type == "v":
+            original_gene_usage = gu.v_usage(repertoire.locus, count=count_mode)
+        else:  # vj
+            original_gene_usage = gu.vj_usage(repertoire.locus, count=count_mode)
+
+    # Build resampling weights: p_i * (target_usage[gene_i] / original_usage[gene_i])
+    weights = np.ones(len(repertoire.clonotypes), dtype=np.float64)
+
+    for idx, clonotype in enumerate(repertoire.clonotypes):
+        # Get gene for this clonotype (strip alleles to base gene)
+        if gene_type == "v":
+            gene = _strip_allele(clonotype.v_gene or "")
+        else:  # vj
+            v_base = _strip_allele(clonotype.v_gene or "")
+            j_base = _strip_allele(clonotype.j_gene or "")
+            gene = (v_base, j_base)
+
+        # Get original usage for this gene
+        orig_usage = original_gene_usage.get(gene, 0)
+        if orig_usage == 0:
+            # Gene not in original, skip correction
+            weights[idx] = 0.0
+            continue
+
+        # Get target usage for this gene
+        target_usage = target_gene_usage.get(gene, 0)
+
+        # Correction factor
+        factor = target_usage / orig_usage if orig_usage > 0 else 0.0
+
+        # Weight by clonotype abundance if weighted mode
+        if weighted:
+            weights[idx] = factor * clonotype.duplicate_count
+        else:
+            weights[idx] = factor
+
+    # Normalize to probabilities
+    total_weight = np.sum(weights)
+    if total_weight <= 0:
+        raise ValueError("Total resampling weight is <= 0; no valid genes in repertoire")
+
+    probabilities = weights / total_weight
+
+    # Total reads to resample
+    total_duplicates = repertoire.duplicate_count
+
+    # Multinomial sampling
+    if random_seed is not None:
+        np.random.seed(random_seed)
+
+    new_counts = np.random.multinomial(total_duplicates, probabilities)
+
+    # Build new repertoire, omitting zero-count clonotypes
+    new_clonotypes = []
+    for clonotype, new_count in zip(repertoire.clonotypes, new_counts):
+        if new_count > 0:
+            new_clonotype = copy(clonotype)
+            new_clonotype.duplicate_count = int(new_count)
+            new_clonotypes.append(new_clonotype)
+
+    return LocusRepertoire(
+        clonotypes=new_clonotypes,
+        locus=repertoire.locus,
+        repertoire_id=repertoire.repertoire_id,
+        repertoire_metadata=dict(repertoire.repertoire_metadata),
+    )
+
+
+def resample_to_gene_usage(
+    repertoire: LocusRepertoire | SampleRepertoire,
+    target_gene_usage: dict[str, int] | dict[tuple[str, str], int],
+    original_gene_usage: dict[str, int] | dict[tuple[str, str], int] | None = None,
+    *,
+    gene_type: str = "v",
+    weighted: bool = True,
+    random_seed: int | None = None,
+) -> LocusRepertoire | SampleRepertoire:
+    """Resample a repertoire to match target gene usage.
+
+    For :class:`LocusRepertoire`, applies resampling directly.
+    For :class:`SampleRepertoire`, applies resampling to each locus independently.
+
+    Uses correction factors: for each clonotype, its resampling weight is
+    multiplied by (target_usage / original_usage) for its gene.
+
+    Parameters
+    ----------
+    repertoire:
+        The repertoire to resample.
+    target_gene_usage:
+        Dict mapping gene (or VJ pair) to desired count.
+    original_gene_usage:
+        Dict mapping gene (or VJ pair) to original count. If None, computed
+        from the repertoire(s).
+    gene_type:
+        ``"v"`` for V-gene usage or ``"vj"`` for V-J usage.
+    weighted:
+        If True, compute gene usage weighted by duplicate_count.
+        If False, count by clonotypes.
+    random_seed:
+        Numpy random seed for reproducibility.
+
+    Returns
+    -------
+    LocusRepertoire | SampleRepertoire
+        Resampled repertoire of the same type.
+    """
+    if isinstance(repertoire, LocusRepertoire):
+        return _resample_to_gene_usage_locus(
+            repertoire,
+            target_gene_usage,
+            original_gene_usage,
+            gene_type=gene_type,
+            weighted=weighted,
+            random_seed=random_seed,
+        )
+
+    # For SampleRepertoire, resample each locus independently
+    resampled_loci = {
+        locus: _resample_to_gene_usage_locus(
+            lr,
+            target_gene_usage,
+            original_gene_usage,
+            gene_type=gene_type,
+            weighted=weighted,
+            random_seed=random_seed,
+        )
+        for locus, lr in repertoire.loci.items()
+    }
+
+    return SampleRepertoire(
+        loci=resampled_loci,
         sample_id=repertoire.sample_id,
         sample_metadata=dict(repertoire.sample_metadata),
     )
