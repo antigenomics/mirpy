@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 from scipy import stats
 
-from mir.common.sampling import downsample, downsample_locus, resample_to_gene_usage
+from mir.common.sampling import downsample, downsample_locus, resample_to_gene_usage, select_top
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.parser import ClonotypeTableParser
 from mir.basic.gene_usage import GeneUsage
@@ -743,3 +743,239 @@ class TestResampleToGeneUsageYFV:
         for c1, c2 in zip(resamp1.clonotypes, resamp2.clonotypes):
             assert c1.sequence_id == c2.sequence_id
             assert c1.duplicate_count == c2.duplicate_count
+
+
+# ------------------------------------------------------------------
+# Select top clonotypes tests
+# ------------------------------------------------------------------
+
+
+class TestSelectTopBasic:
+    """Basic functionality tests for select_top."""
+
+    def test_raises_on_zero_top_n(self):
+        rep = LocusRepertoire(clonotypes=[], locus="TRB")
+        with pytest.raises(ValueError, match="top_n must be > 0"):
+            select_top(rep, 0)
+
+    def test_raises_on_negative_top_n(self):
+        rep = LocusRepertoire(clonotypes=[], locus="TRB")
+        with pytest.raises(ValueError, match="top_n must be > 0"):
+            select_top(rep, -5)
+
+    def test_warns_when_top_n_exceeds_clonotypes(self):
+        from mir.common.clonotype import Clonotype
+        
+        rep = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene="TRBV1",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=100,
+                ),
+            ],
+            locus="TRB",
+        )
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = select_top(rep, 100)
+            assert len(w) == 1
+            assert "returning all clonotypes" in str(w[0].message)
+            assert result.clonotype_count == 1
+
+    def test_select_top_3(self):
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id="1",
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene="TRBV1",
+                j_gene="TRBJ1-1",
+                duplicate_count=500,
+            ),
+            Clonotype(
+                sequence_id="2",
+                locus="TRB",
+                junction_aa="CASSGF",
+                v_gene="TRBV2",
+                j_gene="TRBJ1-1",
+                duplicate_count=200,
+            ),
+            Clonotype(
+                sequence_id="3",
+                locus="TRB",
+                junction_aa="CASSYGF",
+                v_gene="TRBV3",
+                j_gene="TRBJ1-1",
+                duplicate_count=300,
+            ),
+            Clonotype(
+                sequence_id="4",
+                locus="TRB",
+                junction_aa="CASSSGF",
+                v_gene="TRBV4",
+                j_gene="TRBJ1-1",
+                duplicate_count=100,
+            ),
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        selected = select_top(rep, 3)
+        
+        assert selected.clonotype_count == 3
+        assert selected.clonotypes[0].duplicate_count == 500
+        assert selected.clonotypes[1].duplicate_count == 300
+        assert selected.clonotypes[2].duplicate_count == 200
+
+    def test_selected_sorted_by_duplicate_count(self):
+        from mir.common.clonotype import Clonotype
+        
+        clonotypes = [
+            Clonotype(
+                sequence_id=str(i),
+                locus="TRB",
+                junction_aa="CASSF",
+                v_gene=f"TRBV{i}",
+                j_gene="TRBJ1-1",
+                duplicate_count=100 * (i % 5 + 1),
+            )
+            for i in range(10)
+        ]
+        
+        rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+        selected = select_top(rep, 5)
+        
+        # Verify all results are sorted descending
+        for i in range(len(selected.clonotypes) - 1):
+            assert (
+                selected.clonotypes[i].duplicate_count
+                >= selected.clonotypes[i + 1].duplicate_count
+            )
+
+    def test_preserves_metadata(self):
+        from mir.common.clonotype import Clonotype
+        
+        rep = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene="TRBV1",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=100,
+                ),
+            ],
+            locus="TRB",
+            repertoire_id="test_rep",
+            repertoire_metadata={"donor": "P1", "day": 0},
+        )
+        
+        selected = select_top(rep, 1)
+        assert selected.repertoire_id == "test_rep"
+        assert selected.repertoire_metadata == {"donor": "P1", "day": 0}
+
+    def test_select_top_sample_repertoire(self):
+        from mir.common.clonotype import Clonotype
+        
+        trb = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="1",
+                    locus="TRB",
+                    junction_aa="CASSF",
+                    v_gene="TRBV1",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=100,
+                ),
+                Clonotype(
+                    sequence_id="2",
+                    locus="TRB",
+                    junction_aa="CASSGF",
+                    v_gene="TRBV2",
+                    j_gene="TRBJ1-1",
+                    duplicate_count=50,
+                ),
+            ],
+            locus="TRB",
+        )
+        tra = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="3",
+                    locus="TRA",
+                    junction_aa="CAVRDSNYQLIW",
+                    v_gene="TRAV1",
+                    j_gene="TRAJ33",
+                    duplicate_count=200,
+                ),
+                Clonotype(
+                    sequence_id="4",
+                    locus="TRA",
+                    junction_aa="CAVRDSNYQLIF",
+                    v_gene="TRAV2",
+                    j_gene="TRAJ33",
+                    duplicate_count=100,
+                ),
+            ],
+            locus="TRA",
+        )
+        
+        sample = SampleRepertoire(loci={"TRB": trb, "TRA": tra}, sample_id="s1")
+        selected = select_top(sample, 1)
+        
+        assert isinstance(selected, SampleRepertoire)
+        assert selected.loci["TRB"].clonotype_count == 1
+        assert selected.loci["TRA"].clonotype_count == 1
+        assert selected.loci["TRB"].clonotypes[0].duplicate_count == 100
+        assert selected.loci["TRA"].clonotypes[0].duplicate_count == 200
+        assert selected.sample_id == "s1"
+
+
+@skip_integration
+@pytest.mark.skipif(not _YFV_AVAILABLE, reason="YFV dataset not found")
+@pytest.mark.integration
+class TestSelectTopYFV:
+    """Integration tests for select_top using YFV data."""
+
+    def test_select_top_p1_day0(self):
+        """Select top 1000 clonotypes from P1 day 0."""
+        rep = _load_p1_f1(0)
+        original_count = rep.clonotype_count
+        
+        selected = select_top(rep, 1000)
+        
+        assert selected.clonotype_count == 1000
+        assert selected.duplicate_count <= rep.duplicate_count
+        # Verify sorted descending
+        for i in range(len(selected.clonotypes) - 1):
+            assert (
+                selected.clonotypes[i].duplicate_count
+                >= selected.clonotypes[i + 1].duplicate_count
+            )
+        print(f"\nP1 day 0: selected 1000 from {original_count} clonotypes")
+
+    def test_select_top_preserves_duplicate_count_sum(self):
+        """Verify selected clonotypes sum is less than or equal to original."""
+        rep = _load_p1_f1(0)
+        selected = select_top(rep, 500)
+        
+        assert selected.duplicate_count <= rep.duplicate_count
+        print(f"\nDuplicate count: {rep.duplicate_count} -> {selected.duplicate_count}")
+
+    def test_select_top_ordering(self):
+        """Verify clonotypes are returned in descending duplicate count order."""
+        rep = _load_p1_f1(0)
+        selected = select_top(rep, 100)
+        
+        for i in range(len(selected.clonotypes) - 1):
+            assert (
+                selected.clonotypes[i].duplicate_count
+                >= selected.clonotypes[i + 1].duplicate_count
+            )
