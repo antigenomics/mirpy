@@ -36,6 +36,22 @@ mir.common.io_parallel module
    :undoc-members:
    :show-inheritance:
 
+mir.common.repertoire_dataset module
+-----------------------------------
+
+.. automodule:: mir.common.repertoire_dataset
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.normalize_gene_usage module
+-------------------------------------
+
+.. automodule:: mir.common.normalize_gene_usage
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Parallel Default And Fallback Policy
 ------------------------------------
 

@@ -20,12 +20,17 @@ used for frequency comparison.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+    from mir.common.repertoire_dataset import RepertoireDataset
 
 _VJPair = tuple[str, str]
+GeneScope = Literal["v", "j", "vj"]
 
 
 def _normalize_count_mode(count: str) -> str:
@@ -431,3 +436,158 @@ class GeneUsage:
             pseudocount=pseudocount,
         )
         return {k: v["factor"] for k, v in comparison.items()}
+
+
+# ------------------------------------------------------------------
+# Batch correction utilities
+# ------------------------------------------------------------------
+
+
+def _winsorized_mean_std(values: pd.Series, *, lower_q: float = 0.025, upper_q: float = 0.975) -> tuple[float, float]:
+    """Return mean and SD after clipping to the winsorized interval."""
+    arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return 0.0, 0.0
+    lo = float(np.quantile(arr, lower_q))
+    hi = float(np.quantile(arr, upper_q))
+    clipped = np.clip(arr, lo, hi)
+    mean = float(np.mean(clipped))
+    std = float(np.std(clipped, ddof=1)) if clipped.size > 1 else 0.0
+    if not np.isfinite(std):
+        std = 0.0
+    return mean, std
+
+
+def compute_batch_corrected_gene_usage(
+    dataset: "RepertoireDataset",
+    *,
+    batch_field: str = "batch_id",
+    scope: GeneScope = "vj",
+    weighted: bool = True,
+    pseudocount: float = 1.0,
+    z_cap: float = 6.0,
+) -> pd.DataFrame:
+    """Compute batch-corrected gene usage for all samples/loci/genes.
+
+    Uses a pseudocount on raw counts prior to normalization:
+
+    ``p = (count + pseudocount) / (total + pseudocount * n_genes)``
+
+    Then computes ``log_p``, batch-wise winsorized (95%) ``mu`` and ``sigma``
+    over ``(locus, gene, batch_id)``, capped z-scores, and final corrected
+    probabilities:
+
+    ``pfinal = 2 * pavg / (1 - exp(-z))``
+
+    Empty sample loci and loci absent in a sample are skipped without error.
+    """
+    if pseudocount < 0:
+        raise ValueError("pseudocount must be >= 0")
+    if z_cap <= 0:
+        raise ValueError("z_cap must be > 0")
+
+    count_mode = "duplicates" if weighted else "clonotypes"
+
+    sample_usage: dict[tuple[str, str], dict[object, int]] = {}
+    genes_by_locus: dict[str, set[object]] = defaultdict(set)
+
+    for sample_id, sample in dataset.samples.items():
+        gu = GeneUsage.from_sample(sample)
+        for locus, locus_rep in sample.loci.items():
+            if locus_rep is None or len(getattr(locus_rep, "clonotypes", [])) == 0:
+                continue
+            usage = gu._usage_by_scope(locus, scope=scope, count=count_mode)
+            sample_usage[(sample_id, locus)] = usage
+            genes_by_locus[locus].update(usage.keys())
+
+    columns = [
+        "sample_id", "batch_id", "locus", "gene", "count", "total", "n_genes",
+        "p", "log_p", "mu", "sigma", "z", "pavg", "pfinal",
+    ]
+    if not sample_usage:
+        return pd.DataFrame(columns=columns)
+
+    pooled_counts: dict[tuple[str, object], float] = defaultdict(float)
+    pooled_totals: dict[str, float] = defaultdict(float)
+    for (_, locus), usage in sample_usage.items():
+        for gene, val in usage.items():
+            pooled_counts[(locus, gene)] += float(val)
+            pooled_totals[locus] += float(val)
+
+    pavg: dict[tuple[str, object], float] = {}
+    for locus, genes in genes_by_locus.items():
+        denom = float(pooled_totals.get(locus, 0.0))
+        if denom <= 0:
+            for gene in genes:
+                pavg[(locus, gene)] = 0.0
+            continue
+        for gene in genes:
+            pavg[(locus, gene)] = pooled_counts[(locus, gene)] / denom
+
+    rows: list[dict[str, object]] = []
+    for sample_id, sample in dataset.samples.items():
+        metadata = dataset.metadata.get(sample_id, {})
+        if batch_field not in metadata:
+            raise ValueError(f"metadata for sample_id={sample_id!r} missing required field {batch_field!r}")
+        batch_id = metadata[batch_field]
+
+        for locus, locus_rep in sample.loci.items():
+            if locus not in genes_by_locus:
+                continue
+            if locus_rep is None or len(getattr(locus_rep, "clonotypes", [])) == 0:
+                continue
+
+            usage = sample_usage.get((sample_id, locus), {})
+            n_genes = len(genes_by_locus[locus])
+            total = float(sum(float(v) for v in usage.values()))
+            denom = total + pseudocount * n_genes
+
+            for gene in sorted(genes_by_locus[locus]):
+                count = float(usage.get(gene, 0.0))
+                p = ((count + pseudocount) / denom) if denom > 0 else 0.0
+                log_p = float(np.log(p)) if p > 0 else float("-inf")
+                rows.append(
+                    {
+                        "sample_id": sample_id,
+                        "batch_id": batch_id,
+                        "locus": locus,
+                        "gene": gene,
+                        "count": count,
+                        "total": total,
+                        "n_genes": n_genes,
+                        "p": p,
+                        "log_p": log_p,
+                    }
+                )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    stats = (
+        df.groupby(["locus", "gene", "batch_id"], dropna=False)["log_p"]
+        .apply(_winsorized_mean_std)
+        .reset_index(name="mu_sigma")
+    )
+    stats[["mu", "sigma"]] = pd.DataFrame(stats["mu_sigma"].tolist(), index=stats.index)
+    stats = stats.drop(columns=["mu_sigma"])
+
+    df = df.merge(stats, on=["locus", "gene", "batch_id"], how="left")
+    df["sigma"] = pd.to_numeric(df["sigma"], errors="coerce").fillna(0.0)
+    df["mu"] = pd.to_numeric(df["mu"], errors="coerce").fillna(0.0)
+
+    raw_z = np.where(df["sigma"].to_numpy(dtype=float) > 0,
+                     (df["log_p"].to_numpy(dtype=float) - df["mu"].to_numpy(dtype=float))
+                     / df["sigma"].to_numpy(dtype=float),
+                     0.0)
+    df["z"] = np.clip(raw_z, -z_cap, z_cap)
+
+    df["pavg"] = df.apply(lambda r: pavg[(r["locus"], r["gene"])], axis=1)
+
+    denom = 1.0 - np.exp(-df["z"].to_numpy(dtype=float))
+    tiny = np.abs(denom) < 1e-12
+    denom[tiny] = np.where(denom[tiny] < 0, -1e-12, 1e-12)
+    df["pfinal"] = 2.0 * df["pavg"].to_numpy(dtype=float) / denom
+
+    return df[columns].sort_values(["sample_id", "locus", "gene"]).reset_index(drop=True)
