@@ -1,7 +1,4 @@
-"""Tests for mir.common.gene_library (GeneEntry / GeneLibrary).
-
-Also verifies that the legacy compat aliases in mir.common.segments still work.
-"""
+"""Tests for mir.common.gene_library (GeneEntry / GeneLibrary)."""
 
 import tempfile
 import unittest
@@ -10,9 +7,6 @@ from pathlib import Path
 import pytest
 
 from mir.common.gene_library import GeneEntry, GeneLibrary
-
-# Legacy import path must still resolve
-from mir.common.segments import Segment, SegmentLibrary
 
 RESOURCES = Path(__file__).parent.parent / "mir" / "resources" / "gene_library"
 _OLGA_LIB = RESOURCES / "olga_gene_library.txt"
@@ -179,18 +173,6 @@ class TestGeneLibraryQueries(unittest.TestCase):
         self.lib._rebuild_coding_v_genes()
         self.assertFalse(self.lib.is_functional("TRBVX*01"))
         self.assertFalse(self.lib.is_coding("TRBVX"))
-
-
-class TestLegacyAliases(unittest.TestCase):
-    """Ensure mir.common.segments backward-compat shim works."""
-
-    def test_segment_is_gene_entry(self):
-        s = Segment("TRBV1*01", locus="TRB", gene="V")
-        self.assertIsInstance(s, GeneEntry)
-
-    def test_segment_library_is_gene_library(self):
-        lib = SegmentLibrary({}, complete=False)
-        self.assertIsInstance(lib, GeneLibrary)
 
 
 # ---------------------------------------------------------------------------

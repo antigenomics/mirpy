@@ -52,11 +52,12 @@ pip install -e .
 ### Load a segment library
 
 ```python
-from mir.common.segments import SegmentLibrary
+from mir.common.gene_library import GeneLibrary
 
-lib = SegmentLibrary.load_default(
-    genes={"TRA", "TRB"},
-    organisms={"HomoSapiens"},
+lib = GeneLibrary.load_default(
+    loci={"TRA", "TRB"},
+    species={"human"},
+    source="imgt",
 )
 ```
 
