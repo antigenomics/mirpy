@@ -44,14 +44,6 @@ mir.common.repertoire_dataset module
    :undoc-members:
    :show-inheritance:
 
-mir.common.normalize_gene_usage module
--------------------------------------
-
-.. automodule:: mir.common.normalize_gene_usage
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Parallel Default And Fallback Policy
 ------------------------------------
 
@@ -86,14 +78,6 @@ mir.common.repertoire module
 ----------------------------
 
 .. automodule:: mir.common.repertoire
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.common.segments module
---------------------------
-
-.. automodule:: mir.common.segments
    :members:
    :undoc-members:
    :show-inheritance:
