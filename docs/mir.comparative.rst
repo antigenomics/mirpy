@@ -36,10 +36,3 @@ mir.comparative.tcrnet module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
-
-.. automodule:: mir.comparative
-   :members:
-   :undoc-members:
-   :show-inheritance:

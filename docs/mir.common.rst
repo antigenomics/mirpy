@@ -32,9 +32,9 @@ mir.common.io_parallel module
 -----------------------------
 
 .. automodule:: mir.common.io_parallel
-    :members:
-    :undoc-members:
-    :show-inheritance:
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 Parallel Default And Fallback Policy
 ------------------------------------
@@ -55,8 +55,8 @@ Parallel Default And Fallback Policy
 
 - Rule of thumb:
 
-   - If a gzipped AIRR file is substantially below about 0.23 MB, sequential is typically chosen.
-   - If it is above about 0.23 MB, parallel is typically beneficial and selected by default.
+   - If a gzipped AIRR file is substantially below about 0.23 MB, sequential loading is typically chosen.
+   - If it is above about 0.23 MB, parallel loading is typically beneficial and selected by default.
 
 mir.common.parser module
 ------------------------

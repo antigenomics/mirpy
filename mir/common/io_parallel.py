@@ -120,7 +120,7 @@ def load_airr_parallel(
 ) -> LocusRepertoire:
     """Load large AIRR/VDJtools file with parallel chunked reading.
 
-    Uses Polars for lazy evaluation and ProcessPoolExecutor for parallel parsing.
+    Uses pandas for chunked reads and ProcessPoolExecutor for parallel parsing.
     Chunks are read sequentially but parsed in parallel, providing good performance
     without excessive memory overhead.
 

@@ -24,11 +24,14 @@ from __future__ import annotations
 
 import warnings
 from copy import copy
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 
 from mir.basic.gene_usage import GeneUsage, _strip_allele
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+
+GeneUsageMap: TypeAlias = dict[Any, int]
 
 
 def downsample_locus(
@@ -161,8 +164,8 @@ def downsample(
 
 def _resample_to_gene_usage_locus(
     repertoire: LocusRepertoire,
-    target_gene_usage: dict[str, int] | dict[tuple[str, str], int],
-    original_gene_usage: dict[str, int] | dict[tuple[str, str], int] | None = None,
+    target_gene_usage: GeneUsageMap,
+    original_gene_usage: GeneUsageMap | None = None,
     *,
     gene_type: str = "v",
     weighted: bool = True,
@@ -203,9 +206,12 @@ def _resample_to_gene_usage_locus(
         gu = GeneUsage.from_repertoire(repertoire)
         count_mode = "duplicates" if weighted else "clonotypes"
         if gene_type == "v":
-            original_gene_usage = gu.v_usage(repertoire.locus, count=count_mode)
+            original_gene_usage = cast(GeneUsageMap, gu.v_usage(repertoire.locus, count=count_mode))
         else:  # vj
-            original_gene_usage = gu.vj_usage(repertoire.locus, count=count_mode)
+            original_gene_usage = cast(GeneUsageMap, gu.vj_usage(repertoire.locus, count=count_mode))
+
+    # Narrow Optional for type checkers.
+    assert original_gene_usage is not None
 
     # Build resampling weights: p_i * (target_usage[gene_i] / original_usage[gene_i])
     weights = np.ones(len(repertoire.clonotypes), dtype=np.float64)
@@ -272,8 +278,8 @@ def _resample_to_gene_usage_locus(
 
 def resample_to_gene_usage(
     repertoire: LocusRepertoire | SampleRepertoire,
-    target_gene_usage: dict[str, int] | dict[tuple[str, str], int],
-    original_gene_usage: dict[str, int] | dict[tuple[str, str], int] | None = None,
+    target_gene_usage: GeneUsageMap,
+    original_gene_usage: GeneUsageMap | None = None,
     *,
     gene_type: str = "v",
     weighted: bool = True,
@@ -400,8 +406,8 @@ def select_top(
         )
 
     # For SampleRepertoire, select top from each locus independently
-    top_loci = {
-        locus: select_top(lr, top_n)
+    top_loci: dict[str, LocusRepertoire] = {
+        locus: cast(LocusRepertoire, select_top(lr, top_n))
         for locus, lr in repertoire.loci.items()
     }
 

@@ -1,6 +1,7 @@
 """OLGA-based generation probability and sequence generation for V(D)J recombination.
 
 Wraps the OLGA library to provide:
+
 - Pgen computation (exact, amino-acid, and 1-mismatch) with an in-process
   LRU cache to speed up repeated queries across mock-generation iterations.
 - Productive CDR3 sequence generation with full VDJ annotation.

@@ -250,7 +250,7 @@ from mir.biomarkers.vdjbet import PgenBinPool
 model = OlgaModel(locus="TRB", seed=42)
 pgens = model.compute_pgens([c.junction_aa for c in rep.clonotypes])
 
-# Adjust mock mocks by observed gene usage
+# Adjust mocks by observed gene usage
 pgen_adj = PgenGeneUsageAdjustment(
     observed_gu,
     reference=olga_gu,

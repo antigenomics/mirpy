@@ -27,20 +27,6 @@ if TYPE_CHECKING:
 
 _VJPair = tuple[str, str]
 
-_COUNT_MODE_ALIASES = {
-    "clonotypes": "clonotypes",
-    "clonotype": "clonotypes",
-    "rearrangement": "clonotypes",
-    "rearrangements": "clonotypes",
-    "count_rearrangement": "clonotypes",
-    "count_rearrangements": "clonotypes",
-    "duplicates": "duplicates",
-    "duplicate": "duplicates",
-    "count_duplicates": "duplicates",
-}
-
-_COUNT_INDEX = {"clonotypes": 0, "duplicates": 1}
-
 
 def _normalize_count_mode(count: str) -> str:
     """Normalize public count-mode aliases.
@@ -49,19 +35,28 @@ def _normalize_count_mode(count: str) -> str:
     - ``clonotypes`` / ``count_rearrangement`` (unweighted, default)
     - ``duplicates`` / ``count_duplicates`` (weighted by duplicate_count)
     """
-    normalized = _COUNT_MODE_ALIASES.get(str(count).strip().lower())
-    if normalized is None:
-        raise ValueError(
-            f"Unknown count mode: {count!r}. "
-            "Use 'clonotypes'/'count_rearrangement' or "
-            "'duplicates'/'count_duplicates'."
-        )
-    return normalized
+    mode = str(count).strip().lower()
+    if mode in {
+        "clonotypes",
+        "clonotype",
+        "rearrangement",
+        "rearrangements",
+        "count_rearrangement",
+        "count_rearrangements",
+    }:
+        return "clonotypes"
+    if mode in {"duplicates", "duplicate", "count_duplicates"}:
+        return "duplicates"
+    raise ValueError(
+        f"Unknown count mode: {count!r}. "
+        "Use 'clonotypes'/'count_rearrangement' or "
+        "'duplicates'/'count_duplicates'."
+    )
 
 
 def _count_index(count: str) -> int:
     """Return storage index for normalized count mode."""
-    return _COUNT_INDEX[_normalize_count_mode(count)]
+    return 0 if _normalize_count_mode(count) == "clonotypes" else 1
 
 
 def _laplace_fraction(usage: dict, total: int, pseudocount: float) -> dict:

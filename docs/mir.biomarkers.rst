@@ -28,10 +28,3 @@ mir.biomarkers.vdjbet module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
-
-.. automodule:: mir.biomarkers
-   :members:
-   :undoc-members:
-   :show-inheritance:
