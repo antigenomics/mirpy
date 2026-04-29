@@ -167,7 +167,7 @@ def _resample_to_gene_usage_locus(
     target_gene_usage: GeneUsageMap,
     original_gene_usage: GeneUsageMap | None = None,
     *,
-    gene_type: str = "v",
+    scope: str = "v",
     weighted: bool = True,
     random_seed: int | None = None,
 ) -> LocusRepertoire:
@@ -184,9 +184,9 @@ def _resample_to_gene_usage_locus(
         Dict mapping gene (or VJ pair) to desired count.
     original_gene_usage:
         Dict mapping gene (or VJ pair) to original count. If None, computed
-        from the repertoire using weighted/gene_type settings.
-    gene_type:
-        ``"v"`` for V-gene usage or ``"vj"`` for V-J usage.
+        from the repertoire using weighted/scope settings.
+    scope:
+        ``"v"`` for V-gene usage, ``"j"`` for J-gene usage, or ``"vj"`` for V-J usage.
     weighted:
         If True, compute gene usage weighted by duplicate_count.
         If False, count by clonotypes.
@@ -198,15 +198,17 @@ def _resample_to_gene_usage_locus(
     LocusRepertoire
         Resampled repertoire with gene usage closer to target.
     """
-    if gene_type not in ("v", "vj"):
-        raise ValueError(f"gene_type must be 'v' or 'vj', got {gene_type}")
+    if scope not in ("v", "j", "vj"):
+        raise ValueError(f"scope must be 'v', 'j', or 'vj', got {scope}")
 
     # Compute original gene usage if not provided
     if original_gene_usage is None:
         gu = GeneUsage.from_repertoire(repertoire)
         count_mode = "duplicates" if weighted else "clonotypes"
-        if gene_type == "v":
+        if scope == "v":
             original_gene_usage = cast(GeneUsageMap, gu.v_usage(repertoire.locus, count=count_mode))
+        elif scope == "j":
+            original_gene_usage = cast(GeneUsageMap, gu.j_usage(repertoire.locus, count=count_mode))
         else:  # vj
             original_gene_usage = cast(GeneUsageMap, gu.vj_usage(repertoire.locus, count=count_mode))
 
@@ -218,8 +220,10 @@ def _resample_to_gene_usage_locus(
 
     for idx, clonotype in enumerate(repertoire.clonotypes):
         # Get gene for this clonotype (strip alleles to base gene)
-        if gene_type == "v":
+        if scope == "v":
             gene = _strip_allele(clonotype.v_gene or "")
+        elif scope == "j":
+            gene = _strip_allele(clonotype.j_gene or "")
         else:  # vj
             v_base = _strip_allele(clonotype.v_gene or "")
             j_base = _strip_allele(clonotype.j_gene or "")
@@ -281,7 +285,7 @@ def resample_to_gene_usage(
     target_gene_usage: GeneUsageMap,
     original_gene_usage: GeneUsageMap | None = None,
     *,
-    gene_type: str = "v",
+    scope: str = "v",
     weighted: bool = True,
     random_seed: int | None = None,
 ) -> LocusRepertoire | SampleRepertoire:
@@ -302,8 +306,8 @@ def resample_to_gene_usage(
     original_gene_usage:
         Dict mapping gene (or VJ pair) to original count. If None, computed
         from the repertoire(s).
-    gene_type:
-        ``"v"`` for V-gene usage or ``"vj"`` for V-J usage.
+    scope:
+        ``"v"`` for V-gene usage, ``"j"`` for J-gene usage, or ``"vj"`` for V-J usage.
     weighted:
         If True, compute gene usage weighted by duplicate_count.
         If False, count by clonotypes.
@@ -320,7 +324,7 @@ def resample_to_gene_usage(
             repertoire,
             target_gene_usage,
             original_gene_usage,
-            gene_type=gene_type,
+            scope=scope,
             weighted=weighted,
             random_seed=random_seed,
         )
@@ -331,7 +335,7 @@ def resample_to_gene_usage(
             lr,
             target_gene_usage,
             original_gene_usage,
-            gene_type=gene_type,
+            scope=scope,
             weighted=weighted,
             random_seed=random_seed,
         )
