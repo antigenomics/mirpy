@@ -15,7 +15,7 @@ import pytest
 
 from mir.basic.alphabets import back_translate, _MOST_LIKELY_CODON
 from mir.common.clonotype import Clonotype
-from mir.common.parser import OldMiXCRParser, VDJdbSlimParser, OlgaParser
+from mir.common.parser import OldMiXCRParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
 ASSETS = Path(__file__).parent / "assets"
@@ -23,6 +23,18 @@ ASSETS = Path(__file__).parent / "assets"
 _OLD_MIXCR_FILE = ASSETS / "old_mixcr.gz"
 _VDJDB_FILE     = ASSETS / "vdjdb.slim.txt.gz"
 _OLGA_FILE      = ASSETS / "olga_humanTRB_1000.txt.gz"
+_VDJTOOLS_FILE  = ASSETS / "vdjtools_trb_d_dot.tsv"
+
+
+# ---------------------------------------------------------------------------
+# VDJtoolsParser — d='.' normalisation
+# ---------------------------------------------------------------------------
+
+def test_vdjtools_d_dot_normalised_to_empty():
+    """'.' in the d-gene column must be normalised to '' by _gene_str."""
+    clonotypes = VDJtoolsParser().parse(str(_VDJTOOLS_FILE))
+    assert all(c.d_gene != "." for c in clonotypes), \
+        "d_gene '.' was not normalised to empty string"
 
 
 # ---------------------------------------------------------------------------

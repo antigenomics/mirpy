@@ -11,6 +11,8 @@ import os
 import pickle
 import random
 from collections import defaultdict
+import gzip
+import json
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -94,10 +96,65 @@ class LocusRepertoire:
                     f"repertoire locus {locus!r}"
                 )
 
-        self.clonotypes: list[Clonotype] = list(clonotypes)
+        self._clonotypes_cache: list[Clonotype] | None = list(clonotypes)
+        self._pending_cols: dict | None = None
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
+
+    @classmethod
+    def _from_group(cls, locus: str, clonotypes: list) -> "LocusRepertoire":
+        """Fast-path constructor: skips locus consistency check."""
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = clonotypes
+        obj._pending_cols = None
+        obj.repertoire_id = ""
+        obj.repertoire_metadata = {}
+        return obj
+
+    @classmethod
+    def _from_lazy_cols(cls, locus: str, cols: dict) -> "LocusRepertoire":
+        """Lazy-loading fast-path: stores raw column lists, materialises Clonotypes on first access."""
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = None
+        obj._pending_cols = cols
+        obj.repertoire_id = ""
+        obj.repertoire_metadata = {}
+        return obj
+
+    @property
+    def clonotypes(self) -> "list[Clonotype]":
+        """All clonotypes in this locus repertoire, materialised lazily."""
+        if self._clonotypes_cache is None:
+            self._materialise()
+        return self._clonotypes_cache  # type: ignore[return-value]
+
+    @clonotypes.setter
+    def clonotypes(self, value: list) -> None:
+        self._clonotypes_cache = list(value)
+        self._pending_cols = None
+
+    def _materialise(self) -> None:
+        """Construct Clonotype objects from stored column lists."""
+        from mir.common.clonotype import Clonotype as _Clonotype
+        c = self._pending_cols
+        self._clonotypes_cache = [
+            _Clonotype(_validate=False,
+                sequence_id=sid, locus=c['locus'],
+                duplicate_count=dup, junction=jnt, junction_aa=jaa,
+                v_gene=vg, d_gene=dg, j_gene=jg,
+                v_sequence_end=ve, d_sequence_start=ds,
+                d_sequence_end=de, j_sequence_start=js,
+            )
+            for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
+                c['v_genes'], c['d_genes'], c['j_genes'],
+                c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
+            )
+        ]
+        self._pending_cols = None
 
     # ------------------------------------------------------------------
     # Counts
@@ -142,6 +199,57 @@ class LocusRepertoire:
     def to_polars(self) -> pl.DataFrame:
         """Serialise clonotypes to a Polars DataFrame using the AIRR schema."""
         return Clonotype.to_polars(self.clonotypes)
+
+    def write_polars(
+        self,
+        path: str | Path,
+        *,
+        format: str | None = None,
+    ) -> Path:
+        """Write clonotypes to a polars-supported file format.
+
+        Supported formats: ``parquet`` (default), ``ipc``/``feather``, ``csv``.
+        """
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fmt = (format or out.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            self.to_polars().write_parquet(out)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            self.to_polars().write_ipc(out)
+        elif fmt == "csv":
+            self.to_polars().write_csv(out)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return out
+
+    @classmethod
+    def read_polars(
+        cls,
+        path: str | Path,
+        *,
+        format: str | None = None,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> LocusRepertoire:
+        """Load a :class:`LocusRepertoire` from a polars-supported file."""
+        src = Path(path)
+        fmt = (format or src.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            df = pl.read_parquet(src)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df = pl.read_ipc(src)
+        elif fmt == "csv":
+            df = pl.read_csv(src)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
 
     @classmethod
     def from_polars(
@@ -553,6 +661,89 @@ class SampleRepertoire:
             )
         return obj
 
+    def write_polars(
+        self,
+        path: str | Path,
+        *,
+        format: str | None = None,
+    ) -> Path:
+        """Write all loci clonotypes to one polars file."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fmt = (format or out.suffix.lstrip(".") or "parquet").lower()
+        df = self.to_polars()
+        if fmt in {"pq", "parquet"}:
+            df.write_parquet(out)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df.write_ipc(out)
+        elif fmt == "csv":
+            df.write_csv(out)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return out
+
+    @classmethod
+    def read_polars(
+        cls,
+        path: str | Path,
+        *,
+        format: str | None = None,
+        locus_column: str = "locus",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> SampleRepertoire:
+        """Load a :class:`SampleRepertoire` from one polars file."""
+        src = Path(path)
+        fmt = (format or src.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            df = pl.read_parquet(src)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df = pl.read_ipc(src)
+        elif fmt == "csv":
+            df = pl.read_csv(src)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return cls.from_polars(
+            df,
+            locus_column=locus_column,
+            sample_id=sample_id,
+            sample_metadata=sample_metadata,
+        )
+
+    def write_folder(
+        self,
+        folder: str | Path,
+        *,
+        format: str = "tsv",
+        gzip_output: bool = False,
+    ) -> list[Path]:
+        """Write one file per locus into *folder* and return file paths."""
+        out_dir = Path(folder)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        files: list[Path] = []
+        for locus, lr in self.loci.items():
+            base_name = f"{self.sample_id}_{locus}.{format}"
+            out = out_dir / (base_name + (".gz" if gzip_output and format in {"tsv", "csv"} else ""))
+            if format == "parquet":
+                lr.write_polars(out, format="parquet")
+            elif format in {"ipc", "feather"}:
+                lr.write_polars(out, format="ipc")
+            elif format in {"tsv", "csv"}:
+                df = lr.to_polars().to_pandas()
+                sep = "\t" if format == "tsv" else ","
+                if gzip_output:
+                    with gzip.open(out, "wt", encoding="utf-8") as fh:
+                        df.to_csv(fh, sep=sep, index=False)
+                else:
+                    df.to_csv(out, sep=sep, index=False)
+            else:
+                raise ValueError(f"Unsupported format: {format!r}")
+            files.append(out)
+
+        meta_path = out_dir / "sample_metadata.json"
+        meta_path.write_text(json.dumps(self.sample_metadata, ensure_ascii=True, indent=2))
+        return files
+
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
@@ -581,7 +772,7 @@ class SampleRepertoire:
         for c in clonotypes:
             groups[c.locus].append(c)
         loci = {
-            locus: LocusRepertoire(clones, locus=locus)
+            locus: LocusRepertoire._from_group(locus, clones)
             for locus, clones in groups.items()
         }
         return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)

@@ -34,7 +34,7 @@ class JunctionMarkup(NamedTuple):
 # Main dataclass
 # ---------------------------------------------------------------------------
 
-@dataclass(unsafe_hash=True)
+@dataclass(unsafe_hash=True, slots=True)
 class Clonotype:
     """Single immune-receptor rearrangement with AIRR-schema fields.
 
@@ -66,6 +66,10 @@ class Clonotype:
     _validate: InitVar[bool] = True
 
     def __post_init__(self, _validate: bool) -> None:
+        if not _validate:
+            # Hot path: caller (parser) guarantees all fields are already clean
+            # strings and locus is already set.  Skip all normalisation.
+            return
         # Auto-translate junction → junction_aa
         if self.junction and not self.junction_aa:
             self.junction_aa = translate_bidi(self.junction)
@@ -81,13 +85,12 @@ class Clonotype:
             prefix = self.j_gene[:3].upper()
             if prefix in _LOCUS_PREFIXES:
                 self.locus = prefix
-        if _validate:
-            # Validate junction_aa: only the 20 standard amino-acid letters
-            if self.junction_aa and not _c_is_coding(self.junction_aa):
-                raise ValueError(
-                    f"junction_aa contains non-standard amino-acid characters: "
-                    f"{self.junction_aa!r}"
-                )
+        # Validate junction_aa: only the 20 standard amino-acid letters
+        if self.junction_aa and not _c_is_coding(self.junction_aa):
+            raise ValueError(
+                f"junction_aa contains non-standard amino-acid characters: "
+                f"{self.junction_aa!r}"
+            )
 
     # ------------------------------------------------------------------
     # Derived properties
