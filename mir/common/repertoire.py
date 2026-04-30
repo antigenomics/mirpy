@@ -98,6 +98,9 @@ class LocusRepertoire:
 
         self._clonotypes_cache: list[Clonotype] | None = list(clonotypes)
         self._pending_cols: dict | None = None
+        self._polars_table: pl.DataFrame | None = None
+        self._clonotype_count_cache: int | None = len(self._clonotypes_cache)
+        self._duplicate_count_cache: int | None = sum(c.duplicate_count for c in self._clonotypes_cache)
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
@@ -109,6 +112,9 @@ class LocusRepertoire:
         obj.locus = locus
         obj._clonotypes_cache = clonotypes
         obj._pending_cols = None
+        obj._polars_table = None
+        obj._clonotype_count_cache = len(clonotypes)
+        obj._duplicate_count_cache = sum(c.duplicate_count for c in clonotypes)
         obj.repertoire_id = ""
         obj.repertoire_metadata = {}
         return obj
@@ -120,6 +126,11 @@ class LocusRepertoire:
         obj.locus = locus
         obj._clonotypes_cache = None
         obj._pending_cols = cols
+        obj._polars_table = None
+        seq_ids = cols.get("seq_ids", [])
+        dup_counts = cols.get("dup_counts", [])
+        obj._clonotype_count_cache = len(seq_ids)
+        obj._duplicate_count_cache = int(sum(int(x or 0) for x in dup_counts))
         obj.repertoire_id = ""
         obj.repertoire_metadata = {}
         return obj
@@ -135,26 +146,35 @@ class LocusRepertoire:
     def clonotypes(self, value: list) -> None:
         self._clonotypes_cache = list(value)
         self._pending_cols = None
+        self._polars_table = None
+        self._clonotype_count_cache = len(self._clonotypes_cache)
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
 
     def _materialise(self) -> None:
         """Construct Clonotype objects from stored column lists."""
-        from mir.common.clonotype import Clonotype as _Clonotype
-        c = self._pending_cols
-        self._clonotypes_cache = [
-            _Clonotype(_validate=False,
-                sequence_id=sid, locus=c['locus'],
-                duplicate_count=dup, junction=jnt, junction_aa=jaa,
-                v_gene=vg, d_gene=dg, j_gene=jg,
-                v_sequence_end=ve, d_sequence_start=ds,
-                d_sequence_end=de, j_sequence_start=js,
-            )
-            for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
-                c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
-                c['v_genes'], c['d_genes'], c['j_genes'],
-                c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
-            )
-        ]
+        if self._polars_table is not None:
+            self._clonotypes_cache = Clonotype.from_polars(self._polars_table)
+        else:
+            from mir.common.clonotype import Clonotype as _Clonotype
+            c = self._pending_cols
+            self._clonotypes_cache = [
+                _Clonotype(_validate=False,
+                    sequence_id=sid, locus=c['locus'],
+                    duplicate_count=dup, junction=jnt, junction_aa=jaa,
+                    v_gene=vg, d_gene=dg, j_gene=jg,
+                    v_sequence_end=ve, d_sequence_start=ds,
+                    d_sequence_end=de, j_sequence_start=js,
+                )
+                for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                    c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
+                    c['v_genes'], c['d_genes'], c['j_genes'],
+                    c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
+                )
+            ]
+        self._clonotype_count_cache = len(self._clonotypes_cache)
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
         self._pending_cols = None
+        self._polars_table = None
 
     # ------------------------------------------------------------------
     # Counts
@@ -163,12 +183,38 @@ class LocusRepertoire:
     @property
     def clonotype_count(self) -> int:
         """Number of distinct clonotypes."""
-        return len(self.clonotypes)
+        if self._clonotype_count_cache is not None:
+            return self._clonotype_count_cache
+        if self._pending_cols is not None:
+            seq_ids = self._pending_cols.get("seq_ids", [])
+            self._clonotype_count_cache = len(seq_ids)
+            return self._clonotype_count_cache
+        if self._polars_table is not None:
+            self._clonotype_count_cache = int(self._polars_table.height)
+            return self._clonotype_count_cache
+        self._clonotype_count_cache = len(self.clonotypes)
+        return self._clonotype_count_cache
 
     @property
     def duplicate_count(self) -> int:
         """Total read/cell count (sum of :attr:`Clonotype.duplicate_count`)."""
-        return sum(c.duplicate_count for c in self.clonotypes)
+        if self._duplicate_count_cache is not None:
+            return self._duplicate_count_cache
+        if self._pending_cols is not None:
+            dup_counts = self._pending_cols.get("dup_counts", [])
+            self._duplicate_count_cache = int(sum(int(x or 0) for x in dup_counts))
+            return self._duplicate_count_cache
+        if self._polars_table is not None and "duplicate_count" in self._polars_table.columns:
+            s = (
+                self._polars_table["duplicate_count"]
+                .cast(pl.Int64, strict=False)
+                .fill_null(0)
+                .sum()
+            )
+            self._duplicate_count_cache = int(s or 0)
+            return self._duplicate_count_cache
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self.clonotypes)
+        return self._duplicate_count_cache
 
     # ------------------------------------------------------------------
     # Sorting
@@ -198,6 +244,8 @@ class LocusRepertoire:
 
     def to_polars(self) -> pl.DataFrame:
         """Serialise clonotypes to a Polars DataFrame using the AIRR schema."""
+        if self._polars_table is not None:
+            return self._polars_table
         return Clonotype.to_polars(self.clonotypes)
 
     def to_tsv(
@@ -341,12 +389,24 @@ class LocusRepertoire:
         repertoire_metadata:
             Metadata dict for the resulting repertoire.
         """
-        return cls(
-            clonotypes=Clonotype.from_polars(df),
-            locus=locus,
-            repertoire_id=repertoire_id,
-            repertoire_metadata=repertoire_metadata,
-        )
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = None
+        obj._pending_cols = None
+        table = df
+        obj._clonotype_count_cache = int(df.height)
+        if "duplicate_count" in df.columns:
+            table = df.with_columns(
+                pl.col("duplicate_count").cast(pl.Int64, strict=False).fill_null(0)
+            )
+            s = table["duplicate_count"].sum()
+            obj._duplicate_count_cache = int(s or 0)
+        else:
+            obj._duplicate_count_cache = 0
+        obj._polars_table = table
+        obj.repertoire_id = repertoire_id
+        obj.repertoire_metadata = repertoire_metadata if repertoire_metadata is not None else {}
+        return obj
 
     # ------------------------------------------------------------------
     # Filtering
@@ -983,6 +1043,16 @@ class SampleRepertoire:
         for lr in self.loci.values():
             result.extend(lr.clonotypes)
         return result
+
+    @property
+    def clonotype_count(self) -> int:
+        """Total clonotype count across all loci."""
+        return sum(lr.clonotype_count for lr in self.loci.values())
+
+    @property
+    def duplicate_count(self) -> int:
+        """Total duplicate_count across all loci."""
+        return sum(lr.duplicate_count for lr in self.loci.values())
 
     # ------------------------------------------------------------------
     # Sorting

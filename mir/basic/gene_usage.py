@@ -203,6 +203,42 @@ class GeneUsage:
         locus_data = self._data.setdefault(loc, {})
         locus_totals = self._totals.setdefault(loc, [0, 0])
 
+        table = getattr(repertoire, "_polars_table", None)
+        if table is not None:
+            try:
+                import polars as pl
+
+                if table.height == 0:
+                    return
+                grouped = (
+                    table
+                    .select([
+                        pl.col("v_gene").cast(pl.Utf8).fill_null(""),
+                        pl.col("j_gene").cast(pl.Utf8).fill_null(""),
+                        pl.col("duplicate_count").cast(pl.Int64).fill_null(0),
+                    ])
+                    .group_by(["v_gene", "j_gene"])
+                    .agg([
+                        pl.len().alias("n_clones"),
+                        pl.col("duplicate_count").sum().alias("n_dc"),
+                    ])
+                )
+
+                for row in grouped.iter_rows(named=True):
+                    v = self._normalize_gene(str(row.get("v_gene") or ""))
+                    j = self._normalize_gene(str(row.get("j_gene") or ""))
+                    n_clones = int(row.get("n_clones") or 0)
+                    n_dc = int(row.get("n_dc") or 0)
+                    entry = locus_data.setdefault((v, j), [0, 0])
+                    entry[0] += n_clones
+                    entry[1] += n_dc
+                    locus_totals[0] += n_clones
+                    locus_totals[1] += n_dc
+                return
+            except Exception:
+                # Fall back to the generic Python path if polars operations fail.
+                pass
+
         # Fast path for lazily loaded repertoires: consume raw columns directly
         # and avoid constructing per-clonotype Python objects.
         pending = getattr(repertoire, "_pending_cols", None)
@@ -537,7 +573,7 @@ def compute_batch_corrected_gene_usage(
     for sample_id, sample in dataset.samples.items():
         gu = GeneUsage.from_sample(sample)
         for locus, locus_rep in sample.loci.items():
-            if locus_rep is None or len(getattr(locus_rep, "clonotypes", [])) == 0:
+            if locus_rep is None or getattr(locus_rep, "clonotype_count", 0) == 0:
                 continue
             usage = gu._usage_by_scope(locus, scope=scope, count=count_mode)
             sample_usage[(sample_id, locus)] = usage
@@ -577,12 +613,15 @@ def compute_batch_corrected_gene_usage(
         for locus, locus_rep in sample.loci.items():
             if locus not in genes_by_locus:
                 continue
-            if locus_rep is None or len(getattr(locus_rep, "clonotypes", [])) == 0:
+            if locus_rep is None or getattr(locus_rep, "clonotype_count", 0) == 0:
                 continue
 
             usage = sample_usage.get((sample_id, locus), {})
             n_genes = len(genes_by_locus[locus])
-            total = float(sum(float(v) for v in usage.values()))
+            if weighted:
+                total = float(getattr(locus_rep, "duplicate_count", 0))
+            else:
+                total = float(getattr(locus_rep, "clonotype_count", 0))
             denom = total + pseudocount * n_genes
 
             for gene in sorted(genes_by_locus[locus]):

@@ -289,7 +289,7 @@ def time_load(path: str | Path, method: str = "sequential", **kwargs) -> dict:
 
     return {
         "elapsed_s": elapsed,
-        "n_clonotypes": len(rep.clonotypes),
+        "n_clonotypes": rep.clonotype_count,
         "method": method,
         "memory_start_mb": mem_start,
         "memory_end_mb": mem_end,
