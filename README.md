@@ -80,8 +80,8 @@ clonotypes = parser.parse("example.tsv")
 from mir.common.repertoire import Repertoire
 
 repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
-print(repertoire.total)
-print(repertoire.number_of_clones)
+print(repertoire.duplicate_count)
+print(repertoire.clonotype_count)
 
 # Functional/canonical filtering using IMGT functionality annotations.
 from mir.common.filter import filter_functional, filter_canonical
@@ -104,6 +104,20 @@ repertoire = Repertoire.load(
     gene="TRB",
 )
 ```
+
+### Repertoire internals and lazy tabular backend
+
+`LocusRepertoire` supports three internal representations:
+
+- eager clonotype list (`clonotypes`),
+- lazy column bundles (`_pending_cols`) for fast parser paths,
+- Polars table (`_polars_table`) for tabular I/O and grouped operations.
+
+When a repertoire is built from a Python clonotype list, no Polars table is
+created up front. The table is generated lazily on first `to_polars()` call and
+cached for reuse. Count properties (`clonotype_count`, `duplicate_count`) stay
+fast and avoid full materialization when lazy columns or Polars data are
+available.
 
 ### Mask and match sequences
 
