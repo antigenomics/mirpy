@@ -188,7 +188,13 @@ class ClonotypeTableParser:
 
     def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
         """Parse an already-normalised pandas DataFrame. Converts to polars internally."""
-        return self._polars_to_clonotypes(pl.from_pandas(df))
+        # Avoid pl.from_pandas here because nullable pandas extension dtypes
+        # (e.g. Int64) require pyarrow during conversion.
+        data = {
+            col: df[col].where(pd.notna(df[col]), None).tolist()
+            for col in df.columns
+        }
+        return self._polars_to_clonotypes(pl.DataFrame(data))
 
     def _polars_to_clonotypes(self, df: pl.DataFrame) -> list[Clonotype]:
         """Vectorised conversion of a normalised polars DataFrame → list[Clonotype].

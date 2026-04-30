@@ -133,9 +133,8 @@ downsampled = downsample(rep, 1000, random_seed=42)
 target_gu = GeneUsage.from_repertoire(rep_d15)
 resampled = resample_to_gene_usage(
     rep_d0,
-    target_gu,
-    "TRB",
-    gene_type="v",
+    target_gu.v_usage("TRB", count="duplicates"),
+    scope="v",           # or gene_type="v" for backward compatibility
     weighted=True,
     random_seed=42,
 )
@@ -258,6 +257,23 @@ pgen_adj = PgenGeneUsageAdjustment(
 )
 
 # Build binned pool for significance testing
+
+---
+
+## Benchmark Runtime Controls
+
+Benchmark tests are opt-in and can be tuned for CI/runtime budgets.
+
+- Enable benchmarks:
+    - `RUN_BENCHMARK=1`
+- Scale micro-benchmark loop counts:
+    - `MIRPY_BENCHMARK_SCALE` (default 0.5)
+- Per-test benchmark wall-clock upper bound in seconds:
+    - `MIRPY_BENCHMARK_MAX_SECONDS` (default 20 for micro-bench, 30 per repertoire case)
+- Repertoire benchmark worker matrix:
+    - `MIRPY_BENCH_WORKERS` (default `1,4`; set `1,4,8` for full matrix)
+- Track memory via tracemalloc in repertoire benchmark:
+    - `MIRPY_BENCH_TRACK_MEMORY=1`
 pool = PgenBinPool("TRB", n=50_000, n_jobs=4, seed=42)
 ```
 
