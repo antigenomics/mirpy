@@ -66,6 +66,10 @@ For batch-corrected gene usage workflows, use
 ``compute_batch_corrected_gene_usage`` and consume ``pfinal`` as the corrected
 probability output (already normalized per sample/locus).
 
+If you compute only ``scope='vj'`` and need V- or J-marginal views for plots,
+reuse ``marginalize_batch_corrected_gene_usage(..., scope='v'|'j')`` from the
+same module instead of ad-hoc notebook ``groupby`` code.
+
 Next Steps
 ==========
 

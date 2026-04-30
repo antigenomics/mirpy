@@ -715,3 +715,105 @@ def compute_batch_corrected_gene_usage(
     )
 
     return df[columns].sort_values(["sample_id", "locus", "gene"]).reset_index(drop=True)
+
+
+def _extract_marginal_gene(gene: object, *, axis: int) -> str:
+    """Return V or J component from a VJ key object.
+
+    Parameters
+    ----------
+    gene
+        VJ key from ``compute_batch_corrected_gene_usage(..., scope='vj')``.
+        Expected shape is ``(v_gene, j_gene)``.
+    axis
+        ``0`` for V-gene, ``1`` for J-gene.
+    """
+    if isinstance(gene, tuple) and len(gene) > axis:
+        return str(gene[axis])
+    if isinstance(gene, list) and len(gene) > axis:
+        return str(gene[axis])
+    raise ValueError(
+        "Expected VJ tuple/list genes in input DataFrame. "
+        "Run compute_batch_corrected_gene_usage(..., scope='vj') first."
+    )
+
+
+def marginalize_batch_corrected_gene_usage(
+    df: pd.DataFrame,
+    *,
+    scope: Literal["v", "j"],
+) -> pd.DataFrame:
+    """Marginalize batch-corrected VJ usage to V or J usage.
+
+    This helper converts output from
+    :func:`compute_batch_corrected_gene_usage` computed with ``scope='vj'``
+    into V- or J-marginal usage by summing over the opposite dimension.
+
+    Parameters
+    ----------
+    df
+        DataFrame from ``compute_batch_corrected_gene_usage(..., scope='vj')``.
+        Required columns: ``sample_id``, ``batch_id``, ``locus``, ``gene``,
+        ``p``, ``pfinal``, ``pavg``.
+    scope
+        Target marginal scope: ``"v"`` (sum over J) or ``"j"`` (sum over V).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``sample_id``, ``batch_id``, ``locus``, ``gene``, ``p``,
+        ``pfinal``, ``pavg``.
+    """
+    required = {"sample_id", "batch_id", "locus", "gene", "p", "pfinal", "pavg"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(
+            f"Input DataFrame missing required columns: {sorted(missing)}"
+        )
+
+    scope_norm = str(scope).strip().lower()
+    if scope_norm not in {"v", "j"}:
+        raise ValueError("scope must be one of: 'v', 'j'")
+    axis = 0 if scope_norm == "v" else 1
+
+    tmp = df.loc[:, ["sample_id", "batch_id", "locus", "gene", "p", "pfinal", "pavg"]].copy()
+    tmp["gene"] = tmp["gene"].map(lambda g: _extract_marginal_gene(g, axis=axis))
+
+    out = (
+        tmp.groupby(["sample_id", "batch_id", "locus", "gene"], as_index=False, sort=True)
+        [["p", "pfinal", "pavg"]]
+        .sum()
+    )
+
+    out["p"] = _safe_group_renormalize(
+        out,
+        value_col="p",
+        fallback_col="p",
+        group_cols=["sample_id", "locus"],
+    )
+    out["pfinal"] = _safe_group_renormalize(
+        out,
+        value_col="pfinal",
+        fallback_col="p",
+        group_cols=["sample_id", "locus"],
+    )
+
+    pavg_ref = (
+        out.groupby(["locus", "gene"], as_index=False, sort=True)["pavg"]
+        .mean()
+    )
+    pavg_ref["pavg"] = _safe_group_renormalize(
+        pavg_ref,
+        value_col="pavg",
+        fallback_col="pavg",
+        group_cols=["locus"],
+    )
+
+    out = out.drop(columns=["pavg"]).merge(
+        pavg_ref,
+        on=["locus", "gene"],
+        how="left",
+    )
+    return out[["sample_id", "batch_id", "locus", "gene", "p", "pfinal", "pavg"]].sort_values(
+        ["sample_id", "locus", "gene"]
+    ).reset_index(drop=True)

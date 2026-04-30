@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 from scipy import stats
 
-from mir.basic.gene_usage import GeneUsage, compute_batch_corrected_gene_usage
+from mir.basic.gene_usage import (
+    GeneUsage,
+    compute_batch_corrected_gene_usage,
+    marginalize_batch_corrected_gene_usage,
+)
 from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -456,6 +460,56 @@ def test_pfinal_is_normalized_per_sample_locus() -> None:
     )
     grouped = out.groupby(["sample_id", "locus"], dropna=False)["pfinal"].sum()
     assert np.allclose(grouped.values, 1.0, atol=1e-9)
+
+
+def test_marginalize_batch_corrected_gene_usage_v_matches_manual_groupby() -> None:
+    ds = _build_mock_dataset(apply_shift=True, include_tra=True)
+    out_vj = compute_batch_corrected_gene_usage(
+        ds, batch_field="batch_id", scope="vj", weighted=True
+    )
+
+    got = marginalize_batch_corrected_gene_usage(out_vj, scope="v")
+
+    expected = out_vj.copy()
+    expected["gene"] = expected["gene"].map(lambda g: str(g[0]))
+    expected = (
+        expected.groupby(["sample_id", "batch_id", "locus", "gene"], as_index=False)
+        [["p", "pfinal", "pavg"]]
+        .sum()
+        .sort_values(["sample_id", "locus", "gene"])
+        .reset_index(drop=True)
+    )
+
+    got = got.sort_values(["sample_id", "locus", "gene"]).reset_index(drop=True)
+    assert list(got[["sample_id", "batch_id", "locus", "gene"]].itertuples(index=False, name=None)) == \
+        list(expected[["sample_id", "batch_id", "locus", "gene"]].itertuples(index=False, name=None))
+    assert np.allclose(got["p"].to_numpy(dtype=float), expected["p"].to_numpy(dtype=float), atol=1e-12)
+    assert np.allclose(got["pfinal"].to_numpy(dtype=float), expected["pfinal"].to_numpy(dtype=float), atol=1e-12)
+
+
+def test_marginalize_batch_corrected_gene_usage_j_matches_manual_groupby() -> None:
+    ds = _build_mock_dataset(apply_shift=True, include_tra=True)
+    out_vj = compute_batch_corrected_gene_usage(
+        ds, batch_field="batch_id", scope="vj", weighted=True
+    )
+
+    got = marginalize_batch_corrected_gene_usage(out_vj, scope="j")
+
+    expected = out_vj.copy()
+    expected["gene"] = expected["gene"].map(lambda g: str(g[1]))
+    expected = (
+        expected.groupby(["sample_id", "batch_id", "locus", "gene"], as_index=False)
+        [["p", "pfinal", "pavg"]]
+        .sum()
+        .sort_values(["sample_id", "locus", "gene"])
+        .reset_index(drop=True)
+    )
+
+    got = got.sort_values(["sample_id", "locus", "gene"]).reset_index(drop=True)
+    assert list(got[["sample_id", "batch_id", "locus", "gene"]].itertuples(index=False, name=None)) == \
+        list(expected[["sample_id", "batch_id", "locus", "gene"]].itertuples(index=False, name=None))
+    assert np.allclose(got["p"].to_numpy(dtype=float), expected["p"].to_numpy(dtype=float), atol=1e-12)
+    assert np.allclose(got["pfinal"].to_numpy(dtype=float), expected["pfinal"].to_numpy(dtype=float), atol=1e-12)
 
 
 # ---------------------------------------------------------------------------
