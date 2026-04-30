@@ -443,6 +443,29 @@ class GeneUsage:
 # ------------------------------------------------------------------
 
 
+def zscore_to_sigmoid(z: "np.ndarray | float") -> "np.ndarray | float":
+    """Map a (batch-corrected) z-score to a bounded sigmoid value in ``(0, 1)``.
+
+    ``sigmoid(z) = 1 / (1 + exp(-z))``
+
+    This is the canonical transform to turn per-gene z-scores from
+    :func:`compute_batch_corrected_gene_usage` into bounded, comparable
+    corrected probabilities that can be directly used in PCA/UMAP embeddings.
+
+    Parameters
+    ----------
+    z
+        Scalar or array of z-scores.
+
+    Returns
+    -------
+    np.ndarray or float with the same shape as *z*, values in ``(0, 1)``.
+    """
+    arr = np.asarray(z, dtype=float)
+    result = 1.0 / (1.0 + np.exp(-arr))
+    return float(result) if arr.ndim == 0 else result
+
+
 def _winsorized_mean_std(values: pd.Series, *, lower_q: float = 0.025, upper_q: float = 0.975) -> tuple[float, float]:
     """Return mean and SD after clipping to the winsorized interval."""
     arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
