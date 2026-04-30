@@ -82,6 +82,30 @@ mir.common.repertoire module
    :undoc-members:
    :show-inheritance:
 
+TSV And Parquet I/O Layouts
+---------------------------
+
+The repertoire classes now provide Polars-first TSV/Parquet I/O helpers with
+roundtrip-safe schemas:
+
+- LocusRepertoire:
+
+   - to_tsv / from_tsv
+   - to_parquet / from_parquet
+
+- SampleRepertoire:
+
+   - single-file: one TSV/Parquet with a locus column
+   - split-loci: one file per locus via split_loci=True
+
+- RepertoireDataset:
+
+   - per_sample_locus layout: one file per sample and locus
+   - single_file layout: one combined file with sample_id and locus columns
+      plus separate metadata.tsv
+
+All dataset loaders operate with worker tasks on individual samples.
+
 Module contents
 ---------------
 

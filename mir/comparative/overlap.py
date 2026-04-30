@@ -198,6 +198,24 @@ def make_reference_keys(
         One key per unique (possibly expanded) clonotype entry.
     """
     keys: set[_Key] = set()
+
+    pending = getattr(repertoire, "_pending_cols", None)
+    if pending is not None:
+        junction_aas = pending.get("junction_aas", [])
+        v_genes = pending.get("v_genes", [])
+        j_genes = pending.get("j_genes", [])
+        for jaa, v_gene, j_gene in zip(junction_aas, v_genes, j_genes):
+            if not jaa:
+                continue
+            v = _gene_base(v_gene) if match_v else ""
+            j = _gene_base(j_gene) if match_j else ""
+            if allow_1mm:
+                for variant in expand_1mm(jaa):
+                    keys.add((variant, v, j))
+            else:
+                keys.add((jaa, v, j))
+        return frozenset(keys)
+
     for c in repertoire.clonotypes:
         if not c.junction_aa:
             continue
@@ -237,6 +255,24 @@ def make_query_index(
         Maps each unique clonotype key to its total ``duplicate_count``.
     """
     index: dict[_Key, int] = {}
+
+    pending = getattr(repertoire, "_pending_cols", None)
+    if pending is not None:
+        junction_aas = pending.get("junction_aas", [])
+        v_genes = pending.get("v_genes", [])
+        j_genes = pending.get("j_genes", [])
+        dups = pending.get("dup_counts", [])
+        for jaa, v_gene, j_gene, dc in zip(junction_aas, v_genes, j_genes, dups):
+            if not jaa:
+                continue
+            key = (
+                jaa,
+                _gene_base(v_gene) if match_v else "",
+                _gene_base(j_gene) if match_j else "",
+            )
+            index[key] = index.get(key, 0) + int(dc or 0)
+        return index
+
     for c in repertoire.clonotypes:
         if not c.junction_aa:
             continue

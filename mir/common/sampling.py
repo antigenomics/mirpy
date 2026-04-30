@@ -286,6 +286,7 @@ def resample_to_gene_usage(
     original_gene_usage: GeneUsageMap | None = None,
     *,
     scope: str = "v",
+    gene_type: str | None = None,
     weighted: bool = True,
     random_seed: int | None = None,
 ) -> LocusRepertoire | SampleRepertoire:
@@ -319,6 +320,15 @@ def resample_to_gene_usage(
     LocusRepertoire | SampleRepertoire
         Resampled repertoire of the same type.
     """
+    if gene_type is not None:
+        gt = str(gene_type).strip().lower()
+        if gt not in {"v", "j", "vj"}:
+            raise ValueError("gene_type must be 'v', 'j', or 'vj'")
+        scope = gt
+
+    if scope not in {"v", "j", "vj"}:
+        raise ValueError("scope must be 'v', 'j', or 'vj'")
+
     if isinstance(repertoire, LocusRepertoire):
         return _resample_to_gene_usage_locus(
             repertoire,
