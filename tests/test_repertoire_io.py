@@ -222,3 +222,122 @@ def test_dataset_tsv_single_file_roundtrip(tmp_path, dataset):
         n_workers=2,
     )
     _assert_dataset_equal(dataset, rt)
+
+
+def _write_min_vdjtools(path: Path, rows: list[dict]) -> None:
+    df = pd.DataFrame(rows)
+    df.to_csv(path, sep="\t", index=False)
+
+
+def test_from_folder_polars_merges_multi_file_sample_and_keeps_metadata(tmp_path):
+    # Same sample_id appears in two metadata rows (TRA/TRB files).
+    _write_min_vdjtools(
+        tmp_path / "s_multi_tra.tsv",
+        [
+            {
+                "count": 120,
+                "cdr3nt": "TGTGCCAGCAGC",
+                "cdr3aa": "CASS",
+                "v": "TRAV1-2*01",
+                "d": ".",
+                "j": "TRAJ33*01",
+                "locus": "TRA",
+            }
+        ],
+    )
+    _write_min_vdjtools(
+        tmp_path / "s_multi_trb.tsv",
+        [
+            {
+                "count": 180,
+                "cdr3nt": "TGTGCCAGCAGCTAG",
+                "cdr3aa": "CASSL",
+                "v": "TRBV5-1*01",
+                "d": "TRBD1*01",
+                "j": "TRBJ2-7*01",
+                "locus": "TRB",
+            }
+        ],
+    )
+    _write_min_vdjtools(
+        tmp_path / "s_single_trb.tsv",
+        [
+            {
+                "count": 200,
+                "cdr3nt": "TGTGCCAGCAGCG",
+                "cdr3aa": "CASSG",
+                "v": "TRBV6-1*01",
+                "d": "TRBD2*01",
+                "j": "TRBJ1-2*01",
+                "locus": "TRB",
+            }
+        ],
+    )
+
+    meta = pd.DataFrame(
+        [
+            {"sample_id": "s_multi", "file_name": "s_multi_tra.tsv", "batch_id": "batch_X", "locus": "TRA"},
+            {"sample_id": "s_multi", "file_name": "s_multi_trb.tsv", "batch_id": "batch_X", "locus": "TRB"},
+            {"sample_id": "s_single", "file_name": "s_single_trb.tsv", "batch_id": "batch_Y", "locus": "TRB"},
+        ]
+    )
+    meta.to_csv(tmp_path / "metadata.tsv", sep="\t", index=False)
+
+    ds = RepertoireDataset.from_folder_polars(
+        tmp_path,
+        parser=VDJtoolsParser(),
+        metadata_file="metadata.tsv",
+        file_name_column="file_name",
+        sample_id_column="sample_id",
+        metadata_sep="\t",
+        skip_missing_files=False,
+        progress=False,
+        n_workers=2,
+    )
+
+    assert set(ds.samples) == {"s_multi", "s_single"}
+    assert set(ds.samples["s_multi"].loci) == {"TRA", "TRB"}
+    assert ds.metadata["s_multi"]["batch_id"] == "batch_X"
+    assert ds.samples["s_multi"].sample_metadata["batch_id"] == "batch_X"
+    assert ds.metadata["s_single"]["batch_id"] == "batch_Y"
+
+
+def test_from_folder_polars_min_duplicate_count_uses_combined_sample_files(tmp_path):
+    # Combined duplicates across TRA+TRB should be used for sample filtering.
+    _write_min_vdjtools(
+        tmp_path / "a_tra.tsv",
+        [{"count": 60, "cdr3nt": "AAA", "cdr3aa": "CAA", "v": "TRAV1-2*01", "d": ".", "j": "TRAJ33*01", "locus": "TRA"}],
+    )
+    _write_min_vdjtools(
+        tmp_path / "a_trb.tsv",
+        [{"count": 70, "cdr3nt": "BBB", "cdr3aa": "CBB", "v": "TRBV5-1*01", "d": "TRBD1*01", "j": "TRBJ2-7*01", "locus": "TRB"}],
+    )
+    _write_min_vdjtools(
+        tmp_path / "b_trb.tsv",
+        [{"count": 100, "cdr3nt": "CCC", "cdr3aa": "CCC", "v": "TRBV6-1*01", "d": "TRBD2*01", "j": "TRBJ1-2*01", "locus": "TRB"}],
+    )
+
+    pd.DataFrame(
+        [
+            {"sample_id": "a", "file_name": "a_tra.tsv", "batch_id": "b1", "locus": "TRA"},
+            {"sample_id": "a", "file_name": "a_trb.tsv", "batch_id": "b1", "locus": "TRB"},
+            {"sample_id": "b", "file_name": "b_trb.tsv", "batch_id": "b2", "locus": "TRB"},
+        ]
+    ).to_csv(tmp_path / "metadata.tsv", sep="\t", index=False)
+
+    ds = RepertoireDataset.from_folder_polars(
+        tmp_path,
+        parser=VDJtoolsParser(),
+        metadata_file="metadata.tsv",
+        file_name_column="file_name",
+        sample_id_column="sample_id",
+        metadata_sep="\t",
+        skip_missing_files=False,
+        min_duplicate_count=120,
+        progress=False,
+        n_workers=2,
+    )
+
+    # sample 'a' must be retained because 60 + 70 >= 120.
+    assert "a" in ds.samples
+    assert "b" not in ds.samples

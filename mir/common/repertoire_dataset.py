@@ -34,21 +34,37 @@ def _parse_sample_task(
     Threads share the parser object and return objects directly (no serialization).
     Polars I/O and column extraction release the GIL, so threads parallelize well.
     """
-    sid, path_str, rec, parser, min_dup = args
+    sid, path_list, rec, parser, min_dup = args
+    paths = [str(p) for p in path_list]
     # Fast path: polars-based parser returns col_groups (no Clonotype construction).
     # Clonotype objects are materialised lazily in the main thread on first access.
     if hasattr(parser, '_polars_to_col_groups'):
-        df = parser._read_polars(path_str)
-        if min_dup > 0 and 'duplicate_count' in df.columns:
-            import polars as _pl
-            total = df['duplicate_count'].cast(_pl.Int64).fill_null(1).sum() or 0
-            if total < min_dup:
-                return None
-        col_groups = parser._polars_to_col_groups(df)
+        import polars as _pl
+        merged_groups: dict[str, dict] = {}
+        total = 0
+        for path_str in paths:
+            df = parser._read_polars(path_str)
+            if min_dup > 0 and 'duplicate_count' in df.columns:
+                total += int(df['duplicate_count'].cast(_pl.Int64, strict=False).fill_null(1).sum() or 0)
+            col_groups = parser._polars_to_col_groups(df)
+            for loc, cols in col_groups.items():
+                if loc not in merged_groups:
+                    merged_groups[loc] = cols
+                    continue
+                g = merged_groups[loc]
+                for key, values in cols.items():
+                    if key == 'locus':
+                        continue
+                    g[key].extend(values)
+        if min_dup > 0 and total < min_dup:
+            return None
+        col_groups = merged_groups
         return sid, col_groups, rec
     # Legacy path for non-polars parsers.
     from mir.common.repertoire import SampleRepertoire
-    clonotypes = parser.parse(path_str)
+    clonotypes = []
+    for path_str in paths:
+        clonotypes.extend(parser.parse(path_str))
     if min_dup > 0 and sum(c.duplicate_count for c in clonotypes) < min_dup:
         return None
     srep = SampleRepertoire.from_clonotypes(clonotypes, sample_id=sid, sample_metadata=rec)
@@ -251,8 +267,8 @@ class RepertoireDataset:
 
         _parser = parser or ClonotypeTableParser()
 
-        # Build the work list: (sample_id, file_path, metadata_dict)
-        tasks: list[tuple[str, Path, dict]] = []
+        # Build grouped work list: one task per sample_id with one or more file paths.
+        tasks_by_sample: dict[str, tuple[list[Path], dict]] = {}
         for row in metadata_df.iter_rows(named=True):
             sample_id = str(row[sample_id_column])
             rel_path = (
@@ -271,7 +287,17 @@ class RepertoireDataset:
             rec["sample_id"] = sample_id
             if not has_file_name:
                 rec[file_name_column] = rel_path
-            tasks.append((sample_id, sample_path, rec))
+            if sample_id not in tasks_by_sample:
+                tasks_by_sample[sample_id] = ([sample_path], rec)
+            else:
+                paths, existing = tasks_by_sample[sample_id]
+                paths.append(sample_path)
+                # Keep existing values, fill blanks from current row where possible.
+                for k, v in rec.items():
+                    if existing.get(k) in (None, "") and v not in (None, ""):
+                        existing[k] = v
+
+        tasks = [(sid, vals[0], vals[1]) for sid, vals in tasks_by_sample.items()]
 
         total = len(tasks)
         _t0 = time.perf_counter()
@@ -283,8 +309,8 @@ class RepertoireDataset:
         metadata: dict[str, dict] = {}
 
         # Build task args: parser is shared across threads (read-only use, thread-safe)
-        task_args = [(sid, str(path), rec, _parser, min_duplicate_count)
-                     for sid, path, rec in tasks]
+        task_args = [(sid, paths, rec, _parser, min_duplicate_count)
+                 for sid, paths, rec in tasks]
 
         # ThreadPoolExecutor: polars read/parse releases the GIL so threads
         # run truly in parallel for I/O.  Objects are returned by reference

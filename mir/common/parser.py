@@ -75,6 +75,16 @@ _AIRR_LOCUS_ALIASES: dict[str, set[str]] = {
     'lambda': {'lambda','igl'},
 }
 
+_AIRR_ALIAS_TO_IMGT: dict[str, str] = {
+    'alpha': 'TRA', 'tra': 'TRA',
+    'beta': 'TRB', 'trb': 'TRB',
+    'gamma': 'TRG', 'trg': 'TRG',
+    'delta': 'TRD', 'trd': 'TRD',
+    'heavy': 'IGH', 'igh': 'IGH',
+    'kappa': 'IGK', 'igk': 'IGK',
+    'lambda': 'IGL', 'igl': 'IGL',
+}
+
 # Backward-compat namedtuple kept as a public export.
 VdjdbPayload = namedtuple('VdjdbPayload', 'mhc_a mhc_b mhc_class epitope pathogen')
 
@@ -144,6 +154,12 @@ class ClonotypeTableParser:
             .to_list()
         )
 
+    @staticmethod
+    def _normalize_locus_col(s: pl.Series) -> list[str]:
+        """Normalize AIRR locus aliases to canonical IMGT codes."""
+        raw = s.cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase().to_list()
+        return [_AIRR_ALIAS_TO_IMGT.get(v, v.upper()[:3] if v else "") for v in raw]
+
     # ------------------------------------------------------------------
     # File reading
     # ------------------------------------------------------------------
@@ -191,10 +207,12 @@ class ClonotypeTableParser:
         # Avoid pl.from_pandas here because nullable pandas extension dtypes
         # (e.g. Int64) require pyarrow during conversion.
         data = {
-            col: df[col].where(pd.notna(df[col]), None).tolist()
+            col: [None if pd.isna(v) else v for v in df[col].tolist()]
             for col in df.columns
         }
-        return self._polars_to_clonotypes(pl.DataFrame(data))
+        # Mixed pandas dtypes (e.g. mostly-null gene columns) can otherwise be
+        # inferred as numeric by polars construction and fail on first string.
+        return self._polars_to_clonotypes(pl.DataFrame(data, strict=False))
 
     def _polars_to_clonotypes(self, df: pl.DataFrame) -> list[Clonotype]:
         """Vectorised conversion of a normalised polars DataFrame → list[Clonotype].
@@ -229,7 +247,7 @@ class ClonotypeTableParser:
             ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
         )
         if 'locus' in cols:
-            loci = df['locus'].cast(pl.Utf8).fill_null("").to_list()
+            loci = self._normalize_locus_col(df['locus'])
         else:
             _j_prefix = (
                 df['j_gene'].cast(pl.Utf8).fill_null("")
@@ -300,7 +318,7 @@ class ClonotypeTableParser:
             ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
         )
         if 'locus' in cols:
-            loci = df['locus'].cast(pl.Utf8).fill_null("").to_list()
+            loci = self._normalize_locus_col(df['locus'])
         else:
             _j_prefix = (
                 df['j_gene'].cast(pl.Utf8).fill_null("")
