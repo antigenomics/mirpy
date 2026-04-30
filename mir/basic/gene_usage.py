@@ -73,6 +73,41 @@ def _laplace_fraction(usage: dict, total: int, pseudocount: float) -> dict:
     return {k: (n + pseudocount) / denom for k, n in usage.items()}
 
 
+def _safe_group_renormalize(
+    df: pd.DataFrame,
+    *,
+    value_col: str,
+    fallback_col: str,
+    group_cols: list[str],
+) -> pd.Series:
+    """Renormalize ``value_col`` to sum to 1 within each group.
+
+    For groups where the value mass is non-positive or not finite, falls back
+    to normalized ``fallback_col``.
+    """
+    out = df[value_col].to_numpy(dtype=float, copy=True)
+    fallback = df[fallback_col].to_numpy(dtype=float, copy=False)
+    groups = df.groupby(group_cols, dropna=False, sort=False).indices
+    for idx in groups.values():
+        idx_arr = np.asarray(list(idx), dtype=int)
+        vals = out[idx_arr]
+        vals = np.where(np.isfinite(vals), vals, 0.0)
+        vals = np.clip(vals, 0.0, None)
+        s = float(vals.sum())
+        if s > 0.0:
+            out[idx_arr] = vals / s
+            continue
+
+        fb = np.where(np.isfinite(fallback[idx_arr]), fallback[idx_arr], 0.0)
+        fb = np.clip(fb, 0.0, None)
+        fb_sum = float(fb.sum())
+        if fb_sum > 0.0:
+            out[idx_arr] = fb / fb_sum
+        else:
+            out[idx_arr] = 1.0 / len(idx_arr)
+    return pd.Series(out, index=df.index)
+
+
 def _strip_allele(gene: str) -> str:
     """Strip allele suffix: ``"TRBV1*01"`` → ``"TRBV1"``."""
     return gene.split("*")[0] if gene else ""
@@ -444,15 +479,14 @@ class GeneUsage:
         self_usage = self._usage_by_scope(locus, scope=scope, count=count)
         ref_usage = reference._usage_by_scope(locus, scope=scope, count=count)
 
+        all_keys = sorted(set(self_usage) | set(ref_usage))
         self_total = self.total(locus, count=count)
         ref_total = reference.total(locus, count=count)
-        n_self = len(self_usage)
-        n_ref = len(ref_usage)
+        n_all = len(all_keys)
 
-        self_denom = self_total + n_self * pseudocount
-        ref_denom = ref_total + n_ref * pseudocount
+        self_denom = self_total + n_all * pseudocount
+        ref_denom = ref_total + n_all * pseudocount
 
-        all_keys = sorted(set(self_usage) | set(ref_usage))
         result: dict[object, dict[str, float]] = {}
         for key in all_keys:
             p_self = (
@@ -556,7 +590,12 @@ def compute_batch_corrected_gene_usage(
     over ``(locus, gene, batch_id)``, capped z-scores, and final corrected
     probabilities:
 
-    ``pfinal = 2 * pavg / (1 - exp(-z))``
+    ``correction_factor = exp(z)``
+    ``pfinal_raw = p * correction_factor``
+
+    Finally, for each ``(sample_id, locus)`` group we renormalize ``pfinal``
+    so probabilities sum to 1. If a group's raw corrected mass is invalid or
+    non-positive, we fall back to normalized raw ``p`` for that group.
 
     Empty sample loci and loci absent in a sample are skipped without error.
     """
@@ -666,9 +705,13 @@ def compute_batch_corrected_gene_usage(
 
     df["pavg"] = df.apply(lambda r: pavg[(r["locus"], r["gene"])], axis=1)
 
-    denom = 1.0 - np.exp(-df["z"].to_numpy(dtype=float))
-    tiny = np.abs(denom) < 1e-12
-    denom[tiny] = np.where(denom[tiny] < 0, -1e-12, 1e-12)
-    df["pfinal"] = 2.0 * df["pavg"].to_numpy(dtype=float) / denom
+    correction_factor = np.exp(df["z"].to_numpy(dtype=float))
+    df["pfinal"] = df["p"].to_numpy(dtype=float) * correction_factor
+    df["pfinal"] = _safe_group_renormalize(
+        df,
+        value_col="pfinal",
+        fallback_col="p",
+        group_cols=["sample_id", "locus"],
+    )
 
     return df[columns].sort_values(["sample_id", "locus", "gene"]).reset_index(drop=True)

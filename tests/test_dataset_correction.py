@@ -254,11 +254,10 @@ def _assert_correction_reduces_batch_effect(
     corrected = compute_batch_corrected_gene_usage(
         ds, batch_field="batch_id", scope=scope, weighted=weighted
     )
-    corrected["zsig"] = 1.0 / (1.0 + np.exp(-corrected["z"]))
     raw_b1  = _distribution_by_batch(corrected, locus=locus, batch_id="batch_1", value_col="p")
     raw_b2  = _distribution_by_batch(corrected, locus=locus, batch_id="batch_2", value_col="p")
-    corr_b1 = _distribution_by_batch(corrected, locus=locus, batch_id="batch_1", value_col="zsig")
-    corr_b2 = _distribution_by_batch(corrected, locus=locus, batch_id="batch_2", value_col="zsig")
+    corr_b1 = _distribution_by_batch(corrected, locus=locus, batch_id="batch_1", value_col="pfinal")
+    corr_b2 = _distribution_by_batch(corrected, locus=locus, batch_id="batch_2", value_col="pfinal")
     raw_jsd,  _, raw_chi2_p  = _jsd_and_chi2(raw_b1,  raw_b2)
     corr_jsd, _, corr_chi2_p = _jsd_and_chi2(corr_b1, corr_b2)
     assert corr_jsd < raw_jsd, (
@@ -413,32 +412,24 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
 
     ds = RepertoireDataset(samples=samples)
     corrected = compute_batch_corrected_gene_usage(ds, batch_field="batch_id", scope="vj", weighted=True)
-    corrected["zsig"] = 1.0 / (1.0 + np.exp(-corrected["z"]))
 
     raw_b1 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_1", value_col="p")
     raw_b2 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_2", value_col="p")
     pfinal_b1 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_1", value_col="pfinal")
     pfinal_b2 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_2", value_col="pfinal")
-    zsig_b1 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_1", value_col="zsig")
-    zsig_b2 = _distribution_by_batch(corrected, locus="TRB", batch_id="batch_2", value_col="zsig")
 
     raw_jsd, _, _ = _jsd_and_chi2(raw_b1, raw_b2)
     pfinal_jsd, _, _ = _jsd_and_chi2(pfinal_b1, pfinal_b2)
-    zsig_jsd, _, _ = _jsd_and_chi2(zsig_b1, zsig_b2)
 
     # Non-overlapping support should remain strongly separated in the final
-    # corrected probabilities. zsig may collapse across batches here because
-    # it only reflects standardized score shape, not absolute support overlap.
+    # corrected probabilities.
     assert raw_jsd > 0.20, f"Expected strong raw batch separation, got JSD={raw_jsd:.6f}"
     assert pfinal_jsd > 0.40, (
         f"Expected large residual separation in pfinal for disjoint supports, got JSD={pfinal_jsd:.6f}"
     )
-    assert zsig_jsd < 0.05, (
-        f"Expected zsig collapse artifact for disjoint supports, got JSD={zsig_jsd:.6f}"
-    )
 
-    # Even if zsig collapses, actual resampling to the pooled target cannot
-    # remove the separation because batches have disjoint VJ supports.
+    # Even with correction, resampling to the pooled target cannot fully
+    # remove separation when batches have disjoint VJ supports.
     scale = 10_000
     target_gene_usage = {
         row["gene"]: max(1, int(round(row["pavg"] * scale)))
@@ -455,6 +446,16 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
     assert resampled_jsd > 0.50, (
         f"Expected high residual divergence after resampling disjoint supports, got JSD={resampled_jsd:.6f}"
     )
+
+
+@pytest.mark.integration
+def test_pfinal_is_normalized_per_sample_locus() -> None:
+    ds = _build_mock_dataset(apply_shift=True, include_tra=True)
+    out = compute_batch_corrected_gene_usage(
+        ds, batch_field="batch_id", scope="vj", weighted=True
+    )
+    grouped = out.groupby(["sample_id", "locus"], dropna=False)["pfinal"].sum()
+    assert np.allclose(grouped.values, 1.0, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------

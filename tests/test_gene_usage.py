@@ -243,6 +243,26 @@ class TestGeneUsage:
         assert abs(cmp_vj[("TRBV1", "TRBJ1-1")]["p_self"] - (11.0 / 14.0)) < 1e-12
         assert abs(cmp_vj[("TRBV1", "TRBJ1-1")]["p_reference"] - (4.0 / 14.0)) < 1e-12
 
+    def test_usage_comparison_uses_union_keyspace_for_smoothing(self) -> None:
+        target = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(("TRBV1", "TRBJ1-1", 4, 1)),
+            locus="TRB",
+        )
+        ref = LocusRepertoire(
+            clonotypes=_make_trb_clonotypes(("TRBV2", "TRBJ1-2", 4, 1)),
+            locus="TRB",
+        )
+
+        tgt_gu = GeneUsage.from_repertoire(target)
+        ref_gu = GeneUsage.from_repertoire(ref)
+        cmp_v = tgt_gu.usage_comparison(ref_gu, "TRB", scope="v", count="count_rearrangement", pseudocount=1.0)
+
+        # Union key space has two V genes, so each denominator is (4 + 2*1) = 6.
+        assert abs(cmp_v["TRBV1"]["p_self"] - (5.0 / 6.0)) < 1e-12
+        assert abs(cmp_v["TRBV1"]["p_reference"] - (1.0 / 6.0)) < 1e-12
+        assert abs(cmp_v["TRBV2"]["p_self"] - (1.0 / 6.0)) < 1e-12
+        assert abs(cmp_v["TRBV2"]["p_reference"] - (5.0 / 6.0)) < 1e-12
+
     def test_correction_factors_strip_alleles(self) -> None:
         target = LocusRepertoire(
             clonotypes=_make_trb_clonotypes(("TRBV1*01", "TRBJ1-1*01", 2, 1)),

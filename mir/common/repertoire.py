@@ -150,6 +150,10 @@ class LocusRepertoire:
         self._clonotype_count_cache = len(self._clonotypes_cache)
         self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
 
+    def _invalidate_polars_cache(self) -> None:
+        """Drop cached tabular representation after clonotype-level mutations."""
+        self._polars_table = None
+
     def _materialise(self) -> None:
         """Construct Clonotype objects from stored column lists."""
         if self._polars_table is not None:
@@ -231,6 +235,7 @@ class LocusRepertoire:
     def sort(self) -> None:
         """Sort clonotypes by ``duplicate_count`` descending, in-place."""
         self.clonotypes.sort(key=lambda c: c.duplicate_count, reverse=True)
+        self._invalidate_polars_cache()
 
     def top(self, n: int = 100) -> list[Clonotype]:
         """Return the *n* most abundant clonotypes, sorting first if needed."""
@@ -246,7 +251,8 @@ class LocusRepertoire:
         """Serialise clonotypes to a Polars DataFrame using the AIRR schema."""
         if self._polars_table is not None:
             return self._polars_table
-        return Clonotype.to_polars(self.clonotypes)
+        self._polars_table = Clonotype.to_polars(self.clonotypes)
+        return self._polars_table
 
     def to_tsv(
         self,
