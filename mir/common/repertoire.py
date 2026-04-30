@@ -200,6 +200,74 @@ class LocusRepertoire:
         """Serialise clonotypes to a Polars DataFrame using the AIRR schema."""
         return Clonotype.to_polars(self.clonotypes)
 
+    def to_tsv(
+        self,
+        path: str | Path,
+        *,
+        sep: str = "\t",
+        gzip_output: bool = False,
+    ) -> Path:
+        """Write repertoire to TSV (optionally gzipped)."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        use_gzip = gzip_output or out.suffix == ".gz"
+        if use_gzip:
+            with gzip.open(out, "wt", encoding="utf-8") as fh:
+                fh.write(self.to_polars().write_csv(separator=sep))
+        else:
+            self.to_polars().write_csv(out, separator=sep)
+        return out
+
+    @classmethod
+    def from_tsv(
+        cls,
+        path: str | Path,
+        *,
+        sep: str = "\t",
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> "LocusRepertoire":
+        """Load repertoire from TSV/TSV.GZ with Polars."""
+        df = pl.read_csv(
+            Path(path),
+            separator=sep,
+            infer_schema_length=0,
+            null_values=["", "NA"],
+            truncate_ragged_lines=True,
+        )
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
+
+    def to_parquet(self, path: str | Path) -> Path:
+        """Write repertoire to Parquet."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.to_polars().write_parquet(out)
+        return out
+
+    @classmethod
+    def from_parquet(
+        cls,
+        path: str | Path,
+        *,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> "LocusRepertoire":
+        """Load repertoire from Parquet with Polars."""
+        df = pl.read_parquet(Path(path))
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
+
     def write_polars(
         self,
         path: str | Path,
@@ -682,6 +750,134 @@ class SampleRepertoire:
             raise ValueError(f"Unsupported format: {fmt!r}")
         return out
 
+    def to_tsv(
+        self,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sep: str = "\t",
+        gzip_output: bool = False,
+    ) -> Path | list[Path]:
+        """Write sample repertoire to TSV.
+
+        When ``split_loci=True``, *path* is treated as an output folder and one
+        TSV file per locus is written.
+        """
+        if split_loci:
+            return self.write_folder(path, format="tsv", gzip_output=gzip_output)
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        use_gzip = gzip_output or out.suffix == ".gz"
+        if use_gzip:
+            with gzip.open(out, "wt", encoding="utf-8") as fh:
+                fh.write(self.to_polars().write_csv(separator=sep))
+        else:
+            self.to_polars().write_csv(out, separator=sep)
+        return out
+
+    @classmethod
+    def from_tsv(
+        cls,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sep: str = "\t",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> "SampleRepertoire":
+        """Load sample repertoire from TSV.
+
+        If ``split_loci=True``, *path* is a folder with per-locus TSV files.
+        """
+        if not split_loci:
+            df = pl.read_csv(
+                Path(path),
+                separator=sep,
+                infer_schema_length=0,
+                null_values=["", "NA"],
+                truncate_ragged_lines=True,
+            )
+            return cls.from_polars(
+                df,
+                sample_id=sample_id,
+                sample_metadata=sample_metadata,
+            )
+
+        folder = Path(path)
+        if not folder.exists() or not folder.is_dir():
+            raise FileNotFoundError(f"folder not found: {folder}")
+        loci: dict[str, LocusRepertoire] = {}
+        for f in sorted(folder.glob("*.tsv*")):
+            df = pl.read_csv(
+                f,
+                separator=sep,
+                infer_schema_length=0,
+                null_values=["", "NA"],
+                truncate_ragged_lines=True,
+            )
+            if "locus" in df.columns and len(df) > 0:
+                loc = str(df["locus"][0] or "")
+            else:
+                stem = f.name
+                if stem.endswith(".gz"):
+                    stem = stem[:-3]
+                if stem.endswith(".tsv"):
+                    stem = stem[:-4]
+                loc = stem.rsplit("_", 1)[-1] if "_" in stem else ""
+            loci[loc] = LocusRepertoire.from_polars(df, locus=loc)
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    def to_parquet(
+        self,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+    ) -> Path | list[Path]:
+        """Write sample repertoire to Parquet.
+
+        When ``split_loci=True``, *path* is treated as an output folder and one
+        Parquet file per locus is written.
+        """
+        if split_loci:
+            return self.write_folder(path, format="parquet", gzip_output=False)
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.to_polars().write_parquet(out)
+        return out
+
+    @classmethod
+    def from_parquet(
+        cls,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> "SampleRepertoire":
+        """Load sample repertoire from Parquet.
+
+        If ``split_loci=True``, *path* is a folder with per-locus parquet files.
+        """
+        if not split_loci:
+            return cls.from_polars(
+                pl.read_parquet(Path(path)),
+                sample_id=sample_id,
+                sample_metadata=sample_metadata,
+            )
+        folder = Path(path)
+        if not folder.exists() or not folder.is_dir():
+            raise FileNotFoundError(f"folder not found: {folder}")
+        loci: dict[str, LocusRepertoire] = {}
+        for f in sorted(folder.glob("*.parquet")):
+            df = pl.read_parquet(f)
+            if "locus" in df.columns and len(df) > 0:
+                loc = str(df["locus"][0] or "")
+            else:
+                stem = f.stem
+                loc = stem.rsplit("_", 1)[-1] if "_" in stem else ""
+            loci[loc] = LocusRepertoire.from_polars(df, locus=loc)
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
     @classmethod
     def read_polars(
         cls,
@@ -729,13 +925,12 @@ class SampleRepertoire:
             elif format in {"ipc", "feather"}:
                 lr.write_polars(out, format="ipc")
             elif format in {"tsv", "csv"}:
-                df = lr.to_polars().to_pandas()
                 sep = "\t" if format == "tsv" else ","
                 if gzip_output:
                     with gzip.open(out, "wt", encoding="utf-8") as fh:
-                        df.to_csv(fh, sep=sep, index=False)
+                        fh.write(lr.to_polars().write_csv(separator=sep))
                 else:
-                    df.to_csv(out, sep=sep, index=False)
+                    lr.to_polars().write_csv(out, separator=sep)
             else:
                 raise ValueError(f"Unsupported format: {format!r}")
             files.append(out)

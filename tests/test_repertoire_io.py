@@ -96,3 +96,129 @@ def test_dataset_write_folder_parquet(tmp_path, dataset):
     df = pd.read_csv(meta_path, sep="\t")
     for _, row in df.iterrows():
         assert (out / row["file_name"]).exists()
+
+
+def _clone_key(c):
+    return (
+        c.sequence_id,
+        c.locus,
+        c.duplicate_count,
+        c.junction,
+        c.junction_aa,
+        c.v_gene,
+        c.d_gene,
+        c.j_gene,
+        c.c_gene,
+        c.v_sequence_end,
+        c.d_sequence_start,
+        c.d_sequence_end,
+        c.j_sequence_start,
+    )
+
+
+def _assert_locus_equal(a: LocusRepertoire, b: LocusRepertoire):
+    assert a.locus == b.locus
+    assert sorted(_clone_key(c) for c in a.clonotypes) == sorted(_clone_key(c) for c in b.clonotypes)
+
+
+def _assert_sample_equal(a: SampleRepertoire, b: SampleRepertoire):
+    assert set(a.loci) == set(b.loci)
+    for locus in a.loci:
+        _assert_locus_equal(a.loci[locus], b.loci[locus])
+
+
+def _assert_dataset_equal(a: RepertoireDataset, b: RepertoireDataset):
+    assert set(a.samples) == set(b.samples)
+    for sid in a.samples:
+        _assert_sample_equal(a.samples[sid], b.samples[sid])
+
+
+def test_locus_tsv_roundtrip(tmp_path, locus_rep):
+    p = tmp_path / "lr.tsv"
+    locus_rep.to_tsv(p)
+    rt = LocusRepertoire.from_tsv(p, locus=locus_rep.locus)
+    _assert_locus_equal(locus_rep, rt)
+
+
+def test_locus_tsvgz_roundtrip(tmp_path, locus_rep):
+    p = tmp_path / "lr.tsv.gz"
+    locus_rep.to_tsv(p, gzip_output=True)
+    rt = LocusRepertoire.from_tsv(p, locus=locus_rep.locus)
+    _assert_locus_equal(locus_rep, rt)
+
+
+def test_locus_parquet_helper_roundtrip(tmp_path, locus_rep):
+    p = tmp_path / "lr_helper.parquet"
+    locus_rep.to_parquet(p)
+    rt = LocusRepertoire.from_parquet(p, locus=locus_rep.locus)
+    _assert_locus_equal(locus_rep, rt)
+
+
+def test_sample_tsv_single_roundtrip(tmp_path, dataset):
+    srep = dataset.samples["s1"]
+    p = tmp_path / "s1.tsv"
+    srep.to_tsv(p)
+    rt = SampleRepertoire.from_tsv(p, sample_id="s1")
+    _assert_sample_equal(srep, rt)
+
+
+def test_sample_tsv_split_roundtrip(tmp_path, dataset):
+    srep = dataset.samples["s1"]
+    out = tmp_path / "s1_split_tsv"
+    srep.to_tsv(out, split_loci=True)
+    rt = SampleRepertoire.from_tsv(out, split_loci=True, sample_id="s1")
+    _assert_sample_equal(srep, rt)
+
+
+def test_sample_parquet_single_roundtrip(tmp_path, dataset):
+    srep = dataset.samples["s1"]
+    p = tmp_path / "s1.parquet"
+    srep.to_parquet(p)
+    rt = SampleRepertoire.from_parquet(p, sample_id="s1")
+    _assert_sample_equal(srep, rt)
+
+
+def test_sample_parquet_split_roundtrip(tmp_path, dataset):
+    srep = dataset.samples["s1"]
+    out = tmp_path / "s1_split_parquet"
+    srep.to_parquet(out, split_loci=True)
+    rt = SampleRepertoire.from_parquet(out, split_loci=True, sample_id="s1")
+    _assert_sample_equal(srep, rt)
+
+
+def test_dataset_tsv_per_sample_locus_roundtrip(tmp_path, dataset):
+    out = tmp_path / "dataset_tsv_split"
+    dataset.to_tsv(out, layout="per_sample_locus")
+    rt = RepertoireDataset.from_tsv(out, layout="per_sample_locus", n_workers=2)
+    _assert_dataset_equal(dataset, rt)
+
+
+def test_dataset_parquet_per_sample_locus_roundtrip(tmp_path, dataset):
+    out = tmp_path / "dataset_pq_split"
+    dataset.to_parquet(out, layout="per_sample_locus")
+    rt = RepertoireDataset.from_parquet(out, layout="per_sample_locus", n_workers=2)
+    _assert_dataset_equal(dataset, rt)
+
+
+def test_dataset_parquet_single_file_roundtrip(tmp_path, dataset):
+    out = tmp_path / "dataset_pq_single"
+    dataset.to_parquet(out, layout="single_file", data_file="all.parquet")
+    rt = RepertoireDataset.from_parquet(
+        out,
+        layout="single_file",
+        data_file="all.parquet",
+        n_workers=2,
+    )
+    _assert_dataset_equal(dataset, rt)
+
+
+def test_dataset_tsv_single_file_roundtrip(tmp_path, dataset):
+    out = tmp_path / "dataset_tsv_single"
+    dataset.to_tsv(out, layout="single_file", data_file="all.tsv")
+    rt = RepertoireDataset.from_tsv(
+        out,
+        layout="single_file",
+        data_file="all.tsv",
+        n_workers=2,
+    )
+    _assert_dataset_equal(dataset, rt)

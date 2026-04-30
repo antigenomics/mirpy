@@ -202,6 +202,25 @@ class GeneUsage:
         loc = locus or repertoire.locus or ""
         locus_data = self._data.setdefault(loc, {})
         locus_totals = self._totals.setdefault(loc, [0, 0])
+
+        # Fast path for lazily loaded repertoires: consume raw columns directly
+        # and avoid constructing per-clonotype Python objects.
+        pending = getattr(repertoire, "_pending_cols", None)
+        if pending is not None:
+            v_genes = pending.get("v_genes", [])
+            j_genes = pending.get("j_genes", [])
+            dups = pending.get("dup_counts", [])
+            for v_gene, j_gene, dc in zip(v_genes, j_genes, dups):
+                v = self._normalize_gene(v_gene or "")
+                j = self._normalize_gene(j_gene or "")
+                dc_i = int(dc or 0)
+                entry = locus_data.setdefault((v, j), [0, 0])
+                entry[0] += 1
+                entry[1] += dc_i
+                locus_totals[0] += 1
+                locus_totals[1] += dc_i
+            return
+
         for clone in repertoire.clonotypes:
             v = self._normalize_gene(clone.v_gene or "")
             j = self._normalize_gene(clone.j_gene or "")
