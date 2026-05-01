@@ -75,8 +75,10 @@ def _load_library(path: Path) -> list[Row]:
         next(fh)  # skip header
         for line in fh:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) == 5:
+            if len(parts) == 6:
                 rows.append(tuple(parts))  # type: ignore[arg-type]
+            elif len(parts) == 5:
+                rows.append((parts[0], parts[1], parts[2], parts[3], parts[4], "F"))
     return rows
 
 
@@ -109,8 +111,8 @@ class TestParseOlgaModelParams(unittest.TestCase):
         )
         records = _parse_olga_model_params(p)
         self.assertEqual(len(records), 2)
-        self.assertEqual(records[0], ("V", "TRBV1*01", "ATGCATGC"))
-        self.assertEqual(records[1], ("V", "TRBV2*01", "GCTAGCTA"))
+        self.assertEqual(records[0], ("V", "TRBV1*01", "ATGCATGC", "F"))
+        self.assertEqual(records[1], ("V", "TRBV2*01", "GCTAGCTA", "F"))
 
     def test_parses_d_gene_with_leading_space(self):
         """D-gene lines use '% ' (percent then space)."""
@@ -121,7 +123,7 @@ class TestParseOlgaModelParams(unittest.TestCase):
         )
         records = _parse_olga_model_params(p)
         self.assertEqual(len(records), 1)
-        self.assertEqual(records[0], ("D", "TRBD1*01", "GGGACAGGGGGC"))
+        self.assertEqual(records[0], ("D", "TRBD1*01", "GGGACAGGGGGC", "F"))
 
     def test_parses_j_gene_section(self):
         p = self._write(
@@ -181,7 +183,28 @@ class TestParseImgtFasta(unittest.TestCase):
         fasta = _imgt_fasta_entry("TRBV1*01", "ATGCATGC")
         rows = _parse_imgt_fasta(fasta, "human", "TRB", "V")
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0], ("human", "TRB", "V", "TRBV1*01", "ATGCATGC"))
+        self.assertEqual(rows[0], ("human", "TRB", "V", "TRBV1*01", "ATGCATGC", "P"))
+
+    def test_parses_functionality_f(self):
+        fields = [""] * 16
+        fields[1], fields[3], fields[15] = "TRBV1*01", "F", "ATGC"
+        fasta = ">" + "|".join(fields) + "\n"
+        rows = _parse_imgt_fasta(fasta, "human", "TRB", "V")
+        self.assertEqual(rows[0][5], "F")
+
+    def test_parses_functionality_wrapped(self):
+        fields = [""] * 16
+        fields[1], fields[3], fields[15] = "TRBV1*01", "[ORF]", "ATGC"
+        fasta = ">" + "|".join(fields) + "\n"
+        rows = _parse_imgt_fasta(fasta, "human", "TRB", "V")
+        self.assertEqual(rows[0][5], "ORF")
+
+    def test_parses_functionality_parenthesized(self):
+        fields = [""] * 16
+        fields[1], fields[3], fields[15] = "TRBV1*01", "(P)", "ATGC"
+        fasta = ">" + "|".join(fields) + "\n"
+        rows = _parse_imgt_fasta(fasta, "human", "TRB", "V")
+        self.assertEqual(rows[0][5], "P")
 
     def test_appends_star_01_when_allele_has_no_asterisk(self):
         fields = [""] * 16
@@ -248,7 +271,7 @@ class TestBuildOlgaLibrary(unittest.TestCase):
             )
             rows = build_olga_library(models_dirs=[d])
 
-        locus_rows = [(s, l, g, a) for s, l, g, a, _ in rows if l == "TRB"]
+        locus_rows = [(s, l, g, a) for s, l, g, a, _, _ in rows if l == "TRB"]
         self.assertIn(("human", "TRB", "V", "TRBV1*01"), locus_rows)
         self.assertIn(("human", "TRB", "J", "TRBJ1*01"), locus_rows)
 
@@ -272,7 +295,7 @@ class TestBuildOlgaLibrary(unittest.TestCase):
             )
             rows = build_olga_library(models_dirs=[d1, d2])
 
-        alleles = [a for _, _, _, a, _ in rows]
+        alleles = [a for _, _, _, a, _, _ in rows]
         self.assertIn("TRBV_D1*01", alleles)
         self.assertNotIn("TRBV_D2*01", alleles)
 
@@ -317,7 +340,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
                 species_list=["human"],
                 loci_map={"human": ["TRA"]},
             )
-        genes = {g for _, _, g, _, _ in rows}
+        genes = {g for _, _, g, _, _, _ in rows}
         self.assertEqual(genes, {"V", "J"})
 
     def test_fetches_v_d_j_for_locus_with_d(self):
@@ -332,7 +355,7 @@ class TestBuildImgtLibrary(unittest.TestCase):
                 species_list=["human"],
                 loci_map={"human": ["TRB"]},
             )
-        genes = {g for _, _, g, _, _ in rows}
+        genes = {g for _, _, g, _, _, _ in rows}
         self.assertEqual(genes, {"V", "D", "J"})
 
     def test_uses_correct_imgt_species_in_url(self):
@@ -398,9 +421,9 @@ class TestComputeStats(unittest.TestCase):
 
     def test_counts_total_alleles_per_key(self):
         rows: list[Row] = [
-            ("human", "TRB", "V", "TRBV1*01", "ATGC"),
-            ("human", "TRB", "V", "TRBV1*02", "ATGC"),
-            ("human", "TRB", "J", "TRBJ1*01", "TTTT"),
+            ("human", "TRB", "V", "TRBV1*01", "ATGC", "F"),
+            ("human", "TRB", "V", "TRBV1*02", "ATGC", "F"),
+            ("human", "TRB", "J", "TRBJ1*01", "TTTT", "F"),
         ]
         total, _ = compute_stats(rows)
         self.assertEqual(total[("human", "TRB", "V")], 2)
@@ -408,9 +431,9 @@ class TestComputeStats(unittest.TestCase):
 
     def test_counts_only_star01_as_major(self):
         rows: list[Row] = [
-            ("human", "TRB", "V", "TRBV1*01", "ATGC"),
-            ("human", "TRB", "V", "TRBV1*02", "ATGC"),
-            ("human", "TRB", "V", "TRBV1*11", "ATGC"),
+            ("human", "TRB", "V", "TRBV1*01", "ATGC", "F"),
+            ("human", "TRB", "V", "TRBV1*02", "ATGC", "F"),
+            ("human", "TRB", "V", "TRBV1*11", "ATGC", "F"),
         ]
         _, major = compute_stats(rows)
         self.assertEqual(major[("human", "TRB", "V")], 1)
@@ -422,8 +445,8 @@ class TestComputeStats(unittest.TestCase):
 
     def test_multiple_species_tracked_separately(self):
         rows: list[Row] = [
-            ("human", "TRB", "V", "TRBV1*01", "ATGC"),
-            ("mouse", "TRB", "V", "TRBV1*01", "ATGC"),
+            ("human", "TRB", "V", "TRBV1*01", "ATGC", "F"),
+            ("mouse", "TRB", "V", "TRBV1*01", "ATGC", "F"),
         ]
         total, _ = compute_stats(rows)
         self.assertEqual(total[("human", "TRB", "V")], 1)
@@ -489,6 +512,13 @@ def test_olga_sequences_are_uppercase_dna():
     assert not bad, f"Non-uppercase DNA sequences for: {bad[:5]}"
 
 
+@_OLGA_PRESENT
+def test_olga_entries_marked_functional():
+    rows = _load_library(OLGA_LIB)
+    bad = [r[3] for r in rows if r[5] != "F"]
+    assert not bad, f"OLGA rows with non-F functionality: {bad[:5]}"
+
+
 # ---------------------------------------------------------------------------
 # Integration: IMGT library file (optional, network-dependent)
 # ---------------------------------------------------------------------------
@@ -538,7 +568,7 @@ class TestCheckLibraryConsistency(unittest.TestCase):
 
     def _rows(self, entries: list[tuple[str, str, str, str]]) -> list[Row]:
         """Build Row list from (species, locus, gene, allele) tuples."""
-        return [(s, l, g, a, "ATGC") for s, l, g, a in entries]
+        return [(s, l, g, a, "ATGC", "F") for s, l, g, a in entries]
 
     def test_returns_string(self):
         result = check_library_consistency([], [])

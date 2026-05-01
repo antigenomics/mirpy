@@ -56,6 +56,7 @@ from mir.biomarkers.vdjbet import (
     compute_pgen_histogram,
 )
 from mir.common.clonotype import Clonotype
+from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_benchmarks
@@ -98,7 +99,9 @@ def _make_olga_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
 def _load_llw_reference() -> LocusRepertoire:
     df = pd.read_csv(_LLW_FILE, sep="\t", compression="infer")
     clones = ClonotypeTableParser().parse_inner(df)
-    return LocusRepertoire(clonotypes=clones, locus="TRB")
+    rep = LocusRepertoire(clonotypes=clones, locus="TRB")
+    # Filter to functional clonotypes only
+    return filter_functional(rep)
 
 
 def _load_yfv_sample(path: Path) -> LocusRepertoire:
@@ -108,7 +111,9 @@ def _load_yfv_sample(path: Path) -> LocusRepertoire:
     df = df.dropna(subset=["junction_aa"])
     df = df[df["junction_aa"].str.strip().str.len() > 0]
     clones = ClonotypeTableParser().parse_inner(df)
-    return LocusRepertoire(clonotypes=clones, locus="TRB")
+    rep = LocusRepertoire(clonotypes=clones, locus="TRB")
+    # Filter to functional clonotypes only
+    return filter_functional(rep)
 
 
 # ---------------------------------------------------------------------------
