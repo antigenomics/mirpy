@@ -52,11 +52,12 @@ pip install -e .
 ### Load a segment library
 
 ```python
-from mir.common.segments import SegmentLibrary
+from mir.common.gene_library import GeneLibrary
 
-lib = SegmentLibrary.load_default(
-    genes={"TRA", "TRB"},
-    organisms={"HomoSapiens"},
+lib = GeneLibrary.load_default(
+    loci={"TRA", "TRB"},
+    species={"human"},
+    source="imgt",
 )
 ```
 
@@ -79,8 +80,16 @@ clonotypes = parser.parse("example.tsv")
 from mir.common.repertoire import Repertoire
 
 repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
-print(repertoire.total)
-print(repertoire.number_of_clones)
+print(repertoire.duplicate_count)
+print(repertoire.clonotype_count)
+
+# Functional/canonical filtering using IMGT functionality annotations.
+from mir.common.filter import filter_functional, filter_canonical
+from mir.common.gene_library import GeneLibrary
+
+imgt_lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"}, source="imgt")
+functional_rep = filter_functional(repertoire, gene_library=imgt_lib)
+canonical_rep = filter_canonical(repertoire, gene_library=imgt_lib)
 ```
 
 You can also load a repertoire directly from a file:
@@ -95,6 +104,20 @@ repertoire = Repertoire.load(
     gene="TRB",
 )
 ```
+
+### Repertoire internals and lazy tabular backend
+
+`LocusRepertoire` supports three internal representations:
+
+- eager clonotype list (`clonotypes`),
+- lazy column bundles (`_pending_cols`) for fast parser paths,
+- Polars table (`_polars_table`) for tabular I/O and grouped operations.
+
+When a repertoire is built from a Python clonotype list, no Polars table is
+created up front. The table is generated lazily on first `to_polars()` call and
+cached for reuse. Count properties (`clonotype_count`, `duplicate_count`) stay
+fast and avoid full materialization when lazy columns or Polars data are
+available.
 
 ### Mask and match sequences
 

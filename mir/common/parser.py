@@ -44,8 +44,10 @@ import polars as pl
 
 from mir.basic.alphabets import back_translate
 from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMarkup
-from mir.common.gene_library import GeneLibrary, GeneEntry
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
+
+# GeneLibrary is only imported lazily when needed (functional checks, germline sequences).
+# Do NOT instantiate it inside parsers — load it explicitly via GeneLibrary.load_default().
 
 # Mapping from VDJtools / legacy column names to AIRR column names.
 # Kept public because downstream test code imports it.
@@ -73,6 +75,16 @@ _AIRR_LOCUS_ALIASES: dict[str, set[str]] = {
     'lambda': {'lambda','igl'},
 }
 
+_AIRR_ALIAS_TO_IMGT: dict[str, str] = {
+    'alpha': 'TRA', 'tra': 'TRA',
+    'beta': 'TRB', 'trb': 'TRB',
+    'gamma': 'TRG', 'trg': 'TRG',
+    'delta': 'TRD', 'trd': 'TRD',
+    'heavy': 'IGH', 'igh': 'IGH',
+    'kappa': 'IGK', 'igk': 'IGK',
+    'lambda': 'IGL', 'igl': 'IGL',
+}
+
 # Backward-compat namedtuple kept as a public export.
 VdjdbPayload = namedtuple('VdjdbPayload', 'mhc_a mhc_b mhc_class epitope pathogen')
 
@@ -86,65 +98,87 @@ def _gene_str(val) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SegmentParser (resolves raw gene strings into GeneEntry objects)
-# ---------------------------------------------------------------------------
-
-class SegmentParser:
-    """Resolve raw V/J gene strings from a parser row into :class:`GeneEntry` objects."""
-
-    def __init__(
-        self,
-        lib: GeneLibrary,
-        select_most_probable: bool = True,
-        mock_allele: bool = True,
-        remove_allele: bool = False,
-    ) -> None:
-        self.lib = lib
-        self.mock_allele = mock_allele
-        self.remove_allele = remove_allele
-        self.select_most_probable = select_most_probable
-
-    def parse(self, id: str) -> GeneEntry | None:
-        """Resolve *id* to a :class:`GeneEntry`, or ``None`` if unparseable."""
-        id = id.strip()
-        if pd.isna(id) or len(id) < 5:
-            return None
-        if self.select_most_probable:
-            id = id.split(',')[0]
-            id = id.split(';')[0]
-        if self.remove_allele:
-            id = id.split('*', 1)[0]
-        if self.mock_allele:
-            return self.lib.get_or_create_noallele(id)
-        return self.lib.get_or_create(id)
-
-
-# ---------------------------------------------------------------------------
 # ClonotypeTableParser — generic (VDJtools / AIRR column names)
 # ---------------------------------------------------------------------------
 
 class ClonotypeTableParser:
     """Parse clonotype tables into lists of :class:`Clonotype` objects.
 
-    Accepts both file paths (string) and pre-loaded :class:`pd.DataFrame`.
-    Column names are normalised via :meth:`normalize_df` before parsing so
-    that both VDJtools-style and AIRR-style inputs are handled transparently.
+    Accepts file paths (string/Path) or pre-loaded :class:`pd.DataFrame`.
+    Gene names (v_gene, d_gene, j_gene, c_gene) are stored as plain strings —
+    consult :class:`~mir.common.gene_library.GeneLibrary` explicitly when you
+    need germline sequences or functional annotations.
+
+    Column names are normalised so both VDJtools-style and AIRR-style inputs
+    are handled transparently.  File reading uses polars for speed; gzip files
+    are decompressed automatically.
     """
 
-    def __init__(
-        self,
-        lib: GeneLibrary = GeneLibrary(),
-        sep: str = '\t',
-    ) -> None:
-        self.segment_parser = SegmentParser(lib)
+    def __init__(self, sep: str = '\t') -> None:
         self.sep = sep
+
+    # ------------------------------------------------------------------
+    # Column normalisation
+    # ------------------------------------------------------------------
 
     @staticmethod
     def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-        """Normalise column names: strip leading ``#``, map VDJtools → AIRR."""
+        """Normalise pandas column names: strip leading ``#``, map VDJtools → AIRR."""
         df = df.copy()
         df.columns = [c.lstrip('#') for c in df.columns]
         return df.rename(columns=_VDJTOOLS_TO_AIRR)
+
+    @staticmethod
+    def _normalize_pl(df: pl.DataFrame) -> pl.DataFrame:
+        """Normalise polars column names: strip leading ``#``, map VDJtools → AIRR."""
+        rename = {}
+        for col in df.columns:
+            target = _VDJTOOLS_TO_AIRR.get(col.lstrip('#'), col.lstrip('#'))
+            if target != col:
+                rename[col] = target
+        return df.rename(rename) if rename else df
+
+    # ------------------------------------------------------------------
+    # Vectorised gene normalisation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _norm_gene_col(s: pl.Series) -> list[str]:
+        """Vectorised gene normalisation: first comma/semicolon token, strip, '.' → ''."""
+        return (
+            s.cast(pl.Utf8).fill_null("")
+            .str.split_exact(",", 1).struct.field("field_0")
+            .str.split_exact(";", 1).struct.field("field_0")
+            .str.strip_chars()
+            .str.replace("^\\.$", "")
+            .to_list()
+        )
+
+    @staticmethod
+    def _normalize_locus_col(s: pl.Series) -> list[str]:
+        """Normalize AIRR locus aliases to canonical IMGT codes."""
+        raw = s.cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase().to_list()
+        return [_AIRR_ALIAS_TO_IMGT.get(v, v.upper()[:3] if v else "") for v in raw]
+
+    # ------------------------------------------------------------------
+    # File reading
+    # ------------------------------------------------------------------
+
+    def _read_polars(self, path: str) -> pl.DataFrame:
+        """Read a TSV/CSV file (plain or gzipped) into a polars DataFrame with
+        normalised AIRR column names.  All values are kept as strings."""
+        df = pl.read_csv(
+            path,
+            separator=self.sep,
+            infer_schema_length=0,
+            null_values=["", "NA"],
+            truncate_ragged_lines=True,
+        )
+        return self._normalize_pl(df)
+
+    # ------------------------------------------------------------------
+    # Parsing
+    # ------------------------------------------------------------------
 
     def parse(
         self,
@@ -152,46 +186,185 @@ class ClonotypeTableParser:
         n: int | None = None,
         sample: bool = False,
     ) -> list[Clonotype]:
-        """Parse *source* (path or DataFrame) into a list of clonotypes."""
+        """Parse *source* (file path or DataFrame) into a list of clonotypes."""
         if isinstance(source, str):
-            if n is None or not sample:
-                source = pd.read_csv(source, sep=self.sep, nrows=n)
-            else:
-                source = pd.read_csv(source, sep=self.sep).sample(n=n, random_state=42)
-            source = self.normalize_df(source)
+            df = self._read_polars(source)
+            if n is not None and not sample:
+                df = df.head(n)
+            elif n is not None:
+                df = df.sample(n=n, seed=42)
+            return self._polars_to_clonotypes(df)
         else:
+            # pandas DataFrame passed directly (e.g. from tests)
             if not sample:
                 source = source.head(n)
-            elif sample and n is not None:
+            elif n is not None:
                 source = source.sample(n=n, random_state=42)
-        return self.parse_inner(source)
+            return self.parse_inner(self.normalize_df(source))
 
-    def parse_inner(self, source: pd.DataFrame) -> list[Clonotype]:
-        """Parse an already-loaded DataFrame with AIRR-normalised column names."""
-        cols = set(source.columns)
+    def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
+        """Parse an already-normalised pandas DataFrame. Converts to polars internally."""
+        # Avoid pl.from_pandas here because nullable pandas extension dtypes
+        # (e.g. Int64) require pyarrow during conversion.
+        data = {
+            col: [None if pd.isna(v) else v for v in df[col].tolist()]
+            for col in df.columns
+        }
+        # Mixed pandas dtypes (e.g. mostly-null gene columns) can otherwise be
+        # inferred as numeric by polars construction and fail on first string.
+        return self._polars_to_clonotypes(pl.DataFrame(data, strict=False))
+
+    def _polars_to_clonotypes(self, df: pl.DataFrame) -> list[Clonotype]:
+        """Vectorised conversion of a normalised polars DataFrame → list[Clonotype].
+
+        All field extraction and normalisation happens in polars (no Python loops
+        over rows).  Clonotype objects are constructed with ``_validate=False`` so
+        ``__post_init__`` is a no-op; every field must be fully clean before this
+        call returns.
+        """
+        cols = set(df.columns)
         if 'junction_aa' not in cols or 'v_gene' not in cols or 'j_gene' not in cols:
             raise ValueError(
-                f'Critical columns missing in df {list(source.columns)}. '
-                f'Expected junction_aa, v_gene, j_gene (AIRR names) or '
-                f'cdr3aa, v, j (VDJtools names — pass through normalize_df first).')
+                f'Critical columns missing: {list(df.columns)}. '
+                f'Expected junction_aa, v_gene, j_gene (AIRR) or '
+                f'cdr3aa, v, j (VDJtools — pass through normalize first).')
+        n = len(df)
         has_markup = {'v_sequence_end', 'd_sequence_start',
                       'd_sequence_end', 'j_sequence_start'}.issubset(cols)
-        clonotypes = []
-        for index, row in source.iterrows():
-            clonotypes.append(Clonotype(_validate=False,
-                sequence_id=str(index),
-                duplicate_count=int(row['duplicate_count']) if 'duplicate_count' in cols else 1,
-                junction=str(row['junction']) if 'junction' in cols else "",
-                junction_aa=str(row['junction_aa']),
-                v_gene=_gene_str(row.get('v_gene')),
-                d_gene=_gene_str(row.get('d_gene')) if 'd_gene' in cols else "",
-                j_gene=_gene_str(row.get('j_gene')),
-                v_sequence_end=int(row['v_sequence_end']) if has_markup else -1,
-                d_sequence_start=int(row['d_sequence_start']) if has_markup else -1,
-                d_sequence_end=int(row['d_sequence_end']) if has_markup else -1,
-                j_sequence_start=int(row['j_sequence_start']) if has_markup else -1,
-            ))
-        return clonotypes
+
+        dup_counts   = df['duplicate_count'].cast(pl.Int64).fill_null(1).to_list() \
+                       if 'duplicate_count' in cols else [1] * n
+        junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
+                       if 'junction' in cols else [""] * n
+        junction_aas = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
+        v_genes      = self._norm_gene_col(df['v_gene'])
+        j_genes      = self._norm_gene_col(df['j_gene'])
+        d_genes      = self._norm_gene_col(df['d_gene']) if 'd_gene' in cols else [""] * n
+
+        # Vectorise locus inference in polars: take first 3 chars of j_gene
+        # and keep only known IMGT locus codes (TRA/TRB/TRG/TRD/IGH/IGK/IGL).
+        _valid_loci: frozenset[str] = frozenset(
+            ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
+        )
+        if 'locus' in cols:
+            loci = self._normalize_locus_col(df['locus'])
+        else:
+            _j_prefix = (
+                df['j_gene'].cast(pl.Utf8).fill_null("")
+                    .str.slice(0, 3).str.to_uppercase().to_list()
+            )
+            loci = [p if p in _valid_loci else "" for p in _j_prefix]
+
+        # junction_aa fallback: translate junction where junction_aa is blank.
+        from mir.basic.mirseq_compat import translate_bidi
+        junction_aas = [
+            jaa if jaa else (translate_bidi(jnt) if jnt else "")
+            for jaa, jnt in zip(junction_aas, junctions)
+        ]
+
+        if has_markup:
+            v_ends   = df['v_sequence_end'].cast(pl.Int64).fill_null(-1).to_list()
+            d_starts = df['d_sequence_start'].cast(pl.Int64).fill_null(-1).to_list()
+            d_ends   = df['d_sequence_end'].cast(pl.Int64).fill_null(-1).to_list()
+            j_starts = df['j_sequence_start'].cast(pl.Int64).fill_null(-1).to_list()
+        else:
+            v_ends = d_starts = d_ends = j_starts = [-1] * n
+
+        seq_ids = [str(i) for i in range(n)]
+        return [
+            Clonotype(_validate=False,
+                sequence_id=sid,
+                locus=loc,
+                duplicate_count=dup,
+                junction=jnt,
+                junction_aa=jaa,
+                v_gene=vg,
+                d_gene=dg,
+                j_gene=jg,
+                v_sequence_end=ve,
+                d_sequence_start=ds,
+                d_sequence_end=de,
+                j_sequence_start=js,
+            )
+            for sid, loc, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                seq_ids, loci, dup_counts, junctions, junction_aas,
+                v_genes, d_genes, j_genes, v_ends, d_starts, d_ends, j_starts,
+            )
+        ]
+
+
+    def _polars_to_col_groups(self, df: "pl.DataFrame") -> "dict[str, dict]":
+        """Extract column lists from a normalised DataFrame, grouped by locus.
+
+        Returns a dict mapping each locus string to a column-list dict.
+        No Clonotype objects are constructed — the caller stores the dict and
+        materialises lazily via :meth:`LocusRepertoire._from_lazy_cols`.
+        """
+        cols = set(df.columns)
+        n = len(df)
+        has_markup = {'v_sequence_end', 'd_sequence_start',
+                      'd_sequence_end', 'j_sequence_start'}.issubset(cols)
+
+        dup_counts   = df['duplicate_count'].cast(pl.Int64).fill_null(1).to_list() \
+                       if 'duplicate_count' in cols else [1] * n
+        junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
+                       if 'junction' in cols else [""] * n
+        junction_aas_raw = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
+        v_genes      = self._norm_gene_col(df['v_gene'])
+        j_genes      = self._norm_gene_col(df['j_gene'])
+        d_genes      = self._norm_gene_col(df['d_gene']) if 'd_gene' in cols else [""] * n
+
+        _valid_loci: frozenset[str] = frozenset(
+            ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
+        )
+        if 'locus' in cols:
+            loci = self._normalize_locus_col(df['locus'])
+        else:
+            _j_prefix = (
+                df['j_gene'].cast(pl.Utf8).fill_null("")
+                    .str.slice(0, 3).str.to_uppercase().to_list()
+            )
+            loci = [p if p in _valid_loci else "" for p in _j_prefix]
+
+        from mir.basic.mirseq_compat import translate_bidi
+        junction_aas = [
+            jaa if jaa else (translate_bidi(jnt) if jnt else "")
+            for jaa, jnt in zip(junction_aas_raw, junctions)
+        ]
+
+        if has_markup:
+            v_ends   = df['v_sequence_end'].cast(pl.Int64).fill_null(-1).to_list()
+            d_starts = df['d_sequence_start'].cast(pl.Int64).fill_null(-1).to_list()
+            d_ends   = df['d_sequence_end'].cast(pl.Int64).fill_null(-1).to_list()
+            j_starts = df['j_sequence_start'].cast(pl.Int64).fill_null(-1).to_list()
+        else:
+            v_ends = d_starts = d_ends = j_starts = [-1] * n
+
+        seq_ids = [str(i) for i in range(n)]
+
+        # Group rows by locus
+        groups: dict[str, dict] = {}
+        for i, loc in enumerate(loci):
+            if loc not in groups:
+                groups[loc] = {
+                    'locus': loc,
+                    'seq_ids': [], 'dup_counts': [], 'junctions': [],
+                    'junction_aas': [], 'v_genes': [], 'd_genes': [], 'j_genes': [],
+                    'v_ends': [], 'd_starts': [], 'd_ends': [], 'j_starts': [],
+                }
+            g = groups[loc]
+            g['seq_ids'].append(seq_ids[i])
+            g['dup_counts'].append(dup_counts[i])
+            g['junctions'].append(junctions[i])
+            g['junction_aas'].append(junction_aas[i])
+            g['v_genes'].append(v_genes[i])
+            g['d_genes'].append(d_genes[i])
+            g['j_genes'].append(j_genes[i])
+            g['v_ends'].append(v_ends[i])
+            g['d_starts'].append(d_starts[i])
+            g['d_ends'].append(d_ends[i])
+            g['j_starts'].append(j_starts[i])
+        return groups
 
 
 # ---------------------------------------------------------------------------
@@ -201,38 +374,11 @@ class ClonotypeTableParser:
 class VDJtoolsParser(ClonotypeTableParser):
     """Parse VDJtools output files.
 
-    The raw VDJtools header uses ``#count`` (or ``count``), ``cdr3nt``,
-    ``cdr3aa``, ``v``, ``d``, ``j``, ``VEnd``, ``DStart``, ``DEnd``,
-    ``JStart`` — these are automatically mapped via :meth:`normalize_df`.
+    The raw VDJtools header (``#count``, ``cdr3nt``, ``cdr3aa``, ``v``, ``d``,
+    ``j``, ``VEnd``, ``DStart``, ``DEnd``, ``JStart``) is automatically mapped
+    to AIRR names.  Gene names are stored as plain strings.
     """
-
-    def __init__(
-        self,
-        lib: GeneLibrary = GeneLibrary(),
-        sep: str = '\t',
-    ) -> None:
-        super().__init__(lib, sep)
-
-    def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
-        cols = set(df.columns)
-        has_markup = {'v_sequence_end', 'd_sequence_start',
-                      'd_sequence_end', 'j_sequence_start'}.issubset(cols)
-        clonotypes = []
-        for index, row in df.iterrows():
-            clonotypes.append(Clonotype(_validate=False,
-                sequence_id=str(index),
-                duplicate_count=int(row['duplicate_count']),
-                junction=str(row['junction']),
-                junction_aa=str(row['junction_aa']),
-                v_gene=_gene_str(row.get('v_gene')),
-                d_gene=_gene_str(row.get('d_gene')) if 'd_gene' in cols else "",
-                j_gene=_gene_str(row.get('j_gene')),
-                v_sequence_end=int(row['v_sequence_end']) if has_markup else -1,
-                d_sequence_start=int(row['d_sequence_start']) if has_markup else -1,
-                d_sequence_end=int(row['d_sequence_end']) if has_markup else -1,
-                j_sequence_start=int(row['j_sequence_start']) if has_markup else -1,
-            ))
-        return clonotypes
+    pass  # All functionality is inherited from ClonotypeTableParser.
 
 
 # ---------------------------------------------------------------------------
@@ -243,15 +389,15 @@ class AIRRParser(ClonotypeTableParser):
     """Parse AIRR-format files.
 
     Mandatory columns: ``locus``, ``v_call``, ``j_call``, ``junction_aa``.
+    Gene names are stored as plain strings.
     """
 
     def __init__(
         self,
-        lib: GeneLibrary = GeneLibrary(),
         sep: str = '\t',
         locus: str = 'beta',
     ) -> None:
-        super().__init__(lib, sep)
+        super().__init__(sep)
         self.locus = locus
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
 
@@ -274,25 +420,12 @@ class AIRRParser(ClonotypeTableParser):
     def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
         self.validate_columns(df)
         locus_aliases = self.get_locus_aliases()
-        df = df[df.locus.astype(str).str.strip().str.lower().isin(locus_aliases)]
-        clonotypes = []
-        for i, row in df.iterrows():
-            try:
-                v = _gene_str(row.get('v_call'))
-                j = _gene_str(row.get('j_call'))
-                if not v or not j:
-                    raise ValueError(f'Missing v_call or j_call in row {i}')
-                seq_id = str(row['clone_id']) if 'clone_id' in df.columns else str(i)
-                clonotypes.append(Clonotype(_validate=False,
-                    sequence_id=seq_id,
-                    locus=str(row.get('locus', '')),
-                    junction_aa=str(row['junction_aa']),
-                    v_gene=v,
-                    j_gene=j,
-                ))
-            except Exception as e:
-                logging.warning(f"Error parsing row {i + 1}: {e}")
-        return clonotypes
+        df = df[df['locus'].astype(str).str.strip().str.lower().isin(locus_aliases)].copy()
+        # Rename AIRR call columns to AIRR gene names for the base parser
+        df = df.rename(columns={'v_call': 'v_gene', 'j_call': 'j_gene'})
+        if 'clone_id' in df.columns:
+            df.index = df['clone_id'].astype(str)
+        return super().parse_inner(df)
 
 
 # ---------------------------------------------------------------------------
@@ -379,14 +512,16 @@ class OldMiXCRParser:
                 if not junction_aa:
                     continue
                 ref = row[self._COL_REF_POINTS].split(":")
+                j = self._parse_gene(row[self._COL_J_HITS])
                 clonotypes.append(Clonotype(_validate=False,
                     sequence_id=      row[self._COL_CLONE_ID],
                     duplicate_count=  int(row[self._COL_COUNT]),
                     junction=         row[self._COL_JUNCTION],
                     junction_aa=      junction_aa,
+                    locus=            j[:3].upper() if j else "",
                     v_gene=           self._parse_gene(row[self._COL_V_HITS]),
                     d_gene=           self._parse_gene(row[self._COL_D_HITS]),
-                    j_gene=           self._parse_gene(row[self._COL_J_HITS]),
+                    j_gene=           j,
                     c_gene=           self._parse_gene(row[self._COL_C_HITS]),
                     v_sequence_end=   self._ref_point(ref, self._RP_V_END),
                     d_sequence_start= self._ref_point(ref, self._RP_D_START),
@@ -535,18 +670,21 @@ class OlgaParser:
         opener = gzip.open if path.suffix == ".gz" else open
         clonotypes: list[Clonotype] = []
 
+        _loci_map = {"TRA": "TRA", "TRB": "TRB", "TRG": "TRG", "TRD": "TRD",
+                     "IGH": "IGH", "IGK": "IGK", "IGL": "IGL"}
         with opener(path, "rt", encoding="utf-8") as fh:
             reader = csv.reader(fh, delimiter="\t")
             for i, row in enumerate(reader):
                 if len(row) < 4:
                     continue
+                j = row[3].strip()
                 clonotypes.append(Clonotype(_validate=False,
                     sequence_id=str(i),
                     junction=    row[0].strip(),
                     junction_aa= row[1].strip(),
                     v_gene=      row[2].strip(),
-                    j_gene=      row[3].strip(),
-                    locus=       locus,
+                    j_gene=      j,
+                    locus=       locus or _loci_map.get(j[:3].upper(), ""),
                 ))
 
         return SampleRepertoire.from_clonotypes(clonotypes, sample_id=sample_id)

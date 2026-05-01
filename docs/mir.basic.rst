@@ -44,10 +44,10 @@ mir.basic.pgen module
    :undoc-members:
    :show-inheritance:
 
-mir.basic.sampling module
--------------------------
+mir.basic.mirseq_compat module
+------------------------------
 
-.. automodule:: mir.basic.sampling
+.. automodule:: mir.basic.mirseq_compat
    :members:
    :undoc-members:
    :show-inheritance:

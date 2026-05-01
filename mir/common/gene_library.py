@@ -3,12 +3,13 @@
 Schema for the pre-built library files (``olga_gene_library.txt`` /
 ``imgt_gene_library.txt``)::
 
-    species  locus  gene  allele  sequence
+    species  locus  gene  allele  sequence  functionality
 
 where *species* is ``"human"`` or ``"mouse"``, *locus* is ``"TRB"`` /
 ``"TRA"`` / etc., *gene* is ``"V"``, ``"D"``, or ``"J"``, *allele* is the
-full IMGT name (e.g. ``"TRBV3-1*02"``), and *sequence* is the nucleotide
-sequence (uppercase, no gaps).
+full IMGT name (e.g. ``"TRBV3-1*02"``), *sequence* is the nucleotide
+sequence (uppercase, no gaps), and *functionality* is one of ``F`` / ``ORF`` /
+``P`` (for OLGA-derived entries this is always ``F``).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from mir.basic.mirseq import translate_linear
 _ALLOWED_LOCI = {'TRA', 'TRB', 'TRG', 'TRD', 'IGL', 'IGK', 'IGH'}
 _ALLOWED_GENES = {'V', 'D', 'J', 'C'}
 
-_GENE_LIBRARY_COLUMNS = ['species', 'locus', 'gene', 'allele', 'sequence']
+_GENE_LIBRARY_COLUMNS = ['species', 'locus', 'gene', 'allele', 'sequence', 'functionality']
 
 
 class GeneEntry:
@@ -64,6 +65,7 @@ class GeneEntry:
                  locus: str = None,
                  gene: str = None,
                  sequence: str = None,
+                 functionality: str = 'F',
                  sequence_aa: str = None,
                  refpoint: int = -1,
                  featnt: dict[str, tuple[int, int]] | None = None,
@@ -78,6 +80,7 @@ class GeneEntry:
         if self.gene not in _ALLOWED_GENES:
             raise ValueError(f'Bad gene type {self.gene!r}')
         self.sequence = sequence
+        self.functionality = str(functionality or 'F').strip().upper()
         if sequence_aa:
             self.sequence_aa = sequence_aa
         elif sequence:
@@ -109,6 +112,10 @@ class GeneEntry:
             seq = '?'
         return f'{self.species} {self.allele}:{self.refpoint}:{seq}'
 
+    @property
+    def is_functional(self) -> bool:
+        return self.functionality == 'F'
+
 
 class GeneLibrary:
     """Collection of :class:`GeneEntry` objects keyed by allele name.
@@ -127,6 +134,20 @@ class GeneLibrary:
                  complete: bool = False):
         self.entries = entries
         self.complete = complete
+        self._coding_v_genes: set[str] = set()
+        self._rebuild_coding_v_genes()
+
+    @staticmethod
+    def _base_gene_name(allele_or_gene: str) -> str:
+        name = str(allele_or_gene or '').strip()
+        return name.split('*', 1)[0]
+
+    def _rebuild_coding_v_genes(self) -> None:
+        self._coding_v_genes = {
+            self._base_gene_name(e.allele)
+            for e in self.entries.values()
+            if e.gene == 'V' and e.is_functional
+        }
 
     # ------------------------------------------------------------------
     # Loading
@@ -164,16 +185,20 @@ class GeneLibrary:
         """
         loci    = cls._as_set(loci)
         species = cls._as_set(species)
-        fname   = f'{source}_gene_library.txt'
+        fname = f'{source}_gene_library.txt'
         path    = Path(get_resource_path(f'gene_library/{fname}'))
         entries: dict[str, GeneEntry] = {}
         with path.open(encoding='utf-8') as fh:
             next(fh)  # skip header
             for line in fh:
                 parts = line.rstrip('\n').split('\t')
-                if len(parts) != 5:
+                if len(parts) not in (5, 6):
                     continue
-                sp, locus, gene, allele, sequence = parts
+                if len(parts) == 5:
+                    sp, locus, gene, allele, sequence = parts
+                    functionality = 'F'
+                else:
+                    sp, locus, gene, allele, sequence, functionality = parts
                 if sp not in species or locus not in loci:
                     continue
                 entries[allele] = GeneEntry(
@@ -182,6 +207,7 @@ class GeneLibrary:
                     locus=locus,
                     gene=gene,
                     sequence=sequence,
+                    functionality=functionality,
                 )
         return cls(entries, complete=True)
 
@@ -216,6 +242,39 @@ class GeneLibrary:
     def get_summary(self) -> Counter[tuple[str, str, str]]:
         """Return counts per ``(species, locus, gene)``."""
         return Counter((e.species, e.locus, e.gene) for e in self.entries.values())
+
+    @property
+    def coding_v_genes(self) -> set[str]:
+        return set(self._coding_v_genes)
+
+    def is_coding(self, v_gene: str) -> bool:
+        """Return True iff *v_gene* belongs to the functional V-gene set."""
+        return self._base_gene_name(v_gene) in self._coding_v_genes
+
+    def is_functional(self, allele_or_gene: str) -> bool:
+        """Return True iff *allele_or_gene* resolves to a functional V entry.
+
+        Accepts full allele names (``TRBV5-1*01``) or allele-less gene bases
+        (``TRBV5-1``). For gene bases, returns True when at least one known
+        allele for that gene is functional.
+        """
+        name = str(allele_or_gene or '').strip()
+        if not name:
+            return False
+
+        entry = self.entries.get(name)
+        if entry is not None:
+            return entry.is_functional
+
+        base = self._base_gene_name(name)
+        if base in self._coding_v_genes:
+            return True
+
+        if '*' not in name:
+            for allele, rec in self.entries.items():
+                if allele.startswith(base + '*') and rec.is_functional:
+                    return True
+        return False
 
     def get_species(self) -> set[str]:
         return {e.species for e in self.entries.values()}
@@ -257,6 +316,7 @@ class GeneLibrary:
                 if self.complete:
                     raise ValueError(f'GeneEntry {entry} not found in complete library')
                 self.entries[entry.allele] = entry
+                self._rebuild_coding_v_genes()
                 return entry
             return existing
         allele = str(entry).strip()
@@ -267,6 +327,7 @@ class GeneLibrary:
             raise ValueError(f'GeneEntry {allele!r} not found in complete library')
         new = GeneEntry(allele, sequence=sequence, sequence_aa=sequence_aa)
         self.entries[allele] = new
+        self._rebuild_coding_v_genes()
         return new
 
     def get_or_create_noallele(self, allele_id: str) -> GeneEntry:

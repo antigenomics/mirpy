@@ -11,6 +11,8 @@ import os
 import pickle
 import random
 from collections import defaultdict
+import gzip
+import json
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -94,10 +96,89 @@ class LocusRepertoire:
                     f"repertoire locus {locus!r}"
                 )
 
-        self.clonotypes: list[Clonotype] = list(clonotypes)
+        self._clonotypes_cache: list[Clonotype] | None = list(clonotypes)
+        self._pending_cols: dict | None = None
+        self._polars_table: pl.DataFrame | None = None
+        self._clonotype_count_cache: int | None = len(self._clonotypes_cache)
+        self._duplicate_count_cache: int | None = sum(c.duplicate_count for c in self._clonotypes_cache)
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
+
+    @classmethod
+    def _from_group(cls, locus: str, clonotypes: list) -> "LocusRepertoire":
+        """Fast-path constructor: skips locus consistency check."""
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = clonotypes
+        obj._pending_cols = None
+        obj._polars_table = None
+        obj._clonotype_count_cache = len(clonotypes)
+        obj._duplicate_count_cache = sum(c.duplicate_count for c in clonotypes)
+        obj.repertoire_id = ""
+        obj.repertoire_metadata = {}
+        return obj
+
+    @classmethod
+    def _from_lazy_cols(cls, locus: str, cols: dict) -> "LocusRepertoire":
+        """Lazy-loading fast-path: stores raw column lists, materialises Clonotypes on first access."""
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = None
+        obj._pending_cols = cols
+        obj._polars_table = None
+        seq_ids = cols.get("seq_ids", [])
+        dup_counts = cols.get("dup_counts", [])
+        obj._clonotype_count_cache = len(seq_ids)
+        obj._duplicate_count_cache = int(sum(int(x or 0) for x in dup_counts))
+        obj.repertoire_id = ""
+        obj.repertoire_metadata = {}
+        return obj
+
+    @property
+    def clonotypes(self) -> "list[Clonotype]":
+        """All clonotypes in this locus repertoire, materialised lazily."""
+        if self._clonotypes_cache is None:
+            self._materialise()
+        return self._clonotypes_cache  # type: ignore[return-value]
+
+    @clonotypes.setter
+    def clonotypes(self, value: list) -> None:
+        self._clonotypes_cache = list(value)
+        self._pending_cols = None
+        self._polars_table = None
+        self._clonotype_count_cache = len(self._clonotypes_cache)
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
+
+    def _invalidate_polars_cache(self) -> None:
+        """Drop cached tabular representation after clonotype-level mutations."""
+        self._polars_table = None
+
+    def _materialise(self) -> None:
+        """Construct Clonotype objects from stored column lists."""
+        if self._polars_table is not None:
+            self._clonotypes_cache = Clonotype.from_polars(self._polars_table)
+        else:
+            from mir.common.clonotype import Clonotype as _Clonotype
+            c = self._pending_cols
+            self._clonotypes_cache = [
+                _Clonotype(_validate=False,
+                    sequence_id=sid, locus=c['locus'],
+                    duplicate_count=dup, junction=jnt, junction_aa=jaa,
+                    v_gene=vg, d_gene=dg, j_gene=jg,
+                    v_sequence_end=ve, d_sequence_start=ds,
+                    d_sequence_end=de, j_sequence_start=js,
+                )
+                for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                    c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
+                    c['v_genes'], c['d_genes'], c['j_genes'],
+                    c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
+                )
+            ]
+        self._clonotype_count_cache = len(self._clonotypes_cache)
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
+        self._pending_cols = None
+        self._polars_table = None
 
     # ------------------------------------------------------------------
     # Counts
@@ -106,12 +187,38 @@ class LocusRepertoire:
     @property
     def clonotype_count(self) -> int:
         """Number of distinct clonotypes."""
-        return len(self.clonotypes)
+        if self._clonotype_count_cache is not None:
+            return self._clonotype_count_cache
+        if self._pending_cols is not None:
+            seq_ids = self._pending_cols.get("seq_ids", [])
+            self._clonotype_count_cache = len(seq_ids)
+            return self._clonotype_count_cache
+        if self._polars_table is not None:
+            self._clonotype_count_cache = int(self._polars_table.height)
+            return self._clonotype_count_cache
+        self._clonotype_count_cache = len(self.clonotypes)
+        return self._clonotype_count_cache
 
     @property
     def duplicate_count(self) -> int:
         """Total read/cell count (sum of :attr:`Clonotype.duplicate_count`)."""
-        return sum(c.duplicate_count for c in self.clonotypes)
+        if self._duplicate_count_cache is not None:
+            return self._duplicate_count_cache
+        if self._pending_cols is not None:
+            dup_counts = self._pending_cols.get("dup_counts", [])
+            self._duplicate_count_cache = int(sum(int(x or 0) for x in dup_counts))
+            return self._duplicate_count_cache
+        if self._polars_table is not None and "duplicate_count" in self._polars_table.columns:
+            s = (
+                self._polars_table["duplicate_count"]
+                .cast(pl.Int64, strict=False)
+                .fill_null(0)
+                .sum()
+            )
+            self._duplicate_count_cache = int(s or 0)
+            return self._duplicate_count_cache
+        self._duplicate_count_cache = sum(c.duplicate_count for c in self.clonotypes)
+        return self._duplicate_count_cache
 
     # ------------------------------------------------------------------
     # Sorting
@@ -128,6 +235,7 @@ class LocusRepertoire:
     def sort(self) -> None:
         """Sort clonotypes by ``duplicate_count`` descending, in-place."""
         self.clonotypes.sort(key=lambda c: c.duplicate_count, reverse=True)
+        self._invalidate_polars_cache()
 
     def top(self, n: int = 100) -> list[Clonotype]:
         """Return the *n* most abundant clonotypes, sorting first if needed."""
@@ -141,7 +249,129 @@ class LocusRepertoire:
 
     def to_polars(self) -> pl.DataFrame:
         """Serialise clonotypes to a Polars DataFrame using the AIRR schema."""
-        return Clonotype.to_polars(self.clonotypes)
+        if self._polars_table is not None:
+            return self._polars_table
+        self._polars_table = Clonotype.to_polars(self.clonotypes)
+        return self._polars_table
+
+    def to_tsv(
+        self,
+        path: str | Path,
+        *,
+        sep: str = "\t",
+        gzip_output: bool = False,
+    ) -> Path:
+        """Write repertoire to TSV (optionally gzipped)."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        use_gzip = gzip_output or out.suffix == ".gz"
+        if use_gzip:
+            with gzip.open(out, "wt", encoding="utf-8") as fh:
+                fh.write(self.to_polars().write_csv(separator=sep))
+        else:
+            self.to_polars().write_csv(out, separator=sep)
+        return out
+
+    @classmethod
+    def from_tsv(
+        cls,
+        path: str | Path,
+        *,
+        sep: str = "\t",
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> "LocusRepertoire":
+        """Load repertoire from TSV/TSV.GZ with Polars."""
+        df = pl.read_csv(
+            Path(path),
+            separator=sep,
+            infer_schema_length=0,
+            null_values=["", "NA"],
+            truncate_ragged_lines=True,
+        )
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
+
+    def to_parquet(self, path: str | Path) -> Path:
+        """Write repertoire to Parquet."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.to_polars().write_parquet(out)
+        return out
+
+    @classmethod
+    def from_parquet(
+        cls,
+        path: str | Path,
+        *,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> "LocusRepertoire":
+        """Load repertoire from Parquet with Polars."""
+        df = pl.read_parquet(Path(path))
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
+
+    def write_polars(
+        self,
+        path: str | Path,
+        *,
+        format: str | None = None,
+    ) -> Path:
+        """Write clonotypes to a polars-supported file format.
+
+        Supported formats: ``parquet`` (default), ``ipc``/``feather``, ``csv``.
+        """
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fmt = (format or out.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            self.to_polars().write_parquet(out)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            self.to_polars().write_ipc(out)
+        elif fmt == "csv":
+            self.to_polars().write_csv(out)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return out
+
+    @classmethod
+    def read_polars(
+        cls,
+        path: str | Path,
+        *,
+        format: str | None = None,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> LocusRepertoire:
+        """Load a :class:`LocusRepertoire` from a polars-supported file."""
+        src = Path(path)
+        fmt = (format or src.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            df = pl.read_parquet(src)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df = pl.read_ipc(src)
+        elif fmt == "csv":
+            df = pl.read_csv(src)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return cls.from_polars(
+            df,
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
 
     @classmethod
     def from_polars(
@@ -165,12 +395,24 @@ class LocusRepertoire:
         repertoire_metadata:
             Metadata dict for the resulting repertoire.
         """
-        return cls(
-            clonotypes=Clonotype.from_polars(df),
-            locus=locus,
-            repertoire_id=repertoire_id,
-            repertoire_metadata=repertoire_metadata,
-        )
+        obj = cls.__new__(cls)
+        obj.locus = locus
+        obj._clonotypes_cache = None
+        obj._pending_cols = None
+        table = df
+        obj._clonotype_count_cache = int(df.height)
+        if "duplicate_count" in df.columns:
+            table = df.with_columns(
+                pl.col("duplicate_count").cast(pl.Int64, strict=False).fill_null(0)
+            )
+            s = table["duplicate_count"].sum()
+            obj._duplicate_count_cache = int(s or 0)
+        else:
+            obj._duplicate_count_cache = 0
+        obj._polars_table = table
+        obj.repertoire_id = repertoire_id
+        obj.repertoire_metadata = repertoire_metadata if repertoire_metadata is not None else {}
+        return obj
 
     # ------------------------------------------------------------------
     # Filtering
@@ -553,6 +795,216 @@ class SampleRepertoire:
             )
         return obj
 
+    def write_polars(
+        self,
+        path: str | Path,
+        *,
+        format: str | None = None,
+    ) -> Path:
+        """Write all loci clonotypes to one polars file."""
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fmt = (format or out.suffix.lstrip(".") or "parquet").lower()
+        df = self.to_polars()
+        if fmt in {"pq", "parquet"}:
+            df.write_parquet(out)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df.write_ipc(out)
+        elif fmt == "csv":
+            df.write_csv(out)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return out
+
+    def to_tsv(
+        self,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sep: str = "\t",
+        gzip_output: bool = False,
+    ) -> Path | list[Path]:
+        """Write sample repertoire to TSV.
+
+        When ``split_loci=True``, *path* is treated as an output folder and one
+        TSV file per locus is written.
+        """
+        if split_loci:
+            return self.write_folder(path, format="tsv", gzip_output=gzip_output)
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        use_gzip = gzip_output or out.suffix == ".gz"
+        if use_gzip:
+            with gzip.open(out, "wt", encoding="utf-8") as fh:
+                fh.write(self.to_polars().write_csv(separator=sep))
+        else:
+            self.to_polars().write_csv(out, separator=sep)
+        return out
+
+    @classmethod
+    def from_tsv(
+        cls,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sep: str = "\t",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> "SampleRepertoire":
+        """Load sample repertoire from TSV.
+
+        If ``split_loci=True``, *path* is a folder with per-locus TSV files.
+        """
+        if not split_loci:
+            df = pl.read_csv(
+                Path(path),
+                separator=sep,
+                infer_schema_length=0,
+                null_values=["", "NA"],
+                truncate_ragged_lines=True,
+            )
+            return cls.from_polars(
+                df,
+                sample_id=sample_id,
+                sample_metadata=sample_metadata,
+            )
+
+        folder = Path(path)
+        if not folder.exists() or not folder.is_dir():
+            raise FileNotFoundError(f"folder not found: {folder}")
+        loci: dict[str, LocusRepertoire] = {}
+        for f in sorted(folder.glob("*.tsv*")):
+            df = pl.read_csv(
+                f,
+                separator=sep,
+                infer_schema_length=0,
+                null_values=["", "NA"],
+                truncate_ragged_lines=True,
+            )
+            if "locus" in df.columns and len(df) > 0:
+                loc = str(df["locus"][0] or "")
+            else:
+                stem = f.name
+                if stem.endswith(".gz"):
+                    stem = stem[:-3]
+                if stem.endswith(".tsv"):
+                    stem = stem[:-4]
+                loc = stem.rsplit("_", 1)[-1] if "_" in stem else ""
+            loci[loc] = LocusRepertoire.from_polars(df, locus=loc)
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    def to_parquet(
+        self,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+    ) -> Path | list[Path]:
+        """Write sample repertoire to Parquet.
+
+        When ``split_loci=True``, *path* is treated as an output folder and one
+        Parquet file per locus is written.
+        """
+        if split_loci:
+            return self.write_folder(path, format="parquet", gzip_output=False)
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.to_polars().write_parquet(out)
+        return out
+
+    @classmethod
+    def from_parquet(
+        cls,
+        path: str | Path,
+        *,
+        split_loci: bool = False,
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> "SampleRepertoire":
+        """Load sample repertoire from Parquet.
+
+        If ``split_loci=True``, *path* is a folder with per-locus parquet files.
+        """
+        if not split_loci:
+            return cls.from_polars(
+                pl.read_parquet(Path(path)),
+                sample_id=sample_id,
+                sample_metadata=sample_metadata,
+            )
+        folder = Path(path)
+        if not folder.exists() or not folder.is_dir():
+            raise FileNotFoundError(f"folder not found: {folder}")
+        loci: dict[str, LocusRepertoire] = {}
+        for f in sorted(folder.glob("*.parquet")):
+            df = pl.read_parquet(f)
+            if "locus" in df.columns and len(df) > 0:
+                loc = str(df["locus"][0] or "")
+            else:
+                stem = f.stem
+                loc = stem.rsplit("_", 1)[-1] if "_" in stem else ""
+            loci[loc] = LocusRepertoire.from_polars(df, locus=loc)
+        return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    @classmethod
+    def read_polars(
+        cls,
+        path: str | Path,
+        *,
+        format: str | None = None,
+        locus_column: str = "locus",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> SampleRepertoire:
+        """Load a :class:`SampleRepertoire` from one polars file."""
+        src = Path(path)
+        fmt = (format or src.suffix.lstrip(".") or "parquet").lower()
+        if fmt in {"pq", "parquet"}:
+            df = pl.read_parquet(src)
+        elif fmt in {"ipc", "feather", "arrow"}:
+            df = pl.read_ipc(src)
+        elif fmt == "csv":
+            df = pl.read_csv(src)
+        else:
+            raise ValueError(f"Unsupported format: {fmt!r}")
+        return cls.from_polars(
+            df,
+            locus_column=locus_column,
+            sample_id=sample_id,
+            sample_metadata=sample_metadata,
+        )
+
+    def write_folder(
+        self,
+        folder: str | Path,
+        *,
+        format: str = "tsv",
+        gzip_output: bool = False,
+    ) -> list[Path]:
+        """Write one file per locus into *folder* and return file paths."""
+        out_dir = Path(folder)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        files: list[Path] = []
+        for locus, lr in self.loci.items():
+            base_name = f"{self.sample_id}_{locus}.{format}"
+            out = out_dir / (base_name + (".gz" if gzip_output and format in {"tsv", "csv"} else ""))
+            if format == "parquet":
+                lr.write_polars(out, format="parquet")
+            elif format in {"ipc", "feather"}:
+                lr.write_polars(out, format="ipc")
+            elif format in {"tsv", "csv"}:
+                sep = "\t" if format == "tsv" else ","
+                if gzip_output:
+                    with gzip.open(out, "wt", encoding="utf-8") as fh:
+                        fh.write(lr.to_polars().write_csv(separator=sep))
+                else:
+                    lr.to_polars().write_csv(out, separator=sep)
+            else:
+                raise ValueError(f"Unsupported format: {format!r}")
+            files.append(out)
+
+        meta_path = out_dir / "sample_metadata.json"
+        meta_path.write_text(json.dumps(self.sample_metadata, ensure_ascii=True, indent=2))
+        return files
+
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
@@ -581,7 +1033,7 @@ class SampleRepertoire:
         for c in clonotypes:
             groups[c.locus].append(c)
         loci = {
-            locus: LocusRepertoire(clones, locus=locus)
+            locus: LocusRepertoire._from_group(locus, clones)
             for locus, clones in groups.items()
         }
         return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
@@ -597,6 +1049,16 @@ class SampleRepertoire:
         for lr in self.loci.values():
             result.extend(lr.clonotypes)
         return result
+
+    @property
+    def clonotype_count(self) -> int:
+        """Total clonotype count across all loci."""
+        return sum(lr.clonotype_count for lr in self.loci.values())
+
+    @property
+    def duplicate_count(self) -> int:
+        """Total duplicate_count across all loci."""
+        return sum(lr.duplicate_count for lr in self.loci.values())
 
     # ------------------------------------------------------------------
     # Sorting

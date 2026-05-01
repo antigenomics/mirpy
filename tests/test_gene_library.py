@@ -1,7 +1,4 @@
-"""Tests for mir.common.gene_library (GeneEntry / GeneLibrary).
-
-Also verifies that the legacy compat aliases in mir.common.segments still work.
-"""
+"""Tests for mir.common.gene_library (GeneEntry / GeneLibrary)."""
 
 import tempfile
 import unittest
@@ -10,9 +7,6 @@ from pathlib import Path
 import pytest
 
 from mir.common.gene_library import GeneEntry, GeneLibrary
-
-# Legacy import path must still resolve
-from mir.common.segments import Segment, SegmentLibrary
 
 RESOURCES = Path(__file__).parent.parent / "mir" / "resources" / "gene_library"
 _OLGA_LIB = RESOURCES / "olga_gene_library.txt"
@@ -163,17 +157,22 @@ class TestGeneLibraryQueries(unittest.TestCase):
         self.assertEqual(summary[("human", "TRB", "V")], 1)
         self.assertEqual(summary[("human", "TRB", "J")], 1)
 
+    def test_is_functional_by_allele(self):
+        self.assertTrue(self.lib.is_functional("TRBV1*01"))
 
-class TestLegacyAliases(unittest.TestCase):
-    """Ensure mir.common.segments backward-compat shim works."""
+    def test_is_functional_by_gene_base(self):
+        self.assertTrue(self.lib.is_functional("TRBV1"))
 
-    def test_segment_is_gene_entry(self):
-        s = Segment("TRBV1*01", locus="TRB", gene="V")
-        self.assertIsInstance(s, GeneEntry)
+    def test_is_coding_v_gene(self):
+        self.assertTrue(self.lib.is_coding("TRBV1"))
 
-    def test_segment_library_is_gene_library(self):
-        lib = SegmentLibrary({}, complete=False)
-        self.assertIsInstance(lib, GeneLibrary)
+    def test_nonfunctional_entry_is_not_functional(self):
+        self.lib.entries["TRBVX*01"] = GeneEntry(
+            "TRBVX*01", species="human", locus="TRB", gene="V", sequence="ATG", functionality="P"
+        )
+        self.lib._rebuild_coding_v_genes()
+        self.assertFalse(self.lib.is_functional("TRBVX*01"))
+        self.assertFalse(self.lib.is_coding("TRBVX"))
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +213,21 @@ class TestGeneLibraryLoadOlga(unittest.TestCase):
         self.assertIn("*", result.allele)
         self.assertTrue(result.allele.startswith("TRBV10-3*"))
 
+    def test_all_v_entries_are_functional(self):
+        v_entries = self.lib.get_entries(gene="V")
+        self.assertGreater(len(v_entries), 0)
+        self.assertTrue(all(e.is_functional for e in v_entries))
+
+    def test_all_v_genes_marked_functional_by_default(self):
+        v_entries = self.lib.get_entries(gene="V")
+        v_bases = {e.allele.split("*", 1)[0] for e in v_entries}
+        self.assertTrue(all(self.lib.is_functional(v) for v in v_bases))
+
+    def test_olga_is_coding_set_contains_all_v_bases(self):
+        v_entries = self.lib.get_entries(gene="V")
+        v_bases = {e.allele.split("*", 1)[0] for e in v_entries}
+        self.assertEqual(v_bases, self.lib.coding_v_genes)
+
 
 @_IMGT_PRESENT
 class TestGeneLibraryLoadImgt(unittest.TestCase):
@@ -226,6 +240,11 @@ class TestGeneLibraryLoadImgt(unittest.TestCase):
 
     def test_only_requested_locus(self):
         self.assertEqual(self.lib.get_loci(), {"TRB"})
+
+    def test_functionality_annotations_present(self):
+        vals = {e.functionality for e in self.lib.entries.values()}
+        self.assertTrue(vals)
+        self.assertTrue(vals.issubset({"F", "ORF", "P"}))
 
 
 if __name__ == "__main__":

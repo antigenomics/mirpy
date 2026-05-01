@@ -8,7 +8,11 @@ import unittest
 
 import pytest
 
-from tests.conftest import skip_benchmarks
+from tests.conftest import (
+    benchmark_max_seconds,
+    benchmark_repetition_count,
+    skip_benchmarks,
+)
 from mir.basic import mirseq
 from mir.distances import seqdist_c
 from mir.basic.alphabets import (
@@ -30,15 +34,28 @@ def _time_fn(fn, *args, n: int = 5000) -> float:
 @pytest.mark.benchmark
 class TestBenchmarks(unittest.TestCase):
 
+    @staticmethod
+    def _n(base_n: int, minimum: int = 100) -> int:
+        return benchmark_repetition_count(base_n, minimum=minimum)
+
     def _report(self, name: str, py_t: float, c_t: float) -> None:
         ratio = py_t / c_t if c_t > 0 else float("inf")
         print(f"  {name:30s}  Python={py_t:.4f}s  C={c_t:.4f}s  speedup={ratio:.1f}x")
 
+    def _assert_runtime_bound(self, t_start: float, name: str) -> None:
+        elapsed = time.perf_counter() - t_start
+        upper = benchmark_max_seconds(default=20.0)
+        assert elapsed <= upper, (
+            f"Benchmark '{name}' exceeded runtime upper bound: "
+            f"{elapsed:.2f}s > {upper:.2f}s"
+        )
+
     # ── translate_linear ──────────────────────────────────────────
 
     def test_translate_linear_speed(self) -> None:
+        t_case = time.perf_counter()
         nt = "ATG" * 40
-        n = 10_000
+        n = self._n(10_000, minimum=1_000)
 
         def py_translate(s: str) -> str:
             codon_map = {
@@ -68,21 +85,25 @@ class TestBenchmarks(unittest.TestCase):
         py_t = _time_fn(py_translate, nt, n=n)
         c_t = _time_fn(mirseq.translate_linear, nt, n=n)
         self._report("translate_linear", py_t, c_t)
+        self._assert_runtime_bound(t_case, "translate_linear")
 
     # ── aa_to_reduced ─────────────────────────────────────────────
 
     def test_aa_to_reduced_speed(self) -> None:
+        t_case = time.perf_counter()
         aa = "CASTIVGGLSQDKIVW" * 5
-        n = 20_000
+        n = self._n(20_000, minimum=2_000)
         py_t = _time_fn(py_aa_to_reduced, aa, n=n)
         c_t = _time_fn(mirseq.aa_to_reduced, aa, n=n)
         self._report("aa_to_reduced (Python bytes.translate vs C)", py_t, c_t)
+        self._assert_runtime_bound(t_case, "aa_to_reduced")
 
     # ── tokenize_bytes ────────────────────────────────────────────
 
     def test_tokenize_bytes_speed(self) -> None:
+        t_case = time.perf_counter()
         seq = "CASTIVGGLSQDKIVW" * 5
-        n = 10_000
+        n = self._n(10_000, minimum=1_000)
 
         def py_tokenize(s: str, k: int) -> list[bytes]:
             b = s.encode()
@@ -91,12 +112,14 @@ class TestBenchmarks(unittest.TestCase):
         py_t = _time_fn(py_tokenize, seq, 3, n=n)
         c_t = _time_fn(mirseq.tokenize_bytes, seq, 3, n=n)
         self._report("tokenize_bytes", py_t, c_t)
+        self._assert_runtime_bound(t_case, "tokenize_bytes")
 
     # ── tokenize_gapped_bytes ─────────────────────────────────────
 
     def test_tokenize_gapped_bytes_speed(self) -> None:
+        t_case = time.perf_counter()
         seq = "CASTIVGGLSQDKIVW" * 3
-        n = 5_000
+        n = self._n(5_000, minimum=500)
 
         def py_tokenize_gapped(s: str, k: int, m: int) -> list[bytes]:
             b = s.encode()
@@ -112,13 +135,15 @@ class TestBenchmarks(unittest.TestCase):
         py_t = _time_fn(py_tokenize_gapped, seq, 3, AA_MASK, n=n)
         c_t = _time_fn(mirseq.tokenize_gapped_bytes, seq, 3, AA_MASK, n=n)
         self._report("tokenize_gapped_bytes", py_t, c_t)
+        self._assert_runtime_bound(t_case, "tokenize_gapped_bytes")
 
     # ── hamming ───────────────────────────────────────────────────
 
     def test_hamming_speed(self) -> None:
+        t_case = time.perf_counter()
         a = "CASTIVGGLSQDKIVW" * 5
         b = "CASTIVGGLSQEKIVW" * 5
-        n = 20_000
+        n = self._n(20_000, minimum=2_000)
 
         def py_hamming(s1: str, s2: str) -> int:
             return sum(c1 != c2 for c1, c2 in zip(s1, s2))
@@ -126,13 +151,15 @@ class TestBenchmarks(unittest.TestCase):
         py_t = _time_fn(py_hamming, a, b, n=n)
         c_t = _time_fn(seqdist_c.hamming, a, b, n=n)
         self._report("hamming", py_t, c_t)
+        self._assert_runtime_bound(t_case, "hamming")
 
     # ── levenshtein ───────────────────────────────────────────────
 
     def test_levenshtein_speed(self) -> None:
+        t_case = time.perf_counter()
         a = "CASTIVGGLSQDKIVW" * 3
         b = "CASTGGLSQEKIVW" * 3
-        n = 5_000
+        n = self._n(5_000, minimum=500)
 
         def py_levenshtein(s1: str, s2: str) -> int:
             m, n_ = len(s1), len(s2)
@@ -148,6 +175,7 @@ class TestBenchmarks(unittest.TestCase):
         py_t = _time_fn(py_levenshtein, a, b, n=n)
         c_t = _time_fn(seqdist_c.levenshtein, a, b, n=n)
         self._report("levenshtein", py_t, c_t)
+        self._assert_runtime_bound(t_case, "levenshtein")
 
 
 if __name__ == "__main__":

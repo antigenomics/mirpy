@@ -34,7 +34,12 @@ Repertoire
 ----------
 
 A repertoire is a collection of clonotypes from one sample together with
-metadata and summary counts such as clone number and read depth.
+metadata and summary counts such as ``clonotype_count`` and
+``duplicate_count``.
+
+Internally, repertoire data may remain as clonotype objects, lazy parser
+columns, or a Polars table. Tabular conversion is lazy for list-based
+construction and only materializes when needed.
 
 RepertoireDataset
 -----------------
@@ -56,6 +61,14 @@ Typical Workflow
 2. Wrap clonotypes into a ``Repertoire`` or ``RepertoireDataset``.
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
+
+For batch-corrected gene usage workflows, use
+``compute_batch_corrected_gene_usage`` and consume ``pfinal`` as the corrected
+probability output (already normalized per sample/locus).
+
+If you compute only ``scope='vj'`` and need V- or J-marginal views for plots,
+reuse ``marginalize_batch_corrected_gene_usage(..., scope='v'|'j')`` from the
+same module instead of ad-hoc notebook ``groupby`` code.
 
 Next Steps
 ==========
