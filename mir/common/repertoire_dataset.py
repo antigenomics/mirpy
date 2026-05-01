@@ -316,7 +316,9 @@ class RepertoireDataset:
         # run truly in parallel for I/O.  Objects are returned by reference
         # (shared heap) with zero serialization cost.
         gc_was_enabled = gc.isenabled()
-        gc.disable()
+        disable_gc_during_load = gc_was_enabled and n_workers > 1 and total > 1
+        if disable_gc_during_load:
+            gc.disable()
         try:
             done = 0
             skipped = 0
@@ -354,7 +356,7 @@ class RepertoireDataset:
                             flush=True,
                         )
         finally:
-            if gc_was_enabled:
+            if disable_gc_during_load:
                 gc.enable()
             gc.collect()
 
