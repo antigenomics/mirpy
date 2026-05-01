@@ -41,8 +41,9 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ProcessPoolExecutor
+from itertools import chain, repeat
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 import pandas as pd
 
@@ -109,6 +110,18 @@ def _parse_chunks_parallel(chunks: list[pd.DataFrame], *, locus: str, n_jobs: in
     return LocusRepertoire(clonotypes=all_clonotypes, locus=rep_locus)
 
 
+def _parse_chunks_sequential(chunks: Iterable[pd.DataFrame], *, locus: str) -> LocusRepertoire:
+    """Parse an iterable of chunks sequentially without full-file materialization."""
+    parser = ClonotypeTableParser()
+    all_clonotypes = []
+    for chunk_df in chunks:
+        if chunk_df is None or chunk_df.empty:
+            continue
+        norm_df = parser.normalize_df(chunk_df)
+        all_clonotypes.extend(parser.parse_inner(norm_df))
+    return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
+
+
 def load_airr_parallel(
     path: str | Path,
     locus: str = "",
@@ -170,20 +183,32 @@ def load_airr_parallel(
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Read once and choose best parsing strategy.
-    df = pd.read_csv(path, sep=sep, compression=compression)
-    n_rows = len(df)
+    chunk_iter = pd.read_csv(path, sep=sep, compression=compression, chunksize=chunk_size)
 
-    if not _is_parallel_worthwhile(
-        n_rows,
-        n_jobs=n_jobs,
-        chunk_size=chunk_size,
-        parallel_min_rows=parallel_min_rows,
-    ):
-        return _parse_chunk_worker(df, locus=locus)
+    # Prefetch just enough rows to decide whether parallelism is worthwhile.
+    prefetched: list[pd.DataFrame] = []
+    prefetched_rows = 0
+    exhausted = True
+    for chunk in chunk_iter:
+        prefetched.append(chunk)
+        prefetched_rows += len(chunk)
+        if n_jobs > 1 and prefetched_rows >= parallel_min_rows:
+            exhausted = False
+            break
 
-    chunks = [df.iloc[i : i + chunk_size] for i in range(0, n_rows, chunk_size)]
-    return _parse_chunks_parallel(chunks, locus=locus, n_jobs=n_jobs)
+    if not prefetched:
+        return LocusRepertoire(clonotypes=[], locus=locus or "")
+
+    remainder = iter(()) if exhausted else chunk_iter
+    stream = chain(prefetched, remainder)
+
+    if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
+        return _parse_chunks_sequential(stream, locus=locus)
+
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        reps = executor.map(_parse_chunk_worker, stream, repeat(locus))
+        all_clonotypes = [c for rep in reps for c in rep.clonotypes]
+    return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
 
 
 def load_airr_with_filter(
@@ -225,21 +250,40 @@ def load_airr_with_filter(
     LocusRepertoire
         Filtered and parsed repertoire.
     """
-    df = pd.read_csv(path, sep=sep, compression=compression)
+    chunk_iter = pd.read_csv(path, sep=sep, compression=compression, chunksize=chunk_size)
 
-    if filter_fn is not None:
-        df = df[df.apply(filter_fn, axis=1)]
+    def _filtered_chunks() -> Iterable[pd.DataFrame]:
+        for chunk in chunk_iter:
+            if filter_fn is not None:
+                chunk = chunk[chunk.apply(filter_fn, axis=1)]
+            if not chunk.empty:
+                yield chunk
 
-    if not _is_parallel_worthwhile(
-        len(df),
-        n_jobs=n_jobs,
-        chunk_size=chunk_size,
-        parallel_min_rows=parallel_min_rows,
-    ):
-        return _parse_chunk_worker(df, locus=locus)
+    filtered_iter = _filtered_chunks()
 
-    chunks = [df.iloc[i : i + chunk_size] for i in range(0, len(df), chunk_size)]
-    return _parse_chunks_parallel(chunks, locus=locus, n_jobs=n_jobs)
+    prefetched: list[pd.DataFrame] = []
+    prefetched_rows = 0
+    exhausted = True
+    for chunk in filtered_iter:
+        prefetched.append(chunk)
+        prefetched_rows += len(chunk)
+        if n_jobs > 1 and prefetched_rows >= parallel_min_rows:
+            exhausted = False
+            break
+
+    if not prefetched:
+        return LocusRepertoire(clonotypes=[], locus=locus or "")
+
+    remainder = iter(()) if exhausted else filtered_iter
+    stream = chain(prefetched, remainder)
+
+    if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
+        return _parse_chunks_sequential(stream, locus=locus)
+
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        reps = executor.map(_parse_chunk_worker, stream, repeat(locus))
+        all_clonotypes = [c for rep in reps for c in rep.clonotypes]
+    return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
 
 
 # ============================================================================

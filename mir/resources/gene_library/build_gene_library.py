@@ -160,7 +160,7 @@ def build_olga_library(models_dirs: list[Path] | None = None) -> list[Row]:
             subdirectories.  ``None`` uses the default search paths.
 
     Returns:
-        List of ``(species, locus, gene, allele, sequence)`` rows.
+        List of ``(species, locus, gene, allele, sequence, functionality)`` rows.
     """
     if models_dirs is None:
         models_dirs = _default_olga_dirs()
@@ -240,8 +240,8 @@ def _parse_imgt_fasta(text: str, species: str, locus: str, gene: str) -> list[Ro
             allele += "*01"
         sequence = fields[15].replace(".", "").upper()
         if sequence:
-                functionality = _normalize_imgt_functionality(fields[3])
-                rows.append((species, locus, gene, allele, sequence, functionality))
+            functionality = _normalize_imgt_functionality(fields[3])
+            rows.append((species, locus, gene, allele, sequence, functionality))
     return rows
 
 
@@ -262,7 +262,7 @@ def build_imgt_library(
         loci_map: Override loci per species.  Defaults to :data:`IMGT_LOCI`.
 
     Returns:
-        List of ``(species, locus, gene, allele, sequence)`` rows.
+        List of ``(species, locus, gene, allele, sequence, functionality)`` rows.
     """
     if species_list is None:
         species_list = list(IMGT_LOCI.keys())

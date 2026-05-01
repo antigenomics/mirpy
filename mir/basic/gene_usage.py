@@ -703,7 +703,7 @@ def compute_batch_corrected_gene_usage(
                      0.0)
     df["z"] = np.clip(raw_z, -z_cap, z_cap)
 
-    df["pavg"] = df.apply(lambda r: pavg[(r["locus"], r["gene"])], axis=1)
+    df["pavg"] = [pavg[key] for key in zip(df["locus"], df["gene"])]
 
     correction_factor = np.exp(df["z"].to_numpy(dtype=float))
     df["pfinal"] = df["p"].to_numpy(dtype=float) * correction_factor
