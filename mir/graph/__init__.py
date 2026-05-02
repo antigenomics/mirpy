@@ -5,6 +5,7 @@ clonotypes and repertoires.
 """
 
 from mir.graph.neighborhood_enrichment import (
+    add_neighborhood_enrichment_metadata,
     add_neighborhood_metadata,
     compute_neighborhood_stats,
 )
@@ -12,4 +13,5 @@ from mir.graph.neighborhood_enrichment import (
 __all__ = [
     "compute_neighborhood_stats",
     "add_neighborhood_metadata",
+    "add_neighborhood_enrichment_metadata",
 ]

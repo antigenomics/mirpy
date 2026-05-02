@@ -130,6 +130,35 @@ Supported options:
 * ``match_v_gene``: If True, only count neighbors with matching V gene
 * ``match_j_gene``: If True, only count neighbors with matching J gene
 
+You can compute neighborhood stats against an explicit background repertoire:
+
+.. code-block:: python
+
+   # Query against background (adds +1 pseudocount in background mode)
+   bg_stats = compute_neighborhood_stats(
+      repertoire,
+      background=background_repertoire,
+      metric="hamming",
+      threshold=1,
+   )
+
+To attach parent-vs-background neighborhood enrichment metadata in one call:
+
+.. code-block:: python
+
+   from mir.graph import add_neighborhood_enrichment_metadata
+
+   add_neighborhood_enrichment_metadata(
+      repertoire,
+      background=background_repertoire,
+      metric="hamming",
+      threshold=1,
+      metadata_prefix="neighborhood",
+   )
+
+This writes parent/background counts, potentials, densities, and
+``neighborhood_enrichment`` for each clonotype.
+
 You can also add neighborhood stats directly to clonotype metadata:
 
 .. code-block:: python

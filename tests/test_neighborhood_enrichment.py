@@ -7,6 +7,7 @@ import pytest
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.graph.neighborhood_enrichment import (
+    add_neighborhood_enrichment_metadata,
     add_neighborhood_metadata,
     compute_neighborhood_stats,
 )
@@ -286,3 +287,74 @@ def test_neighborhood_convergent_rearrangements() -> None:
     assert stats["c1"]["neighbor_count"] == 3  # c1, c2, c3 (2 + 1 original)
     assert stats["c2"]["neighbor_count"] == 3  # c1, c2, c3 (2 + 1 original)
     assert stats["c3"]["neighbor_count"] == 3  # c1, c2, c3 (2 + 1 original)
+
+
+def test_neighborhood_stats_background_pseudocount() -> None:
+    """Background mode adds +1 pseudocount for query clonotype membership."""
+    query = LocusRepertoire(
+        clonotypes=[
+            _clonotype("q1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("q2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+    background = LocusRepertoire(
+        clonotypes=[
+            _clonotype("b1", "CCC", "CCC", v_gene="TRBV2", j_gene="TRBJ2"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(query, background=background, metric="hamming", threshold=1)
+
+    # No true background neighbors within threshold, but pseudocount adds one.
+    assert stats["q1"]["neighbor_count"] == 1
+    assert stats["q1"]["potential_neighbors"] == 2
+    assert stats["q2"]["neighbor_count"] == 1
+    assert stats["q2"]["potential_neighbors"] == 2
+
+
+def test_neighborhood_stats_background_same_as_query_is_equivalent() -> None:
+    """Syntax sugar: explicit background=self must equal self-mode stats."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c3", "AAA", "MLA", v_gene="TRBV1", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    stats_self = compute_neighborhood_stats(rep, metric="hamming", threshold=1)
+    stats_explicit = compute_neighborhood_stats(
+        rep,
+        background=rep,
+        metric="hamming",
+        threshold=1,
+    )
+
+    assert stats_explicit == stats_self
+
+
+def test_add_neighborhood_enrichment_metadata_background_equals_self() -> None:
+    """Parent/background stats and enrichment are consistent when background=self."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    add_neighborhood_enrichment_metadata(
+        rep,
+        background=rep,
+        metric="hamming",
+        threshold=1,
+        metadata_prefix="nbr",
+    )
+
+    for clonotype in rep.clonotypes:
+        assert clonotype.clone_metadata["nbr_parent_count"] == clonotype.clone_metadata["nbr_background_count"]
+        assert clonotype.clone_metadata["nbr_parent_potential"] == clonotype.clone_metadata["nbr_background_potential"]
+        assert clonotype.clone_metadata["nbr_enrichment"] == 1.0
