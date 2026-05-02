@@ -28,6 +28,14 @@ mir.common.filter module
    :undoc-members:
    :show-inheritance:
 
+mir.common.control module
+-------------------------
+
+.. automodule:: mir.common.control
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.io_parallel module
 -----------------------------
 

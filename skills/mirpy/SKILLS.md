@@ -260,6 +260,46 @@ pgen_adj = PgenGeneUsageAdjustment(
 
 ---
 
+### 9. Control Data Management (Synthetic + Real)
+
+**What it does**: Build/download and cache background control repertoires for
+enrichment workflows, with manifest tracking by species/locus/type.
+
+**Key APIs**:
+- `ControlManager.ensure_synthetic_control()` — generate OLGA control and store as pickle
+- `ControlManager.ensure_real_control()` — fetch HuggingFace control dataset and convert to pickle
+- `ControlManager.ensure_and_load_control_df()` — on-demand setup + immediate load
+- `ControlManager.load_control_df()` — load registered control table
+- `ControlManager.list_available_controls()` — inspect local registry
+
+**CLI**:
+- `mirpy-control-setup --type synthetic --species human,mouse --loci TRA,TRB --n 1000000`
+- `mirpy-control-setup --type real --species hsa --loci Tbeta`
+
+**Aliases**:
+- Species: `human/hsa/HomoSapiens`, `mouse/mmu/MusMusculus`
+- Loci: `TRA/TRB/TRG/TRD/IGH/IGK/IGL`, plus aliases like `Talpha`, `Tbeta`, `Bheavy`, `Bkappa`
+
+**Storage and deployment notes**:
+- Default control root: `~/.cache/mirpy/controls`
+- Override with `MIRPY_CONTROL_DIR` (recommended for shared HPC caches or node-local scratch)
+- Manifest (`manifest.json`) records available controls and their paths for reproducible reuse
+- Real controls can be large (multi-GB pickles for large loci like human TRB); prefer fast local scratch/cache on clusters
+
+**Benchmarking controls**:
+- `RUN_BENCHMARK=1 pytest tests/test_control_benchmark.py -s`
+- Benchmark covers both synthetic generation and real HuggingFace download/build plus cache-hit timing.
+
+**Common pattern**:
+```python
+from mir.common.control import ControlManager
+
+mgr = ControlManager()
+df_bg = mgr.ensure_and_load_control_df("real", "human", "TRB")
+```
+
+---
+
 ## Benchmark Runtime Controls
 
 Benchmark tests are opt-in and can be tuned for CI/runtime budgets.

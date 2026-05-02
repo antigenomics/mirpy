@@ -159,6 +159,44 @@ To attach parent-vs-background neighborhood enrichment metadata in one call:
 This writes parent/background counts, potentials, densities, and
 ``neighborhood_enrichment`` for each clonotype.
 
+Control Data Setup (Synthetic / Real)
+=====================================
+
+Background controls are expensive to build/download and are managed explicitly
+through ``mir.common.control``.
+
+.. code-block:: python
+
+   from mir.common.control import ControlManager
+
+   mgr = ControlManager()  # default: ~/.cache/mirpy/controls (or MIRPY_CONTROL_DIR)
+
+   # Build synthetic OLGA control (default n=10_000_000)
+   mgr.ensure_synthetic_control("human", "TRB", n=1_000_000)
+
+   # Download real control from HuggingFace dataset and convert to pickle
+   mgr.ensure_real_control("hsa", "Tbeta")
+
+   # Load normalized ntvj table (junction, junction_aa, v_gene, j_gene)
+   df_control = mgr.load_control_df("synthetic", "human", "TRB")
+
+   # Or build/fetch on demand when a workflow needs a control immediately
+   df_real = mgr.ensure_and_load_control_df("real", "human", "TRB")
+
+You can also prebuild controls via CLI:
+
+.. code-block:: bash
+
+   mirpy-control-setup --type synthetic --species human,mouse --loci TRA,TRB --n 1000000
+
+Benchmark coverage includes both synthetic generation and real-control
+download/build paths (HuggingFace), with cache-hit timing diagnostics in
+``tests/test_control_benchmark.py``.
+
+Available aliases include species ``human/hsa/HomoSapiens`` and
+``mouse/mmu/MusMusculus``; loci aliases include IMGT names and forms such as
+``Talpha``/``Tbeta``.
+
 You can also add neighborhood stats directly to clonotype metadata:
 
 .. code-block:: python
