@@ -61,6 +61,9 @@ docs = [
 Homepage = "https://github.com/antigenomics/mirpy"
 Issues   = "https://github.com/antigenomics/mirpy/issues"
 
+[project.scripts]
+mirpy-control-setup = "mir.common.control:control_setup_cli"
+
 [tool.scikit-build]
 wheel.packages = ["mir"]
 sdist.exclude = [
