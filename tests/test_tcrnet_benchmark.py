@@ -8,11 +8,18 @@ from __future__ import annotations
 
 import random
 import time
+import os
 from pathlib import Path
 
 from mir.biomarkers.tcrnet import compute_tcrnet
 from mir.common.clonotype import Clonotype
+from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire
+from tests.benchmark_helpers import (
+    load_gilg_target_repertoire,
+    synthetic_control_repertoire,
+    synthetic_control_size,
+)
 from tests.conftest import benchmark_max_seconds, skip_benchmarks
 
 
@@ -117,3 +124,60 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
 
     max_s = benchmark_max_seconds(default=120.0)
     assert elapsed < max_s
+
+
+@skip_benchmarks
+def test_tcrnet_runtime_gilg_vs_synthetic_1m(capsys) -> None:
+    """Benchmark TCRNET runtime for a GIL target vs synthetic control (1e6 default)."""
+    n_control = synthetic_control_size(default=1_000_000)
+    require_cached = os.getenv("MIRPY_BENCH_REQUIRE_CACHED_CONTROL", "1") != "0"
+    manager = ControlManager()
+
+    target = load_gilg_target_repertoire()
+    control = synthetic_control_repertoire(
+        manager=manager,
+        species="human",
+        locus="TRB",
+        n=n_control,
+        require_cached=require_cached,
+    )
+
+    t0 = time.perf_counter()
+    serial = compute_tcrnet(
+        target,
+        control=control,
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="binomial",
+        n_jobs=1,
+    )
+    elapsed_serial = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    parallel = compute_tcrnet(
+        target,
+        control=control,
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="binomial",
+        n_jobs=4,
+    )
+    elapsed_parallel = time.perf_counter() - t0
+
+    assert parallel.table.equals(serial.table)
+
+    with capsys.disabled():
+        print("\n" + "=" * 72)
+        print("TCRNET benchmark: GIL target vs synthetic control")
+        print(f"target size: {len(target.clonotypes)}")
+        print(f"control size: {len(control.clonotypes)} (requested n={n_control})")
+        print(f"runtime serial(1): {elapsed_serial:.3f}s")
+        print(f"runtime parallel(4): {elapsed_parallel:.3f}s")
+        if elapsed_parallel > 0:
+            print(f"speedup: {elapsed_serial / elapsed_parallel:.2f}x")
+        print("=" * 72)
+
+    max_s = benchmark_max_seconds(default=600.0)
+    assert elapsed_parallel < max_s

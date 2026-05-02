@@ -13,14 +13,10 @@ from math import ceil
 import typing as t
 from typing import TYPE_CHECKING
 
+from mir.graph._trie_utils import resolve_n_jobs, search_limits, validate_metric
+
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
-
-
-def _validate_metric(metric: str) -> None:
-    if metric not in ("hamming", "levenshtein"):
-        raise ValueError(f"metric must be 'hamming' or 'levenshtein', got {metric!r}")
-
 
 def _is_same_background(
     repertoire: "LocusRepertoire | SampleRepertoire",
@@ -53,14 +49,6 @@ def _background_locus_map(
     for locus, qrep in query_loci.items():
         out[locus] = bg_loci.get(locus, qrep.__class__(clonotypes=[], locus=locus))
     return out
-
-
-def _search_limits(metric: str, threshold: int) -> tuple[int, int, int, int | None]:
-    if threshold < 0:
-        raise ValueError(f"threshold must be >= 0, got {threshold!r}")
-    if metric == "hamming":
-        return threshold, 0, 0, threshold
-    return threshold, threshold, threshold, threshold
 
 
 def _build_potential_counter(
@@ -117,7 +105,7 @@ def _compute_query_batch(
     start: int,
     stop: int,
 ) -> dict[str, dict[str, int]]:
-    max_substitution, max_insertion, max_deletion, max_edits = _search_limits(metric, threshold)
+    max_substitution, max_insertion, max_deletion, max_edits = search_limits(metric, threshold)
     out: dict[str, dict[str, int]] = {}
     for i in range(start, stop):
         clonotype = query_clonotypes[i]
@@ -253,6 +241,7 @@ def _compute_stats_by_locus(
     add_background_pseudocount: bool | None = None,
     n_jobs: int = 4,
 ) -> dict[str, dict[str, dict[str, int]]]:
+    n_jobs = resolve_n_jobs(n_jobs=n_jobs, nproc=None, default=4)
     query_loci = _iter_loci(repertoire)
     bg_loci = _background_locus_map(query_loci, background)
     if add_background_pseudocount is None:
@@ -295,7 +284,7 @@ def compute_neighborhood_stats_by_locus(
         only when ``background`` is provided and is a different object).
         Set to ``False`` to disable pseudocounts in background mode.
     """
-    _validate_metric(metric)
+    validate_metric(metric)
     return _compute_stats_by_locus(
         repertoire,
         background=background,
@@ -355,7 +344,7 @@ def compute_neighborhood_stats(
     -----
     For SampleRepertoire, computes statistics per locus independently.
     """
-    _validate_metric(metric)
+    validate_metric(metric)
 
     stats_by_locus = compute_neighborhood_stats_by_locus(
         repertoire,
@@ -461,7 +450,7 @@ def add_neighborhood_enrichment_metadata(
     metadata_prefix
         Prefix for metadata keys.
     """
-    _validate_metric(metric)
+    validate_metric(metric)
 
     parent_stats_by_locus = _compute_stats_by_locus(
         repertoire,

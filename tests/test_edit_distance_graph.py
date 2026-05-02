@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import skip_benchmarks
+from tests.conftest import benchmark_repertoire_workers
 from mir.common.clonotype import Clonotype
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 
@@ -206,6 +207,41 @@ class TestHammingGraph(unittest.TestCase):
         self.assertEqual(g.vcount(), 1)
         self.assertEqual(g.ecount(), 0)
 
+    def test_n_jobs_matches_nproc(self):
+        """`n_jobs` and backward-compat `nproc` yield identical graphs."""
+        rearrangements = [_r(0, SEQ_A), _r(1, SEQ_B), _r(2, SEQ_C), _r(3, SEQ_D)]
+        g_nproc = build_edit_distance_graph(
+            rearrangements,
+            metric="levenshtein",
+            threshold=1,
+            nproc=1,
+        )
+        g_njobs = build_edit_distance_graph(
+            rearrangements,
+            metric="levenshtein",
+            threshold=1,
+            n_jobs=1,
+        )
+        self.assertEqual(_edge_set(g_nproc), _edge_set(g_njobs))
+
+    def test_parallel_matches_single_worker(self):
+        """Threaded trie search must match serial edge set."""
+        seqs = [SEQ_A, SEQ_B, SEQ_C, SEQ_D, "CASSRSGYTH", "CASSRSGYTY", "CASSPSGYTF"]
+        rearrangements = [_r(i, s) for i, s in enumerate(seqs)]
+        serial = build_edit_distance_graph(
+            rearrangements,
+            metric="hamming",
+            threshold=1,
+            n_jobs=1,
+        )
+        parallel = build_edit_distance_graph(
+            rearrangements,
+            metric="hamming",
+            threshold=1,
+            n_jobs=4,
+        )
+        self.assertEqual(_edge_set(serial), _edge_set(parallel))
+
 
 # ---------------------------------------------------------------------------
 # Levenshtein graph tests
@@ -294,6 +330,38 @@ class TestEditDistanceGraphBenchmark(unittest.TestCase):
 
     def _largest_cc(self, g):
         return g.components().giant()
+
+    def test_hamming_runtime_serial_vs_parallel(self):
+        """Benchmark runtime consistency for n_jobs matrix on GIL data."""
+        workers = benchmark_repertoire_workers(default="1,4")
+        runtimes: dict[int, float] = {}
+        baseline_edges: set[frozenset[int]] | None = None
+
+        for w in workers:
+            t0 = time.perf_counter()
+            g = build_edit_distance_graph(
+                self.rearrangements,
+                metric="hamming",
+                threshold=1,
+                n_jobs=w,
+            )
+            elapsed = time.perf_counter() - t0
+            runtimes[w] = elapsed
+            edges = _edge_set(g)
+            if baseline_edges is None:
+                baseline_edges = edges
+            else:
+                self.assertEqual(edges, baseline_edges)
+
+        print("\n  Hamming runtime matrix:")
+        for w in workers:
+            print(f"    n_jobs={w}: {runtimes[w]:.2f}s")
+        if 1 in runtimes:
+            for w in workers:
+                if w == 1:
+                    continue
+                if runtimes[w] > 0:
+                    print(f"    speedup 1->{w}: {runtimes[1] / runtimes[w]:.2f}x")
 
     # -- Hamming threshold=1 --------------------------------------------------
 
