@@ -70,6 +70,35 @@ If you compute only ``scope='vj'`` and need V- or J-marginal views for plots,
 reuse ``marginalize_batch_corrected_gene_usage(..., scope='v'|'j')`` from the
 same module instead of ad-hoc notebook ``groupby`` code.
 
+Pooling Repertoires Across Samples
+==================================
+
+Use ``pool_samples`` to combine clonotypes across samples with explicit
+identity rules.
+
+.. code-block:: python
+
+   from mir.common.pool import pool_samples
+
+   # Pool two samples by nucleotide CDR3 + V/J genes.
+   pooled = pool_samples([sample_rep_1, sample_rep_2], rule="ntvj", weighted=True)
+
+   # Pool a dataset by amino-acid CDR3 + V/J genes and keep sample ids per pooled clone.
+   pooled_ds = pool_samples(dataset, rule="aavj", include_sample_ids=True)
+
+Supported pooling rules:
+
+* ``ntvj``: key ``(junction, v_gene, j_gene)``
+* ``nt``: key ``(junction,)``
+* ``aavj``: key ``(junction_aa, v_gene, j_gene)``
+* ``aa``: key ``(junction_aa,)``
+
+Each pooled clonotype stores:
+
+* ``duplicate_count`` as the sum over grouped clonotypes,
+* ``incidence`` in clonotype metadata (number of unique samples containing the key),
+* ``occurrences`` in clonotype metadata (number of grouped rows).
+
 Next Steps
 ==========
 

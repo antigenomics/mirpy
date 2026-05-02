@@ -103,7 +103,41 @@ repertoire = Repertoire.load(
     path="example.tsv",
     gene="TRB",
 )
+
+### Pool repertoires across samples
+
+`mirpy` provides pooled repertoires with configurable identity rules.
+
+```python
+from mir.common.pool import pool_samples
+
+# Pool by nucleotide CDR3 + V/J calls.
+pooled_ntvj = pool_samples(
+    [sample_rep_1, sample_rep_2],
+    rule="ntvj",
+    weighted=True,
+)
+
+# Pool an entire dataset by amino-acid CDR3 + V/J and keep contributing sample ids.
+pooled_aavj = pool_samples(
+    dataset,
+    rule="aavj",
+    include_sample_ids=True,
+)
 ```
+
+Supported pooling rules:
+
+- `ntvj`: key is `(junction, v_gene, j_gene)`
+- `nt`: key is `(junction,)`
+- `aavj`: key is `(junction_aa, v_gene, j_gene)`
+- `aa`: key is `(junction_aa,)`
+
+For each pooled key, the representative clonotype is selected by frequency
+(`duplicate_count` when `weighted=True`, otherwise row occurrences), while
+`duplicate_count` is reassigned to the total sum over grouped rows. The pooled
+clonotype metadata contains `incidence` (unique samples) and `occurrences`
+(independent rearrangement rows).
 
 ### Repertoire internals and lazy tabular backend
 

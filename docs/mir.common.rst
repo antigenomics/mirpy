@@ -82,6 +82,14 @@ mir.common.repertoire module
    :undoc-members:
    :show-inheritance:
 
+mir.common.pool module
+----------------------
+
+.. automodule:: mir.common.pool
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 TSV And Parquet I/O Layouts
 ---------------------------
 
