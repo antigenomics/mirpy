@@ -41,6 +41,7 @@ import numpy as np
 from scipy.stats import norm as _scipy_norm
 
 from mir.basic.pgen import OlgaModel
+from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import Repertoire
 from mir.comparative.overlap import (
@@ -56,8 +57,8 @@ from mir.comparative.overlap import (
 # ---------------------------------------------------------------------------
 
 def _strip_allele(gene: str) -> str:
-    """'TRBV1*01' -> 'TRBV1'."""
-    return gene.split("*")[0]
+    """Normalize to major allele (e.g. TRBV1*02 -> TRBV1*01)."""
+    return allele_to_major(gene)
 
 
 def _resolve_locus(repertoire: Repertoire) -> str:

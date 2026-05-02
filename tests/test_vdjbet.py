@@ -190,10 +190,10 @@ class TestHelpers:
     """Unit tests for internal helpers (no OLGA sequence generation)."""
 
     def test_strip_allele_with_allele(self) -> None:
-        assert _strip_allele("TRBV1*01") == "TRBV1"
+        assert _strip_allele("TRBV1*01") == "TRBV1*01"
 
     def test_strip_allele_without_allele(self) -> None:
-        assert _strip_allele("TRBV1") == "TRBV1"
+        assert _strip_allele("TRBV1") == "TRBV1*01"
 
     def test_log2_pgen_bin_rounds_down(self) -> None:
         assert _log2_pgen_bin(-10.0) == -10

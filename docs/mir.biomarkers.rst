@@ -28,3 +28,11 @@ mir.biomarkers.vdjbet module
    :undoc-members:
    :show-inheritance:
 
+mir.biomarkers.tcrnet module
+----------------------------
+
+.. automodule:: mir.biomarkers.tcrnet
+   :members:
+   :undoc-members:
+   :show-inheritance:
+

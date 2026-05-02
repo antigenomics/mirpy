@@ -15,7 +15,6 @@ import pytest
 from mir.common.parser import VDJtoolsParser
 from mir.common.pool import pool_samples
 from mir.common.repertoire import SampleRepertoire
-from mir.common.repertoire_dataset import RepertoireDataset
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats
 from tests.conftest import benchmark_repertoire_workers, skip_benchmarks
 
@@ -36,14 +35,13 @@ def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
         pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in real_repertoires/")
 
     workers = benchmark_repertoire_workers(default="4")[0]
+    parser = VDJtoolsParser()
 
     t0 = time.perf_counter()
     samples = []
     for fpath in a_files:
-        srep = RepertoireDataset.from_file_polars(
-            fpath,
-            parser=VDJtoolsParser(),
-        ).samples_list()[0]
+        clonotypes = parser.parse(str(fpath))
+        srep = SampleRepertoire.from_clonotypes(clonotypes, sample_id=fpath.stem)
         samples.append(srep)
     load_s = time.perf_counter() - t0
 
@@ -55,8 +53,25 @@ def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
         locus_rep = sample
 
     t0 = time.perf_counter()
-    stats = compute_neighborhood_stats(locus_rep, metric="hamming", threshold=1, match_v_gene=False)
+    stats_serial = compute_neighborhood_stats(
+        locus_rep,
+        metric="hamming",
+        threshold=1,
+        match_v_gene=False,
+        n_jobs=1,
+    )
+    compute_serial_s = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    stats = compute_neighborhood_stats(
+        locus_rep,
+        metric="hamming",
+        threshold=1,
+        match_v_gene=False,
+        n_jobs=workers,
+    )
     compute_s = time.perf_counter() - t0
+    assert stats == stats_serial
 
     # Extract clonotypes and their stats
     clonotypes = locus_rep.clonotypes
@@ -90,7 +105,10 @@ def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
                 print("\n" + "=" * 76)
                 print("Neighborhood enrichment benchmark on real repertoires")
                 print(f"Loaded {len(samples)} samples in {load_s:.2f}s")
-                print(f"Computed neighborhood stats in {compute_s:.2f}s")
+                print(f"Computed neighborhood stats serial in {compute_serial_s:.2f}s")
+                print(f"Computed neighborhood stats parallel({workers}) in {compute_s:.2f}s")
+                if compute_s > 0:
+                    print(f"Speedup: {compute_serial_s / compute_s:.2f}x")
                 print(f"Sample: {sample.sample_id}, Locus: {locus_rep.locus}")
                 print(f"Total clonotypes: {len(clonotypes)}")
                 print(f"Clonotypes with stats: {len(df)}")
@@ -121,14 +139,13 @@ def test_pooled_repertoire_convergence_by_length(capsys) -> None:
         pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in real_repertoires/")
 
     workers = benchmark_repertoire_workers(default="4")[0]
+    parser = VDJtoolsParser()
 
     t0 = time.perf_counter()
     samples = []
     for fpath in a_files:
-        srep = RepertoireDataset.from_file_polars(
-            fpath,
-            parser=VDJtoolsParser(),
-        ).samples_list()[0]
+        clonotypes = parser.parse(str(fpath))
+        srep = SampleRepertoire.from_clonotypes(clonotypes, sample_id=fpath.stem)
         samples.append(srep)
     load_s = time.perf_counter() - t0
 

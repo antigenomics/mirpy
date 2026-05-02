@@ -336,6 +336,38 @@ def test_neighborhood_stats_background_same_as_query_is_equivalent() -> None:
     assert stats_explicit == stats_self
 
 
+def test_neighborhood_parallel_matches_single_worker() -> None:
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+        ],
+        locus="TRB",
+    )
+
+    serial = compute_neighborhood_stats(
+        rep,
+        metric="hamming",
+        threshold=1,
+        match_v_gene=False,
+        match_j_gene=False,
+        n_jobs=1,
+    )
+    parallel = compute_neighborhood_stats(
+        rep,
+        metric="hamming",
+        threshold=1,
+        match_v_gene=False,
+        match_j_gene=False,
+        n_jobs=4,
+    )
+
+    assert parallel == serial
+
+
 def test_add_neighborhood_enrichment_metadata_background_equals_self() -> None:
     """Parent/background stats and enrichment are consistent when background=self."""
     rep = LocusRepertoire(
