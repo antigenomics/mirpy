@@ -6,16 +6,23 @@ Run with:
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from mir.common.control import ControlManager
 from mir.common.parser import VDJtoolsParser
 from mir.common.pool import pool_samples
 from mir.common.repertoire import SampleRepertoire
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats
+from tests.benchmark_helpers import (
+    load_gilg_target_repertoire,
+    synthetic_control_repertoire,
+    synthetic_control_size,
+)
 from tests.conftest import benchmark_repertoire_workers, skip_benchmarks
 
 REAL_REPS = Path(__file__).parent / "real_repertoires"
@@ -215,3 +222,59 @@ def test_pooled_repertoire_convergence_by_length(capsys) -> None:
                 f"Expected shorter sequences to have higher convergence, "
                 f"got short={short_conv:.4f}, long={long_conv:.4f}"
             )
+
+
+@skip_benchmarks
+def test_neighborhood_runtime_gilg_vs_synthetic_1m(capsys) -> None:
+    """Benchmark neighborhood runtime for GIL target against synthetic control (1e6 by default)."""
+    workers = benchmark_repertoire_workers(default="1,4")
+    manager = ControlManager()
+    n_control = synthetic_control_size(default=1_000_000)
+    require_cached = os.getenv("MIRPY_BENCH_REQUIRE_CACHED_CONTROL", "1") != "0"
+
+    target = load_gilg_target_repertoire()
+    control = synthetic_control_repertoire(
+        manager=manager,
+        species="human",
+        locus="TRB",
+        n=n_control,
+        require_cached=require_cached,
+    )
+
+    runtimes: dict[int, float] = {}
+    baseline = None
+    for w in workers:
+        t0 = time.perf_counter()
+        stats = compute_neighborhood_stats(
+            target,
+            background=control,
+            metric="hamming",
+            threshold=1,
+            match_v_gene=False,
+            match_j_gene=False,
+            n_jobs=w,
+        )
+        elapsed = time.perf_counter() - t0
+        runtimes[w] = elapsed
+        if baseline is None:
+            baseline = stats
+        else:
+            assert stats == baseline
+
+    with capsys.disabled():
+        print("\n" + "=" * 76)
+        print("Neighborhood benchmark: GIL target vs synthetic control")
+        print(f"target clonotypes: {len(target.clonotypes)}")
+        print(f"control clonotypes: {len(control.clonotypes)} (requested n={n_control})")
+        for w in workers:
+            print(f"runtime n_jobs={w}: {runtimes[w]:.3f}s")
+        if 1 in runtimes:
+            for w in workers:
+                if w == 1:
+                    continue
+                if runtimes[w] > 0:
+                    print(f"speedup 1->{w}: {runtimes[1] / runtimes[w]:.2f}x")
+        print("=" * 76)
+
+    assert baseline is not None
+    assert len(baseline) == len(target.clonotypes)

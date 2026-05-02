@@ -35,12 +35,12 @@ rep = LocusRepertoire.from_pickle("cache.pkl")
 **Parallel Load Defaults (io_parallel)**:
 - `load_airr_parallel(..., n_jobs=4)` uses parallel parsing by default.
 - Automatic sequential fallback occurs when:
-    - `n_jobs == 1`
-    - row count `< 10,000` (`parallel_min_rows`)
-    - row count `<= chunk_size`
+	- `n_jobs == 1`
+	- row count `< 10,000` (`parallel_min_rows`)
+	- row count `<= chunk_size`
 - Practical estimate for narrow AIRR TSVs similar to bundled YFV examples:
-    - about 43,000 rows per MB of gzipped file size
-    - about 0.23 MB gz ≈ 10,000 rows
+	- about 43,000 rows per MB of gzipped file size
+	- about 0.23 MB gz ≈ 10,000 rows
 
 ---
 
@@ -85,8 +85,8 @@ functional_subset = filter_functional(rep, gene_library=library)
 **Configuration**:
 - `strip_alleles` (default `True`) — Normalize TRBV1*01 → TRBV1
 - `count` — Count mode aliases normalized internally:
-    - `clonotypes`, `clonotype`, `rearrangement`, `rearrangements`, `count_rearrangement`, `count_rearrangements`
-    - `duplicates`, `duplicate`, `count_duplicates`
+	- `clonotypes`, `clonotype`, `rearrangement`, `rearrangements`, `count_rearrangement`, `count_rearrangements`
+	- `duplicates`, `duplicate`, `count_duplicates`
 - `pseudocount` — Laplace smoothing parameter
 
 **Common Patterns**:
@@ -132,11 +132,11 @@ downsampled = downsample(rep, 1000, random_seed=42)
 # Resample day-0 to match day-15 V-gene usage
 target_gu = GeneUsage.from_repertoire(rep_d15)
 resampled = resample_to_gene_usage(
-    rep_d0,
-    target_gu.v_usage("TRB", count="duplicates"),
-    scope="v",           # or gene_type="v" for backward compatibility
-    weighted=True,
-    random_seed=42,
+	rep_d0,
+	target_gu.v_usage("TRB", count="duplicates"),
+	scope="v",           # or gene_type="v" for backward compatibility
+	weighted=True,
+	random_seed=42,
 )
 
 # Select top 100 clonotypes
@@ -176,12 +176,12 @@ kmers_common = [k for k in kmers_3 if kmers_3[k] > 2]
 
 **Control-backed bag-of-k-mers profiles**:
 - `mir.embedding.bag_of_kmers.build_control_kmer_profile()` computes control
-    k-mer statistics as an in-memory object by default (no profile cache write).
+	k-mer statistics as an in-memory object by default (no profile cache write).
 - Set `cache=True` for persisted profile tables under the control cache.
 - Profile object fields:
-        - `token_stats` (`token`, `n`, `T`, `p`, `idf`)
-        - `position_stats` (`token`, `count`, `pos`, `junction_len`)
-        - `metadata` (profile name, params, totals, cache mode)
+		- `token_stats` (`token`, `n`, `T`, `p`, `idf`)
+		- `position_stats` (`token`, `count`, `pos`, `junction_len`)
+		- `metadata` (profile name, params, totals, cache mode)
 
 ---
 
@@ -190,23 +190,34 @@ kmers_common = [k for k in kmers_3 if kmers_3[k] > 2]
 **What it does**: Build and analyze CDR3 similarity graphs based on Hamming distance and k-mer similarity.
 
 **Key Functions**:
-- `EditDistanceGraph` — Clonotypes as nodes, edges for Hamming distance ≤ threshold
-- `KmerGraph` — Clonotypes connected by shared k-mers
-- Graph metrics: clustering, diameter, connectivity
+- `build_edit_distance_graph()` — `igraph` graph from clonotypes with edit-distance edges
+- `compute_neighborhood_stats()` — per-clonotype neighbor counts (self/background)
+- `add_neighborhood_metadata()` / `add_neighborhood_enrichment_metadata()` — metadata-first enrichment
+- Graph metrics via `igraph`: connected components, degree, layouts
 
 **Common Patterns**:
 ```python
-from mir.graph.edit_distance_graph import EditDistanceGraph
-from mir.graph.token_graph import KmerGraph
+from mir.graph.edit_distance_graph import build_edit_distance_graph
+from mir.graph import compute_neighborhood_stats
 
-# Build edit-distance graph (1-2 mismatches)
-edg = EditDistanceGraph(rep, max_distance=2)
-print(f"Clonotype clusters: {edg.n_connected_components()}")
+# Build Hamming graph with threshold 1
+g = build_edit_distance_graph(
+	rep.clonotypes,
+	metric="hamming",
+	threshold=1,
+	n_jobs=4,
+)
+print(f"Connected components: {len(g.components())}")
 
-# Build k-mer graph
-kg = KmerGraph(rep, k=3, min_shared=1)
-print(f"Highly connected clonotypes: {[c for c in kg if kg.degree[c] > 5]}")
+# Compute neighbor stats directly (trie-backed)
+stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=4)
+print(stats[next(iter(stats))])
 ```
+
+**Performance Notes**:
+- `build_edit_distance_graph()` and neighborhood/TCRNET methods use `tcrtrie` for fast approximate search.
+- Prefer `n_jobs` across APIs for worker control (`nproc` in graph code is backward-compatible only).
+- For benchmarking against synthetic controls, use cached controls where possible (`ControlManager`, e.g. `n=1_000_000`).
 
 **Use Cases**:
 - Identify clonal families / clusters
@@ -260,12 +271,13 @@ pgens = model.compute_pgens([c.junction_aa for c in rep.clonotypes])
 
 # Adjust mocks by observed gene usage
 pgen_adj = PgenGeneUsageAdjustment(
-    observed_gu,
-    reference=olga_gu,
-    seed=42,
+	observed_gu,
+	reference=olga_gu,
+	seed=42,
 )
 
 # Build binned pool for significance testing
+```
 
 ---
 
@@ -307,197 +319,4 @@ from mir.embedding.bag_of_kmers import BagOfKmersParams, build_control_kmer_prof
 
 mgr = ControlManager()
 df_bg = mgr.ensure_and_load_control_df("real", "human", "TRB")
-
-# In-memory control k-mer profile (default mode)
-profile = build_control_kmer_profile(
-    mgr,
-    control_type="real",
-    species="human",
-    locus="TRB",
-    params=BagOfKmersParams(k=3),
-)
 ```
-
-**Control table schema**:
-- Normalized controls include `duplicate_count`, `junction`, `junction_aa`, `v_gene`, `j_gene`.
-- Synthetic controls use Zipf-distributed `duplicate_count` (singleton-dominated).
-
----
-
-## Benchmark Runtime Controls
-
-Benchmark tests are opt-in and can be tuned for CI/runtime budgets.
-
-- Enable benchmarks:
-    - `RUN_BENCHMARK=1`
-- Scale micro-benchmark loop counts:
-    - `MIRPY_BENCHMARK_SCALE` (default 0.5)
-- Per-test benchmark wall-clock upper bound in seconds:
-    - `MIRPY_BENCHMARK_MAX_SECONDS` (default 20 for micro-bench, 30 per repertoire case)
-- Repertoire benchmark worker matrix:
-    - `MIRPY_BENCH_WORKERS` (default `1,4`; set `1,4,8` for full matrix)
-- Track memory via tracemalloc in repertoire benchmark:
-    - `MIRPY_BENCH_TRACK_MEMORY=1`
-pool = PgenBinPool("TRB", n=50_000, n_jobs=4, seed=42)
-```
-
-**Use Cases**:
-- Identify clonotypes with unlikely CDR3 sequences
-- Control for V/J gene usage bias in significance tests
-- Compare antigen-specific vs. naive repertoires
-
----
-
-### 9. VDJbet Overlap Analysis
-
-**What it does**: Compute repertoire overlap with significance testing via p-generation null models.
-
-**Key Functions**:
-- `make_reference_keys()` / `make_query_index()` — Build overlap comparison indices
-- `count_overlap()` — Count matching clonotypes (exact, 1mm, or V/J match)
-- `compute_overlaps()` — Batch overlap for multiple reference sets
-- `VDJBetOverlapAnalysis` — Full significance testing pipeline
-
-**Configuration**:
-- Matching modes: exact, 1-mismatch (1mm), or V/J-required
-- Normalization: divide by target repertoire size
-- Statistical test: empirical p-value from mock null distribution
-
-**Common Patterns**:
-```python
-from mir.comparative.overlap import make_reference_keys, make_query_index, count_overlap
-from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis
-
-# Simple overlap count
-ref_keys = make_reference_keys(ref_rep)
-query_idx = make_query_index(query_rep)
-overlap = count_overlap(ref_keys, query_idx, target_n=len(ref_rep.clonotypes), target_dc=ref_rep.duplicate_count)
-print(f"Matched: {overlap.n_normalized:.4f} of target")
-
-# Full VDJbet significance test
-analysis = VDJBetOverlapAnalysis(ref_rep, n_mocks=200, seed=42)
-results = analysis.analyze_overlap(query_rep)
-for r in results:
-    print(f"Sample {r.sample_id}: overlap z-score={r.n_z:.2f}, p={r.n_p_emp:.4f}")
-```
-
-**Use Cases**:
-- Detect TCR sharing between individuals
-- Identify public clonotypes in cohort
-- Test for unlikely high overlap (potential contamination)
-
----
-
-### 10. Exact vs. 1-Mismatch Overlap
-
-**What it does**: Distinguish overlaps by matching stringency.
-
-**Configuration**:
-- `allow_1mm=False` (default) — Exact junction_aa match only
-- `allow_1mm=True` — Include 1-amino-acid substitution variants
-- `match_v`, `match_j` — Require V/J gene match (allele-stripped)
-
-**Common Patterns**:
-```python
-# Exact match only
-exact = count_overlap(ref_keys, query_idx, allow_1mm=False)
-
-# 1-mismatch allowed (fuzzy)
-fuzzy = count_overlap(ref_keys, query_idx, allow_1mm=True)
-
-# Junction match only, ignore V/J genes
-ref_keys_relaxed = make_reference_keys(ref_rep, match_v=False, match_j=False)
-vj_free = count_overlap(ref_keys_relaxed, query_idx)
-```
-
-**Use Cases**:
-- Distinguish true clonal expansion from sequencing noise
-- Detect cross-reactive TCRs within 1 mutation
-- Focus on core junction identity
-
----
-
-## Recommended Workflows
-
-### Workflow 1: Quality Control → Gene Usage Characterization
-
-```python
-from mir.common.filter import filter_functional
-from mir.basic.gene_usage import GeneUsage
-
-# 1. Filter
-functional_rep = filter_functional(loaded_rep)
-
-# 2. Compute usage
-gu = GeneUsage.from_repertoire(functional_rep)
-v_frac = gu.v_fraction("TRB", count="duplicates")
-
-# 3. Compare to reference
-factors = gu.correction_factors(reference_gu, "TRB")
-print(f"Genes with > 2-fold enrichment: {sum(1 for f in factors.values() if f > 2)}")
-```
-
-### Workflow 2: Sample Normalization → Comparison
-
-```python
-from mir.common.sampling import downsample, resample_to_gene_usage
-from mir.comparative.overlap import make_reference_keys, make_query_index, count_overlap
-
-# 1. Normalize sizes
-downsampled = downsample(rep, 1000)
-
-# 2. Resample to match batch
-resampled = resample_to_gene_usage(downsampled, batch_gu, "TRB")
-
-# 3. Compute overlap
-ref_keys = make_reference_keys(ref_rep)
-query_idx = make_query_index(resampled)
-overlap = count_overlap(ref_keys, query_idx, target_n=len(ref_rep.clonotypes))
-```
-
-### Workflow 3: Significance Testing with VDJbet
-
-```python
-from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis
-
-# 1. Filter and resample query
-query_rep = filter_functional(query_rep)
-query_rep = downsample(query_rep, 1000)
-
-# 2. Run VDJbet
-analysis = VDJBetOverlapAnalysis(ref_rep, n_mocks=500, seed=42)
-results = analysis.analyze_overlap(query_rep)
-
-# 3. Interpret
-for r in results:
-    sig = "***" if r.n_p_emp < 0.001 else ("**" if r.n_p_emp < 0.01 else ("*" if r.n_p_emp < 0.05 else ""))
-    print(f"{r.sample_id}: overlap={r.n}/{r.n_total}, z={r.n_z:.2f} {sig}")
-```
-
----
-
-## Performance Tips
-
-1. **Caching**: Use `.to_pickle()` / `.from_pickle()` for large repertoires
-2. **Filtering**: Apply early to reduce downstream computation
-3. **Parallelization**: Use `n_jobs > 1` in VDJBetOverlapAnalysis and compute_overlaps
-4. **Gene Usage**: Use `count="clonotypes"` for unweighted analysis (faster)
-5. **Graph Construction**: Set reasonable `max_distance` thresholds to avoid explosion
-
----
-
-## Error Handling & Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| `FileNotFoundError` (gene library) | IMGT data not downloaded | `GeneLibrary.load_default()` auto-downloads on first run |
-| Empty repertoire after filtering | Too stringent filter | Check V-gene functionality annotations and CDR3 coding status |
-| Low overlap p-values despite large n | Sample size not normalized | Apply `downsample()` before overlap analysis |
-| Slow k-mer graph | k too small (exponential variants) | Use k=3 or k=4; consider down-sampling |
-
----
-
-## References
-
-- **AIRR Format**: [AIRR Community Standard](https://docs.airr-community.org/)
-- **OLGA**: [Sethna et al. PNAS 2019](https://www.pnas.org/content/116/12/5464)

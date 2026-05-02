@@ -266,6 +266,7 @@ into clonotype metadata. A tabular result is optional.
       control=control_repertoire,
       metric="hamming",
       threshold=1,
+      n_jobs=4,
       match_mode="none",       # one of: none, v, j, vj
       pvalue_mode="binomial",  # or beta-binomial
    )
@@ -285,6 +286,7 @@ You can also use managed controls directly:
       target_repertoire,
       control_type="real",   # or "synthetic"
       species="human",
+      n_jobs=4,
       normalize_control_vj_usage=True,
       pvalue_mode="beta-binomial",
    )
@@ -295,7 +297,7 @@ You can also add neighborhood stats directly to clonotype metadata:
 
    from mir.graph import add_neighborhood_metadata
 
-   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1)
+   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=4)
    # Adds neighborhood_count and neighborhood_potential to each clonotype's metadata
 
 Next Steps
