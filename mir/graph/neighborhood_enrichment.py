@@ -8,10 +8,10 @@ explicit background repertoire.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 import typing as t
 from typing import TYPE_CHECKING
-
-from mir.graph.distance_utils import PairRecord, compute_distance, should_compare_pair
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -55,6 +55,99 @@ def _background_locus_map(
     return out
 
 
+def _search_limits(metric: str, threshold: int) -> tuple[int, int, int, int | None]:
+    if threshold < 0:
+        raise ValueError(f"threshold must be >= 0, got {threshold!r}")
+    if metric == "hamming":
+        return threshold, 0, 0, threshold
+    return threshold, threshold, threshold, threshold
+
+
+def _build_potential_counter(
+    background_clonotypes: list,
+    *,
+    match_v_gene: bool,
+    match_j_gene: bool,
+) -> dict[t.Any, int] | None:
+    if not match_v_gene and not match_j_gene:
+        return None
+    counter: dict[t.Any, int] = {}
+    for clonotype in background_clonotypes:
+        if match_v_gene and match_j_gene:
+            key = (clonotype.v_gene, clonotype.j_gene)
+        elif match_v_gene:
+            key = clonotype.v_gene
+        else:
+            key = clonotype.j_gene
+        counter[key] = counter.get(key, 0) + 1
+    return counter
+
+
+def _potential_neighbor_count(
+    clonotype,
+    *,
+    background_size: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    counter: dict[t.Any, int] | None,
+) -> int:
+    if counter is None:
+        return background_size
+    if match_v_gene and match_j_gene:
+        key = (clonotype.v_gene, clonotype.j_gene)
+    elif match_v_gene:
+        key = clonotype.v_gene
+    else:
+        key = clonotype.j_gene
+    return int(counter.get(key, 0))
+
+
+def _compute_query_batch(
+    query_clonotypes: list,
+    sequence_ids: list[str],
+    trie,
+    *,
+    metric: str,
+    threshold: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    background_size: int,
+    potential_counter: dict[t.Any, int] | None,
+    add_self_pseudocount: bool,
+    start: int,
+    stop: int,
+) -> dict[str, dict[str, int]]:
+    max_substitution, max_insertion, max_deletion, max_edits = _search_limits(metric, threshold)
+    out: dict[str, dict[str, int]] = {}
+    for i in range(start, stop):
+        clonotype = query_clonotypes[i]
+        hits = trie.SearchIndices(
+            query=clonotype.junction_aa,
+            maxSubstitution=max_substitution,
+            maxInsertion=max_insertion,
+            maxDeletion=max_deletion,
+            maxEdits=max_edits,
+            vGeneFilter=clonotype.v_gene if match_v_gene else None,
+            jGeneFilter=clonotype.j_gene if match_j_gene else None,
+        )
+        potential_neighbors = _potential_neighbor_count(
+            clonotype,
+            background_size=background_size,
+            match_v_gene=match_v_gene,
+            match_j_gene=match_j_gene,
+            counter=potential_counter,
+        )
+        neighbor_count = len(hits)
+        if add_self_pseudocount:
+            potential_neighbors += 1
+            neighbor_count += 1
+        out[sequence_ids[i]] = {
+            "neighbor_count": int(neighbor_count),
+            "potential_neighbors": int(potential_neighbors),
+        }
+    return out
+
+
 def _compute_locus_stats(
     query_locus: "LocusRepertoire",
     background_locus: "LocusRepertoire",
@@ -64,63 +157,71 @@ def _compute_locus_stats(
     match_v_gene: bool,
     match_j_gene: bool,
     add_self_pseudocount: bool,
+    n_jobs: int,
 ) -> dict[str, dict[str, int]]:
     query_clonotypes = query_locus.clonotypes
     background_clonotypes = background_locus.clonotypes
 
     if not query_clonotypes:
         return {}
-
-    q_seqs = [c.junction_aa for c in query_clonotypes]
-    q_v_genes = [c.v_gene for c in query_clonotypes]
-    q_j_genes = [c.j_gene for c in query_clonotypes]
     q_seq_ids = [c.sequence_id for c in query_clonotypes]
-
-    b_seqs = [c.junction_aa for c in background_clonotypes]
-    b_v_genes = [c.v_gene for c in background_clonotypes]
-    b_j_genes = [c.j_gene for c in background_clonotypes]
-
-    n_query = len(query_clonotypes)
     n_background = len(background_clonotypes)
-
-    results: dict[str, dict[str, int]] = {}
-    for i in range(n_query):
-        potential_neighbors = 0
-        neighbor_count = 0
-
-        for j in range(n_background):
-            rec = PairRecord(
-                i,
-                j,
-                q_seqs[i],
-                b_seqs[j],
-                q_v_genes[i],
-                b_v_genes[j],
-                q_j_genes[i],
-                b_j_genes[j],
-            )
-            if not should_compare_pair(
-                rec,
-                match_v_gene=match_v_gene,
-                match_j_gene=match_j_gene,
-            ):
-                continue
-
-            potential_neighbors += 1
-            if compute_distance(q_seqs[i], b_seqs[j], metric) <= threshold:
-                neighbor_count += 1
-
-        if add_self_pseudocount:
-            # Background-mode smoothing: count query clonotype itself as one extra
-            # background member to avoid zero-neighbor/zero-potential artifacts.
-            potential_neighbors += 1
-            neighbor_count += 1
-
-        results[q_seq_ids[i]] = {
-            "neighbor_count": int(neighbor_count),
-            "potential_neighbors": int(potential_neighbors),
+    if n_background == 0:
+        return {
+            seq_id: {
+                "neighbor_count": int(1 if add_self_pseudocount else 0),
+                "potential_neighbors": int(1 if add_self_pseudocount else 0),
+            }
+            for seq_id in q_seq_ids
         }
 
+    trie = background_locus.trie
+    potential_counter = _build_potential_counter(
+        background_clonotypes,
+        match_v_gene=match_v_gene,
+        match_j_gene=match_j_gene,
+    )
+    n_query = len(query_clonotypes)
+    if n_jobs <= 1 or n_query < 32:
+        return _compute_query_batch(
+            query_clonotypes,
+            q_seq_ids,
+            trie,
+            metric=metric,
+            threshold=threshold,
+            match_v_gene=match_v_gene,
+            match_j_gene=match_j_gene,
+            background_size=n_background,
+            potential_counter=potential_counter,
+            add_self_pseudocount=add_self_pseudocount,
+            start=0,
+            stop=n_query,
+        )
+
+    batch_size = max(1, ceil(n_query / n_jobs))
+    ranges = [(start, min(start + batch_size, n_query)) for start in range(0, n_query, batch_size)]
+    results: dict[str, dict[str, int]] = {}
+    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+        futures = [
+            executor.submit(
+                _compute_query_batch,
+                query_clonotypes,
+                q_seq_ids,
+                trie,
+                metric=metric,
+                threshold=threshold,
+                match_v_gene=match_v_gene,
+                match_j_gene=match_j_gene,
+                background_size=n_background,
+                potential_counter=potential_counter,
+                add_self_pseudocount=add_self_pseudocount,
+                start=start,
+                stop=stop,
+            )
+            for start, stop in ranges
+        ]
+        for future in futures:
+            results.update(future.result())
     return results
 
 
@@ -149,10 +250,15 @@ def _compute_stats_by_locus(
     threshold: int,
     match_v_gene: bool,
     match_j_gene: bool,
+    add_background_pseudocount: bool | None = None,
+    n_jobs: int = 4,
 ) -> dict[str, dict[str, dict[str, int]]]:
     query_loci = _iter_loci(repertoire)
     bg_loci = _background_locus_map(query_loci, background)
-    add_self_pseudocount = not _is_same_background(repertoire, background)
+    if add_background_pseudocount is None:
+        add_self_pseudocount = not _is_same_background(repertoire, background)
+    else:
+        add_self_pseudocount = add_background_pseudocount and (not _is_same_background(repertoire, background))
 
     return {
         locus: _compute_locus_stats(
@@ -163,9 +269,43 @@ def _compute_stats_by_locus(
             match_v_gene=match_v_gene,
             match_j_gene=match_j_gene,
             add_self_pseudocount=add_self_pseudocount,
+            n_jobs=n_jobs,
         )
         for locus, qrep in query_loci.items()
     }
+
+
+def compute_neighborhood_stats_by_locus(
+    repertoire: LocusRepertoire | SampleRepertoire,
+    background: LocusRepertoire | SampleRepertoire | None = None,
+    metric: str = "hamming",
+    threshold: int = 1,
+    match_v_gene: bool = False,
+    match_j_gene: bool = False,
+    add_background_pseudocount: bool | None = None,
+    n_jobs: int = 4,
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Compute neighborhood stats grouped by locus and sequence id.
+
+    Parameters are identical to :func:`compute_neighborhood_stats`, with one
+    additional control:
+
+    add_background_pseudocount
+        When ``None`` (default), preserve historical behavior (+1 pseudocount
+        only when ``background`` is provided and is a different object).
+        Set to ``False`` to disable pseudocounts in background mode.
+    """
+    _validate_metric(metric)
+    return _compute_stats_by_locus(
+        repertoire,
+        background=background,
+        metric=metric,
+        threshold=threshold,
+        match_v_gene=match_v_gene,
+        match_j_gene=match_j_gene,
+        add_background_pseudocount=add_background_pseudocount,
+        n_jobs=n_jobs,
+    )
 
 
 def compute_neighborhood_stats(
@@ -175,6 +315,7 @@ def compute_neighborhood_stats(
     threshold: int = 1,
     match_v_gene: bool = False,
     match_j_gene: bool = False,
+    n_jobs: int = 4,
 ) -> dict[str, dict]:
     """Compute neighborhood statistics for clonotypes in a repertoire.
 
@@ -216,13 +357,14 @@ def compute_neighborhood_stats(
     """
     _validate_metric(metric)
 
-    stats_by_locus = _compute_stats_by_locus(
+    stats_by_locus = compute_neighborhood_stats_by_locus(
         repertoire,
         background=background,
         metric=metric,
         threshold=threshold,
         match_v_gene=match_v_gene,
         match_j_gene=match_j_gene,
+        n_jobs=n_jobs,
     )
 
     merged: dict[str, dict[str, int]] = {}
@@ -239,6 +381,7 @@ def add_neighborhood_metadata(
     match_v_gene: bool = False,
     match_j_gene: bool = False,
     metadata_prefix: str = "neighborhood",
+    n_jobs: int = 4,
 ) -> None:
     """Add neighborhood statistics as metadata to clonotypes in-place.
 
@@ -269,6 +412,7 @@ def add_neighborhood_metadata(
         threshold=threshold,
         match_v_gene=match_v_gene,
         match_j_gene=match_j_gene,
+        n_jobs=n_jobs,
     )
 
     _set_clonotype_stats_metadata(
@@ -287,6 +431,7 @@ def add_neighborhood_enrichment_metadata(
     match_v_gene: bool = False,
     match_j_gene: bool = False,
     metadata_prefix: str = "neighborhood",
+    n_jobs: int = 4,
 ) -> None:
     """Add parent/background neighborhood stats and enrichment metadata.
 
@@ -325,6 +470,7 @@ def add_neighborhood_enrichment_metadata(
         threshold=threshold,
         match_v_gene=match_v_gene,
         match_j_gene=match_j_gene,
+        n_jobs=n_jobs,
     )
     background_stats_by_locus = _compute_stats_by_locus(
         repertoire,
@@ -333,6 +479,7 @@ def add_neighborhood_enrichment_metadata(
         threshold=threshold,
         match_v_gene=match_v_gene,
         match_j_gene=match_j_gene,
+        n_jobs=n_jobs,
     )
 
     for locus, locus_rep in _iter_loci(repertoire).items():

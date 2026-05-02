@@ -246,6 +246,49 @@ To enable profile-table caching for repeated runs, pass ``cache=True``:
 Cached profile writes are lock-protected to avoid race conditions under
 concurrent workers.
 
+TCRNET-Style Neighborhood Enrichment
+====================================
+
+Use ``mir.biomarkers.tcrnet`` to compute per-clonotype neighborhood
+enrichment against either user-provided controls or built-in real/synthetic
+controls managed by ``ControlManager``.
+
+TCRNET is metadata-first: neighbor counts and p-values are written directly
+into clonotype metadata. A tabular result is optional.
+
+.. code-block:: python
+
+   from mir.biomarkers.tcrnet import add_tcrnet_metadata, compute_tcrnet, tcrnet_table
+
+   # User-provided control repertoire, annotate clonotypes in-place.
+   annotated = add_tcrnet_metadata(
+      target_repertoire,
+      control=control_repertoire,
+      metric="hamming",
+      threshold=1,
+      match_mode="none",       # one of: none, v, j, vj
+      pvalue_mode="binomial",  # or beta-binomial
+   )
+
+   # Optional table view from clonotype metadata.
+   df = tcrnet_table(annotated)
+
+   # compute_tcrnet can also return a table directly (as_table=True by default).
+   result = compute_tcrnet(target_repertoire, control=control_repertoire)
+   df2 = result.table
+
+You can also use managed controls directly:
+
+.. code-block:: python
+
+   result = compute_tcrnet(
+      target_repertoire,
+      control_type="real",   # or "synthetic"
+      species="human",
+      normalize_control_vj_usage=True,
+      pvalue_mode="beta-binomial",
+   )
+
 You can also add neighborhood stats directly to clonotype metadata:
 
 .. code-block:: python

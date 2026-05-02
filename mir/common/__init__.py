@@ -7,6 +7,7 @@ from .sampling import downsample, downsample_locus, resample_to_gene_usage, sele
 from .pool import pool_samples
 from .control import ControlManager, control_setup_cli
 from .repertoire_dataset import RepertoireDataset
+from .alleles import allele_to_major
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
 
 # Compatibility aliases for older notebooks/import paths without a dedicated

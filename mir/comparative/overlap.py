@@ -37,6 +37,7 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
+from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
 
@@ -115,8 +116,8 @@ def _overlap_worker_call(ref_keys: frozenset[_Key]) -> OverlapCounts:
 # ---------------------------------------------------------------------------
 
 def _gene_base(gene: str) -> str:
-    """Strip allele suffix: ``"TRBV6-2*01"`` → ``"TRBV6-2"``."""
-    return gene.split("*")[0] if gene else ""
+    """Map allele naming to stable major allele form ``*01``."""
+    return allele_to_major(gene)
 
 
 def _clonotype_key(

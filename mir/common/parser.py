@@ -44,6 +44,7 @@ import polars as pl
 
 from mir.basic.alphabets import back_translate
 from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
+from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMarkup
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
@@ -75,7 +76,9 @@ def _gene_str(val) -> str:
     if val is None or (not isinstance(val, str) and pd.isna(val)):
         return ""
     s = str(val).strip().split(',')[0].split(';')[0]
-    return s if s not in ('.', '') else ""
+    if s in ('.', ''):
+        return ""
+    return allele_to_major(s)
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +128,8 @@ class ClonotypeTableParser:
 
     @staticmethod
     def _norm_gene_col(s: pl.Series) -> list[str]:
-        """Vectorised gene normalisation: first comma/semicolon token, strip, '.' → ''."""
-        return (
+        """Vectorised gene normalisation with major-allele harmonization."""
+        values = (
             s.cast(pl.Utf8).fill_null("")
             .str.split_exact(",", 1).struct.field("field_0")
             .str.split_exact(";", 1).struct.field("field_0")
@@ -134,6 +137,7 @@ class ClonotypeTableParser:
             .str.replace("^\\.$", "")
             .to_list()
         )
+        return [allele_to_major(v) for v in values]
 
     @staticmethod
     def _normalize_locus_col(s: pl.Series) -> list[str]:
