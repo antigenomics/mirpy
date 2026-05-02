@@ -202,6 +202,50 @@ Parallel or Slurm jobs) request the same control simultaneously, one process
 builds while others wait on a per-control lock and then reuse the produced
 artifact.
 
+Bag-of-K-mers Control Profiles
+==============================
+
+Use ``mir.embedding.bag_of_kmers`` to compute background k-mer statistics for
+enrichment workflows.
+
+By default, control k-mer profiles are built in memory (no profile-table write
+to cache). This is convenient for one-off analyses.
+
+.. code-block:: python
+
+   from mir.common.control import ControlManager
+   from mir.embedding.bag_of_kmers import BagOfKmersParams, build_control_kmer_profile
+
+   mgr = ControlManager()
+   params = BagOfKmersParams(use_v=False, k=3, gapped=False, reduced_alphabet=False)
+
+   profile = build_control_kmer_profile(
+      mgr,
+      control_type="real",
+      species="human",
+      locus="TRB",
+      params=params,
+   )
+
+   token_stats = profile.token_stats        # columns: token, n, T, p, idf
+   position_stats = profile.position_stats  # columns: token, count, pos, junction_len
+
+To enable profile-table caching for repeated runs, pass ``cache=True``:
+
+.. code-block:: python
+
+   profile_cached = build_control_kmer_profile(
+      mgr,
+      control_type="real",
+      species="human",
+      locus="TRB",
+      params=params,
+      cache=True,
+   )
+
+Cached profile writes are lock-protected to avoid race conditions under
+concurrent workers.
+
 You can also add neighborhood stats directly to clonotype metadata:
 
 .. code-block:: python
