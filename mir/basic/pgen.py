@@ -31,6 +31,7 @@ import olga.load_model as load_model
 import olga.sequence_generation as seq_gen
 
 from mir import get_resource_path
+from mir.basic.aliases import LOCUS_TO_OLGA_SUFFIX
 from mir.basic import mirseq as _mirseq
 
 translate_bidi = _mirseq.translate_bidi
@@ -42,18 +43,6 @@ def _mask_positions_fallback(seq: str) -> list[str]:
 
 
 mask_positions = getattr(_mirseq, "mask_positions", _mask_positions_fallback)
-
-# Maps (locus, species) → OLGA model directory name fragment.
-# Available models: human TRA/TRB/TRG/TRD/IGH/IGK/IGL, mouse TRA/TRB.
-_LOCUS_TO_OLGA: dict[str, str] = {
-    "TRA": "T_alpha",
-    "TRB": "T_beta",
-    "TRG": "T_gamma",
-    "TRD": "T_delta",
-    "IGH": "B_heavy",
-    "IGK": "B_kappa",
-    "IGL": "B_lambda",
-}
 
 # Loci that have a D gene segment in their recombination model.
 _D_PRESENT: frozenset[str] = frozenset({"TRB", "TRD", "IGH"})
@@ -138,10 +127,10 @@ class OlgaModel:
 
         if model is None:
             try:
-                olga_name = _LOCUS_TO_OLGA[locus_u]
+                olga_name = LOCUS_TO_OLGA_SUFFIX[locus_u]
             except KeyError:
                 raise ValueError(
-                    f"Unsupported locus={locus!r}. Supported: {sorted(_LOCUS_TO_OLGA)}"
+                    f"Unsupported locus={locus!r}. Supported: {sorted(LOCUS_TO_OLGA_SUFFIX)}"
                 )
             model = get_resource_path(f"olga/default_models/{species_l}_{olga_name}")
 

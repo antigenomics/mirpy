@@ -285,6 +285,7 @@ enrichment workflows, with manifest tracking by species/locus/type.
 - Override with `MIRPY_CONTROL_DIR` (recommended for shared HPC caches or node-local scratch)
 - Manifest (`manifest.json`) records available controls and their paths for reproducible reuse
 - Real controls can be large (multi-GB pickles for large loci like human TRB); prefer fast local scratch/cache on clusters
+- Control build/download is lock-protected per `(type, species, locus)` so concurrent workers wait and reuse one produced artifact
 
 **Benchmarking controls**:
 - `RUN_BENCHMARK=1 pytest tests/test_control_benchmark.py -s`
@@ -297,6 +298,10 @@ from mir.common.control import ControlManager
 mgr = ControlManager()
 df_bg = mgr.ensure_and_load_control_df("real", "human", "TRB")
 ```
+
+**Control table schema**:
+- Normalized controls include `duplicate_count`, `junction`, `junction_aa`, `v_gene`, `j_gene`.
+- Synthetic controls use Zipf-distributed `duplicate_count` (singleton-dominated).
 
 ---
 

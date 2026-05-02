@@ -177,7 +177,7 @@ through ``mir.common.control``.
    # Download real control from HuggingFace dataset and convert to pickle
    mgr.ensure_real_control("hsa", "Tbeta")
 
-   # Load normalized ntvj table (junction, junction_aa, v_gene, j_gene)
+   # Load normalized ntvj table (duplicate_count, junction, junction_aa, v_gene, j_gene)
    df_control = mgr.load_control_df("synthetic", "human", "TRB")
 
    # Or build/fetch on demand when a workflow needs a control immediately
@@ -196,6 +196,11 @@ download/build paths (HuggingFace), with cache-hit timing diagnostics in
 Available aliases include species ``human/hsa/HomoSapiens`` and
 ``mouse/mmu/MusMusculus``; loci aliases include IMGT names and forms such as
 ``Talpha``/``Tbeta``.
+
+Control setup is concurrency-safe: when multiple workers (for example GNU
+Parallel or Slurm jobs) request the same control simultaneously, one process
+builds while others wait on a per-control lock and then reuse the produced
+artifact.
 
 You can also add neighborhood stats directly to clonotype metadata:
 

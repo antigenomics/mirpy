@@ -43,6 +43,7 @@ import pandas as pd
 import polars as pl
 
 from mir.basic.alphabets import back_translate
+from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
 from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMarkup
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
@@ -63,26 +64,6 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'DStart':   'd_sequence_start',
     'DEnd':     'd_sequence_end',
     'JStart':   'j_sequence_start',
-}
-
-_AIRR_LOCUS_ALIASES: dict[str, set[str]] = {
-    'alpha':  {'alpha', 'tra'},
-    'beta':   {'beta',  'trb'},
-    'gamma':  {'gamma', 'trg'},
-    'delta':  {'delta', 'trd'},
-    'heavy':  {'heavy', 'igh'},
-    'kappa':  {'kappa', 'igk'},
-    'lambda': {'lambda','igl'},
-}
-
-_AIRR_ALIAS_TO_IMGT: dict[str, str] = {
-    'alpha': 'TRA', 'tra': 'TRA',
-    'beta': 'TRB', 'trb': 'TRB',
-    'gamma': 'TRG', 'trg': 'TRG',
-    'delta': 'TRD', 'trd': 'TRD',
-    'heavy': 'IGH', 'igh': 'IGH',
-    'kappa': 'IGK', 'igk': 'IGK',
-    'lambda': 'IGL', 'igl': 'IGL',
 }
 
 # Backward-compat namedtuple kept as a public export.
@@ -158,7 +139,7 @@ class ClonotypeTableParser:
     def _normalize_locus_col(s: pl.Series) -> list[str]:
         """Normalize AIRR locus aliases to canonical IMGT codes."""
         raw = s.cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase().to_list()
-        return [_AIRR_ALIAS_TO_IMGT.get(v, v.upper()[:3] if v else "") for v in raw]
+        return [normalize_airr_locus_value(v) for v in raw]
 
     # ------------------------------------------------------------------
     # File reading
@@ -402,13 +383,7 @@ class AIRRParser(ClonotypeTableParser):
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
 
     def get_locus_aliases(self) -> set[str]:
-        locus_normalized = str(self.locus).strip().lower()
-        if locus_normalized in _AIRR_LOCUS_ALIASES:
-            return _AIRR_LOCUS_ALIASES[locus_normalized]
-        for aliases in _AIRR_LOCUS_ALIASES.values():
-            if locus_normalized in aliases:
-                return aliases
-        return {locus_normalized}
+        return airr_aliases_for_locus(str(self.locus))
 
     def validate_columns(self, df: pd.DataFrame) -> None:
         for col in self.mandatory_columns:
