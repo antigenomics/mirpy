@@ -174,6 +174,15 @@ kmers_common = [k for k in kmers_3 if kmers_3[k] > 2]
 - Assess repertoire similarity via shared k-mers
 - Find clonotype clusters
 
+**Control-backed bag-of-k-mers profiles**:
+- `mir.embedding.bag_of_kmers.build_control_kmer_profile()` computes control
+    k-mer statistics as an in-memory object by default (no profile cache write).
+- Set `cache=True` for persisted profile tables under the control cache.
+- Profile object fields:
+        - `token_stats` (`token`, `n`, `T`, `p`, `idf`)
+        - `position_stats` (`token`, `count`, `pos`, `junction_len`)
+        - `metadata` (profile name, params, totals, cache mode)
+
 ---
 
 ### 6. Graph-Based Analysis
@@ -294,9 +303,19 @@ enrichment workflows, with manifest tracking by species/locus/type.
 **Common pattern**:
 ```python
 from mir.common.control import ControlManager
+from mir.embedding.bag_of_kmers import BagOfKmersParams, build_control_kmer_profile
 
 mgr = ControlManager()
 df_bg = mgr.ensure_and_load_control_df("real", "human", "TRB")
+
+# In-memory control k-mer profile (default mode)
+profile = build_control_kmer_profile(
+    mgr,
+    control_type="real",
+    species="human",
+    locus="TRB",
+    params=BagOfKmersParams(k=3),
+)
 ```
 
 **Control table schema**:

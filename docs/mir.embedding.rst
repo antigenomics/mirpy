@@ -4,6 +4,14 @@ mir.embedding package
 Submodules
 ----------
 
+mir.embedding.bag_of_kmers module
+---------------------------------
+
+.. automodule:: mir.embedding.bag_of_kmers
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.embedding.prototype_embedding module
 ----------------------------------------
 
