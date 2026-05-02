@@ -15,83 +15,32 @@ import argparse
 import json
 import os
 import pickle
+import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
+import numpy as np
 import pandas as pd
 
 from mir import get_resource_path
+from mir.basic.aliases import (
+    OLGA_SUFFIX_TO_LOCUS,
+    locus_search_tokens,
+    normalize_locus_alias,
+    normalize_species_alias,
+)
 from mir.basic.pgen import OlgaModel
 
 _CONTROL_ENV = "MIRPY_CONTROL_DIR"
 _MANIFEST_FILE = "manifest.json"
 _DEFAULT_HF_DATASET = "isalgo/airr_control"
-
-_SPECIES_ALIASES: dict[str, str] = {
-    "human": "human",
-    "hsa": "human",
-    "homosapiens": "human",
-    "homo_sapiens": "human",
-    "homo sapiens": "human",
-    "mouse": "mouse",
-    "mmu": "mouse",
-    "musmusculus": "mouse",
-    "mus_musculus": "mouse",
-    "mus musculus": "mouse",
-}
-
-# Canonical IMGT locus aliases used by users/notebooks/tools.
-_LOCUS_ALIASES: dict[str, str] = {
-    "TRA": "TRA",
-    "TALPHA": "TRA",
-    "T_ALPHA": "TRA",
-    "T-ALPHA": "TRA",
-    "TRA": "TRA",
-    "ALPHA": "TRA",
-    "TRB": "TRB",
-    "TBETA": "TRB",
-    "T_BETA": "TRB",
-    "T-BETA": "TRB",
-    "BETA": "TRB",
-    "TRG": "TRG",
-    "TGAMMA": "TRG",
-    "T_GAMMA": "TRG",
-    "T-GAMMA": "TRG",
-    "GAMMA": "TRG",
-    "TRD": "TRD",
-    "TDELTA": "TRD",
-    "T_DELTA": "TRD",
-    "T-DELTA": "TRD",
-    "DELTA": "TRD",
-    "IGH": "IGH",
-    "BHEAVY": "IGH",
-    "B_HEAVY": "IGH",
-    "B-HEAVY": "IGH",
-    "HEAVY": "IGH",
-    "IGK": "IGK",
-    "BKAPPA": "IGK",
-    "B_KAPPA": "IGK",
-    "B-KAPPA": "IGK",
-    "KAPPA": "IGK",
-    "IGL": "IGL",
-    "BLAMBDA": "IGL",
-    "B_LAMBDA": "IGL",
-    "B-LAMBDA": "IGL",
-    "LAMBDA": "IGL",
-}
-
-_OLGA_SUFFIX_TO_LOCUS: dict[str, str] = {
-    "T_ALPHA": "TRA",
-    "T_BETA": "TRB",
-    "T_GAMMA": "TRG",
-    "T_DELTA": "TRD",
-    "B_HEAVY": "IGH",
-    "B_KAPPA": "IGK",
-    "B_LAMBDA": "IGL",
-}
-
+_LOCKS_DIR = ".locks"
+_DEFAULT_LOCK_TIMEOUT_S = 3600.0
+_DEFAULT_LOCK_POLL_S = 0.25
+_DEFAULT_STALE_LOCK_S = 12 * 3600.0
 
 @dataclass
 class ControlRecord:
@@ -114,24 +63,20 @@ class ControlManager:
         self.control_dir = resolve_control_dir(control_dir)
         self.control_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.control_dir / _MANIFEST_FILE
+        self._locks_dir = self.control_dir / _LOCKS_DIR
+        self._locks_dir.mkdir(parents=True, exist_ok=True)
+        self._manifest_lock_path = self._locks_dir / "manifest.lock"
 
     # ---------------------------
     # Canonicalization
     # ---------------------------
     @staticmethod
     def canonical_species(species: str) -> str:
-        key = (species or "").strip().lower().replace("-", "_")
-        if key not in _SPECIES_ALIASES:
-            raise ValueError(f"Unsupported species alias: {species!r}")
-        return _SPECIES_ALIASES[key]
+        return normalize_species_alias(species)
 
     @staticmethod
     def canonical_locus(locus: str) -> str:
-        key = (locus or "").strip().upper().replace("-", "_")
-        key = key.replace(" ", "")
-        if key not in _LOCUS_ALIASES:
-            raise ValueError(f"Unsupported locus alias: {locus!r}")
-        return _LOCUS_ALIASES[key]
+        return normalize_locus_alias(locus)
 
     # ---------------------------
     # Manifest
@@ -146,18 +91,19 @@ class ControlManager:
 
     def save_manifest(self, manifest: dict[str, dict]) -> None:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.manifest_path.open("w", encoding="utf-8") as fh:
-            json.dump(manifest, fh, indent=2, sort_keys=True)
+        with _file_lock(self._manifest_lock_path):
+            _atomic_write_json(self.manifest_path, manifest)
 
     @staticmethod
     def _record_key(control_type: str, species: str, locus: str) -> str:
         return f"{control_type}:{species}:{locus}"
 
     def register_record(self, record: ControlRecord) -> None:
-        manifest = self.load_manifest()
         key = self._record_key(record.control_type, record.species, record.locus)
-        manifest["records"][key] = asdict(record)
-        self.save_manifest(manifest)
+        with _file_lock(self._manifest_lock_path):
+            manifest = self.load_manifest()
+            manifest["records"][key] = asdict(record)
+            _atomic_write_json(self.manifest_path, manifest)
 
     def get_record(self, control_type: str, species: str, locus: str) -> ControlRecord | None:
         manifest = self.load_manifest()
@@ -181,7 +127,7 @@ class ControlManager:
     def list_available_olga_models(model_root: str | Path | None = None) -> list[tuple[str, str]]:
         """Return available (species, locus) pairs from local OLGA resources."""
         if model_root is None:
-            model_root = Path(get_resource_path("olga/default_models"))
+            model_root = Path(cast(str, get_resource_path("olga/default_models")))
         else:
             model_root = Path(model_root)
 
@@ -198,7 +144,7 @@ class ControlManager:
             species, suffix = name.split("_", 1)
             species = species.lower().strip()
             suffix_key = suffix.upper().strip()
-            locus = _OLGA_SUFFIX_TO_LOCUS.get(suffix_key)
+            locus = OLGA_SUFFIX_TO_LOCUS.get(suffix_key)
             if not locus:
                 continue
             out.append((species, locus))
@@ -211,6 +157,10 @@ class ControlManager:
     # ---------------------------
     def synthetic_control_path(self, species: str, locus: str, n: int) -> Path:
         return self.control_dir / "synthetic" / species / locus / f"olga_n{n}.pkl"
+
+    def _control_lock_path(self, control_type: str, species: str, locus: str) -> Path:
+        safe = f"{control_type}_{species}_{locus}".replace("/", "_")
+        return self._locks_dir / f"{safe}.lock"
 
     def ensure_synthetic_control(
         self,
@@ -234,7 +184,33 @@ class ControlManager:
             )
 
         path = self.synthetic_control_path(species_c, locus_c, n)
-        if path.exists() and not overwrite:
+        lock_path = self._control_lock_path("synthetic", species_c, locus_c)
+        with _file_lock(lock_path):
+            if path.exists() and not overwrite:
+                rec = ControlRecord(
+                    control_type="synthetic",
+                    species=species_c,
+                    locus=locus_c,
+                    path=str(path),
+                    format="pickle",
+                    source="olga",
+                    n=n,
+                    created_at_utc=_utc_now(),
+                )
+                self.register_record(rec)
+                return rec
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            df = generate_synthetic_olga_control(
+                species=species_c,
+                locus=locus_c,
+                n=n,
+                seed=seed,
+                chunk_size=chunk_size,
+                progress=progress,
+            )
+            _write_pickle(df, path)
+
             rec = ControlRecord(
                 control_type="synthetic",
                 species=species_c,
@@ -247,30 +223,6 @@ class ControlManager:
             )
             self.register_record(rec)
             return rec
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        df = generate_synthetic_olga_control(
-            species=species_c,
-            locus=locus_c,
-            n=n,
-            seed=seed,
-            chunk_size=chunk_size,
-            progress=progress,
-        )
-        _write_pickle(df, path)
-
-        rec = ControlRecord(
-            control_type="synthetic",
-            species=species_c,
-            locus=locus_c,
-            path=str(path),
-            format="pickle",
-            source="olga",
-            n=n,
-            created_at_utc=_utc_now(),
-        )
-        self.register_record(rec)
-        return rec
 
     # ---------------------------
     # Real control (HuggingFace)
@@ -291,7 +243,34 @@ class ControlManager:
         locus_c = self.canonical_locus(locus)
 
         path = self.real_control_path(species_c, locus_c)
-        if path.exists() and not overwrite:
+        lock_path = self._control_lock_path("real", species_c, locus_c)
+        with _file_lock(lock_path):
+            if path.exists() and not overwrite:
+                rec = ControlRecord(
+                    control_type="real",
+                    species=species_c,
+                    locus=locus_c,
+                    path=str(path),
+                    format="pickle",
+                    source=f"huggingface:{dataset_repo}",
+                    n=None,
+                    created_at_utc=_utc_now(),
+                )
+                self.register_record(rec)
+                return rec
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            local_snapshot = _download_hf_snapshot(dataset_repo, cache_dir=hf_cache_dir)
+            source_file = _find_real_control_file(local_snapshot, species_c, locus_c)
+            if source_file is None:
+                raise FileNotFoundError(
+                    f"No .ntvj file found for species={species_c!r}, locus={locus_c!r} "
+                    f"in dataset {dataset_repo!r}"
+                )
+
+            df = build_real_control_from_ntvj(source_file)
+            _write_pickle(df, path)
+
             rec = ControlRecord(
                 control_type="real",
                 species=species_c,
@@ -299,36 +278,11 @@ class ControlManager:
                 path=str(path),
                 format="pickle",
                 source=f"huggingface:{dataset_repo}",
-                n=None,
+                n=len(df),
                 created_at_utc=_utc_now(),
             )
             self.register_record(rec)
             return rec
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        local_snapshot = _download_hf_snapshot(dataset_repo, cache_dir=hf_cache_dir)
-        source_file = _find_real_control_file(local_snapshot, species_c, locus_c)
-        if source_file is None:
-            raise FileNotFoundError(
-                f"No .ntvj file found for species={species_c!r}, locus={locus_c!r} "
-                f"in dataset {dataset_repo!r}"
-            )
-
-        df = build_real_control_from_ntvj(source_file)
-        _write_pickle(df, path)
-
-        rec = ControlRecord(
-            control_type="real",
-            species=species_c,
-            locus=locus_c,
-            path=str(path),
-            format="pickle",
-            source=f"huggingface:{dataset_repo}",
-            n=len(df),
-            created_at_utc=_utc_now(),
-        )
-        self.register_record(rec)
-        return rec
 
     # ---------------------------
     # Unified API
@@ -347,9 +301,20 @@ class ControlManager:
             return self.ensure_real_control(species, locus, **kwargs)
         raise ValueError("control_type must be 'synthetic' or 'real'")
 
-    def load_control_df(self, control_type: str, species: str, locus: str) -> pd.DataFrame:
+    def load_control_df(
+        self,
+        control_type: str,
+        species: str,
+        locus: str,
+        *,
+        wait_if_building: bool = True,
+        wait_timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
+    ) -> pd.DataFrame:
         species_c = self.canonical_species(species)
         locus_c = self.canonical_locus(locus)
+        if wait_if_building:
+            lock_path = self._control_lock_path(control_type.strip().lower(), species_c, locus_c)
+            _wait_for_lock_release(lock_path, timeout_s=wait_timeout_s)
         rec = self.get_record(control_type, species_c, locus_c)
         if rec is None:
             raise FileNotFoundError(
@@ -399,10 +364,13 @@ def generate_synthetic_olga_control(
     seed: int,
     chunk_size: int,
     progress: bool,
+    zipf_alpha: float = 2.0,
+    max_duplicate_count: int = 10_000,
 ) -> pd.DataFrame:
     """Generate synthetic OLGA control DataFrame with ntvj columns.
 
     Output columns:
+    - duplicate_count
     - junction
     - junction_aa
     - v_gene
@@ -413,14 +381,20 @@ def generate_synthetic_olga_control(
         model._gen_one_vdj_with_meta if model.is_d_present else model._gen_one_vj_with_meta
     )
 
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, str | int]] = []
+    rng = np.random.default_rng(seed + 1_000_003)
     generated = 0
     while generated < n:
         batch = min(chunk_size, n - generated)
+        # Heavy-tailed abundance with many singletons; clip rare extreme tails.
+        dup_counts = rng.zipf(a=zipf_alpha, size=batch)
+        dup_counts = np.minimum(dup_counts, max_duplicate_count)
         for _ in range(batch):
             rec = generator()
+            dup = int(dup_counts[_])
             rows.append(
                 {
+                    "duplicate_count": dup,
                     "junction": str(rec["junction"]),
                     "junction_aa": str(rec["junction_aa"]),
                     "v_gene": _normalize_allele(str(rec["v_gene"])),
@@ -451,12 +425,21 @@ def build_real_control_from_ntvj(path: str | Path) -> pd.DataFrame:
         if src in df.columns and dst not in df.columns:
             df[dst] = df[src]
 
-    required = ["junction", "junction_aa", "v_gene", "j_gene"]
+    count_candidates = ["duplicate_count", "count", "#count", "clonotype_count"]
+    count_col = next((c for c in count_candidates if c in df.columns), None)
+    if count_col is None:
+        df["duplicate_count"] = 1
+    elif count_col != "duplicate_count":
+        df["duplicate_count"] = df[count_col]
+
+    required = ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns in {p}: {missing}")
 
     out = df[required].copy()
+    out["duplicate_count"] = pd.to_numeric(out["duplicate_count"], errors="coerce").fillna(1).astype(int)
+    out.loc[out["duplicate_count"] < 1, "duplicate_count"] = 1
     out["v_gene"] = out["v_gene"].astype(str).map(_normalize_allele)
     out["j_gene"] = out["j_gene"].astype(str).map(_normalize_allele)
     return out
@@ -480,18 +463,7 @@ def _find_real_control_file(snapshot_root: str | Path, species: str, locus: str)
         species,
         {"human": "hsa", "mouse": "mmu"}.get(species, species),
     }
-    locus_tokens = {
-        locus.lower(),
-        {
-            "TRA": "talpha",
-            "TRB": "tbeta",
-            "TRG": "tgamma",
-            "TRD": "tdelta",
-            "IGH": "bheavy",
-            "IGK": "bkappa",
-            "IGL": "blambda",
-        }.get(locus, locus.lower()),
-    }
+    locus_tokens = locus_search_tokens(locus)
 
     candidates = sorted({
         *root.rglob("*.ntvj"),
@@ -520,13 +492,11 @@ def _download_hf_snapshot(repo_id: str, cache_dir: str | Path | None = None) -> 
             "huggingface_hub is required to download real controls; install it first"
         ) from exc
 
-    kwargs = {
-        "repo_id": repo_id,
-        "repo_type": "dataset",
-    }
-    if cache_dir is not None:
-        kwargs["cache_dir"] = str(cache_dir)
-    return snapshot_download(**kwargs)
+    return snapshot_download(
+        repo_id=repo_id,
+        repo_type="dataset",
+        cache_dir=(str(cache_dir) if cache_dir is not None else None),
+    )
 
 
 def _write_pickle(df: pd.DataFrame, path: Path) -> None:
@@ -544,6 +514,71 @@ def _read_pickle(path: Path) -> pd.DataFrame:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+    os.replace(tmp_path, path)
+
+
+@contextmanager
+def _file_lock(
+    lock_path: Path,
+    *,
+    timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
+    poll_s: float = _DEFAULT_LOCK_POLL_S,
+    stale_after_s: float = _DEFAULT_STALE_LOCK_S,
+):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
+    fd: int | None = None
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            meta = f"pid={os.getpid()} started={time.time():.6f}\n"
+            os.write(fd, meta.encode("utf-8", errors="ignore"))
+            break
+        except FileExistsError:
+            # Prune stale locks to survive crashed workers on shared infra.
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+                if age > stale_after_s:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue
+
+            if (time.monotonic() - start) >= timeout_s:
+                raise TimeoutError(f"Timeout waiting for lock: {lock_path}")
+            time.sleep(poll_s)
+
+    try:
+        yield
+    finally:
+        try:
+            if fd is not None:
+                os.close(fd)
+        finally:
+            try:
+                lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _wait_for_lock_release(
+    lock_path: Path,
+    *,
+    timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
+    poll_s: float = _DEFAULT_LOCK_POLL_S,
+) -> None:
+    start = time.monotonic()
+    while lock_path.exists():
+        if (time.monotonic() - start) >= timeout_s:
+            raise TimeoutError(f"Timeout waiting for build lock release: {lock_path}")
+        time.sleep(poll_s)
 
 
 def _parse_locus_arg(value: str) -> list[str]:

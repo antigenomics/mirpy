@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
 import pandas as pd
 
-from mir.common.control import ControlManager, build_real_control_from_ntvj
+from mir.common.control import ControlManager, ControlRecord, build_real_control_from_ntvj
 
 
 def test_control_aliases_species_and_locus(tmp_path: Path) -> None:
@@ -58,6 +60,7 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
         assert n == 3
         return pd.DataFrame(
             {
+                "duplicate_count": [1, 2, 1],
                 "junction": ["ATG", "GTA", "CCC"],
                 "junction_aa": ["M", "V", "P"],
                 "v_gene": ["TRBV1*01", "TRBV2*01", "TRBV3*01"],
@@ -76,8 +79,9 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
     assert out_path.exists()
 
     loaded = mgr.load_control_df("synthetic", "human", "TRB")
-    assert list(loaded.columns) == ["junction", "junction_aa", "v_gene", "j_gene"]
+    assert list(loaded.columns) == ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
     assert len(loaded) == 3
+    assert int(loaded["duplicate_count"].sum()) == 4
 
     manifest = mgr.load_manifest()
     assert "synthetic:human:TRB" in manifest["records"]
@@ -94,7 +98,9 @@ def test_build_real_control_from_ntvj_appends_alleles(tmp_path: Path) -> None:
 
     df = build_real_control_from_ntvj(src)
 
-    assert list(df.columns) == ["junction", "junction_aa", "v_gene", "j_gene"]
+    assert list(df.columns) == ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
+    assert int(df.iloc[0]["duplicate_count"]) == 1
+    assert int(df.iloc[1]["duplicate_count"]) == 2
     assert df.iloc[0]["v_gene"] == "TRBV1*01"
     assert df.iloc[1]["v_gene"] == "TRBV2*02"
     assert df.iloc[1]["j_gene"] == "TRBJ2*01"
@@ -124,6 +130,7 @@ def test_ensure_real_control_download_and_register(tmp_path: Path, monkeypatch) 
 
     df = mgr.load_control_df("real", "hsa", "Tbeta")
     assert len(df) == 1
+    assert int(df.iloc[0]["duplicate_count"]) == 1
     assert df.iloc[0]["v_gene"] == "TRBV1*01"
 
 
@@ -140,6 +147,7 @@ def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
         "mir.common.control.generate_synthetic_olga_control",
         lambda **kwargs: pd.DataFrame(
             {
+                "duplicate_count": [1],
                 "junction": ["ATG"],
                 "junction_aa": ["M"],
                 "v_gene": ["TRAV1*01"],
@@ -150,4 +158,93 @@ def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
 
     df = mgr.ensure_and_load_control_df("synthetic", "hsa", "Talpha", n=1, overwrite=True, progress=False)
     assert len(df) == 1
+    assert int(df.iloc[0]["duplicate_count"]) == 1
     assert df.iloc[0]["v_gene"] == "TRAV1*01"
+
+
+def test_ensure_synthetic_control_waits_for_existing_lock(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    monkeypatch.setattr(
+        ControlManager,
+        "list_available_olga_models",
+        staticmethod(lambda model_root=None: [("human", "TRB")]),
+    )
+    monkeypatch.setattr(
+        "mir.common.control.generate_synthetic_olga_control",
+        lambda **kwargs: pd.DataFrame(
+            {
+                "duplicate_count": [1],
+                "junction": ["ATG"],
+                "junction_aa": ["M"],
+                "v_gene": ["TRBV1*01"],
+                "j_gene": ["TRBJ1*01"],
+            }
+        ),
+    )
+
+    lock_path = mgr._control_lock_path("synthetic", "human", "TRB")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("hold\n", encoding="utf-8")
+
+    def _release_lock_later() -> None:
+        time.sleep(0.3)
+        lock_path.unlink(missing_ok=True)
+
+    t = threading.Thread(target=_release_lock_later, daemon=True)
+    t.start()
+
+    t0 = time.perf_counter()
+    rec = mgr.ensure_synthetic_control("human", "TRB", n=1, overwrite=True, progress=False)
+    elapsed = time.perf_counter() - t0
+
+    assert Path(rec.path).exists()
+    # Should have waited for lock release by peer process/thread.
+    assert elapsed >= 0.25
+
+
+def test_load_control_df_waits_if_building_lock_present(tmp_path: Path) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    path = mgr.synthetic_control_path("human", "TRB", 1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(
+        {
+            "duplicate_count": [1],
+            "junction": ["ATG"],
+            "junction_aa": ["M"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+        }
+    )
+    df.to_pickle(path)
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(path),
+            format="pickle",
+            source="olga",
+            n=1,
+            created_at_utc=None,
+        )
+    )
+
+    lock_path = mgr._control_lock_path("synthetic", "human", "TRB")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("building\n", encoding="utf-8")
+
+    def _release_lock_later() -> None:
+        time.sleep(0.25)
+        lock_path.unlink(missing_ok=True)
+
+    t = threading.Thread(target=_release_lock_later, daemon=True)
+    t.start()
+
+    t0 = time.perf_counter()
+    loaded = mgr.load_control_df("synthetic", "human", "TRB", wait_if_building=True, wait_timeout_s=5.0)
+    elapsed = time.perf_counter() - t0
+
+    assert len(loaded) == 1
+    assert elapsed >= 0.2

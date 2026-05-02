@@ -148,10 +148,14 @@ def test_generate_and_fetch_controls_synthetic_and_real(capsys, tmp_path: Path) 
     assert len(df_m_tra) == n
     assert len(df_real_h_trb) > 0
     assert len(df_real_m_tra) > 0
-    assert set(df_h_trb.columns) == {"junction", "junction_aa", "v_gene", "j_gene"}
-    assert set(df_m_tra.columns) == {"junction", "junction_aa", "v_gene", "j_gene"}
-    assert set(df_real_h_trb.columns) == {"junction", "junction_aa", "v_gene", "j_gene"}
-    assert set(df_real_m_tra.columns) == {"junction", "junction_aa", "v_gene", "j_gene"}
+    assert set(df_h_trb.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
+    assert set(df_m_tra.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
+    assert set(df_real_h_trb.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
+    assert set(df_real_m_tra.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
+    assert (df_h_trb["duplicate_count"] >= 1).all()
+    assert (df_m_tra["duplicate_count"] >= 1).all()
+    assert (df_real_h_trb["duplicate_count"] >= 1).all()
+    assert (df_real_m_tra["duplicate_count"] >= 1).all()
 
     max_s = benchmark_max_seconds(default=300.0)
     assert t_h_trb < max_s, f"human/TRB control generation is too slow: {t_h_trb:.2f}s >= {max_s:.2f}s"
