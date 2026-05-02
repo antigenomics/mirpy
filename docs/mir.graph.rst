@@ -4,10 +4,26 @@ mir.graph package
 Submodules
 ----------
 
+mir.graph.distance\_utils module
+---------------------------------
+
+.. automodule:: mir.graph.distance_utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.graph.edit\_distance\_graph module
 --------------------------------------
 
 .. automodule:: mir.graph.edit_distance_graph
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.graph.neighborhood\_enrichment module
+------------------------------------------
+
+.. automodule:: mir.graph.neighborhood_enrichment
    :members:
    :undoc-members:
    :show-inheritance:

@@ -99,6 +99,46 @@ Each pooled clonotype stores:
 * ``incidence`` in clonotype metadata (number of unique samples containing the key),
 * ``occurrences`` in clonotype metadata (number of grouped rows).
 
+Neighborhood Enrichment and Clonotype Similarity
+=================================================
+
+Use ``compute_neighborhood_stats`` to find clonotypes similar to each other
+based on edit distance in the CDR3 junction region. This is useful for
+TCRnet and ALICE algorithms.
+
+.. code-block:: python
+
+   from mir.graph import compute_neighborhood_stats
+
+   # Count neighbors for each clonotype within edit distance 1
+   stats = compute_neighborhood_stats(
+       repertoire,
+       metric="hamming",
+       threshold=1,
+       match_v_gene=True,
+   )
+
+   # stats["clonotype_id"] = {
+   #     "neighbor_count": 15,
+   #     "potential_neighbors": 200,
+   # }
+
+Supported options:
+
+* ``metric``: ``"hamming"`` or ``"levenshtein"`` for junction_aa comparison
+* ``threshold``: Maximum edit distance to consider a clonotype a neighbor
+* ``match_v_gene``: If True, only count neighbors with matching V gene
+* ``match_j_gene``: If True, only count neighbors with matching J gene
+
+You can also add neighborhood stats directly to clonotype metadata:
+
+.. code-block:: python
+
+   from mir.graph import add_neighborhood_metadata
+
+   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1)
+   # Adds neighborhood_count and neighborhood_potential to each clonotype's metadata
+
 Next Steps
 ==========
 

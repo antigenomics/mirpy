@@ -39,6 +39,7 @@ def _freeze_metadata(meta: dict) -> tuple[tuple[str, str], ...]:
 
 def _row_signature(cl: Clonotype) -> tuple:
     return (
+        str(cl.sequence_id or ""),
         str(cl.junction or ""),
         str(cl.junction_aa or ""),
         str(cl.v_gene or ""),
