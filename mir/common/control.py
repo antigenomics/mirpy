@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from mir import get_resource_path
-from mir.common.alleles import allele_to_major
+from mir.common.alleles import allele_with_default
 from mir.basic.aliases import (
     OLGA_SUFFIX_TO_LOCUS,
     locus_search_tokens,
@@ -447,7 +447,7 @@ def build_real_control_from_ntvj(path: str | Path) -> pd.DataFrame:
 
 
 def _normalize_allele(gene_name: str) -> str:
-    return allele_to_major(gene_name)
+    return allele_with_default(gene_name)
 
 
 def _find_real_control_file(snapshot_root: str | Path, species: str, locus: str) -> Path | None:

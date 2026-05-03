@@ -22,7 +22,7 @@ import pandas as pd
 
 from mir.basic.alphabets import aa_to_reduced
 from mir.basic.tokens import tokenize_gapped_str, tokenize_str
-from mir.common.alleles import allele_to_major
+from mir.common.alleles import strip_allele
 from mir.common.control import (
     _DEFAULT_LOCK_POLL_S,
     _DEFAULT_LOCK_TIMEOUT_S,
@@ -68,7 +68,7 @@ class ControlKmerProfile:
 
 
 def _strip_allele(gene: str) -> str:
-    return allele_to_major(gene)
+    return strip_allele(gene)
 
 
 def _normalize_seq(seq: str, reduced_alphabet: bool) -> str:
