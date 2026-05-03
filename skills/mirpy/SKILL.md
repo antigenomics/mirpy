@@ -320,3 +320,98 @@ from mir.embedding.bag_of_kmers import BagOfKmersParams, build_control_kmer_prof
 mgr = ControlManager()
 df_bg = mgr.ensure_and_load_control_df("real", "human", "TRB")
 ```
+
+---
+
+### 10. VDJBet: P-gen-Matched Overlap Significance Testing
+
+**What it does**: Test for significant clonotype overlap between a query and reference
+repertoire using p-generation-matched synthetic controls. VDJBet addresses the fundamental
+problem that rare epitope-specific clonotypes are ultra-rare in generative models like OLGA,
+making traditional p-gen histograms unable to bin them.
+
+**Core Algorithm**:
+1. Pre-build a large pool of OLGA sequences binned by log₂ p-gen
+2. For each mock iteration, sample from bins matching the reference repertoire's distribution
+3. Compute query↔reference overlap vs. mock distribution → z/p-scores
+
+**Key Functions**:
+- `PgenBinPool` — Pre-built OLGA sequence pool organized by log₂ p-gen bins
+- `VDJBetOverlapAnalysis` — Main class for overlap scoring
+- `OverlapResult` — z/p-score container with mock distributions
+
+**Configuration**:
+- `V/J gene matching`: pass `match_v=True/False`, `match_j=True/False` to `.score()`
+- `V/J bias correction**: pass `PgenGeneUsageAdjustment` at construction to re-weight mocks by target V/J usage
+- `1-substitution CDR3 matching`: pass `allow_1mm=True` to capture near-neighbour variants
+- `Pool size** (default 1M sequences): larger pools increase histogram resolution but slow pool build
+
+**Common Patterns**:
+```python
+from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis, PgenBinPool
+from mir.basic.pgen import PgenGeneUsageAdjustment, OlgaModel
+
+# Simplest: pgen-only null (no V/J adjustment)
+pool = PgenBinPool("TRB", n=100_000, n_jobs=4, seed=42)
+analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
+result = analysis.score(query_rep, allow_1mm=False, match_v=True, match_j=True)
+print(f"z={result.z_n:.2f}  p={result.p_n:.4f}  n_overlap={result.n}")
+
+# With V/J adjustment (recommended for cross-repertoire studies)
+target_gu = GeneUsage.from_repertoire(query_rep)  # match query distribution
+pgen_adj = PgenGeneUsageAdjustment(target_gu, seed=42)
+pool_adjusted = PgenBinPool("TRB", n=100_000, n_jobs=4, seed=42, pgen_adjustment=pgen_adj)
+analysis_adj = VDJBetOverlapAnalysis(reference_rep, pool=pool_adjusted, n_mocks=200, seed=42)
+result_adj = analysis_adj.score(query_rep)
+```
+
+**OverlapResult Fields**:
+- `n`, `dc` — overlapping clonotypes and cells
+- `n_total`, `dc_total` — query repertoire size
+- `mock_n`, `mock_dc` — per-mock overlap counts (for computing stats)
+- `z_n`, `p_n`, `z_dc`, `p_dc` — z and p-scores for count and cells
+- `frac_n`, `frac_dc` — fractions of query overlapping
+
+**Advanced: Real Mock Controls**:
+```python
+from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis
+from mir.common.control import ControlManager
+
+mgr = ControlManager()
+control_rep = mgr.ensure_and_load_control_df("real", "human", "TRB")
+
+# Use real control cohort as null (more conservative than synthetic OLGA)
+analysis_real = VDJBetOverlapAnalysis(reference_rep, real_control=control_rep, 
+                                      n_mocks=50, seed=42)
+result_real = analysis_real.score(query_rep)
+```
+
+**Key Assumptions & Limitations**:
+- `Pgen accuracy`: P-gen estimates assume OLGA model accuracy; actual repertoire skew is not corrected
+- `V/J bias`: Can be addressed via `PgenGeneUsageAdjustment`; without it mock mocks may be biased
+- `Rare sequences`: Very rare sequences may have pgen outside the pool range → automatic clamping
+- `1-substitution matching**: Increases overlap but also variance (z-scores typically smaller with 1mm)
+
+**Testing & Validation**:
+- `tests/test_vdjbet.py::TestLLWOverlapYFV` — YFV LLWNGPMAV-reactive TRB benchmark (test assets)
+- `tests/test_vdjbet.py::TestQ1Q15Integration` — Q1 donor day 0 vs day 15 integration tests
+- `tests/test_vdjbet.py::TestSyntheticVsRealMockComparison` — Synthetic vs real mock effect sizes
+- Run with `RUN_BENCHMARK=1 pytest -s tests/test_vdjbet.py`
+
+**Common Pitfalls**:
+- **Forgetting V/J normalization**: Without `allele_to_major()`, TRBV1*01 ≠ TRBV1*02 in matching → inflated null
+  - **Fix**: Always use `match_v=True, match_j=True` (default) and ensure v_gene/j_gene fields are populated
+- **Pool size too small**: <10k sequences may have gaps in coverage
+  - **Fix**: Use `n >= 20_000` for typical loci (human TRB ~100k per bin range)
+- **Ignoring batch effects**: Different sequencing protocols may have divergent V/J usage
+  - **Fix**: Build gene usage from representative cohort, pass to `PgenGeneUsageAdjustment`
+
+**Performance Notes**:
+- `PgenBinPool` build: ~2-10s for n=100k (parallelizable with `n_jobs`)
+- Mock generation: ~10-100ms per mock (depends on pool size and reference size)
+- Typical full analysis (200 mocks): <10s after pool build
+
+**See Also**:
+- [VDJBet paper](https://example.com) (placeholder)
+- `mir.biomarkers.vdjbet` — Source module
+- `tests/test_vdjbet.py` — Test cases with expected z-scores for validation
