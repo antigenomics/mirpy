@@ -2,7 +2,8 @@
 
 Builds an ``igraph.Graph`` from a list of :class:`~mir.common.clonotype.Clonotype`
 objects where edges connect sequences whose pairwise Hamming or Levenshtein
-distance is at most *threshold*. Search is backed by ``tcrtrie``.
+distance is at most *threshold*. Search is backed by ``tcrtrie`` and falls
+back to constrained brute-force only when trie search raises an error.
 """
 
 from __future__ import annotations
@@ -15,14 +16,13 @@ import igraph as ig
 from tcrtrie import Trie
 
 from mir.common.clonotype import Clonotype
-from mir.distances.seqdist import hamming as _hamming
-from mir.distances.seqdist import levenshtein as _levenshtein
-from mir.graph._trie_utils import hit_index, resolve_n_jobs, search_limits, validate_metric
+from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
 
 
 def _build_batch_edges(
     seqs: list[str],
     v_genes: list[str],
+    j_genes: list[str],
     trie,
     c_genes: list[str],
     *,
@@ -34,60 +34,25 @@ def _build_batch_edges(
     stop: int,
 ) -> set[tuple[int, int]]:
     """Build unique edges for query indices in [start, stop)."""
-    max_substitution, max_insertion, max_deletion, max_edits = search_limits(metric, threshold)
     edges: set[tuple[int, int]] = set()
     for i in range(start, stop):
-        hits = trie.SearchIndices(
+        hits = search_indices_with_fallback(
+            trie,
             query=seqs[i],
-            maxSubstitution=max_substitution,
-            maxInsertion=max_insertion,
-            maxDeletion=max_deletion,
-            maxEdits=max_edits,
-            vGeneFilter=v_genes[i] if v_gene_match else None,
-            jGeneFilter=None,
+            metric=metric,
+            threshold=threshold,
+            sequences=seqs,
+            v_gene_filter=v_genes[i] if v_gene_match else None,
+            j_gene_filter=None,
+            v_genes=v_genes,
+            j_genes=j_genes,
         )
-        for hit in hits:
-            j = hit_index(hit)
+        for j in hits:
             if j <= i:
                 continue
             if c_gene_match and c_genes[i] != c_genes[j]:
                 continue
             edges.add((i, j))
-    return edges
-
-
-def _build_batch_edges_bruteforce(
-    seqs: list[str],
-    v_genes: list[str],
-    c_genes: list[str],
-    *,
-    metric: str,
-    threshold: int,
-    v_gene_match: bool,
-    c_gene_match: bool,
-    start: int,
-    stop: int,
-) -> set[tuple[int, int]]:
-    """Build unique edges for query indices in [start, stop) via C-distance kernels."""
-    n = len(seqs)
-    edges: set[tuple[int, int]] = set()
-    for i in range(start, stop):
-        seq_i = seqs[i]
-        v_i = v_genes[i]
-        c_i = c_genes[i]
-        for j in range(i + 1, n):
-            if v_gene_match and v_i != v_genes[j]:
-                continue
-            if c_gene_match and c_i != c_genes[j]:
-                continue
-            if metric == "hamming":
-                if len(seq_i) != len(seqs[j]):
-                    continue
-                dist = _hamming(seq_i, seqs[j])
-            else:
-                dist = _levenshtein(seq_i, seqs[j])
-            if dist <= threshold:
-                edges.add((i, j))
     return edges
 
 
@@ -128,7 +93,8 @@ def build_edit_distance_graph(
     One vertex is created per rearrangement (duplicates are preserved).
     An edge is added between every pair whose ``junction_aa`` distance is
     ≤ *threshold*.  For Hamming distance, sequences of unequal length are
-    never connected.
+    never connected. For Levenshtein fallback, only candidates with
+    ``abs(len(seq1) - len(seq2)) <= threshold`` are compared.
 
     Args:
         rearrangements: Input rearrangements.
@@ -155,41 +121,24 @@ def build_edit_distance_graph(
     trie = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
     c_genes = [str(getattr(r, "c_gene", "") or "") for r in rearrangements]
 
-    if metric == "hamming":
-        edges = _build_edges_parallel(
-            n=n,
-            jobs=jobs,
-            chunk_sz=chunk_sz,
-            builder=lambda start, stop: _build_batch_edges(
-                seqs,
-                v_genes,
-                trie,
-                c_genes,
-                metric=metric,
-                threshold=threshold,
-                v_gene_match=v_gene_match,
-                c_gene_match=c_gene_match,
-                start=start,
-                stop=stop,
-            ),
-        )
-    else:
-        edges = _build_edges_parallel(
-            n=n,
-            jobs=jobs,
-            chunk_sz=chunk_sz,
-            builder=lambda start, stop: _build_batch_edges_bruteforce(
-                seqs,
-                v_genes,
-                c_genes,
-                metric=metric,
-                threshold=threshold,
-                v_gene_match=v_gene_match,
-                c_gene_match=c_gene_match,
-                start=start,
-                stop=stop,
-            ),
-        )
+    edges = _build_edges_parallel(
+        n=n,
+        jobs=jobs,
+        chunk_sz=chunk_sz,
+        builder=lambda start, stop: _build_batch_edges(
+            seqs,
+            v_genes,
+            j_genes,
+            trie,
+            c_genes,
+            metric=metric,
+            threshold=threshold,
+            v_gene_match=v_gene_match,
+            c_gene_match=c_gene_match,
+            start=start,
+            stop=stop,
+        ),
+    )
 
     g = ig.Graph(n=n, directed=False)
     g.vs["name"]   = [r.junction_aa for r in rearrangements]
