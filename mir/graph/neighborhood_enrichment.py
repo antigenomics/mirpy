@@ -3,7 +3,8 @@
 Computes neighborhood statistics for clonotypes. For each clonotype in a query
 repertoire, counts the number of neighbors within a specified edit distance and
 optional V/J gene matching constraints, either against itself or against an
-explicit background repertoire.
+explicit background repertoire. Searches use ``tcrtrie`` with a constrained
+brute-force fallback only when trie search fails.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from math import ceil
 import typing as t
 from typing import TYPE_CHECKING
 
-from mir.graph._trie_utils import resolve_n_jobs, search_limits, validate_metric
+from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -93,6 +94,9 @@ def _potential_neighbor_count(
 def _compute_query_batch(
     query_clonotypes: list,
     sequence_ids: list[str],
+    background_sequences: list[str],
+    background_v_genes: list[str],
+    background_j_genes: list[str],
     trie,
     *,
     metric: str,
@@ -105,18 +109,19 @@ def _compute_query_batch(
     start: int,
     stop: int,
 ) -> dict[str, dict[str, int]]:
-    max_substitution, max_insertion, max_deletion, max_edits = search_limits(metric, threshold)
     out: dict[str, dict[str, int]] = {}
     for i in range(start, stop):
         clonotype = query_clonotypes[i]
-        hits = trie.SearchIndices(
+        hits = search_indices_with_fallback(
+            trie,
             query=clonotype.junction_aa,
-            maxSubstitution=max_substitution,
-            maxInsertion=max_insertion,
-            maxDeletion=max_deletion,
-            maxEdits=max_edits,
-            vGeneFilter=clonotype.v_gene if match_v_gene else None,
-            jGeneFilter=clonotype.j_gene if match_j_gene else None,
+            metric=metric,
+            threshold=threshold,
+            sequences=background_sequences,
+            v_gene_filter=clonotype.v_gene if match_v_gene else None,
+            j_gene_filter=clonotype.j_gene if match_j_gene else None,
+            v_genes=background_v_genes,
+            j_genes=background_j_genes,
         )
         potential_neighbors = _potential_neighbor_count(
             clonotype,
@@ -164,6 +169,9 @@ def _compute_locus_stats(
         }
 
     trie = background_locus.trie
+    background_sequences = [c.junction_aa for c in background_clonotypes]
+    background_v_genes = [c.v_gene for c in background_clonotypes]
+    background_j_genes = [c.j_gene for c in background_clonotypes]
     potential_counter = _build_potential_counter(
         background_clonotypes,
         match_v_gene=match_v_gene,
@@ -174,6 +182,9 @@ def _compute_locus_stats(
         return _compute_query_batch(
             query_clonotypes,
             q_seq_ids,
+            background_sequences,
+            background_v_genes,
+            background_j_genes,
             trie,
             metric=metric,
             threshold=threshold,
@@ -195,6 +206,9 @@ def _compute_locus_stats(
                 _compute_query_batch,
                 query_clonotypes,
                 q_seq_ids,
+                background_sequences,
+                background_v_genes,
+                background_j_genes,
                 trie,
                 metric=metric,
                 threshold=threshold,

@@ -13,6 +13,11 @@ from mir.graph.neighborhood_enrichment import (
 )
 
 
+class _FailingTrie:
+    def SearchIndices(self, **kwargs):
+        raise RuntimeError("forced tcrtrie failure")
+
+
 def _clonotype(
     seq_id: str,
     nt_seq: str,
@@ -390,3 +395,62 @@ def test_add_neighborhood_enrichment_metadata_background_equals_self() -> None:
         assert clonotype.clone_metadata["nbr_parent_count"] == clonotype.clone_metadata["nbr_background_count"]
         assert clonotype.clone_metadata["nbr_parent_potential"] == clonotype.clone_metadata["nbr_background_potential"]
         assert clonotype.clone_metadata["nbr_enrichment"] == 1.0
+
+
+def test_neighborhood_long_queries_over_33_and_64_aa() -> None:
+    rep_h = LocusRepertoire(
+        clonotypes=[
+            _clonotype("h1", "ATG", "C" * 40),
+            _clonotype("h2", "ATG", ("C" * 39) + "A"),
+        ],
+        locus="TRB",
+    )
+    rep_l = LocusRepertoire(
+        clonotypes=[
+            _clonotype("l1", "ATG", "G" * 70),
+            _clonotype("l2", "ATG", ("G" * 70) + "A"),
+        ],
+        locus="TRB",
+    )
+
+    stats_h = compute_neighborhood_stats(rep_h, metric="hamming", threshold=1)
+    stats_l = compute_neighborhood_stats(rep_l, metric="levenshtein", threshold=1)
+
+    assert stats_h["h1"]["neighbor_count"] == 2
+    assert stats_h["h2"]["neighbor_count"] == 2
+    assert stats_l["l1"]["neighbor_count"] == 2
+    assert stats_l["l2"]["neighbor_count"] == 2
+
+
+def test_neighborhood_fallback_hamming_equal_length_only() -> None:
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSRSGYTF"),
+            _clonotype("c2", "ATG", "CASSRSGYTFF"),
+        ],
+        locus="TRB",
+    )
+    rep._trie = _FailingTrie()
+
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1)
+
+    assert stats["c1"]["neighbor_count"] == 1
+    assert stats["c2"]["neighbor_count"] == 1
+
+
+def test_neighborhood_fallback_levenshtein_length_window() -> None:
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSRSGYTF"),
+            _clonotype("c2", "ATG", "CASSRSGYTFF"),
+            _clonotype("c3", "ATG", "CASSRSGYTFFAAA"),
+        ],
+        locus="TRB",
+    )
+    rep._trie = _FailingTrie()
+
+    stats = compute_neighborhood_stats(rep, metric="levenshtein", threshold=1)
+
+    assert stats["c1"]["neighbor_count"] == 2
+    assert stats["c2"]["neighbor_count"] == 2
+    assert stats["c3"]["neighbor_count"] == 1

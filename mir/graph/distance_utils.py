@@ -58,6 +58,32 @@ def compute_distance(seq1: str, seq2: str, metric: str) -> int:
         raise ValueError(f"metric must be 'hamming' or 'levenshtein', got {metric!r}")
 
 
+def is_length_compatible(seq1: str, seq2: str, metric: str, threshold: int) -> bool:
+    """Check if pair lengths can satisfy the metric/threshold constraints.
+
+    For Hamming distance, only equal-length sequences are comparable.
+    For Levenshtein distance, a necessary condition for ``d <= threshold`` is
+    ``abs(len(seq1) - len(seq2)) <= threshold``.
+    """
+    if threshold < 0:
+        raise ValueError(f"threshold must be >= 0, got {threshold!r}")
+    if metric == "hamming":
+        return len(seq1) == len(seq2)
+    if metric == "levenshtein":
+        return abs(len(seq1) - len(seq2)) <= threshold
+    raise ValueError(f"metric must be 'hamming' or 'levenshtein', got {metric!r}")
+
+
+def is_within_threshold(seq1: str, seq2: str, metric: str, threshold: int) -> bool:
+    """Return True when pair distance is within threshold.
+
+    Applies cheap length prefilters before invoking C-backed kernels.
+    """
+    if not is_length_compatible(seq1, seq2, metric, threshold):
+        return False
+    return compute_distance(seq1, seq2, metric) <= threshold
+
+
 def should_compare_pair(
     rec: PairRecord,
     match_v_gene: bool = False,

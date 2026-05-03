@@ -1,6 +1,17 @@
 mir.graph package
 =================
 
+Search behavior
+---------------
+
+Graph and neighborhood edit-distance searches use ``tcrtrie`` as the primary
+engine. If trie search raises an error for a query, code falls back to a
+length-constrained brute-force comparison:
+
+- ``hamming``: only equal-length sequences are compared.
+- ``levenshtein``: only candidates with length difference ``<= threshold`` are
+   compared.
+
 Submodules
 ----------
 
