@@ -328,8 +328,7 @@ def _build_control_profile_in_memory(
     params: BagOfKmersParams,
     control_kwargs: dict[str, Any],
 ) -> ControlKmerProfile:
-    manager.ensure_control(control_type, species, locus, **control_kwargs)
-    control_df = manager.load_control_df(control_type, species, locus)
+    control_df = manager.ensure_and_load_control_df(control_type, species, locus, **control_kwargs)
     token_df, pos_df = _build_tables_from_df(control_df, params)
     meta = _build_profile_metadata(
         control_type=control_type,

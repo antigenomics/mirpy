@@ -65,8 +65,8 @@ def test_generate_and_fetch_controls_synthetic_and_real(capsys, tmp_path: Path) 
     assert "Generated synthetic control mouse/TRA" in out
 
     # Load generated synthetic controls and compute diagnostics.
-    df_h_trb = mgr.load_control_df("synthetic", "human", "TRB")
-    df_m_tra = mgr.load_control_df("synthetic", "mouse", "TRA")
+    df_h_trb = mgr.load_control_df("synthetic", "human", "TRB", n=n)
+    df_m_tra = mgr.load_control_df("synthetic", "mouse", "TRA", n=n)
 
     p_h_trb = Path(rec_h_trb.path)
     p_m_tra = Path(rec_m_tra.path)
@@ -148,8 +148,8 @@ def test_generate_and_fetch_controls_synthetic_and_real(capsys, tmp_path: Path) 
     assert len(df_m_tra) == n
     assert len(df_real_h_trb) > 0
     assert len(df_real_m_tra) > 0
-    assert set(df_h_trb.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
-    assert set(df_m_tra.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
+    assert {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene", "log2_pgen"}.issubset(df_h_trb.columns)
+    assert {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene", "log2_pgen"}.issubset(df_m_tra.columns)
     assert set(df_real_h_trb.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
     assert set(df_real_m_tra.columns) == {"duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"}
     assert (df_h_trb["duplicate_count"] >= 1).all()
