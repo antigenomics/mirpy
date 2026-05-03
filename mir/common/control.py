@@ -98,23 +98,60 @@ class ControlManager:
             _atomic_write_json(self.manifest_path, manifest)
 
     @staticmethod
-    def _record_key(control_type: str, species: str, locus: str) -> str:
+    def _record_key(control_type: str, species: str, locus: str, n: int | None = None) -> str:
+        if control_type == "synthetic" and n is not None:
+            return f"{control_type}:{species}:{locus}:n={int(n)}"
         return f"{control_type}:{species}:{locus}"
 
     def register_record(self, record: ControlRecord) -> None:
-        key = self._record_key(record.control_type, record.species, record.locus)
+        key = self._record_key(record.control_type, record.species, record.locus, record.n)
         with _file_lock(self._manifest_lock_path):
             manifest = self.load_manifest()
             manifest["records"][key] = asdict(record)
             _atomic_write_json(self.manifest_path, manifest)
 
-    def get_record(self, control_type: str, species: str, locus: str) -> ControlRecord | None:
+    def get_record(
+        self,
+        control_type: str,
+        species: str,
+        locus: str,
+        *,
+        n: int | None = None,
+    ) -> ControlRecord | None:
         manifest = self.load_manifest()
-        key = self._record_key(control_type, species, locus)
-        rec = manifest["records"].get(key)
-        if rec is None:
+        records = manifest["records"]
+        ctype = control_type.strip().lower()
+
+        if ctype != "synthetic":
+            rec = records.get(self._record_key(ctype, species, locus))
+            if rec is None:
+                return None
+            return ControlRecord(**rec)
+
+        if n is not None:
+            rec = records.get(self._record_key(ctype, species, locus, n))
+            if rec is None:
+                legacy = records.get(self._record_key(ctype, species, locus))
+                if legacy is None:
+                    return None
+                legacy_rec = ControlRecord(**legacy)
+                return legacy_rec if legacy_rec.n == int(n) else None
+            return ControlRecord(**rec)
+
+        legacy = records.get(self._record_key(ctype, species, locus))
+        if legacy is not None:
+            return ControlRecord(**legacy)
+
+        prefix = f"{ctype}:{species}:{locus}:n="
+        matches = [ControlRecord(**rec) for key, rec in records.items() if key.startswith(prefix)]
+        if not matches:
             return None
-        return ControlRecord(**rec)
+        if len(matches) == 1:
+            return matches[0]
+        raise ValueError(
+            f"Multiple synthetic controls registered for {species}/{locus}; "
+            "specify n explicitly when loading"
+        )
 
     def list_available_controls(self) -> list[ControlRecord]:
         manifest = self.load_manifest()
@@ -161,8 +198,17 @@ class ControlManager:
     def synthetic_control_path(self, species: str, locus: str, n: int) -> Path:
         return self.control_dir / "synthetic" / species / locus / f"olga_n{n}.pkl"
 
-    def _control_lock_path(self, control_type: str, species: str, locus: str) -> Path:
+    def _control_lock_path(
+        self,
+        control_type: str,
+        species: str,
+        locus: str,
+        *,
+        n: int | None = None,
+    ) -> Path:
         safe = f"{control_type}_{species}_{locus}".replace("/", "_")
+        if control_type == "synthetic" and n is not None:
+            safe = f"{safe}_n{int(n)}"
         return self._locks_dir / f"{safe}.lock"
 
     def ensure_synthetic_control(
@@ -188,21 +234,26 @@ class ControlManager:
             )
 
         path = self.synthetic_control_path(species_c, locus_c, n)
-        lock_path = self._control_lock_path("synthetic", species_c, locus_c)
+        lock_path = self._control_lock_path("synthetic", species_c, locus_c, n=n)
         with _file_lock(lock_path):
             if path.exists() and not overwrite:
-                rec = ControlRecord(
-                    control_type="synthetic",
-                    species=species_c,
-                    locus=locus_c,
-                    path=str(path),
-                    format="pickle",
-                    source="olga",
-                    n=n,
-                    created_at_utc=_utc_now(),
-                )
-                self.register_record(rec)
-                return rec
+                try:
+                    _read_pickle(path)
+                except Exception:
+                    path.unlink(missing_ok=True)
+                else:
+                    rec = ControlRecord(
+                        control_type="synthetic",
+                        species=species_c,
+                        locus=locus_c,
+                        path=str(path),
+                        format="pickle",
+                        source="olga",
+                        n=n,
+                        created_at_utc=_utc_now(),
+                    )
+                    self.register_record(rec)
+                    return rec
 
             path.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -262,18 +313,23 @@ class ControlManager:
         lock_path = self._control_lock_path("real", species_c, locus_c)
         with _file_lock(lock_path):
             if path.exists() and not overwrite:
-                rec = ControlRecord(
-                    control_type="real",
-                    species=species_c,
-                    locus=locus_c,
-                    path=str(path),
-                    format="pickle",
-                    source=f"huggingface:{dataset_repo}",
-                    n=None,
-                    created_at_utc=_utc_now(),
-                )
-                self.register_record(rec)
-                return rec
+                try:
+                    _read_pickle(path)
+                except Exception:
+                    path.unlink(missing_ok=True)
+                else:
+                    rec = ControlRecord(
+                        control_type="real",
+                        species=species_c,
+                        locus=locus_c,
+                        path=str(path),
+                        format="pickle",
+                        source=f"huggingface:{dataset_repo}",
+                        n=None,
+                        created_at_utc=_utc_now(),
+                    )
+                    self.register_record(rec)
+                    return rec
 
             path.parent.mkdir(parents=True, exist_ok=True)
             local_snapshot = _download_hf_snapshot(dataset_repo, cache_dir=hf_cache_dir)
@@ -323,18 +379,20 @@ class ControlManager:
         species: str,
         locus: str,
         *,
+        n: int | None = None,
         wait_if_building: bool = True,
         wait_timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
     ) -> pd.DataFrame:
         species_c = self.canonical_species(species)
         locus_c = self.canonical_locus(locus)
+        ctype = control_type.strip().lower()
         if wait_if_building:
-            lock_path = self._control_lock_path(control_type.strip().lower(), species_c, locus_c)
+            lock_path = self._control_lock_path(ctype, species_c, locus_c, n=n)
             _wait_for_lock_release(lock_path, timeout_s=wait_timeout_s)
-        rec = self.get_record(control_type, species_c, locus_c)
+        rec = self.get_record(ctype, species_c, locus_c, n=n)
         if rec is None:
             raise FileNotFoundError(
-                f"Control not registered: type={control_type!r}, species={species_c!r}, locus={locus_c!r}"
+                f"Control not registered: type={control_type!r}, species={species_c!r}, locus={locus_c!r}, n={n!r}"
             )
         return _read_pickle(Path(rec.path))
 
@@ -346,8 +404,9 @@ class ControlManager:
         **kwargs,
     ) -> pd.DataFrame:
         """Ensure control exists on disk and return it as a DataFrame."""
+        n = kwargs.get("n") if control_type.strip().lower() == "synthetic" else None
         self.ensure_control(control_type, species, locus, **kwargs)
-        return self.load_control_df(control_type, species, locus)
+        return self.load_control_df(control_type, species, locus, n=n)
 
 
 # ---------------------------
@@ -392,6 +451,7 @@ def generate_synthetic_olga_control(
     - junction_aa
     - v_gene
     - j_gene
+    - log2_pgen
     """
     model = OlgaModel(species=species, locus=locus, seed=seed)
     records = model.generate_pool(n, n_jobs=max(1, int(n_jobs)), seed=seed)
@@ -409,6 +469,7 @@ def generate_synthetic_olga_control(
                 "junction_aa": str(rec["junction_aa"]),
                 "v_gene": _normalize_allele(str(rec["v_gene"])),
                 "j_gene": _normalize_allele(str(rec["j_gene"])),
+                "log2_pgen": float(rec["log2_pgen"]),
             }
         )
     if progress:
@@ -440,22 +501,65 @@ def compute_control_pgen_records(
     if df.empty:
         return []
 
-    rows = [
-        (
-            str(jaa),
-            _normalize_allele(str(vg)),
-            _normalize_allele(str(jg)),
-        )
-        for jaa, vg, jg in df[["junction_aa", "v_gene", "j_gene"]].itertuples(index=False)
-        if str(jaa)
-    ]
+    if "log2_pgen" in df.columns:
+        rows = [
+            (
+                str(jaa),
+                _normalize_allele(str(vg)),
+                _normalize_allele(str(jg)),
+                float(l2p),
+            )
+            for jaa, vg, jg, l2p in df[
+                ["junction_aa", "v_gene", "j_gene", "log2_pgen"]
+            ].itertuples(index=False)
+            if str(jaa)
+        ]
+    else:
+        rows = [
+            (
+                str(jaa),
+                _normalize_allele(str(vg)),
+                _normalize_allele(str(jg)),
+                None,
+            )
+            for jaa, vg, jg in df[
+                ["junction_aa", "v_gene", "j_gene"]
+            ].itertuples(index=False)
+            if str(jaa)
+        ]
     if not rows:
         return []
 
-    def _worker(batch: list[tuple[str, str, str]], worker_seed: int) -> list[dict[str, str | float]]:
-        model = OlgaModel(species=species, locus=locus, seed=worker_seed)
+    def _worker(batch: list[tuple[str, str, str, float | None]], worker_seed: int) -> list[dict[str, str | float]]:
+        model: OlgaModel | None = None
         out: list[dict[str, str | float]] = []
-        for jaa, vg, jg in batch:
+        for jaa, vg, jg, log2_pgen in batch:
+            if log2_pgen is not None:
+                if pgen_adjustment is None:
+                    out.append(
+                        {
+                            "junction_aa": jaa,
+                            "v_gene": vg,
+                            "j_gene": jg,
+                            "log2_pgen": float(log2_pgen),
+                        }
+                    )
+                    continue
+                factor = float(pgen_adjustment.factor(locus, vg, jg))
+                if factor <= 0:
+                    continue
+                out.append(
+                    {
+                        "junction_aa": jaa,
+                        "v_gene": vg,
+                        "j_gene": jg,
+                        "log2_pgen": float(log2_pgen) + math.log2(factor),
+                    }
+                )
+                continue
+
+            if model is None:
+                model = OlgaModel(species=species, locus=locus, seed=worker_seed)
             pgen_val = model.compute_pgen_junction_aa(jaa)
             if pgen_val is None or pgen_val <= 0:
                 continue

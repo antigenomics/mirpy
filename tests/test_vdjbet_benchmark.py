@@ -1196,8 +1196,8 @@ class TestSyntheticVsRealMockComparison:
         print(f"  exact: n={r_exact.n}  z={r_exact.z_n:.2f}  p={r_exact.p_n:.3f}")
         print(f"  1mm:   n={r_1mm.n}    z={r_1mm.z_n:.2f}  p={r_1mm.p_n:.3f}")
         
-        # Synthetic queries should have very small overlap
-        assert r_exact.n < r_1mm.n  # 1mm always >= exact
+        # Synthetic queries should have very small overlap, and 1mm cannot reduce matches.
+        assert r_exact.n <= r_1mm.n
 
     def test_allele_stripping_in_vj_matching(self) -> None:
         """Verify that V/J gene names are properly stripped of allele suffixes.

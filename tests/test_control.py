@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from pathlib import Path
 
 import pandas as pd
 
-from mir.common.control import ControlManager, ControlRecord, build_real_control_from_ntvj
+from mir.common.control import (
+    ControlManager,
+    ControlRecord,
+    build_real_control_from_ntvj,
+    compute_control_pgen_records,
+)
 
 
 def test_control_aliases_species_and_locus(tmp_path: Path) -> None:
@@ -78,13 +84,13 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
     out_path = Path(rec.path)
     assert out_path.exists()
 
-    loaded = mgr.load_control_df("synthetic", "human", "TRB")
+    loaded = mgr.load_control_df("synthetic", "human", "TRB", n=3)
     assert list(loaded.columns) == ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
     assert len(loaded) == 3
     assert int(loaded["duplicate_count"].sum()) == 4
 
     manifest = mgr.load_manifest()
-    assert "synthetic:human:TRB" in manifest["records"]
+    assert "synthetic:human:TRB:n=3" in manifest["records"]
 
 
 def test_build_real_control_from_ntvj_appends_alleles(tmp_path: Path) -> None:
@@ -162,6 +168,74 @@ def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
     assert df.iloc[0]["v_gene"] == "TRAV1*01"
 
 
+def test_ensure_synthetic_control_rebuilds_unreadable_cache(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    monkeypatch.setattr(
+        ControlManager,
+        "list_available_olga_models",
+        staticmethod(lambda model_root=None: [("human", "TRB")]),
+    )
+
+    path = mgr.synthetic_control_path("human", "TRB", 3)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"not-a-pickle")
+
+    monkeypatch.setattr(
+        "mir.common.control.generate_synthetic_olga_control",
+        lambda **kwargs: pd.DataFrame(
+            {
+                "duplicate_count": [1],
+                "junction": ["ATG"],
+                "junction_aa": ["M"],
+                "v_gene": ["TRBV1*01"],
+                "j_gene": ["TRBJ1*01"],
+                "log2_pgen": [-12.5],
+            }
+        ),
+    )
+
+    rec = mgr.ensure_synthetic_control("human", "TRB", n=3, overwrite=False, progress=False)
+    loaded = mgr.load_control_df("synthetic", "human", "TRB", n=3)
+
+    assert Path(rec.path).exists()
+    assert len(loaded) == 1
+    assert float(loaded.iloc[0]["log2_pgen"]) == -12.5
+
+
+def test_compute_control_pgen_records_uses_precomputed_log2_pgen_with_adjustment(monkeypatch) -> None:
+    df = pd.DataFrame(
+        {
+            "junction_aa": ["CASSIRSSYEQYF"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+            "log2_pgen": [-10.0],
+        }
+    )
+
+    class _Adj:
+        def factor(self, locus: str, v: str, j: str) -> float:
+            assert locus == "TRB"
+            assert v == "TRBV1*01"
+            assert j == "TRBJ1*01"
+            return 4.0
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("OlgaModel should not be instantiated when log2_pgen is precomputed")
+
+    monkeypatch.setattr("mir.common.control.OlgaModel", _fail)
+
+    records = compute_control_pgen_records(
+        df,
+        locus="TRB",
+        species="human",
+        pgen_adjustment=_Adj(),
+    )
+
+    assert len(records) == 1
+    assert math.isclose(records[0]["log2_pgen"], -8.0, rel_tol=0.0, abs_tol=1e-9)
+
+
 def test_ensure_synthetic_control_waits_for_existing_lock(tmp_path: Path, monkeypatch) -> None:
     mgr = ControlManager(control_dir=tmp_path / "controls")
 
@@ -183,7 +257,7 @@ def test_ensure_synthetic_control_waits_for_existing_lock(tmp_path: Path, monkey
         ),
     )
 
-    lock_path = mgr._control_lock_path("synthetic", "human", "TRB")
+    lock_path = mgr._control_lock_path("synthetic", "human", "TRB", n=1)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.write_text("hold\n", encoding="utf-8")
 
@@ -231,7 +305,7 @@ def test_load_control_df_waits_if_building_lock_present(tmp_path: Path) -> None:
         )
     )
 
-    lock_path = mgr._control_lock_path("synthetic", "human", "TRB")
+    lock_path = mgr._control_lock_path("synthetic", "human", "TRB", n=1)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.write_text("building\n", encoding="utf-8")
 
@@ -243,8 +317,104 @@ def test_load_control_df_waits_if_building_lock_present(tmp_path: Path) -> None:
     t.start()
 
     t0 = time.perf_counter()
-    loaded = mgr.load_control_df("synthetic", "human", "TRB", wait_if_building=True, wait_timeout_s=5.0)
+    loaded = mgr.load_control_df("synthetic", "human", "TRB", n=1, wait_if_building=True, wait_timeout_s=5.0)
     elapsed = time.perf_counter() - t0
 
     assert len(loaded) == 1
     assert elapsed >= 0.2
+
+
+def test_synthetic_controls_with_different_n_have_distinct_manifest_records(tmp_path: Path) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    path_small = mgr.synthetic_control_path("human", "TRB", 10)
+    path_large = mgr.synthetic_control_path("human", "TRB", 20)
+    path_small.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "duplicate_count": [1],
+            "junction": ["ATG"],
+            "junction_aa": ["M"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+        }
+    ).to_pickle(path_small)
+    pd.DataFrame(
+        {
+            "duplicate_count": [2],
+            "junction": ["GTA"],
+            "junction_aa": ["V"],
+            "v_gene": ["TRBV2*01"],
+            "j_gene": ["TRBJ2*01"],
+        }
+    ).to_pickle(path_large)
+
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(path_small),
+            format="pickle",
+            source="olga",
+            n=10,
+            created_at_utc=None,
+        )
+    )
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(path_large),
+            format="pickle",
+            source="olga",
+            n=20,
+            created_at_utc=None,
+        )
+    )
+
+    manifest = mgr.load_manifest()
+    assert "synthetic:human:TRB:n=10" in manifest["records"]
+    assert "synthetic:human:TRB:n=20" in manifest["records"]
+
+    loaded_small = mgr.load_control_df("synthetic", "human", "TRB", n=10)
+    loaded_large = mgr.load_control_df("synthetic", "human", "TRB", n=20)
+    assert int(loaded_small.iloc[0]["duplicate_count"]) == 1
+    assert int(loaded_large.iloc[0]["duplicate_count"]) == 2
+
+
+def test_loading_synthetic_control_without_n_is_rejected_when_multiple_sizes_exist(tmp_path: Path) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    for n, dup in [(10, 1), (20, 2)]:
+        path = mgr.synthetic_control_path("human", "TRB", n)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            {
+                "duplicate_count": [dup],
+                "junction": ["ATG"],
+                "junction_aa": ["M"],
+                "v_gene": ["TRBV1*01"],
+                "j_gene": ["TRBJ1*01"],
+            }
+        ).to_pickle(path)
+        mgr.register_record(
+            ControlRecord(
+                control_type="synthetic",
+                species="human",
+                locus="TRB",
+                path=str(path),
+                format="pickle",
+                source="olga",
+                n=n,
+                created_at_utc=None,
+            )
+        )
+
+    try:
+        mgr.load_control_df("synthetic", "human", "TRB")
+    except ValueError as exc:
+        assert "specify n explicitly" in str(exc)
+    else:
+        raise AssertionError("Expected ambiguous synthetic cache load to require explicit n")
