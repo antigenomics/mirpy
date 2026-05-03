@@ -418,3 +418,210 @@ def test_loading_synthetic_control_without_n_is_rejected_when_multiple_sizes_exi
         assert "specify n explicitly" in str(exc)
     else:
         raise AssertionError("Expected ambiguous synthetic cache load to require explicit n")
+
+
+def test_ensure_synthetic_control_reuses_larger_cache_by_prefix(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+    monkeypatch.setattr(
+        ControlManager,
+        "list_available_olga_models",
+        staticmethod(lambda model_root=None: [("human", "TRB")]),
+    )
+
+    path_large = mgr.synthetic_control_path("human", "TRB", 6)
+    path_large.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "duplicate_count": [1, 2, 3, 4, 5, 6],
+            "junction": [f"J{i}" for i in range(6)],
+            "junction_aa": [f"CASS{i}" for i in range(6)],
+            "v_gene": ["TRBV1*01"] * 6,
+            "j_gene": ["TRBJ1*01"] * 6,
+            "log2_pgen": [-10.0] * 6,
+        }
+    ).to_pickle(path_large)
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(path_large),
+            format="pickle",
+            source="olga",
+            n=6,
+            created_at_utc=None,
+        )
+    )
+
+    rec = mgr.ensure_synthetic_control("human", "TRB", n=3, overwrite=False, progress=False)
+    got = pd.read_pickle(rec.path)
+    assert len(got) == 3
+    assert list(got["duplicate_count"]) == [1, 2, 3]
+
+
+def test_ensure_synthetic_control_extends_smaller_cache(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+    monkeypatch.setattr(
+        ControlManager,
+        "list_available_olga_models",
+        staticmethod(lambda model_root=None: [("human", "TRB")]),
+    )
+
+    path_small = mgr.synthetic_control_path("human", "TRB", 2)
+    path_small.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "duplicate_count": [1, 2],
+            "junction": ["A", "B"],
+            "junction_aa": ["CASSA", "CASSB"],
+            "v_gene": ["TRBV1*01", "TRBV1*01"],
+            "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+            "log2_pgen": [-9.0, -8.0],
+        }
+    ).to_pickle(path_small)
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(path_small),
+            format="pickle",
+            source="olga",
+            n=2,
+            created_at_utc=None,
+        )
+    )
+
+    monkeypatch.setattr(
+        "mir.common.control.generate_synthetic_olga_control",
+        lambda **kwargs: pd.DataFrame(
+            {
+                "duplicate_count": [7, 8],
+                "junction": ["C", "D"],
+                "junction_aa": ["CASSC", "CASSD"],
+                "v_gene": ["TRBV1*01", "TRBV1*01"],
+                "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+                "log2_pgen": [-7.0, -6.0],
+            }
+        ),
+    )
+
+    rec = mgr.ensure_synthetic_control("human", "TRB", n=4, overwrite=False, progress=False)
+    got = pd.read_pickle(rec.path)
+    assert len(got) == 4
+    assert list(got["junction"]) == ["A", "B", "C", "D"]
+
+
+def test_cleanup_cache_removes_invalid_manifest_entries_and_orphans(tmp_path: Path) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    good = mgr.synthetic_control_path("human", "TRB", 1)
+    bad = mgr.synthetic_control_path("human", "TRB", 2)
+    orphan = mgr.synthetic_control_path("human", "TRB", 99)
+    good.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "duplicate_count": [1],
+            "junction": ["A"],
+            "junction_aa": ["CASSA"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+            "log2_pgen": [-9.0],
+        }
+    ).to_pickle(good)
+    bad.write_bytes(b"corrupt")
+    pd.DataFrame(
+        {
+            "duplicate_count": [3],
+            "junction": ["O"],
+            "junction_aa": ["CASSO"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+            "log2_pgen": [-5.0],
+        }
+    ).to_pickle(orphan)
+
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(good),
+            format="pickle",
+            source="olga",
+            n=1,
+            created_at_utc=None,
+        )
+    )
+    mgr.register_record(
+        ControlRecord(
+            control_type="synthetic",
+            species="human",
+            locus="TRB",
+            path=str(bad),
+            format="pickle",
+            source="olga",
+            n=2,
+            created_at_utc=None,
+        )
+    )
+
+    summary = mgr.cleanup_cache(cleanup_synthetic=True, cleanup_real=False, remove_orphans=True)
+    manifest = mgr.load_manifest()
+
+    assert summary["manifest_entries_removed"] >= 1
+    assert summary["invalid_files_removed"] >= 1
+    assert summary["orphan_files_removed"] >= 1
+    assert "synthetic:human:TRB:n=1" in manifest["records"]
+    assert "synthetic:human:TRB:n=2" not in manifest["records"]
+    assert not orphan.exists()
+
+
+def test_refresh_real_controls_updates_when_snapshot_changes(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+    real_path = mgr.real_control_path("human", "TRB")
+    real_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "duplicate_count": [1],
+            "junction": ["ATG"],
+            "junction_aa": ["M"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1*01"],
+        }
+    ).to_pickle(real_path)
+    mgr.register_record(
+        ControlRecord(
+            control_type="real",
+            species="human",
+            locus="TRB",
+            path=str(real_path),
+            format="pickle",
+            source="huggingface:isalgo/airr_control@oldsnap",
+            n=1,
+            created_at_utc=None,
+        )
+    )
+
+    monkeypatch.setattr("mir.common.control._download_hf_snapshot", lambda repo_id, cache_dir=None: "/tmp/newsnap")
+    calls = []
+
+    def _fake_ensure_real(species, locus, *, dataset_repo, overwrite, hf_cache_dir=None):
+        calls.append((species, locus, dataset_repo, overwrite))
+        return ControlRecord(
+            control_type="real",
+            species=species,
+            locus=locus,
+            path=str(real_path),
+            format="pickle",
+            source="huggingface:isalgo/airr_control@newsnap",
+            n=1,
+            created_at_utc=None,
+        )
+
+    monkeypatch.setattr(mgr, "ensure_real_control", _fake_ensure_real)
+
+    out = mgr.refresh_real_controls(dataset_repo="isalgo/airr_control")
+    assert out["checked"] == 1
+    assert out["updated"] == 1
+    assert calls == [("human", "TRB", "isalgo/airr_control", True)]
