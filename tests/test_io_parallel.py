@@ -30,8 +30,8 @@ from tests.conftest import skip_benchmarks
 ASSETS = Path(__file__).parent / "assets"
 
 # Test files with known sizes
-_SMALL_FILE = ASSETS / "yfv_s1_d0_f1.airr.tsv.gz"  # ~2K clonotypes
-_MEDIUM_FILE = ASSETS / "yfv_s1_d15_f1.airr.tsv.gz"  # ~2-3K clonotypes
+_SMALL_FILE = ASSETS / "Q1_0_F1.airr.tsv.gz"  # compact donor day-0 sample
+_MEDIUM_FILE = ASSETS / "Q1_15_F1.airr.tsv.gz"  # compact donor day-15 sample
 _FILES_EXIST = _SMALL_FILE.exists() and _MEDIUM_FILE.exists()
 
 
@@ -82,7 +82,7 @@ class TestChunkParsingWorker:
 class TestParallelLoadBasic:
     """Basic tests for parallel loading (no file I/O)."""
 
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_parallel_load_n_jobs_1_sequential(self):
         """Loading with n_jobs=1 should work (sequential path)."""
         rep = load_airr_parallel(_SMALL_FILE, locus="TRB", n_jobs=1)
@@ -90,14 +90,14 @@ class TestParallelLoadBasic:
         assert len(rep.clonotypes) > 0
         assert rep.locus == "TRB"
 
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_parallel_load_n_jobs_2(self):
         """Loading with n_jobs=2 should work."""
         rep = load_airr_parallel(_SMALL_FILE, locus="TRB", n_jobs=2, chunk_size=500)
         assert isinstance(rep, LocusRepertoire)
         assert len(rep.clonotypes) > 0
 
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_parallel_load_matches_sequential(self):
         """Parallel and sequential loads should produce identical results."""
         rep_seq = _load_sequential(_SMALL_FILE, locus="TRB")
@@ -111,7 +111,7 @@ class TestParallelLoadBasic:
         par_junctions = {c.junction_aa for c in rep_par.clonotypes}
         assert seq_junctions == par_junctions
 
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_parallel_load_with_filter(self):
         """Filter function should be applied before parsing."""
         # Filter: keep only rows with duplicate_count >= 5
@@ -138,7 +138,7 @@ class TestParallelLoadBasic:
 class TestChunkSizeEffect:
     """Test that chunk size doesn't affect correctness."""
 
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_different_chunk_sizes_produce_same_result(self):
         """Results should be independent of chunk_size."""
         chunk_sizes = [500, 1000, 5000]
@@ -166,7 +166,7 @@ class TestParallelLoadBenchmark:
     """Benchmark comparisons: sequential vs parallel."""
 
     @skip_benchmarks
-    @pytest.mark.skipif(not _FILES_EXIST, reason="YFV test files not available")
+    @pytest.mark.skipif(not _FILES_EXIST, reason="Q1 test files not available")
     def test_speedup_sequential_vs_parallel(self):
         """Measure speedup of parallel loading vs sequential."""
         print("\n" + "=" * 80)
