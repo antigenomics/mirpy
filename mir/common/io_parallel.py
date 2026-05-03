@@ -31,10 +31,9 @@ Default Parallel/Fallback Policy
     1. ``n_jobs == 1`` (explicitly requested)
     2. row count after read is below ``parallel_min_rows`` (default 10,000)
     3. file fits in one chunk (``n_rows <= chunk_size``)
-- For AIRR tables similar to ``tests/assets/yfv_s1_d0_f1.airr.tsv.gz`` and
-    ``tests/assets/yfv_s1_d15_f1.airr.tsv.gz`` (both ~3,000 rows at ~0.07 MB gz),
-    this is about ~43,000 rows per MB gz. Under that approximation,
-    10,000 rows is about 0.23 MB gz.
+- For typical AIRR tables (~3,000 rows at ~0.07 MB gz), this yields about
+    ~43,000 rows per MB gz. Under that approximation, 10,000 rows is about
+    0.23 MB gz.
 """
 
 from __future__ import annotations

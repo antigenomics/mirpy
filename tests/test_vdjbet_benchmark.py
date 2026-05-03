@@ -38,9 +38,6 @@ Dataset notes
 * **Q1 donor** (test assets): ``tests/assets/Q1_0_F1.airr.tsv.gz`` and
   ``tests/assets/Q1_15_F1.airr.tsv.gz`` — Preferred for regular testing;
   compact subsets suitable for CI/regular benchmarks.
-* **YFV test assets** (legacy): ``tests/assets/yfv_s1_d0_f1.airr.tsv.gz`` and
-  ``tests/assets/yfv_s1_d15_f1.airr.tsv.gz`` — Being phased out; kept for
-  backward compatibility (unknown origin).
 * **Full YFV cohort**: ``notebooks/assets/large/yfv19/`` — Full-data integration
   tests (requires ``RUN_FULL_BENCHMARK=1``).
 * **VDJdb LLWNGPMAV reference**: ``tests/assets/vdjdb.slim.txt.gz`` — Used for
@@ -62,7 +59,7 @@ Key enhancements in benchmark suite
 Integration test migration
 ---------------------------
 Tests migrated from test_yfv_integration.py (now removed):
-* TestYFVS1F1 — Uses full YFV cohort for integration testing
+* TestYFVS1F1 — Uses full YFV cohort from notebooks/assets/large/yfv19/ for integration testing
 * TestFunctionalFilteringCounts — Validates functional filtering counts on real data
 * Helper functions: _build_yfv_gene_usage, _load_s1_f1, _load_p1_f1
 """
@@ -102,18 +99,15 @@ ASSETS = Path(__file__).parent / "assets"
 _LLW_FILE = ASSETS / "llwngpmav_trb_a02.tsv.gz"
 _VDJDB_FILE = ASSETS / "vdjdb.slim.txt.gz"
 
-# Q1 donor repertoires for integration tests (preferred over YFV notebook assets)
+# Q1 donor repertoires for integration tests
 _Q1_D0   = ASSETS / "Q1_0_F1.airr.tsv.gz"
 _Q1_D15  = ASSETS / "Q1_15_F1.airr.tsv.gz"
 
-# Legacy YFV test assets (to be phased out; kept for backward compatibility)
-_YFV_D0   = ASSETS / "yfv_s1_d0_f1.airr.tsv.gz"
-_YFV_D15  = ASSETS / "yfv_s1_d15_f1.airr.tsv.gz"
+# Full YFV cohort for large-scale integration tests
 _YFV_FULL_DIR = Path(__file__).parent.parent / "notebooks" / "assets" / "large" / "yfv19"
 
 _LLW_AVAILABLE = _LLW_FILE.exists()
 _Q1_AVAILABLE = _Q1_D0.exists() and _Q1_D15.exists()
-_YFV_TEST_AVAILABLE = _YFV_D0.exists() and _YFV_D15.exists()
 _VDJDB_AVAILABLE = _VDJDB_FILE.exists()
 RUN_FULL_BENCHMARK = (
     os.getenv("RUN_FULL_BENCHMARK") == "1"
@@ -145,18 +139,6 @@ def _make_olga_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
 
 def _load_llw_reference() -> LocusRepertoire:
     df = pd.read_csv(_LLW_FILE, sep="\t", compression="infer")
-    clones = ClonotypeTableParser().parse_inner(df)
-    rep = LocusRepertoire(clonotypes=clones, locus="TRB")
-    # Filter to functional clonotypes only
-    return filter_functional(rep)
-
-
-def _load_yfv_sample(path: Path) -> LocusRepertoire:
-    df = pd.read_csv(path, sep="\t", compression="infer")
-    if "locus" in df.columns:
-        df = df[df["locus"].fillna("") == "TRB"]
-    df = df.dropna(subset=["junction_aa"])
-    df = df[df["junction_aa"].str.strip().str.len() > 0]
     clones = ClonotypeTableParser().parse_inner(df)
     rep = LocusRepertoire(clonotypes=clones, locus="TRB")
     # Filter to functional clonotypes only
@@ -571,11 +553,13 @@ class TestPgenParallelBenchmark:
 
 @skip_benchmarks
 @pytest.mark.benchmark
-@pytest.mark.skipif(not _LLW_AVAILABLE, reason="LLW / YFV test assets missing")
+@pytest.mark.skipif(not _LLW_AVAILABLE, reason="LLW reference asset (llwngpmav_trb_a02.tsv.gz) missing")
 class TestLLWOverlapYFV:
-    """LLWNGPMAV-reactive TRB overlap in YFV donor S1 day 0 vs day 15.
+    """LLWNGPMAV-reactive TRB overlap benchmark using test assets.
 
-    Uses small test assets (top-3k clonotypes each), a 20k pool, and 100 mocks.
+    Note: This test class was designed to use small YFV test assets (yfv_s1_d0_f1/d15_f1.airr.tsv.gz)
+    but those files have been removed due to unknown origin. The class remains for reference
+    and will be skipped if the LLW reference file is not available.
 
     Run with::
 
@@ -587,14 +571,6 @@ class TestLLWOverlapYFV:
         return _load_llw_reference()
 
     @pytest.fixture(scope="class")
-    def yfv_d0(self) -> LocusRepertoire:
-        return _load_yfv_sample(_YFV_D0)
-
-    @pytest.fixture(scope="class")
-    def yfv_d15(self) -> LocusRepertoire:
-        return _load_yfv_sample(_YFV_D15)
-
-    @pytest.fixture(scope="class")
     def pool(self) -> PgenBinPool:
         return PgenBinPool("TRB", n=20_000, n_jobs=4, seed=42)
 
@@ -602,32 +578,13 @@ class TestLLWOverlapYFV:
     def analysis(self, llw_ref, pool) -> VDJBetOverlapAnalysis:
         return VDJBetOverlapAnalysis(llw_ref, pool=pool, n_mocks=100, seed=42)
 
-    def test_assets_nonempty(self, llw_ref, yfv_d0, yfv_d15) -> None:
-        assert len(llw_ref.clonotypes) > 0
-        assert len(yfv_d0.clonotypes)  > 0
-        assert len(yfv_d15.clonotypes) > 0
+    def test_llw_ref_available(self, llw_ref) -> None:
+        """Verify LLW reference is loadable."""
+        assert len(llw_ref.clonotypes) > 0, "LLW reference repertoire should not be empty"
 
-    def test_1mm_ge_exact_d15(self, analysis, yfv_d15) -> None:
-        exact = analysis.score(yfv_d15, allow_1mm=False)
-        mm    = analysis.score(yfv_d15, allow_1mm=True)
-        print(f"\nd15 exact n={exact.n}  1mm n={mm.n}")
-        assert mm.n >= exact.n
-
-    def test_relaxed_vj_finds_more(self, analysis, yfv_d15) -> None:
-        with_vj = analysis.score(yfv_d15, match_v=True,  match_j=True)
-        no_vj   = analysis.score(yfv_d15, match_v=False, match_j=False)
-        assert no_vj.n >= with_vj.n
-
-    def test_d15_exact_significant(self, analysis, yfv_d15) -> None:
-        r = analysis.score(yfv_d15, allow_1mm=False)
-        print(f"\nd15 exact: z={r.z_n:.2f}  p={r.p_n:.4f}  n={r.n}")
-        assert r.z_n > 1.96
-
-    def test_d15_z_exceeds_d0_z(self, analysis, yfv_d0, yfv_d15) -> None:
-        r0  = analysis.score(yfv_d0,  allow_1mm=False)
-        r15 = analysis.score(yfv_d15, allow_1mm=False)
-        print(f"\nz day15={r15.z_n:.2f}  day0={r0.z_n:.2f}")
-        assert r15.z_n > r0.z_n
+    def test_pool_construction(self, pool) -> None:
+        """Verify pool can be constructed and contains bins."""
+        assert len(pool.bins) > 0, "Pool should have binned sequences"
 
     def test_mock_distribution_quality(self, analysis) -> None:
         """Mocks should be KS/Chi2 non-significantly different from reference (>= 70%)."""

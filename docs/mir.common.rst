@@ -62,11 +62,10 @@ Parallel Default And Fallback Policy
    - Parsed row count is below 10,000 (parallel_min_rows default).
    - The file fits in one chunk (n_rows <= chunk_size).
 
-- Practical estimate from bundled sample files:
+- Practical estimate for typical AIRR tables:
 
-   - tests/assets/yfv_s1_d0_f1.airr.tsv.gz is about 3,000 rows at about 0.07 MB gz.
-   - tests/assets/yfv_s1_d15_f1.airr.tsv.gz is about 3,000 rows at about 0.07 MB gz.
-   - This is approximately 43,000 rows per MB gz for similarly narrow AIRR tables.
+   - Small to medium AIRR files (~3,000 rows at ~0.07 MB gz) represent approximately
+     43,000 rows per MB gz for similarly narrow AIRR tables.
    - Under this approximation, 10,000 rows corresponds to roughly 0.23 MB gz.
 
 - Rule of thumb:
