@@ -35,8 +35,8 @@ from mir.graph.edit_distance_graph import build_edit_distance_graph
 # ---------------------------------------------------------------------------
 #
 # SEQ_A  "CASSRSGYTF"  — reference (10 AA)
-# SEQ_B  "XASSRSGYTF"  — Hamming 1 from A  (C→X at pos 0)
-# SEQ_C  "XXSSRSGYTF"  — Hamming 2 from A  (C→X, A→X at pos 0-1)
+# SEQ_B  "GASSRSGYTF"  — Hamming 1 from A  (C→G at pos 0)
+# SEQ_C  "GSSSRSGYTF"  — Hamming 2 from A  (C→G, A→S at pos 0-1)
 # SEQ_D  "CASSRSGYTFF" — length 11, levenshtein 1 from A (insertion)
 #
 # Pairwise Hamming (equal-length only):
@@ -46,8 +46,8 @@ from mir.graph.edit_distance_graph import build_edit_distance_graph
 #   lev(A,B)=1  lev(A,C)=2  lev(A,D)=1  lev(B,C)=1
 
 SEQ_A = "CASSRSGYTF"
-SEQ_B = "XASSRSGYTF"
-SEQ_C = "XXSSRSGYTF"
+SEQ_B = "GASSRSGYTF"
+SEQ_C = "GSSSRSGYTF"
 SEQ_D = "CASSRSGYTFF"
 
 _LOCUS = "TRB"
