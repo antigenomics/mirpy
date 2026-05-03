@@ -68,31 +68,35 @@ def _make_rep(
 class TestExpand1mm:
     def test_count_exact(self) -> None:
         variants = expand_1mm("CASSF")
-        assert len(variants) == 19 * 5 + 1  # 96
+        expected_count = 19 * 5 + 1  # 96 total: original + 19 subs per position
+        assert len(variants) == expected_count, f"Expected {expected_count} variants for 5-char sequence, got {len(variants)}"
 
     def test_original_is_first(self) -> None:
         assert expand_1mm("CASS")[0] == "CASS"
 
     def test_single_char_covers_all_20aa(self) -> None:
         variants = expand_1mm("C")
-        assert len(variants) == 20
-        assert set(variants) == set(_AA20)
+        assert len(variants) == 20, f"Single char should generate 20 variants (all amino acids), got {len(variants)}"
+        variant_set = set(variants)
+        assert variant_set == set(_AA20), f"Variants don't match all 20 amino acids. Missing: {set(_AA20) - variant_set}"
 
     def test_no_duplicates(self) -> None:
         variants = expand_1mm("CASSF")
-        assert len(variants) == len(set(variants))
+        unique_count = len(set(variants))
+        assert len(variants) == unique_count, f"Found duplicate variants: {len(variants)} total vs {unique_count} unique"
 
     def test_all_same_length(self) -> None:
         seq = "CASSEGFTGELFF"
-        for v in expand_1mm(seq):
-            assert len(v) == len(seq)
+        variants = expand_1mm(seq)
+        for v in variants:
+            assert len(v) == len(seq), f"Variant {v!r} has length {len(v)}, expected {len(seq)}"
 
     def test_each_position_19_variants(self) -> None:
         seq = "CASS"
         variants = expand_1mm(seq)
         for i in range(len(seq)):
             at_pos = [v for v in variants[1:] if v[:i] == seq[:i] and v[i+1:] == seq[i+1:]]
-            assert len(at_pos) == 19
+            assert len(at_pos) == 19, f"Position {i} should have exactly 19 variants with different AA, got {len(at_pos)}"
 
     def test_empty_string(self) -> None:
         assert expand_1mm("") == [""]
@@ -105,8 +109,9 @@ class TestExpand1mm:
 class TestMakeReferenceKeys:
     def test_basic_exact(self) -> None:
         keys = make_reference_keys(_make_rep(["CASSF", "CASSY"]))
-        assert len(keys) == 2
-        assert all(len(k) == 3 for k in keys)
+        assert len(keys) == 2, f"Expected 2 reference keys for 2 sequences, got {len(keys)}"
+        for key in keys:
+            assert len(key) == 3, f"Each key should be a 3-tuple (locus, v_gene, junction_aa), got {type(key)}: {len(key)} elements"
 
     def test_deduplication(self) -> None:
         assert len(make_reference_keys(_make_rep(["CASSF", "CASSF"]))) == 1

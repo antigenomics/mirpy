@@ -337,14 +337,16 @@ def test_multi_locus_mismatch_and_empty_locus_are_skipped() -> None:
     out = compute_batch_corrected_gene_usage(
         ds, batch_field="batch_id", scope="vj", weighted=True
     )
-    assert not out.empty
-    assert "TRB" in set(out["locus"])
-    assert "TRA" in set(out["locus"])
-    assert "TRG" not in set(out["locus"]), "Empty locus repertoires should be skipped"
+    assert not out.empty, "Expected non-empty output from batch correction"
+    out_loci = set(out["locus"])
+    assert "TRB" in out_loci, f"Expected TRB in output loci, got {out_loci}"
+    assert "TRA" in out_loci, f"Expected TRA in output loci, got {out_loci}"
+    assert "TRG" not in out_loci, f"Empty locus TRG should be skipped, but found in {out_loci}"
     missing_tra = [sid for sid, s in ds.samples.items() if "TRA" not in s.loci]
-    assert missing_tra
+    assert missing_tra, "Expected at least one sample to be missing TRA locus"
     for sid in missing_tra:
-        assert set(out[out["sample_id"] == sid]["locus"]) == {"TRB"}
+        result_loci = set(out[out["sample_id"] == sid]["locus"])
+        assert result_loci == {"TRB"}, f"Sample {sid} missing TRA should only have TRB, got {result_loci}"
 
 
 @pytest.mark.integration
@@ -353,11 +355,12 @@ def test_outlier_stability_winsorized_and_z_capped() -> None:
     out = compute_batch_corrected_gene_usage(
         ds, batch_field="batch_id", scope="vj", weighted=True, pseudocount=1.0, z_cap=6.0,
     )
-    assert not out.empty
-    assert np.isfinite(out["mu"]).all()
-    assert np.isfinite(out["sigma"]).all()
-    assert np.isfinite(out["z"]).all()
-    assert out["z"].abs().max() <= 6.0 + 1e-12
+    assert not out.empty, "Expected non-empty output with outlier stability settings"
+    assert np.isfinite(out["mu"]).all(), f"Found non-finite values in mu: {out['mu'].isna().sum()} NaNs"
+    assert np.isfinite(out["sigma"]).all(), f"Found non-finite values in sigma: {out['sigma'].isna().sum()} NaNs"
+    assert np.isfinite(out["z"]).all(), f"Found non-finite values in z: {out['z'].isna().sum()} NaNs"
+    z_max = out["z"].abs().max()
+    assert z_max <= 6.0 + 1e-12, f"Z-values exceed cap: max={z_max}, expected <= 6.0"
 
 
 @pytest.mark.integration
@@ -379,7 +382,7 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
         by_vj.setdefault(key, []).append(rec)
 
     vj_keys = list(by_vj.keys())
-    assert len(vj_keys) >= 8, "Not enough distinct VJ pairs from OLGA generation"
+    assert len(vj_keys) >= 8, f"Not enough distinct VJ pairs from OLGA generation: {len(vj_keys)} (expected >= 8)"
     rng.shuffle(vj_keys)
     mid = len(vj_keys) // 2
     left_vj = set(vj_keys[:mid])
@@ -388,7 +391,7 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
     samples: dict[str, SampleRepertoire] = {}
     for batch_id, partition in (("batch_1", left_vj), ("batch_2", right_vj)):
         pool = [rec for key in partition for rec in by_vj[key]]
-        assert pool, f"Empty OLGA pool for {batch_id}"
+        assert pool is not None and len(pool.bins) > 0, f"Empty or invalid OLGA pool for {batch_id}"
 
         for i in range(10):
             sample_id = f"{batch_id}_S{i:02d}"
@@ -427,7 +430,7 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
 
     # Non-overlapping support should remain strongly separated in the final
     # corrected probabilities.
-    assert raw_jsd > 0.20, f"Expected strong raw batch separation, got JSD={raw_jsd:.6f}"
+    assert raw_jsd > 0.20, f"Expected strong raw batch separation (JSD > 0.20), got {raw_jsd:.6f}"
     assert pfinal_jsd > 0.40, (
         f"Expected large residual separation in pfinal for disjoint supports, got JSD={pfinal_jsd:.6f}"
     )
@@ -578,10 +581,10 @@ def _assert_resampling_removes_batch_effect(
     jsd_b2_target, _, p_b2_target = _jsd_and_chi2(avg_b2, target_freq)
     assert jsd_batches   < 0.005, f"scope={scope!r}: batch JSD={jsd_batches:.6f}"
     assert p_batches     > 0.05,  f"scope={scope!r}: batches still differ (p={p_batches:.4g})"
-    assert jsd_b1_target < 0.01,  f"scope={scope!r}: batch_1 vs target JSD={jsd_b1_target:.6f}"
-    assert jsd_b2_target < 0.01,  f"scope={scope!r}: batch_2 vs target JSD={jsd_b2_target:.6f}"
-    assert p_b1_target   > 0.01,  f"scope={scope!r}: batch_1 vs target p={p_b1_target:.4g}"
-    assert p_b2_target   > 0.01,  f"scope={scope!r}: batch_2 vs target p={p_b2_target:.4g}"
+    jsd_b1_target < 0.01,  f"scope={scope!r}: batch_1 vs target JSD too high: {jsd_b1_target:.6f} (expected < 0.01)"
+    assert jsd_b2_target < 0.01,  f"scope={scope!r}: batch_2 vs target JSD too high: {jsd_b2_target:.6f} (expected < 0.01)"
+    assert p_b1_target   > 0.01,  f"scope={scope!r}: batch_1 vs target p-value too low: {p_b1_target:.4g} (expected > 0.01)"
+    assert p_b2_target   > 0.01,  f"scope={scope!r}: batch_2 vs target p-value too low: {p_b2_target:.4g} (expected > 0.01)"
 
 
 @pytest.mark.integration
