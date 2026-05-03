@@ -79,7 +79,7 @@ class LocusRepertoire:
         repertoire_id: str = "",
         repertoire_metadata: dict | None = None,
         # ---- backward-compat params ----
-        is_sorted: bool = False,    # ignored: is_sorted is now a computed property
+        is_sorted: bool = False,
         metadata=None,              # mapped to repertoire_metadata
         gene: str | None = None,    # mapped to locus
     ) -> None:
@@ -101,6 +101,7 @@ class LocusRepertoire:
         self._polars_table: pl.DataFrame | None = None
         self._clonotype_count_cache: int | None = len(self._clonotypes_cache)
         self._duplicate_count_cache: int | None = sum(c.duplicate_count for c in self._clonotypes_cache)
+        self._is_sorted_cache: bool | None = bool(is_sorted) if is_sorted else None
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
@@ -115,6 +116,7 @@ class LocusRepertoire:
         obj._polars_table = None
         obj._clonotype_count_cache = len(clonotypes)
         obj._duplicate_count_cache = sum(c.duplicate_count for c in clonotypes)
+        obj._is_sorted_cache = None
         obj.repertoire_id = ""
         obj.repertoire_metadata = {}
         return obj
@@ -131,6 +133,7 @@ class LocusRepertoire:
         dup_counts = cols.get("dup_counts", [])
         obj._clonotype_count_cache = len(seq_ids)
         obj._duplicate_count_cache = int(sum(int(x or 0) for x in dup_counts))
+        obj._is_sorted_cache = None
         obj.repertoire_id = ""
         obj.repertoire_metadata = {}
         return obj
@@ -149,6 +152,7 @@ class LocusRepertoire:
         self._polars_table = None
         self._clonotype_count_cache = len(self._clonotypes_cache)
         self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
+        self._is_sorted_cache = None
 
     def _invalidate_polars_cache(self) -> None:
         """Drop cached tabular representation after clonotype-level mutations."""
@@ -177,6 +181,7 @@ class LocusRepertoire:
             ]
         self._clonotype_count_cache = len(self._clonotypes_cache)
         self._duplicate_count_cache = sum(c.duplicate_count for c in self._clonotypes_cache)
+        self._is_sorted_cache = None
         self._pending_cols = None
         self._polars_table = None
 
@@ -227,14 +232,20 @@ class LocusRepertoire:
     @property
     def is_sorted(self) -> bool:
         """True iff clonotypes are in non-increasing ``duplicate_count`` order."""
-        return all(
+        if self._is_sorted_cache is not None:
+            return self._is_sorted_cache
+        self._is_sorted_cache = all(
             a.duplicate_count >= b.duplicate_count
             for a, b in zip(self.clonotypes, self.clonotypes[1:])
         )
+        return self._is_sorted_cache
 
     def sort(self) -> None:
         """Sort clonotypes by ``duplicate_count`` descending, in-place."""
+        if self.is_sorted:
+            return
         self.clonotypes.sort(key=lambda c: c.duplicate_count, reverse=True)
+        self._is_sorted_cache = True
         self._invalidate_polars_cache()
 
     def top(self, n: int = 100) -> list[Clonotype]:
@@ -409,6 +420,7 @@ class LocusRepertoire:
             obj._duplicate_count_cache = int(s or 0)
         else:
             obj._duplicate_count_cache = 0
+            obj._is_sorted_cache = None
         obj._polars_table = table
         obj.repertoire_id = repertoire_id
         obj.repertoire_metadata = repertoire_metadata if repertoire_metadata is not None else {}
@@ -652,7 +664,7 @@ class LocusRepertoire:
 
     @sorted.setter
     def sorted(self, value: bool) -> None:
-        pass  # no-op: is_sorted is computed, not stored
+        self._is_sorted_cache = bool(value)
 
     # evaluate_segment_usage was a @property in the old API; keep it working.
     @property

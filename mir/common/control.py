@@ -255,6 +255,105 @@ class ControlManager:
                     self.register_record(rec)
                     return rec
 
+            if not overwrite:
+                # Reuse existing synthetic controls for same species/locus.
+                # If an existing cache is larger, keep first n rows.
+                # If smaller, append exactly (n - N) newly generated rows.
+                candidates: list[tuple[ControlRecord, pd.DataFrame]] = []
+                for rec in self.list_available_controls():
+                    if rec.control_type != "synthetic":
+                        continue
+                    if rec.species != species_c or rec.locus != locus_c:
+                        continue
+                    if rec.n is None:
+                        continue
+                    rec_path = Path(rec.path)
+                    if not rec_path.exists():
+                        continue
+                    try:
+                        rec_df = _read_pickle(rec_path)
+                    except Exception:
+                        rec_path.unlink(missing_ok=True)
+                        continue
+                    candidates.append((rec, rec_df))
+
+                # Exact-size cache already exists.
+                for rec, rec_df in candidates:
+                    if len(rec_df) != n:
+                        continue
+                    if Path(rec.path) != path:
+                        _write_pickle(rec_df, path)
+                    out_rec = ControlRecord(
+                        control_type="synthetic",
+                        species=species_c,
+                        locus=locus_c,
+                        path=str(path),
+                        format="pickle",
+                        source="olga",
+                        n=n,
+                        created_at_utc=_utc_now(),
+                    )
+                    self.register_record(out_rec)
+                    return out_rec
+
+                # Use the smallest available cache that is still >= n.
+                larger = [(rec, df) for rec, df in candidates if len(df) > n]
+                if larger:
+                    rec, base_df = min(larger, key=lambda x: len(x[1]))
+                    trimmed = base_df.iloc[:n].copy()
+                    _write_pickle(trimmed, path)
+                    out_rec = ControlRecord(
+                        control_type="synthetic",
+                        species=species_c,
+                        locus=locus_c,
+                        path=str(path),
+                        format="pickle",
+                        source=f"{rec.source}|derived:head({n})",
+                        n=n,
+                        created_at_utc=_utc_now(),
+                    )
+                    self.register_record(out_rec)
+                    if progress:
+                        print(
+                            f"Reused synthetic control {species_c}/{locus_c}: "
+                            f"trimmed {len(base_df)} -> {n}"
+                        )
+                    return out_rec
+
+                # Extend the largest available cache that is < n.
+                smaller = [(rec, df) for rec, df in candidates if len(df) < n]
+                if smaller:
+                    rec, base_df = max(smaller, key=lambda x: len(x[1]))
+                    need = n - len(base_df)
+                    extra = generate_synthetic_olga_control(
+                        species=species_c,
+                        locus=locus_c,
+                        n=need,
+                        n_jobs=n_jobs,
+                        seed=seed + len(base_df),
+                        chunk_size=chunk_size,
+                        progress=progress,
+                    )
+                    combined = pd.concat([base_df, extra], ignore_index=True)
+                    _write_pickle(combined, path)
+                    out_rec = ControlRecord(
+                        control_type="synthetic",
+                        species=species_c,
+                        locus=locus_c,
+                        path=str(path),
+                        format="pickle",
+                        source=f"{rec.source}|extended:+{need}",
+                        n=n,
+                        created_at_utc=_utc_now(),
+                    )
+                    self.register_record(out_rec)
+                    if progress:
+                        print(
+                            f"Extended synthetic control {species_c}/{locus_c}: "
+                            f"{len(base_df)} + {need} -> {n}"
+                        )
+                    return out_rec
+
             path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 df = generate_synthetic_olga_control(
@@ -290,6 +389,123 @@ class ControlManager:
             )
             self.register_record(rec)
             return rec
+
+    def cleanup_cache(
+        self,
+        *,
+        cleanup_synthetic: bool = True,
+        cleanup_real: bool = True,
+        remove_orphans: bool = True,
+    ) -> dict[str, int]:
+        """Clean stale/broken cache files and reconcile manifest entries.
+
+        Returns counters for removed/kept entries and files.
+        """
+        summary = {
+            "manifest_entries_removed": 0,
+            "invalid_files_removed": 0,
+            "orphan_files_removed": 0,
+            "manifest_entries_kept": 0,
+        }
+        allow_types = {
+            t
+            for t, enabled in (("synthetic", cleanup_synthetic), ("real", cleanup_real))
+            if enabled
+        }
+
+        with _file_lock(self._manifest_lock_path):
+            manifest = self.load_manifest()
+            records = manifest.get("records", {})
+            kept: dict[str, dict] = {}
+            referenced_paths: set[Path] = set()
+
+            for key, rec_raw in records.items():
+                rec = ControlRecord(**rec_raw)
+                if rec.control_type not in allow_types:
+                    kept[key] = rec_raw
+                    continue
+
+                p = Path(rec.path)
+                if not p.exists():
+                    summary["manifest_entries_removed"] += 1
+                    continue
+                try:
+                    _read_pickle(p)
+                except Exception:
+                    p.unlink(missing_ok=True)
+                    summary["invalid_files_removed"] += 1
+                    summary["manifest_entries_removed"] += 1
+                    continue
+
+                kept[key] = rec_raw
+                referenced_paths.add(p.resolve())
+                summary["manifest_entries_kept"] += 1
+
+            manifest["records"] = kept
+            _atomic_write_json(self.manifest_path, manifest)
+
+        if remove_orphans:
+            roots: list[Path] = []
+            if cleanup_synthetic:
+                roots.append(self.control_dir / "synthetic")
+            if cleanup_real:
+                roots.append(self.control_dir / "real")
+            for root in roots:
+                if not root.exists():
+                    continue
+                for p in root.rglob("*.pkl"):
+                    rp = p.resolve()
+                    if rp in referenced_paths:
+                        continue
+                    p.unlink(missing_ok=True)
+                    summary["orphan_files_removed"] += 1
+
+        return summary
+
+    def refresh_real_controls(
+        self,
+        *,
+        dataset_repo: str = _DEFAULT_HF_DATASET,
+        hf_cache_dir: str | Path | None = None,
+        species: list[str] | None = None,
+        loci: list[str] | None = None,
+    ) -> dict[str, int]:
+        """Refresh real controls when upstream HF dataset snapshot changes."""
+        snapshot = _download_hf_snapshot(dataset_repo, cache_dir=hf_cache_dir)
+        snapshot_id = Path(snapshot).name
+        species_filter = {self.canonical_species(s) for s in species} if species else None
+        locus_filter = {self.canonical_locus(l) for l in loci} if loci else None
+
+        total = 0
+        updated = 0
+        skipped = 0
+        for rec in self.list_available_controls():
+            if rec.control_type != "real":
+                continue
+            if species_filter is not None and rec.species not in species_filter:
+                continue
+            if locus_filter is not None and rec.locus not in locus_filter:
+                continue
+            total += 1
+            src = rec.source or ""
+            current_snapshot = src.split("@", 1)[1] if "@" in src else ""
+            if current_snapshot == snapshot_id and Path(rec.path).exists():
+                skipped += 1
+                continue
+            self.ensure_real_control(
+                rec.species,
+                rec.locus,
+                dataset_repo=dataset_repo,
+                overwrite=True,
+                hf_cache_dir=hf_cache_dir,
+            )
+            updated += 1
+
+        return {
+            "checked": total,
+            "updated": updated,
+            "up_to_date": skipped,
+        }
 
     # ---------------------------
     # Real control (HuggingFace)
@@ -349,7 +565,7 @@ class ControlManager:
                 locus=locus_c,
                 path=str(path),
                 format="pickle",
-                source=f"huggingface:{dataset_repo}",
+                source=f"huggingface:{dataset_repo}@{Path(local_snapshot).name}",
                 n=len(df),
                 created_at_utc=_utc_now(),
             )
@@ -780,7 +996,7 @@ def control_setup_cli(argv: list[str] | None = None) -> int:
       mirpy-control-setup --type synthetic --species human,mouse --loci TRA,TRB --n 1000000
     """
     parser = argparse.ArgumentParser(description="Setup mirpy control/background data")
-    parser.add_argument("--type", choices=["synthetic", "real"], required=True)
+    parser.add_argument("--type", choices=["synthetic", "real"], required=False)
     parser.add_argument("--species", required=True, help="Comma-separated species aliases")
     parser.add_argument("--loci", required=True, help="Comma-separated loci aliases")
     parser.add_argument("--control-dir", default=None)
@@ -790,9 +1006,31 @@ def control_setup_cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--hf-cache-dir", default=None)
     parser.add_argument("--chunk-size", type=int, default=100_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--cleanup", action="store_true", help="Clean cache/manifest before setup")
+    parser.add_argument("--refresh-real", action="store_true", help="Refresh existing real controls when HF snapshot changes")
     args = parser.parse_args(argv)
 
     mgr = ControlManager(args.control_dir)
+
+    if args.cleanup:
+        summary = mgr.cleanup_cache(cleanup_synthetic=True, cleanup_real=True, remove_orphans=True)
+        print(f"cleanup: {summary}")
+
+    if args.refresh_real:
+        species_list = _parse_species_arg(args.species) if args.species else None
+        locus_list = _parse_locus_arg(args.loci) if args.loci else None
+        ref = mgr.refresh_real_controls(
+            dataset_repo=args.dataset_repo,
+            hf_cache_dir=args.hf_cache_dir,
+            species=species_list,
+            loci=locus_list,
+        )
+        print(f"refresh_real: {ref}")
+
+    if args.type is None:
+        print(f"manifest: {mgr.manifest_path}")
+        return 0
+
     species_list = _parse_species_arg(args.species)
     locus_list = _parse_locus_arg(args.loci)
 

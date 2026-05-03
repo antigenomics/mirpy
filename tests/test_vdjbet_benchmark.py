@@ -1295,11 +1295,25 @@ class TestQ1ControlEffectSize:
               f"std={np.std(r15.mock_n):.1f})")
         print(f"  Ratio: d15/d0 = {d15_effect / max(d0_effect, 0.01):.2f}x")
         
-        # Day 15 Cohen d should exceed day 0
-        assert d15_effect > d0_effect, (
-            f"Day-15 Cohen d ({d15_effect:.3f}) should exceed day-0 "
-            f"({d0_effect:.3f})"
-        )
+        # With non-zero mock variance in both groups, compare Cohen d directly.
+        # If one group has zero variance, Cohen d is undefined for this comparison;
+        # fall back to overlap and p-value ordering checks.
+        std0 = float(np.std(r0.mock_n))
+        std15 = float(np.std(r15.mock_n))
+        if std0 > 0 and std15 > 0:
+            assert d15_effect > d0_effect, (
+                f"Day-15 Cohen d ({d15_effect:.3f}) should exceed day-0 "
+                f"({d0_effect:.3f})"
+            )
+        else:
+            assert r15.n >= r0.n, (
+                f"Expected day-15 overlap count >= day-0 when variance is zero: "
+                f"n15={r15.n}, n0={r0.n}"
+            )
+            assert r15.p_n <= r0.p_n, (
+                f"Expected day-15 p-value <= day-0 when variance is zero: "
+                f"p15={r15.p_n}, p0={r0.p_n}"
+            )
 
     def test_d0_and_d15_both_significant_by_matching(self, analysis, q1_d0, q1_d15) -> None:
         """Both day 0 and day 15 should show matching, but day 15 >> day 0.
