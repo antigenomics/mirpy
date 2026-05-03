@@ -38,7 +38,7 @@ dependencies = [
   "scikit-learn",
   "statsmodels",
   "textdistance",
-  "tcrtrie>=0.1.2",
+  "tcrtrie",
   "tqdm",
 ]
 license = {text = "GPL-3.0 license"}

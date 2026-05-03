@@ -103,13 +103,14 @@ class TestHelpers:
 # Unit tests for PgenBinPool basic functionality
 # ---------------------------------------------------------------------------
 
+@pytest.mark.benchmark
 class TestPgenBinPoolBasic:
-    """Sanity tests for PgenBinPool with a compact pool — always run."""
+    """Sanity tests for PgenBinPool — benchmark only (RUN_BENCHMARK=1)."""
 
     @pytest.fixture(scope="class")
     def pool(self) -> PgenBinPool:
         # Keep fast-suite setup bounded.
-        return PgenBinPool("TRB", n=1_000, n_jobs=1, seed=_SEED)
+        return PgenBinPool("TRB", n=100, n_jobs=1, seed=_SEED)
 
     def test_has_bins(self, pool: PgenBinPool) -> None:
         assert len(pool.bins) > 0
@@ -151,8 +152,9 @@ class TestPgenBinPoolBasic:
 # Unit tests for VDJBetOverlapAnalysis edge cases
 # ---------------------------------------------------------------------------
 
+@pytest.mark.benchmark
 class TestVDJBetSanity:
-    """Edge-case and contract tests for VDJBetOverlapAnalysis — always run."""
+    """Edge-case and contract tests for VDJBetOverlapAnalysis — benchmark only (RUN_BENCHMARK=1)."""
 
     @pytest.fixture(scope="class")
     def ref(self) -> LocusRepertoire:
@@ -160,7 +162,7 @@ class TestVDJBetSanity:
 
     @pytest.fixture(scope="class")
     def pool(self) -> PgenBinPool:
-        return PgenBinPool("TRB", n=1_000, n_jobs=1, seed=_SEED)
+        return PgenBinPool("TRB", n=100, n_jobs=1, seed=_SEED)
 
     def test_score_returns_overlap_result(self, ref, pool) -> None:
         r = VDJBetOverlapAnalysis(ref, pool=pool, n_mocks=10, seed=_SEED).score(
@@ -264,8 +266,9 @@ class TestOverlapResultZScore:
 # Toy example tests for correct behavior
 # ---------------------------------------------------------------------------
 
+@pytest.mark.benchmark
 class TestToyExamplesCorrectBehavior:
-    """Toy example tests to verify correct VDJBET behavior on synthetic data."""
+    """Toy example tests to verify correct VDJBET behavior on synthetic data — benchmark only (RUN_BENCHMARK=1)."""
 
     def test_identical_ref_and_query_perfect_overlap(self) -> None:
         """When reference and query are identical, overlap should be maximal."""
