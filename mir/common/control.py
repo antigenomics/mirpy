@@ -12,10 +12,12 @@ Design goals:
 from __future__ import annotations
 
 import argparse
+import math
 import json
 import os
 import pickle
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -169,6 +171,7 @@ class ControlManager:
         locus: str,
         *,
         n: int = 10_000_000,
+        n_jobs: int = 1,
         overwrite: bool = False,
         seed: int = 42,
         chunk_size: int = 100_000,
@@ -202,14 +205,26 @@ class ControlManager:
                 return rec
 
             path.parent.mkdir(parents=True, exist_ok=True)
-            df = generate_synthetic_olga_control(
-                species=species_c,
-                locus=locus_c,
-                n=n,
-                seed=seed,
-                chunk_size=chunk_size,
-                progress=progress,
-            )
+            try:
+                df = generate_synthetic_olga_control(
+                    species=species_c,
+                    locus=locus_c,
+                    n=n,
+                    n_jobs=n_jobs,
+                    seed=seed,
+                    chunk_size=chunk_size,
+                    progress=progress,
+                )
+            except TypeError:
+                # Backward-compat for monkeypatched helpers with legacy signature.
+                df = generate_synthetic_olga_control(
+                    species=species_c,
+                    locus=locus_c,
+                    n=n,
+                    seed=seed,
+                    chunk_size=chunk_size,
+                    progress=progress,
+                )
             _write_pickle(df, path)
 
             rec = ControlRecord(
@@ -365,6 +380,7 @@ def generate_synthetic_olga_control(
     seed: int,
     chunk_size: int,
     progress: bool,
+    n_jobs: int = 1,
     zipf_alpha: float = 2.0,
     max_duplicate_count: int = 10_000,
 ) -> pd.DataFrame:
@@ -378,35 +394,97 @@ def generate_synthetic_olga_control(
     - j_gene
     """
     model = OlgaModel(species=species, locus=locus, seed=seed)
-    generator: Callable[[], dict] = (
-        model._gen_one_vdj_with_meta if model.is_d_present else model._gen_one_vj_with_meta
-    )
+    records = model.generate_pool(n, n_jobs=max(1, int(n_jobs)), seed=seed)
+
+    rng = np.random.default_rng(seed + 1_000_003)
+    dup_counts = rng.zipf(a=zipf_alpha, size=len(records))
+    dup_counts = np.minimum(dup_counts, max_duplicate_count)
 
     rows: list[dict[str, str | int]] = []
-    rng = np.random.default_rng(seed + 1_000_003)
-    generated = 0
-    while generated < n:
-        batch = min(chunk_size, n - generated)
-        # Heavy-tailed abundance with many singletons; clip rare extreme tails.
-        dup_counts = rng.zipf(a=zipf_alpha, size=batch)
-        dup_counts = np.minimum(dup_counts, max_duplicate_count)
-        for _ in range(batch):
-            rec = generator()
-            dup = int(dup_counts[_])
-            rows.append(
-                {
-                    "duplicate_count": dup,
-                    "junction": str(rec["junction"]),
-                    "junction_aa": str(rec["junction_aa"]),
-                    "v_gene": _normalize_allele(str(rec["v_gene"])),
-                    "j_gene": _normalize_allele(str(rec["j_gene"])),
-                }
-            )
-        generated += batch
-        if progress and (generated % (chunk_size * 10) == 0 or generated == n):
-            print(f"Generated synthetic control {species}/{locus}: {generated}/{n}")
+    for i, rec in enumerate(records):
+        rows.append(
+            {
+                "duplicate_count": int(dup_counts[i]),
+                "junction": str(rec["junction"]),
+                "junction_aa": str(rec["junction_aa"]),
+                "v_gene": _normalize_allele(str(rec["v_gene"])),
+                "j_gene": _normalize_allele(str(rec["j_gene"])),
+            }
+        )
+    if progress:
+        print(f"Generated synthetic control {species}/{locus}: {len(rows)}/{n}")
 
     return pd.DataFrame.from_records(rows)
+
+
+def compute_control_pgen_records(
+    control_df: pd.DataFrame,
+    *,
+    locus: str,
+    species: str = "human",
+    seed: int = 42,
+    n_jobs: int = 1,
+    pgen_adjustment=None,
+) -> list[dict[str, str | float]]:
+    """Compute log2-Pgen records from control tables for VDJBet bin pooling.
+
+    The returned records contain ``junction_aa``, normalized ``v_gene``/``j_gene``,
+    and ``log2_pgen`` for direct use in Pgen-bin mock sampling.
+    """
+    required = ["junction_aa", "v_gene", "j_gene"]
+    missing = [c for c in required if c not in control_df.columns]
+    if missing:
+        raise ValueError(f"control_df missing required columns: {missing}")
+
+    df = control_df.dropna(subset=required).copy()
+    if df.empty:
+        return []
+
+    rows = [
+        (
+            str(jaa),
+            _normalize_allele(str(vg)),
+            _normalize_allele(str(jg)),
+        )
+        for jaa, vg, jg in df[["junction_aa", "v_gene", "j_gene"]].itertuples(index=False)
+        if str(jaa)
+    ]
+    if not rows:
+        return []
+
+    def _worker(batch: list[tuple[str, str, str]], worker_seed: int) -> list[dict[str, str | float]]:
+        model = OlgaModel(species=species, locus=locus, seed=worker_seed)
+        out: list[dict[str, str | float]] = []
+        for jaa, vg, jg in batch:
+            pgen_val = model.compute_pgen_junction_aa(jaa)
+            if pgen_val is None or pgen_val <= 0:
+                continue
+            if pgen_adjustment is not None:
+                pgen_val = pgen_adjustment.adjust_pgen(locus, vg, jg, pgen_val)
+                if pgen_val <= 0:
+                    continue
+            out.append(
+                {
+                    "junction_aa": jaa,
+                    "v_gene": vg,
+                    "j_gene": jg,
+                    "log2_pgen": math.log2(float(pgen_val)),
+                }
+            )
+        return out
+
+    jobs = max(1, int(n_jobs))
+    if jobs == 1 or len(rows) < 1024:
+        return _worker(rows, seed)
+
+    chunk_size = max(256, len(rows) // jobs)
+    chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
+    records: list[dict[str, str | float]] = []
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = [executor.submit(_worker, chunk, seed + i + 1) for i, chunk in enumerate(chunks)]
+        for future in futures:
+            records.extend(future.result())
+    return records
 
 
 def build_real_control_from_ntvj(path: str | Path) -> pd.DataFrame:

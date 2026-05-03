@@ -35,7 +35,7 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Sequence
+from typing import Sequence, cast
 
 import numpy as np
 from scipy.stats import norm as _scipy_norm
@@ -43,6 +43,7 @@ from scipy.stats import norm as _scipy_norm
 from mir.basic.pgen import OlgaModel
 from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
+from mir.common.control import ControlManager, compute_control_pgen_records
 from mir.common.repertoire import Repertoire
 from mir.comparative.overlap import (
     compute_overlaps,
@@ -163,6 +164,14 @@ class PgenBinPool:
     >>> result = analysis.score(query_sample)
     """
 
+    floor_bin: int
+    ceil_bin: int
+    locus: str
+    species: str
+    n_generated: int
+    bins: dict[int, list[dict]]
+    _available_bins: np.ndarray
+
     def __init__(
         self,
         locus: str,
@@ -174,39 +183,141 @@ class PgenBinPool:
         species: str = "human",
         pgen_adjustment=None,
     ) -> None:
-        model = OlgaModel(locus=locus, species=species, seed=seed)
-        records = model.generate_pool(n, n_jobs=n_jobs, seed=seed)
+        # Default constructor now uses synthetic controls managed by common.control.
+        synthetic = self.from_control(
+            locus=locus,
+            control_type="synthetic",
+            species=species,
+            n=n,
+            n_jobs=n_jobs,
+            seed=seed,
+            floor_quantile=floor_quantile,
+            ceil_quantile=ceil_quantile,
+            pgen_adjustment=pgen_adjustment,
+            control_kwargs={"progress": False},
+        )
+        self.__dict__.update(synthetic.__dict__)
 
-        # Apply V/J usage adjustment when requested.
-        if pgen_adjustment is not None:
-            for rec in records:
-                if not math.isinf(rec["log2_pgen"]):
-                    p_lin = 2.0 ** rec["log2_pgen"]
-                    p_adj = pgen_adjustment.adjust_pgen(
-                        locus, rec.get("v_gene", ""), rec.get("j_gene", ""), p_lin
-                    )
-                    rec["log2_pgen"] = (
-                        math.log2(p_adj) if p_adj > 0 else float("-inf")
-                    )
+    @classmethod
+    def from_control(
+        cls,
+        *,
+        locus: str,
+        control_type: str,
+        species: str = "human",
+        n: int | None = None,
+        n_jobs: int = 4,
+        seed: int = 42,
+        floor_quantile: float = 0.001,
+        ceil_quantile: float = 0.999,
+        pgen_adjustment=None,
+        control_manager: ControlManager | None = None,
+        control_kwargs: dict | None = None,
+    ) -> "PgenBinPool":
+        """Build pool from managed controls (synthetic or real)."""
+        manager = control_manager or ControlManager()
+        kwargs = dict(control_kwargs or {})
+        if control_type.strip().lower() == "synthetic":
+            if n is not None and "n" not in kwargs:
+                kwargs["n"] = n
+            kwargs.setdefault("seed", seed)
+            kwargs.setdefault("n_jobs", n_jobs)
+            kwargs.setdefault("progress", False)
+        control_df = manager.ensure_and_load_control_df(control_type, species, locus, **kwargs)
+        return cls.from_control_df(
+            control_df,
+            locus=locus,
+            species=species,
+            n=n,
+            n_jobs=n_jobs,
+            seed=seed,
+            floor_quantile=floor_quantile,
+            ceil_quantile=ceil_quantile,
+            pgen_adjustment=pgen_adjustment,
+        )
+
+    @classmethod
+    def from_control_df(
+        cls,
+        control_df,
+        *,
+        locus: str,
+        species: str = "human",
+        n: int | None = None,
+        n_jobs: int = 4,
+        seed: int = 42,
+        floor_quantile: float = 0.001,
+        ceil_quantile: float = 0.999,
+        pgen_adjustment=None,
+    ) -> "PgenBinPool":
+        """Build pool directly from control repertoire rows with Pgen recomputation."""
+        df = control_df
+        if n is not None and n > 0:
+            n_int = int(n)
+            if len(df) > n_int:
+                if "duplicate_count" in df.columns:
+                    weights = np.clip(np.asarray(df["duplicate_count"], dtype=float), 1.0, None)
+                    try:
+                        df = df.sample(n=n_int, replace=False, random_state=seed, weights=weights)
+                    except ValueError:
+                        # Some weight distributions are invalid for replace=False in pandas.
+                        df = df.sample(n=n_int, replace=True, random_state=seed, weights=weights)
+                else:
+                    df = df.sample(n=n_int, replace=False, random_state=seed)
+            elif len(df) == n_int:
+                df = df.copy()
+            elif len(df) > 0:
+                weights = None
+                if "duplicate_count" in df.columns:
+                    weights = np.clip(np.asarray(df["duplicate_count"], dtype=float), 1.0, None)
+                df = df.sample(n=n_int, replace=True, random_state=seed, weights=weights)
+
+        records = compute_control_pgen_records(
+            df,
+            locus=locus,
+            species=species,
+            seed=seed,
+            n_jobs=n_jobs,
+            pgen_adjustment=pgen_adjustment,
+        )
+        return cls.from_records(
+            records,
+            locus=locus,
+            species=species,
+            floor_quantile=floor_quantile,
+            ceil_quantile=ceil_quantile,
+        )
+
+    @classmethod
+    def from_records(
+        cls,
+        records: Sequence[dict],
+        *,
+        locus: str,
+        species: str = "human",
+        floor_quantile: float = 0.001,
+        ceil_quantile: float = 0.999,
+    ) -> "PgenBinPool":
+        """Build pool from records with precomputed ``log2_pgen``."""
+        self = cls.__new__(cls)
 
         valid_l2p = [r["log2_pgen"] for r in records if not math.isinf(r["log2_pgen"])]
         if not valid_l2p:
             raise ValueError(
-                f"PgenBinPool: no valid log2 Pgen values from {n:,} OLGA records "
-                f"for locus={locus!r}.  Check that the model is correctly installed."
+                f"PgenBinPool: no valid log2 Pgen values for locus={locus!r}."
             )
 
         arr = np.array(valid_l2p)
         # Winsorize: clamp bins to the observable range of the OLGA model.
-        self.floor_bin: int = int(math.floor(np.quantile(arr, floor_quantile)))
-        self.ceil_bin: int = int(math.ceil(np.quantile(arr, ceil_quantile)))
+        self.floor_bin = int(math.floor(np.quantile(arr, floor_quantile)))
+        self.ceil_bin = int(math.ceil(np.quantile(arr, ceil_quantile)))
 
-        self.locus: str = locus
-        self.species: str = species
-        self.n_generated: int = len(records)
+        self.locus = locus
+        self.species = species
+        self.n_generated = len(records)
 
         # Build bin -> list[record] mapping.
-        self.bins: dict[int, list[dict]] = defaultdict(list)
+        self.bins = defaultdict(list)
         for rec in records:
             if math.isinf(rec["log2_pgen"]):
                 continue
@@ -215,9 +326,8 @@ class PgenBinPool:
             b = max(self.floor_bin, min(self.ceil_bin, b))
             self.bins[b].append(rec)
 
-        self._available_bins: np.ndarray = np.array(
-            sorted(self.bins), dtype=int
-        )
+        self._available_bins = np.array(sorted(self.bins), dtype=int)
+        return self
 
     # ------------------------------------------------------------------
     # Bin lookup helpers
@@ -607,15 +717,15 @@ class VDJBetOverlapAnalysis:
         raw_mocks = self._get_mock_key_sets()
         # Normalise V/J fields in mock keys to match the requested match flags.
         if match_v and match_j:
-            norm_mocks = raw_mocks
+            norm_mocks = cast(list[frozenset[tuple[str, str, str]]], raw_mocks)
         else:
-            norm_mocks = [
+            norm_mocks = cast(list[frozenset[tuple[str, str, str]]], [
                 frozenset(
                     (jaa, v if match_v else "", j if match_j else "")
                     for jaa, v, j in ks
                 )
                 for ks in raw_mocks
-            ]
+            ])
 
         mock_res = compute_overlaps(
             norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=self._n_jobs
