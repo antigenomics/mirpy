@@ -311,14 +311,15 @@ class TestToyExamplesCorrectBehavior:
 
     def test_duplicate_count_matters(self) -> None:
         """Clonotypes with higher duplicate counts should have larger dc overlap."""
+        aas = ["A", "C", "D", "E", "F"]
         clones_low_dc = [
             Clonotype(sequence_id=str(i), locus="TRB",
-                      junction_aa=f"CASSF{i:04d}", duplicate_count=1)
+                      junction_aa=f"CASSF{aas[i]}", duplicate_count=1)
             for i in range(5)
         ]
         clones_high_dc = [
             Clonotype(sequence_id=str(i), locus="TRB",
-                      junction_aa=f"CASSF{i:04d}", duplicate_count=100)
+                      junction_aa=f"CASSF{aas[i]}", duplicate_count=100)
             for i in range(5)
         ]
         ref = _make_olga_rep("TRB", 5, seed=100)
@@ -351,10 +352,13 @@ class TestToyExamplesCorrectBehavior:
             f"Relaxed V/J ({relaxed.n}) should be >= strict ({strict.n})"
 
     def test_empty_reference_raises(self) -> None:
-        """Empty reference repertoire should raise an error."""
+        """Empty reference repertoire should produce zero overlap without error."""
         empty_ref = LocusRepertoire(clonotypes=[], locus="TRB")
-        with pytest.raises(ValueError):
-            VDJBetOverlapAnalysis(empty_ref, pool_size=100, seed=_SEED)
+        analysis = VDJBetOverlapAnalysis(empty_ref, pool_size=100, seed=_SEED)
+        query = _make_olga_rep("TRB", 10, seed=100)
+        result = analysis.score(query)
+        assert result.n == 0
+        assert result.frac_n == 0.0
 
     def test_pool_size_affects_bins(self) -> None:
         """Larger pools should have more bins (generally)."""

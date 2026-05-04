@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,14 @@ from mir.common.repertoire import LocusRepertoire
 
 ASSETS = Path(__file__).parent / "assets"
 GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
+BENCH_LOG = Path(__file__).parent / "benchmarks.log"
+
+
+def benchmark_log_line(message: str) -> None:
+    BENCH_LOG.parent.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    with BENCH_LOG.open("a", encoding="utf-8") as fh:
+        fh.write(f"[{ts}] {message}\n")
 
 
 def synthetic_control_size(default: int = 1_000_000) -> int:
