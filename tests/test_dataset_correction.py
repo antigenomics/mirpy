@@ -391,7 +391,7 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
     samples: dict[str, SampleRepertoire] = {}
     for batch_id, partition in (("batch_1", left_vj), ("batch_2", right_vj)):
         pool = [rec for key in partition for rec in by_vj[key]]
-        assert pool is not None and len(pool.bins) > 0, f"Empty or invalid OLGA pool for {batch_id}"
+        assert len(pool) > 0, f"Empty OLGA record pool for {batch_id}"
 
         for i in range(10):
             sample_id = f"{batch_id}_S{i:02d}"

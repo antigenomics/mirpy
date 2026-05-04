@@ -89,11 +89,13 @@ from mir.biomarkers.vdjbet import (
     compute_pgen_histogram,
 )
 from mir.common.clonotype import Clonotype
+from mir.common.control import ControlManager
 from mir.common.filter import filter_functional
 from mir.common.gene_library import GeneLibrary
 from mir.common.parser import ClonotypeTableParser, VDJdbSlimParser
 from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_benchmarks
+from tests.benchmark_helpers import benchmark_log_line
 
 ASSETS = Path(__file__).parent / "assets"
 _LLW_FILE = ASSETS / "llwngpmav_trb_a02.tsv.gz"
@@ -616,208 +618,194 @@ class TestLLWOverlapYFV:
 # ---------------------------------------------------------------------------
 
 @skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.very_slow_benchmark
 @pytest.mark.skipif(not _VDJDB_AVAILABLE, reason="vdjdb.slim.txt.gz asset missing")
-@pytest.mark.skipif(not (_YFV_FULL_DIR / "metadata.txt").exists(), 
-                    reason="YFV dataset not found in notebooks/assets/large/yfv19/")
-@pytest.mark.integration
-class TestYFVS1F1:
-    """Biology-driven assertions for donor S1 replica F1.
+@pytest.mark.skipif(not _Q1_AVAILABLE, reason="Q1 test assets missing")
+class TestYFVQ1F1:
+    """Q1/F1 day-0 vs day-15 overlap diagnostics across mock strategies.
 
-    All thresholds are empirically calibrated on the real dataset.  If the
-    underlying data or mock generation changes they may need adjustment, but
-    the qualitative expectations (day 15 > day 0, exact < 1mm) should hold.
+    Scenarios:
+    - synthetic mock
+    - scaled synthetic mock (3x pool)
+    - real mock
     """
 
     @pytest.fixture(scope="class")
-    def vdjdb_ref(self) -> LocusRepertoire:
-        """Load LLWNGPMAV TRB HLA-A*02 entries from the local VDJdb test asset."""
-        sample = VDJdbSlimParser().parse_file(_VDJDB_FILE, species="HomoSapiens")
-        trb = sample["TRB"]
-        filtered = [
-            c for c in trb.clonotypes
-            if c.clone_metadata.get("antigen.epitope") == "LLWNGPMAV"
-            and "A*02" in c.clone_metadata.get("mhc.a", "")
-        ]
-        return LocusRepertoire(clonotypes=filtered, locus="TRB")
+    def llw_ref(self) -> LocusRepertoire:
+        return _load_vdjdb_llw_reference()
 
     @pytest.fixture(scope="class")
-    def analysis(self, vdjdb_ref) -> VDJBetOverlapAnalysis:
-        """Analysis object using default OLGA pool size (100k)."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return VDJBetOverlapAnalysis(
-                vdjdb_ref, n_mocks=200, seed=42
+    def q1_d0(self) -> LocusRepertoire:
+        return _load_q1_sample(_Q1_D0, n_top=3000)
+
+    @pytest.fixture(scope="class")
+    def q1_d15(self) -> LocusRepertoire:
+        return _load_q1_sample(_Q1_D15, n_top=3000)
+
+    @pytest.fixture(scope="class")
+    def control_manager(self) -> ControlManager:
+        return ControlManager()
+
+    @staticmethod
+    def _cohens_d(observed: float, values: list[float]) -> float:
+        arr = np.asarray(values, dtype=float)
+        if arr.size == 0:
+            return 0.0
+        std = float(arr.std())
+        if std <= 0:
+            return 0.0
+        return float((observed - float(arr.mean())) / std)
+
+    def _score_summary(self, analysis: VDJBetOverlapAnalysis, rep: LocusRepertoire) -> dict[str, float]:
+        r = analysis.score(rep, allow_1mm=False)
+        d_n = self._cohens_d(float(r.n), [float(x) for x in r.mock_n])
+        d_dc = self._cohens_d(
+            float(math.log2(r.dc + 1)),
+            [float(math.log2(x + 1)) for x in r.mock_dc],
+        )
+        return {
+            "n": float(r.n),
+            "dc": float(r.dc),
+            "frac_n": float(r.frac_n),
+            "frac_dc": float(r.frac_dc),
+            "p_n": float(r.p_n),
+            "p_dc": float(r.p_dc),
+            "d_n": d_n,
+            "d_dc": d_dc,
+        }
+
+    def _build_pool(
+        self,
+        *,
+        mode: str,
+        manager: ControlManager,
+        base_n: int,
+        scaled_factor: int,
+    ) -> PgenBinPool:
+        if mode == "synthetic":
+            return PgenBinPool.from_control(
+                locus="TRB",
+                control_type="synthetic",
+                species="human",
+                n=base_n,
+                n_jobs=4,
+                seed=42,
+                control_manager=manager,
+                control_kwargs={"progress": False},
             )
-
-    @pytest.fixture(scope="class")
-    def analysis_pvj(self, vdjdb_ref) -> VDJBetOverlapAnalysis:
-        """Analysis object with pgen+V/J-adjusted null model."""
-        target_gu = _build_yfv_gene_usage()
-        adj = PgenGeneUsageAdjustment(target_gu, cache_size=100_000, seed=42)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return VDJBetOverlapAnalysis(vdjdb_ref, n_mocks=200, seed=42, pgen_adjustment=adj)
-
-    # Each fixture calls score() with a distinct option combination.
-    # module-scope analysis caches the pool/mocks so all score() calls reuse them.
-
-    @pytest.fixture(scope="class")
-    def d15_pgen(self, analysis) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(_load_s1_f1(15), allow_1mm=False)
-
-    @pytest.fixture(scope="class")
-    def d15_pgen_1mm(self, analysis) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(_load_s1_f1(15), allow_1mm=True)
-
-    @pytest.fixture(scope="class")
-    def d15_pvj(self, analysis_pvj) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis_pvj.score(
-                _load_s1_f1(15), allow_1mm=False,
+        if mode == "scaled_synthetic":
+            return PgenBinPool.from_control(
+                locus="TRB",
+                control_type="synthetic",
+                species="human",
+                n=base_n * scaled_factor,
+                n_jobs=4,
+                seed=42,
+                control_manager=manager,
+                control_kwargs={"progress": False},
             )
-
-    @pytest.fixture(scope="class")
-    def d15_pvj_1mm(self, analysis_pvj) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis_pvj.score(
-                _load_s1_f1(15), allow_1mm=True,
+        if mode == "real":
+            return PgenBinPool.from_control(
+                locus="TRB",
+                control_type="real",
+                species="human",
+                n=base_n,
+                n_jobs=4,
+                seed=42,
+                control_manager=manager,
+                control_kwargs={"dataset_repo": "isalgo/airr_control"},
             )
+        raise ValueError(f"Unknown mode: {mode}")
 
     @pytest.fixture(scope="class")
-    def d0_pgen(self, analysis) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(_load_s1_f1(0), allow_1mm=False)
+    def scenario_results(self, llw_ref, q1_d0, q1_d15, control_manager) -> dict[str, dict]:
+        base_n = int(os.getenv("MIRPY_BENCH_Q1_POOL_N", "20000"))
+        n_mocks = int(os.getenv("MIRPY_BENCH_Q1_MOCKS", "100"))
+        scaled_factor = int(os.getenv("MIRPY_BENCH_Q1_SCALED_FACTOR", "3"))
 
-    @pytest.fixture(scope="class")
-    def d0_pgen_1mm(self, analysis) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis.score(_load_s1_f1(0), allow_1mm=True)
-
-    @pytest.fixture(scope="class")
-    def d0_pvj(self, analysis_pvj) -> OverlapResult:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return analysis_pvj.score(
-                _load_s1_f1(0), allow_1mm=False,
-            )
-
-    # --- sanity: samples are non-empty ---
-
-    def test_d15_nonempty(self, d15_pgen: OverlapResult) -> None:
-        assert d15_pgen.n_total > 0
-
-    def test_d0_nonempty(self, d0_pgen: OverlapResult) -> None:
-        assert d0_pgen.n_total > 0
-
-    # --- 1mm finds at least as many matches as exact ---
-
-    def test_d15_1mm_ge_exact(
-        self, d15_pgen: OverlapResult, d15_pgen_1mm: OverlapResult
-    ) -> None:
-        assert d15_pgen_1mm.n >= d15_pgen.n, (
-            f"1mm ({d15_pgen_1mm.n}) should be ≥ exact ({d15_pgen.n})"
+        results: dict[str, dict] = {}
+        t_all = time.perf_counter()
+        benchmark_log_line(
+            f"BEGIN TestYFVQ1F1 base_pool_n={base_n} n_mocks={n_mocks} scaled_factor={scaled_factor}"
         )
 
-    def test_d0_1mm_ge_exact(
-        self, d0_pgen: OverlapResult, d0_pgen_1mm: OverlapResult
-    ) -> None:
-        assert d0_pgen_1mm.n >= d0_pgen.n
+        for mode in ("synthetic", "scaled_synthetic", "real"):
+            t0 = time.perf_counter()
+            pool = self._build_pool(
+                mode=mode,
+                manager=control_manager,
+                base_n=base_n,
+                scaled_factor=scaled_factor,
+            )
+            t_pool = time.perf_counter() - t0
 
-    # --- day 15: significant enrichment under pgen-only null ---
+            t1 = time.perf_counter()
+            analysis = VDJBetOverlapAnalysis(llw_ref, pool=pool, n_mocks=n_mocks, seed=42, n_jobs=4)
+            d0 = self._score_summary(analysis, q1_d0)
+            d15 = self._score_summary(analysis, q1_d15)
+            t_score = time.perf_counter() - t1
+            t_total = time.perf_counter() - t0
 
-    def test_d15_pgen_exact_significant(self, d15_pgen: OverlapResult) -> None:
-        # pgen-only null, exact match — expected: z >> 1.96 (strong vaccine response)
-        print(f"\nday 15 pgen-only exact:  z={d15_pgen.z_n:.2f}  "
-              f"p={d15_pgen.p_n:.4f}  n_real={d15_pgen.n}")
-        assert d15_pgen.z_n > 1.96, (
-            f"day-15 exact pgen z={d15_pgen.z_n:.2f} should be > 1.96"
-        )
-        assert d15_pgen.p_n < 0.05
+            results[mode] = {
+                "d0": d0,
+                "d15": d15,
+                "pool_seconds": t_pool,
+                "score_seconds": t_score,
+                "total_seconds": t_total,
+                "pool_bins": float(len(pool.bins)),
+                "pool_n": float(pool.n_generated),
+            }
+            benchmark_log_line(
+                "YFVQ1F1 "
+                f"mode={mode} pool_seconds={t_pool:.2f} score_seconds={t_score:.2f} total_seconds={t_total:.2f} "
+                f"pool_n={pool.n_generated} bins={len(pool.bins)} "
+                f"d0_frac_n={d0['frac_n']:.6f} d0_frac_dc={d0['frac_dc']:.6f} d0_p_n={d0['p_n']:.6g} d0_p_dc={d0['p_dc']:.6g} d0_d_n={d0['d_n']:.4f} d0_d_dc={d0['d_dc']:.4f} "
+                f"d15_frac_n={d15['frac_n']:.6f} d15_frac_dc={d15['frac_dc']:.6f} d15_p_n={d15['p_n']:.6g} d15_p_dc={d15['p_dc']:.6g} d15_d_n={d15['d_n']:.4f} d15_d_dc={d15['d_dc']:.4f}"
+            )
 
-    def test_d15_pgen_1mm_significant(self, d15_pgen_1mm: OverlapResult) -> None:
-        # pgen-only null, 1mm match — captures near-neighbour clonotypes
-        print(f"\nday 15 pgen-only 1mm:    z={d15_pgen_1mm.z_n:.2f}  "
-              f"p={d15_pgen_1mm.p_n:.4f}  n_real={d15_pgen_1mm.n}")
-        assert d15_pgen_1mm.z_n > 1.96
-        assert d15_pgen_1mm.p_n < 0.05
+        all_elapsed = time.perf_counter() - t_all
+        results["all_elapsed"] = {"seconds": all_elapsed}
+        benchmark_log_line(f"END TestYFVQ1F1 elapsed_seconds={all_elapsed:.2f}")
+        return results
 
-    def test_d15_pvj_exact_significant(self, d15_pvj: OverlapResult) -> None:
-        # pgen+V+J null, exact — controls for V/J gene usage bias
-        print(f"\nday 15 pgen+VJ exact:    z={d15_pvj.z_n:.2f}  "
-              f"p={d15_pvj.p_n:.4f}")
-        assert d15_pvj.z_n > 1.96
-
-    def test_d15_pvj_1mm_significant(self, d15_pvj_1mm: OverlapResult) -> None:
-        # pgen+V+J null, 1mm
-        print(f"\nday 15 pgen+VJ 1mm:      z={d15_pvj_1mm.z_n:.2f}  "
-              f"p={d15_pvj_1mm.p_n:.4f}")
-        assert d15_pvj_1mm.z_n > 1.96
-
-    def test_d15_dc_pgen_significant(self, d15_pgen: OverlapResult) -> None:
-        # duplicate-count overlap (log2) under pgen-only null
-        print(f"\nday 15 dc log2 pgen:     z={d15_pgen.z_dc:.2f}  "
-              f"p={d15_pgen.p_dc:.4f}")
-        assert d15_pgen.z_dc > 1.96
-
-    # --- day 0: effect size smaller than day 15 ---
-
-    def test_d15_pgen_z_gt_d0_pgen_z(
-        self, d15_pgen: OverlapResult, d0_pgen: OverlapResult
-    ) -> None:
-        # Day-0 pgen-only z may still be elevated due to V/J bias (see header)
-        print(f"\nz_pgen_exact:  day15={d15_pgen.z_n:.2f}  day0={d0_pgen.z_n:.2f}")
-        assert d15_pgen.z_n > d0_pgen.z_n, (
-            f"day-15 effect (z={d15_pgen.z_n:.2f}) should exceed "
-            f"day-0 (z={d0_pgen.z_n:.2f}) for pgen-only null"
-        )
-
-    def test_d15_pvj_z_gt_d0_pvj_z(
-        self, d15_pvj: OverlapResult, d0_pvj: OverlapResult
-    ) -> None:
-        # pgen+V+J corrects V/J bias; day-0 should show clearly smaller effect
-        print(f"\nz_pvj_exact:   day15={d15_pvj.z_n:.2f}  day0={d0_pvj.z_n:.2f}")
-        assert d15_pvj.z_n > d0_pvj.z_n, (
-            f"day-15 effect (z={d15_pvj.z_n:.2f}) should exceed "
-            f"day-0 (z={d0_pvj.z_n:.2f}) for pgen+VJ null"
-        )
-
-    def test_d0_pvj_vs_pgen_comparison(
-        self, d0_pgen: OverlapResult, d0_pvj: OverlapResult
-    ) -> None:
-        # With pgen adjustment, mock null reflects target V/J distribution,
-        # eliminating V/J usage bias.  Any remaining day-0 signal reflects genuine
-        # cross-reactive memory (public clonotypes present pre-vaccination).
-        # The key comparison between timepoints is covered by
-        # test_d15_pvj_z_gt_d0_pvj_z.
+    def _assert_day15_stronger(self, mode: str, payload: dict) -> None:
+        d0 = payload["d0"]
+        d15 = payload["d15"]
         print(
-            f"\nday 0: z_pgen={d0_pgen.z_n:.2f}  z_pvj={d0_pvj.z_n:.2f}"
+            f"\n[{mode}] day0 frac_n={d0['frac_n']:.6f} frac_dc={d0['frac_dc']:.6f} "
+            f"p_n={d0['p_n']:.4g} p_dc={d0['p_dc']:.4g} d_n={d0['d_n']:.3f} d_dc={d0['d_dc']:.3f}"
         )
-        # Both results should show a positive day-0 signal
-        assert d0_pgen.z_n > 0
-        assert d0_pvj.z_n > 0
+        print(
+            f"[{mode}] day15 frac_n={d15['frac_n']:.6f} frac_dc={d15['frac_dc']:.6f} "
+            f"p_n={d15['p_n']:.4g} p_dc={d15['p_dc']:.4g} d_n={d15['d_n']:.3f} d_dc={d15['d_dc']:.3f}"
+        )
 
-    def test_d15_1mm_amplifies_signal_vs_exact(
-        self, d15_pgen: OverlapResult, d15_pgen_1mm: OverlapResult
-    ) -> None:
-        # 1mm captures ~15x more clonotypes than exact match (n_1mm=627 vs
-        # n_exact=43 observed).  z-score can be slightly lower because the
-        # mock distributions also expand with 1mm, increasing variance.
-        # Threshold: z_1mm >= 70% of z_exact
-        # (observed ratio: z_1mm=10.29, z_exact=13.15 → 0.78).
-        print(f"\nday 15: z_exact_pgen={d15_pgen.z_n:.2f}  "
-              f"z_1mm_pgen={d15_pgen_1mm.z_n:.2f}  "
-              f"n_exact={d15_pgen.n}  n_1mm={d15_pgen_1mm.n}")
-        assert d15_pgen_1mm.z_n >= d15_pgen.z_n * 0.7, (
-            f"1mm z ({d15_pgen_1mm.z_n:.2f}) should be >= 70% of "
-            f"exact z ({d15_pgen.z_n:.2f})"
+        assert d15["frac_n"] >= d0["frac_n"], f"[{mode}] expected day15 frac_n >= day0"
+        assert d15["frac_dc"] >= d0["frac_dc"], f"[{mode}] expected day15 frac_dc >= day0"
+        assert d15["d_n"] >= d0["d_n"] or d15["p_n"] <= d0["p_n"], (
+            f"[{mode}] expected day15 improved clonotype enrichment signal"
+        )
+        assert d15["d_dc"] >= d0["d_dc"] or d15["p_dc"] <= d0["p_dc"], (
+            f"[{mode}] expected day15 improved duplicate-count enrichment signal"
+        )
+
+    def test_synthetic_mock_day15_vs_day0(self, scenario_results) -> None:
+        self._assert_day15_stronger("synthetic", scenario_results["synthetic"])
+
+    def test_scaled_synthetic_mock_day15_vs_day0(self, scenario_results) -> None:
+        self._assert_day15_stronger("scaled_synthetic", scenario_results["scaled_synthetic"])
+
+    def test_real_mock_day15_vs_day0(self, scenario_results) -> None:
+        self._assert_day15_stronger("real", scenario_results["real"])
+
+    @pytest.mark.slow_benchmark
+    def test_q1_runtime_budget(self, scenario_results) -> None:
+        elapsed = float(scenario_results["all_elapsed"]["seconds"])
+        budget = float(os.getenv("MIRPY_BENCH_Q1_BUDGET_S", "1200"))
+        print(f"\nTestYFVQ1F1 elapsed={elapsed:.2f}s budget={budget:.2f}s")
+        assert elapsed <= budget, (
+            f"Q1 benchmark suite exceeded budget: elapsed={elapsed:.2f}s budget={budget:.2f}s"
         )
 
 

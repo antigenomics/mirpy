@@ -1,4 +1,6 @@
 import os
+import time
+from pathlib import Path
 
 import pytest
 
@@ -97,3 +99,56 @@ def benchmark_track_memory(default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip() in {"1", "true", "TRUE", "yes", "YES"}
+
+
+def benchmark_log_path() -> Path:
+    raw = os.getenv("MIRPY_BENCHMARK_LOG", "tests/benchmarks.log")
+    p = Path(raw)
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def benchmark_slow_timeout_s(default: float = 600.0) -> float:
+    return max(1.0, _env_float("MIRPY_BENCH_SLOW_TIMEOUT_S", default))
+
+
+def benchmark_very_slow_timeout_s(default: float = 1200.0) -> float:
+    return max(1.0, _env_float("MIRPY_BENCH_VERY_SLOW_TIMEOUT_S", default))
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow_benchmark: long-running benchmark with slow timeout budget")
+    config.addinivalue_line("markers", "very_slow_benchmark: extra long benchmark with very-slow timeout budget")
+
+
+def pytest_sessionstart(session):
+    if not RUN_BENCHMARKS:
+        return
+    reset = os.getenv("MIRPY_BENCH_RESET_LOG", "1").strip() in {"1", "true", "TRUE", "yes", "YES"}
+    if reset:
+        benchmark_log_path().write_text("", encoding="utf-8")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    start = time.perf_counter()
+    yield
+    elapsed = time.perf_counter() - start
+
+    if item.get_closest_marker("very_slow_benchmark") is not None:
+        cap = benchmark_very_slow_timeout_s()
+        if elapsed > cap:
+            pytest.fail(
+                f"very_slow_benchmark timeout exceeded: {elapsed:.2f}s > {cap:.2f}s "
+                f"({item.nodeid})"
+            )
+
+    if item.get_closest_marker("slow_benchmark") is not None:
+        cap = benchmark_slow_timeout_s()
+        if elapsed > cap:
+            pytest.fail(
+                f"slow_benchmark timeout exceeded: {elapsed:.2f}s > {cap:.2f}s "
+                f"({item.nodeid})"
+            )
