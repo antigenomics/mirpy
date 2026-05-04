@@ -193,6 +193,24 @@ Benchmark coverage includes both synthetic generation and real-control
 download/build paths (HuggingFace), with cache-hit timing diagnostics in
 ``tests/test_control_benchmark.py``.
 
+Slow TCRNET benchmark coverage also includes a notebook-derived B35+ donor
+scenario against real control, with connected-component enrichment checked
+against HLA-B*35 ``EPLPQGQLTAY`` TRB sequences from the bundled VDJdb slim
+asset in ``tests/test_tcrnet_benchmark.py``.
+
+.. code-block:: bash
+
+    # run only TCRNET benchmarks
+    RUN_BENCHMARK=1 pytest -s tests/test_tcrnet_benchmark.py -m benchmark
+
+    # run the slow B35 real-control benchmark only
+    RUN_BENCHMARK=1 pytest -s \
+       tests/test_tcrnet_benchmark.py::test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control
+
+Benchmark timing details are appended to ``tests/benchmarks.log``.
+Timeouts for long benchmarks can be configured via
+``MIRPY_BENCH_SLOW_TIMEOUT_S`` and ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``.
+
 Available aliases include species ``human/hsa/HomoSapiens`` and
 ``mouse/mmu/MusMusculus``; loci aliases include IMGT names and forms such as
 ``Talpha``/``Tbeta``.
