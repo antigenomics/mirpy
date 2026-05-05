@@ -4,14 +4,6 @@ mir.biomarkers package
 Submodules
 ----------
 
-mir.biomarkers.fisher_biomarkers_detector module
--------------------------------------------------
-
-.. automodule:: mir.biomarkers.fisher_biomarkers_detector
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.biomarkers.kmer_stats module
 ---------------------------------
 
