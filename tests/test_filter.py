@@ -1,5 +1,3 @@
-import pytest
-
 from mir.common.clonotype import Clonotype
 from mir.common.filter import filter_canonical, filter_functional
 from mir.common.gene_library import GeneEntry, GeneLibrary

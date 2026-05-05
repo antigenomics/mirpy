@@ -7,7 +7,6 @@ CDR3 sequences generated from human TRB using OLGA
 import time
 import math
 import pytest
-import numpy as np
 from Bio import Align
 from Bio.Align import substitution_matrices
 
@@ -16,7 +15,6 @@ from mir.distances.aligner import (
     CDRAligner,
     BioAlignerWrapper,
     Scoring,
-    GermlineAligner,
     ClonotypeScore,
     PairedCloneScore,
 )

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
-import igraph as ig
-
 from mir.common.clonotype import Clonotype
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 

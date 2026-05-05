@@ -10,7 +10,7 @@ import pytest
 from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.common.clonotype import Clonotype
-from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_benchmarks
 
 

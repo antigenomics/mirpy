@@ -25,7 +25,6 @@ import pytest
 from mir.resources.gene_library.build_gene_library import (
     IMGT_LOCI,
     LOCI_WITH_D,
-    OLGA_MODEL_MAP,
     Row,
     _parse_imgt_fasta,
     _parse_olga_model_params,

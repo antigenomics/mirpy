@@ -9,8 +9,6 @@ Tests performance improvements from parallel chunked reading, including:
 
 from __future__ import annotations
 
-import os
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +21,6 @@ from mir.common.io_parallel import (
     _parse_chunk_worker,
     _load_sequential,
 )
-from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_benchmarks
 

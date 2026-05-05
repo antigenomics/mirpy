@@ -20,19 +20,15 @@ Requires:
 from __future__ import annotations
 
 import gzip
-import os
 import time
 import unittest
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from tests.conftest import skip_integration
 from mir.biomarkers.kmer_stats import (
     KmerCounter,
-    compare_kmer_counts,
     compare_repertoire_kmers,
 )
 from mir.common.clonotype import ClonotypeAA

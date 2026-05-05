@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
-from mir.basic.alphabets import Seq, _to_bytes
+from mir.basic.alphabets import _to_bytes
 from mir.basic.mirseq import (
     tokenize_bytes as _c_tokenize_bytes,
     tokenize_gapped_bytes as _c_tokenize_gapped_bytes,

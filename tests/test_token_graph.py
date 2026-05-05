@@ -28,11 +28,8 @@ import time
 import unittest
 from pathlib import Path
 
-import pytest
-
 from tests.conftest import skip_benchmarks
 from mir.basic.token_tables import (
-    Kmer,
     filter_token_table,
     tokenize_rearrangements,
 )

@@ -12,7 +12,6 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
-import polars as pl
 import pytest
 
 from mir.common.clonotype import Clonotype

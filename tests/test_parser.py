@@ -14,9 +14,8 @@ from pathlib import Path
 import pytest
 
 from mir.basic.alphabets import back_translate, _MOST_LIKELY_CODON
-from mir.common.clonotype import Clonotype
 from mir.common.parser import OldMiXCRParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser
-from mir.common.repertoire import SampleRepertoire, LocusRepertoire
+from mir.common.repertoire import SampleRepertoire
 
 ASSETS = Path(__file__).parent / "assets"
 

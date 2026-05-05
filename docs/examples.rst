@@ -1,9 +1,9 @@
 Examples
 ========
 
-This section exposes the repository notebooks directly in the documentation
-site. The notebooks are included as notebooks, not rewritten prose examples, so
-the published docs stay close to the original exploratory workflows.
+This section publishes notebook copies maintained under ``docs/notebooks``.
+The docs keep the notebook structure intact instead of rewriting them as prose,
+while allowing the published set to stay curated and documented.
 
 .. toctree::
    :maxdepth: 1

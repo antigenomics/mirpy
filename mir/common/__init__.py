@@ -10,6 +10,29 @@ from .repertoire_dataset import RepertoireDataset
 from .alleles import allele_to_major
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
 
+__all__ = [
+	'GeneEntry',
+	'GeneLibrary',
+	'JunctionMarkup',
+	'Clonotype',
+	'ClonotypeAA',
+	'ClonotypeNT',
+	'filter_functional',
+	'filter_canonical',
+	'downsample',
+	'downsample_locus',
+	'resample_to_gene_usage',
+	'select_top',
+	'pool_samples',
+	'ControlManager',
+	'control_setup_cli',
+	'RepertoireDataset',
+	'allele_to_major',
+	'compute_batch_corrected_gene_usage',
+	'Segment',
+	'SegmentLibrary',
+]
+
 # Compatibility aliases for older notebooks/import paths without a dedicated
 # mir.common.segments shim module.
 Segment = GeneEntry
