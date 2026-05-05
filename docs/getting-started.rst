@@ -211,6 +211,53 @@ Benchmark timing details are appended to ``tests/benchmarks.log``.
 Timeouts for long benchmarks can be configured via
 ``MIRPY_BENCH_SLOW_TIMEOUT_S`` and ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``.
 
+For a larger ALICE/TCRNET benchmark profile (higher than the fast CI defaults):
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 \
+   MIRPY_BENCH_FAST_MAX_CLONOTYPES=600 \
+   MIRPY_BENCH_FAST_SYNTHETIC_N=200000 \
+   MIRPY_BENCH_REAL_MAX_CLONOTYPES=200 \
+   MIRPY_BENCH_REAL_CONTROL_LIMIT=100000 \
+   MIRPY_BENCH_REAL_SYNTHETIC_N=200000 \
+   pytest -s tests/test_alice_tcrnet_benchmark.py
+
+To include the full 1e6 neighborhood scaling benchmark:
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 \
+   MIRPY_BENCH_WORKERS=1,4,8 \
+   pytest -s tests/test_neighborhood_enrichment_scaling_benchmark.py
+
+To benchmark control cache behavior and synthetic-control scaling to 1e6:
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 \
+   MIRPY_BENCH_REAL_CACHE_REPEATS=25 \
+   MIRPY_BENCH_1M_COLD_BUILD=1 \
+   pytest -s tests/test_control_benchmark.py::test_real_control_repeated_cache_loads_no_extra_overhead \
+          tests/test_control_benchmark.py::test_synthetic_control_1e6_cache_hit_and_optional_cold_build
+
+For routine runs under 5-10 minutes, use the split subtests and keep 1e6 in
+cache-hit mode (no cold build):
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 pytest -s \
+      tests/test_control_benchmark.py::test_synthetic_control_generation_small_matrix \
+      tests/test_control_benchmark.py::test_real_control_build_and_cache_hit \
+      tests/test_control_benchmark.py::test_real_control_repeated_cache_loads_no_extra_overhead
+
+Typical runtime expectations on a modern laptop/workstation (hardware dependent):
+
+* ``tests/test_alice_tcrnet_benchmark.py`` with larger profile: usually a few minutes.
+* ``test_neighborhood_self_scaling_1e6``: usually minutes, scaling with ``MIRPY_BENCH_WORKERS`` and CPU count.
+* ``test_synthetic_control_generation_small_matrix``: validates 1e4 and 1e5 generation with per-test caps.
+* ``test_synthetic_control_1e6_cache_hit_and_optional_cold_build``: cache-first by default; cold build is opt-in via ``MIRPY_BENCH_1M_COLD_BUILD=1``.
+
 Available aliases include species ``human/hsa/HomoSapiens`` and
 ``mouse/mmu/MusMusculus``; loci aliases include IMGT names and forms such as
 ``Talpha``/``Tbeta``.

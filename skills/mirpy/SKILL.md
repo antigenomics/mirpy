@@ -263,7 +263,7 @@ clusters = cluster_genes(similarity, threshold=0.85)
 **Common Patterns**:
 ```python
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
-from mir.biomarkers.vdjbet import PgenBinPool
+from mir.comparative.vdjbet import PgenBinPool
 
 # Compute p-gen for repertoire clonotypes
 model = OlgaModel(locus="TRB", seed=42)
@@ -311,6 +311,11 @@ enrichment workflows, with manifest tracking by species/locus/type.
 **Benchmarking controls**:
 - `RUN_BENCHMARK=1 pytest tests/test_control_benchmark.py -s`
 - Benchmark covers both synthetic generation and real HuggingFace download/build plus cache-hit timing.
+- Extended cache/scaling diagnostics:
+	- `RUN_BENCHMARK=1 pytest -s tests/test_control_benchmark.py::test_real_control_repeated_cache_loads_no_extra_overhead`
+	- `RUN_BENCHMARK=1 pytest -s tests/test_control_benchmark.py::test_synthetic_control_generation_small_matrix`
+	- `RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 pytest -s tests/test_control_benchmark.py::test_synthetic_control_1e6_cache_hit_and_optional_cold_build`
+	- Add `MIRPY_BENCH_1M_COLD_BUILD=1` only when explicitly measuring first-time 1e6 build cost
 
 **Common pattern**:
 ```python
@@ -348,7 +353,7 @@ making traditional p-gen histograms unable to bin them.
 
 **Common Patterns**:
 ```python
-from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis, PgenBinPool
+from mir.comparative.vdjbet import VDJBetOverlapAnalysis, PgenBinPool
 from mir.basic.pgen import PgenGeneUsageAdjustment, OlgaModel
 
 # Simplest: pgen-only null (no V/J adjustment)
@@ -374,7 +379,7 @@ result_adj = analysis_adj.score(query_rep)
 
 **Advanced: Real Mock Controls**:
 ```python
-from mir.biomarkers.vdjbet import VDJBetOverlapAnalysis
+from mir.comparative.vdjbet import VDJBetOverlapAnalysis
 from mir.common.control import ControlManager
 
 mgr = ControlManager()
@@ -410,8 +415,11 @@ result_real = analysis_real.score(query_rep)
 - `PgenBinPool` build: ~2-10s for n=100k (parallelizable with `n_jobs`)
 - Mock generation: ~10-100ms per mock (depends on pool size and reference size)
 - Typical full analysis (200 mocks): <10s after pool build
+- For cross-method benchmark matrices, control preparation usually dominates runtime. Preload and reuse controls outside per-mode loops.
 
 **See Also**:
 - [VDJBet paper](https://example.com) (placeholder)
-- `mir.biomarkers.vdjbet` — Source module
+- `mir.comparative.vdjbet` — Source module
 - `tests/test_vdjbet.py` — Test cases with expected z-scores for validation
+- `tests/test_alice_tcrnet_benchmark.py` — split matrix benchmark with configurable profile knobs
+- `tests/test_control_benchmark.py` — control cache/rebuild timing diagnostics including 1e6 synthetic control generation
