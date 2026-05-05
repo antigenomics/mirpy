@@ -17,6 +17,7 @@ Benchmark tests (``RUN_BENCHMARK=1``)
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import time
 
 import pytest
@@ -303,6 +304,24 @@ class TestComputeOverlaps:
     def test_empty_list(self) -> None:
         qi = make_query_index(_make_rep(["CASSF"]))
         assert compute_overlaps([], qi) == []
+
+    def test_parallel_process_pool_terminates_cleanly(self) -> None:
+        ref_sets = [make_reference_keys(_make_rep([f"CASS{c}"])) for c in _AA20]
+        qi = make_query_index(_make_rep([f"CASS{c}" for c in _AA20[:10]]))
+
+        before = {p.pid for p in mp.active_children()}
+        compute_overlaps(ref_sets, qi, n_jobs=2)
+
+        # Give any newly spawned workers a chance to transition to terminal state.
+        for p in mp.active_children():
+            if p.pid not in before:
+                p.join(timeout=0.5)
+
+        lingering = [
+            p for p in mp.active_children()
+            if p.pid not in before and p.is_alive()
+        ]
+        assert not lingering, f"Found lingering overlap workers: {[p.pid for p in lingering]}"
 
 
 # ---------------------------------------------------------------------------

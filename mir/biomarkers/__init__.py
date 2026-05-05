@@ -7,6 +7,13 @@ from mir.biomarkers.tcrnet import (
 	compute_tcrnet,
 	tcrnet_table,
 )
+from mir.biomarkers.alice import (
+	AliceParams,
+	AliceResult,
+	add_alice_metadata,
+	compute_alice,
+	alice_table,
+)
 
 __all__ = [
 	"TcrnetParams",
@@ -14,4 +21,9 @@ __all__ = [
 	"compute_tcrnet",
 	"add_tcrnet_metadata",
 	"tcrnet_table",
+	"AliceParams",
+	"AliceResult",
+	"compute_alice",
+	"add_alice_metadata",
+	"alice_table",
 ]

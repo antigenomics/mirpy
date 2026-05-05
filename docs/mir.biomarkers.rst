@@ -36,3 +36,11 @@ mir.biomarkers.tcrnet module
    :undoc-members:
    :show-inheritance:
 
+mir.biomarkers.alice module
+---------------------------
+
+.. automodule:: mir.biomarkers.alice
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
