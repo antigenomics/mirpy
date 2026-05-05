@@ -1,21 +1,16 @@
-"""Benchmark ALICE (OLGA/Pgen) vs TCRNET on B35+/CMV+ style samples.
+"""Benchmarks comparing ALICE and TCRNET on B35+/CMV+ style samples.
 
 Run with:
     RUN_BENCHMARK=1 pytest tests/test_alice_tcrnet_benchmark.py -s
 
-This benchmark compares:
-- ALICE (hamming, thresholds 0/1, match modes none/v/j/v_j)
-- TCRNET (hamming + levenshtein, thresholds 0/1, match modes none/v/j/v_j)
-- TCRNET controls: real and synthetic
+The suite is split into bounded tests:
+- fast hamming ALICE vs synthetic-control TCRNET concordance,
+- fast synthetic-control Levenshtein TCRNET runs,
+- slower real-control hamming TCRNET runs,
+- slower real-control Levenshtein TCRNET runs.
 
-For each run we compute:
-- runtime
-- neighbor-enriched clonotypes
-- connected components among enriched clonotypes
-- enrichment of target epitope/HLA groups from VDJdb
-
-Then we summarize concordance between ALICE and TCRNET (synthetic/real) by
-component-size profiles and target-hit overlap.
+This avoids one monolithic >1 h test and makes the slowest configurations
+visible in per-test summaries.
 """
 
 from __future__ import annotations
@@ -33,6 +28,7 @@ from scipy.stats import spearmanr
 
 from mir.biomarkers.alice import compute_alice
 from mir.biomarkers.tcrnet import compute_tcrnet
+from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
 from mir.common.filter import filter_functional
@@ -40,7 +36,7 @@ from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_max_seconds, skip_benchmarks
+from tests.conftest import skip_benchmarks
 
 _ASSETS = Path(__file__).parent / "assets"
 _B35_FILE = _ASSETS / "B35+.txt.gz"
@@ -60,22 +56,46 @@ _TARGETS_BY_SAMPLE: dict[str, list[tuple[str, str, str]]] = {
 }
 
 
+@dataclass(frozen=True)
+class RunSpec:
+    sample_id: str
+    method: str
+    control_kind: str
+    metric: str
+    threshold: int
+    match_mode: str
+
+
+@dataclass
+class RunResult:
+    spec: RunSpec
+    elapsed_s: float
+    ok: bool
+    error: str
+    n_total: int
+    n_enriched: int
+    n_components: int
+    largest_component: int
+    target_hits: dict[str, int]
+    component_sizes: list[int]
+    hit_sequences: set[str]
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None:
         return default
     try:
-        val = int(raw)
+        value = int(raw)
     except ValueError:
         return default
-    return max(1, val)
+    return max(1, value)
 
 
 def _bh_adjust(p_values: pd.Series) -> pd.Series:
     values = pd.Series(p_values, dtype=float)
     if values.empty:
         return values
-
     order = np.argsort(values.to_numpy())
     ranked = values.to_numpy()[order]
     n = len(ranked)
@@ -84,10 +104,44 @@ def _bh_adjust(p_values: pd.Series) -> pd.Series:
     for i in range(n - 1, -1, -1):
         running = min(running, ranked[i] * n / (i + 1))
         adjusted[i] = running
-
     out = np.empty(n, dtype=float)
     out[order] = np.clip(adjusted, 0.0, 1.0)
     return pd.Series(out, index=values.index)
+
+
+def _clone_from_row(row: pd.Series, *, sid: str, duplicate_count: int = 1) -> Clonotype:
+    return Clonotype(
+        sequence_id=sid,
+        locus="TRB",
+        junction_aa=str(row.get("cdr3", "") or row.get("junction_aa", "")),
+        junction=str(row.get("cdr3nt", "") or row.get("junction", "")),
+        v_gene=str(row.get("v.segm", row.get("v_gene", row.get("v", ""))) or ""),
+        j_gene=str(row.get("j.segm", row.get("j_gene", row.get("j", ""))) or ""),
+        duplicate_count=max(1, int(duplicate_count)),
+        _validate=False,
+    )
+
+
+def _df_to_repertoire(df: pd.DataFrame, *, repertoire_id: str, limit: int | None = None) -> LocusRepertoire:
+    work = df.copy()
+    if "duplicate_count" not in work.columns:
+        work["duplicate_count"] = 1
+    if limit is not None and limit > 0:
+        work = work.sort_values("duplicate_count", ascending=False).head(int(limit)).copy()
+    clones = [
+        Clonotype(
+            sequence_id=str(i),
+            locus="TRB",
+            junction_aa=str(row.get("junction_aa", "")),
+            junction=str(row.get("junction", "")),
+            v_gene=allele_to_major(str(row.get("v_gene", "") or "")),
+            j_gene=allele_to_major(str(row.get("j_gene", "") or "")),
+            duplicate_count=max(1, int(row.get("duplicate_count", 1) or 1)),
+            _validate=False,
+        )
+        for i, row in enumerate(work.to_dict(orient="records"))
+    ]
+    return LocusRepertoire(clonotypes=clones, locus="TRB", repertoire_id=repertoire_id)
 
 
 def _top_clone_count_limited(rep: LocusRepertoire, *, max_clonotypes: int) -> LocusRepertoire:
@@ -139,69 +193,39 @@ def _load_cmv_sample(max_clonotypes: int, vdjdb_df: pd.DataFrame) -> tuple[Locus
         rep = _load_trb_from_table(_CMV_FILE, "CMV+")
         return _top_clone_count_limited(rep, max_clonotypes=max_clonotypes), "file"
 
-    # Fallback: build a CMV+ proxy from VDJdb CMV epitopes + heavy-tail background.
     cmv_targets = {"NLVPMVATV", "RPHERNGFTVL", "TPRVTGGGAM"}
     df = vdjdb_df[vdjdb_df["antigen.epitope"].isin(cmv_targets)].copy()
     if df.empty:
         pytest.skip("Cannot build CMV+ proxy: requested CMV epitopes not found in VDJdb asset")
 
     df = df.drop_duplicates(subset=["cdr3", "v.segm", "j.segm", "antigen.epitope"]).copy()
-
-    top_target = df.head(max(400, max_clonotypes // 2)).copy()
+    top_target = df.head(max(120, max_clonotypes // 2)).copy()
     rows: list[Clonotype] = []
     for i, (_, row) in enumerate(top_target.iterrows()):
-        ep = str(row["antigen.epitope"])
-        dup = 40 if ep == "NLVPMVATV" else 20
-        rows.append(
-            Clonotype(
-                sequence_id=f"cmv_target_{i}",
-                locus="TRB",
-                junction_aa=str(row["cdr3"]),
-                v_gene=str(row.get("v.segm", "") or ""),
-                j_gene=str(row.get("j.segm", "") or ""),
-                duplicate_count=dup,
-                _validate=False,
-            )
-        )
+        dup = 40 if str(row["antigen.epitope"]) == "NLVPMVATV" else 20
+        rows.append(_clone_from_row(row, sid=f"cmv_target_{i}", duplicate_count=dup))
 
-    # Add noisy background from non-CMV VDJdb TRB to mimic realistic tails.
     bg = vdjdb_df[~vdjdb_df["antigen.epitope"].isin(cmv_targets)].copy()
-    bg = bg.drop_duplicates(subset=["cdr3", "v.segm", "j.segm"]).head(max(200, max_clonotypes // 2))
+    bg = bg.drop_duplicates(subset=["cdr3", "v.segm", "j.segm"]).head(max(80, max_clonotypes // 2))
     for i, (_, row) in enumerate(bg.iterrows()):
-        rows.append(
-            Clonotype(
-                sequence_id=f"cmv_bg_{i}",
-                locus="TRB",
-                junction_aa=str(row["cdr3"]),
-                v_gene=str(row.get("v.segm", "") or ""),
-                j_gene=str(row.get("j.segm", "") or ""),
-                duplicate_count=1,
-                _validate=False,
-            )
-        )
+        rows.append(_clone_from_row(row, sid=f"cmv_bg_{i}", duplicate_count=1))
 
-    # De-duplicate by sequence/V/J while preserving largest duplicate_count.
     best: dict[tuple[str, str, str], Clonotype] = {}
     for c in rows:
         key = (c.junction_aa, c.v_gene, c.j_gene)
         prev = best.get(key)
         if prev is None or int(c.duplicate_count) > int(prev.duplicate_count):
             best[key] = c
-
-    uniq = sorted(best.values(), key=lambda c: int(c.duplicate_count), reverse=True)
-    uniq = uniq[:max_clonotypes]
+    uniq = sorted(best.values(), key=lambda c: int(c.duplicate_count), reverse=True)[:max_clonotypes]
     for i, c in enumerate(uniq):
         c.sequence_id = str(i)
-        c.locus = "TRB"
     return LocusRepertoire(clonotypes=uniq, locus="TRB", repertoire_id="CMV+"), "proxy"
 
 
 def _build_target_reference(vdjdb_df: pd.DataFrame, sample_id: str) -> tuple[pd.DataFrame, list[str]]:
-    target_specs = _TARGETS_BY_SAMPLE[sample_id]
     parts: list[pd.DataFrame] = []
     missing: list[str] = []
-
-    for hla_sub, short_name, epitope in target_specs:
+    for hla_sub, short_name, epitope in _TARGETS_BY_SAMPLE[sample_id]:
         sub = vdjdb_df[
             vdjdb_df["antigen.epitope"].eq(epitope)
             & vdjdb_df["mhc.a"].str.contains(hla_sub, regex=False)
@@ -212,78 +236,53 @@ def _build_target_reference(vdjdb_df: pd.DataFrame, sample_id: str) -> tuple[pd.
             continue
         sub["target_label"] = label
         parts.append(sub)
-
     if not parts:
         return pd.DataFrame(columns=["cdr3", "target_label"]), missing
-
     out = pd.concat(parts, ignore_index=True)
     out = out.drop_duplicates(subset=["cdr3", "target_label"])
     return out, missing
 
 
-def _enriched_table_from_method_output(table: pd.DataFrame) -> pd.DataFrame:
+def _enriched_table(table: pd.DataFrame) -> pd.DataFrame:
     if table.empty:
         return table.copy()
-
     df = table.copy()
     df["p.adj"] = _bh_adjust(df["p_value"])
     return df[(df["p.adj"] <= 0.05) & (df["fold_enrichment"] > 1.0)].copy()
 
 
-def _component_sizes(
-    enriched: pd.DataFrame,
-    *,
-    metric: str,
-    threshold: int,
-) -> list[int]:
+def _component_sizes(enriched: pd.DataFrame, *, metric: str, threshold: int) -> list[int]:
     if enriched.empty:
         return []
-
-    rows: list[Clonotype] = []
     uniq = enriched.drop_duplicates(subset=["junction_aa", "v_gene", "j_gene"]).copy()
-    for i, row in enumerate(uniq.itertuples(index=False)):
-        rows.append(
-            Clonotype(
-                sequence_id=str(i),
-                locus="TRB",
-                junction_aa=str(row.junction_aa),
-                v_gene=str(row.v_gene or ""),
-                j_gene=str(row.j_gene or ""),
-                duplicate_count=1,
-                _validate=False,
-            )
+    rows = [
+        Clonotype(
+            sequence_id=str(i),
+            locus="TRB",
+            junction_aa=str(row.junction_aa),
+            v_gene=str(row.v_gene or ""),
+            j_gene=str(row.j_gene or ""),
+            duplicate_count=1,
+            _validate=False,
         )
-
-    graph = build_edit_distance_graph(
-        rows,
-        metric=metric,
-        threshold=threshold,
-        n_jobs=4,
-    )
-    sizes = sorted(graph.components().sizes(), reverse=True)
-    return [int(x) for x in sizes]
+        for i, row in enumerate(uniq.itertuples(index=False))
+    ]
+    graph = build_edit_distance_graph(rows, metric=metric, threshold=threshold, n_jobs=4)
+    return [int(x) for x in sorted(graph.components().sizes(), reverse=True)]
 
 
-def _target_hits(
-    enriched: pd.DataFrame,
-    ref_df: pd.DataFrame,
-    *,
-    threshold: int,
-) -> tuple[dict[str, int], set[str]]:
+def _target_hits(enriched: pd.DataFrame, ref_df: pd.DataFrame, *, threshold: int) -> tuple[dict[str, int], set[str]]:
     if enriched.empty or ref_df.empty:
         return {}, set()
-
-    target_to_seqs: dict[str, list[str]] = {}
-    for label, grp in ref_df.groupby("target_label"):
-        target_to_seqs[label] = grp["cdr3"].dropna().astype(str).drop_duplicates().tolist()
-
+    target_to_seqs = {
+        label: grp["cdr3"].dropna().astype(str).drop_duplicates().tolist()
+        for label, grp in ref_df.groupby("target_label")
+    }
     enriched_seqs = enriched["junction_aa"].dropna().astype(str).drop_duplicates().tolist()
-    e_clones = [
-        Clonotype(sequence_id=str(i), locus="TRB", junction_aa=s, duplicate_count=1, _validate=False)
-        for i, s in enumerate(enriched_seqs)
-    ]
-    erep = LocusRepertoire(clonotypes=e_clones, locus="TRB")
-
+    erep = LocusRepertoire(
+        clonotypes=[Clonotype(sequence_id=str(i), locus="TRB", junction_aa=s, duplicate_count=1, _validate=False) for i, s in enumerate(enriched_seqs)],
+        locus="TRB",
+    )
     hits_by_target: dict[str, int] = {}
     all_hit_sequences: set[str] = set()
     for label, refs in target_to_seqs.items():
@@ -300,7 +299,6 @@ def _target_hits(
                 hit.add(erep.clonotypes[int(idx)].junction_aa)
         hits_by_target[label] = len(hit)
         all_hit_sequences.update(hit)
-
     return hits_by_target, all_hit_sequences
 
 
@@ -312,204 +310,120 @@ def _pad_vector(vals: list[int], *, k: int = 10) -> np.ndarray:
     return out
 
 
-@dataclass
-class RunResult:
-    sample_id: str
-    method: str
-    control_kind: str
-    metric: str
-    threshold: int
-    match_mode: str
-    elapsed_s: float
-    ok: bool
-    error: str
-    n_total: int
-    n_enriched: int
-    n_components: int
-    largest_component: int
-    target_hits: dict[str, int]
-    component_sizes: list[int]
-    hit_sequences: set[str]
-
-
-@skip_benchmarks
-@pytest.mark.benchmark
-@pytest.mark.slow_benchmark
-def test_benchmark_alice_vs_tcrnet_components_and_targets(capsys) -> None:
-    t_start = time.perf_counter()
-
-    max_clonotypes = _env_int("MIRPY_BENCH_MAX_CLONOTYPES", 2500)
-    synthetic_n = _env_int("MIRPY_BENCH_SYNTHETIC_N", 250_000)
-    n_jobs = _env_int("MIRPY_BENCH_N_JOBS", 4)
-    gene_modes = ["none", "v", "j", "v_j"]
+def _build_context(
+    *,
+    max_clonotypes: int,
+    synthetic_n: int,
+    real_control_limit: int,
+) -> tuple[dict[str, LocusRepertoire], dict[str, pd.DataFrame], dict[str, list[str]], dict[str, LocusRepertoire], str, ControlManager]:
     manager = ControlManager()
-
     vdjdb_df = _parse_vdjdb_df()
     b35 = _load_b35_sample(max_clonotypes=max_clonotypes)
     cmv, cmv_source = _load_cmv_sample(max_clonotypes=max_clonotypes, vdjdb_df=vdjdb_df)
+    samples = {"B35+": b35, "CMV+": cmv}
+    refs: dict[str, pd.DataFrame] = {}
+    missing: dict[str, list[str]] = {}
+    for sample_id in samples:
+        refs[sample_id], missing[sample_id] = _build_target_reference(vdjdb_df, sample_id)
 
-    samples = {
-        "B35+": b35,
-        "CMV+": cmv,
+    control_df_real = manager.ensure_and_load_control_df("real", "human", "TRB")
+    control_df_syn = manager.ensure_and_load_control_df(
+        "synthetic",
+        "human",
+        "TRB",
+        n=synthetic_n,
+        seed=42,
+        n_jobs=4,
+        progress=False,
+    )
+    controls = {
+        "real": _df_to_repertoire(control_df_real, repertoire_id="real-control", limit=real_control_limit),
+        "synthetic": _df_to_repertoire(control_df_syn, repertoire_id="synthetic-control", limit=synthetic_n),
     }
+    return samples, refs, missing, controls, cmv_source, manager
 
-    runs: list[RunResult] = []
-    missing_targets: dict[str, list[str]] = {}
 
-    for sample_id, rep in samples.items():
-        assert rep.locus == "TRB"
+def _execute_run(
+    spec: RunSpec,
+    *,
+    rep: LocusRepertoire,
+    ref_df: pd.DataFrame,
+    controls: dict[str, LocusRepertoire],
+    synthetic_n: int,
+    manager: ControlManager,
+    n_jobs: int,
+) -> RunResult:
+    t0 = time.perf_counter()
+    try:
+        if spec.method == "alice":
+            result = compute_alice(
+                rep,
+                species="human",
+                threshold=spec.threshold,
+                match_mode=spec.match_mode,
+                metric="hamming",
+                pgen_mode="exact",
+                gene_usage_synthetic_n=synthetic_n,
+                control_manager=manager,
+                n_jobs=n_jobs,
+            )
+            table = result.table
+        else:
+            result = compute_tcrnet(
+                rep,
+                control=controls[spec.control_kind],
+                species="human",
+                metric=spec.metric,
+                threshold=spec.threshold,
+                match_mode=spec.match_mode,
+                pvalue_mode="binomial",
+                n_jobs=n_jobs,
+            )
+            table = result.table
 
-        ref_df, missing = _build_target_reference(vdjdb_df, sample_id)
-        missing_targets[sample_id] = missing
+        elapsed = time.perf_counter() - t0
+        enriched = _enriched_table(table)
+        component_sizes = _component_sizes(enriched, metric=spec.metric, threshold=spec.threshold)
+        target_hits, hit_sequences = _target_hits(enriched, ref_df, threshold=1)
+        return RunResult(
+            spec=spec,
+            elapsed_s=elapsed,
+            ok=True,
+            error="",
+            n_total=len(table),
+            n_enriched=len(enriched),
+            n_components=len(component_sizes),
+            largest_component=(component_sizes[0] if component_sizes else 0),
+            target_hits=target_hits,
+            component_sizes=component_sizes,
+            hit_sequences=hit_sequences,
+        )
+    except Exception as exc:  # pragma: no cover - diagnostic path
+        return RunResult(
+            spec=spec,
+            elapsed_s=time.perf_counter() - t0,
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}",
+            n_total=0,
+            n_enriched=0,
+            n_components=0,
+            largest_component=0,
+            target_hits={},
+            component_sizes=[],
+            hit_sequences=set(),
+        )
 
-        for threshold in (0, 1):
-            for match_mode in gene_modes:
-                # ALICE (hamming only)
-                t0 = time.perf_counter()
-                try:
-                    alice = compute_alice(
-                        rep,
-                        species="human",
-                        threshold=threshold,
-                        match_mode=match_mode,
-                        metric="hamming",
-                        pgen_mode="exact",
-                        gene_usage_synthetic_n=synthetic_n,
-                        control_manager=manager,
-                        n_jobs=n_jobs,
-                    )
-                    elapsed = time.perf_counter() - t0
-                    enr = _enriched_table_from_method_output(alice.table)
-                    comp_sizes = _component_sizes(enr, metric="hamming", threshold=threshold)
-                    hits, hit_sequences = _target_hits(enr, ref_df, threshold=1)
-                    runs.append(
-                        RunResult(
-                            sample_id=sample_id,
-                            method="alice",
-                            control_kind="synthetic",
-                            metric="hamming",
-                            threshold=threshold,
-                            match_mode=match_mode,
-                            elapsed_s=elapsed,
-                            ok=True,
-                            error="",
-                            n_total=len(alice.table),
-                            n_enriched=len(enr),
-                            n_components=len(comp_sizes),
-                            largest_component=(comp_sizes[0] if comp_sizes else 0),
-                            target_hits=hits,
-                            component_sizes=comp_sizes,
-                            hit_sequences=hit_sequences,
-                        )
-                    )
-                except Exception as exc:  # pragma: no cover - diagnostic path
-                    elapsed = time.perf_counter() - t0
-                    runs.append(
-                        RunResult(
-                            sample_id=sample_id,
-                            method="alice",
-                            control_kind="synthetic",
-                            metric="hamming",
-                            threshold=threshold,
-                            match_mode=match_mode,
-                            elapsed_s=elapsed,
-                            ok=False,
-                            error=f"{type(exc).__name__}: {exc}",
-                            n_total=0,
-                            n_enriched=0,
-                            n_components=0,
-                            largest_component=0,
-                            target_hits={},
-                            component_sizes=[],
-                            hit_sequences=set(),
-                        )
-                    )
 
-                # TCRNET: hamming + levenshtein, real and synthetic controls.
-                for metric in ("hamming", "levenshtein"):
-                    for control_kind in ("real", "synthetic"):
-                        t1 = time.perf_counter()
-                        try:
-                            kwargs = {}
-                            if control_kind == "synthetic":
-                                kwargs = {
-                                    "control_kwargs": {
-                                        "n": synthetic_n,
-                                        "seed": 42,
-                                        "n_jobs": n_jobs,
-                                        "progress": False,
-                                    }
-                                }
-                            tcr = compute_tcrnet(
-                                rep,
-                                control_type=control_kind,
-                                species="human",
-                                control_manager=manager,
-                                metric=metric,
-                                threshold=threshold,
-                                match_mode=match_mode,
-                                pvalue_mode="binomial",
-                                n_jobs=n_jobs,
-                                **kwargs,
-                            )
-                            elapsed = time.perf_counter() - t1
-                            enr = _enriched_table_from_method_output(tcr.table)
-                            comp_sizes = _component_sizes(enr, metric=metric, threshold=threshold)
-                            hits, hit_sequences = _target_hits(enr, ref_df, threshold=1)
-                            runs.append(
-                                RunResult(
-                                    sample_id=sample_id,
-                                    method="tcrnet",
-                                    control_kind=control_kind,
-                                    metric=metric,
-                                    threshold=threshold,
-                                    match_mode=match_mode,
-                                    elapsed_s=elapsed,
-                                    ok=True,
-                                    error="",
-                                    n_total=len(tcr.table),
-                                    n_enriched=len(enr),
-                                    n_components=len(comp_sizes),
-                                    largest_component=(comp_sizes[0] if comp_sizes else 0),
-                                    target_hits=hits,
-                                    component_sizes=comp_sizes,
-                                    hit_sequences=hit_sequences,
-                                )
-                            )
-                        except Exception as exc:  # pragma: no cover - diagnostic path
-                            elapsed = time.perf_counter() - t1
-                            runs.append(
-                                RunResult(
-                                    sample_id=sample_id,
-                                    method="tcrnet",
-                                    control_kind=control_kind,
-                                    metric=metric,
-                                    threshold=threshold,
-                                    match_mode=match_mode,
-                                    elapsed_s=elapsed,
-                                    ok=False,
-                                    error=f"{type(exc).__name__}: {exc}",
-                                    n_total=0,
-                                    n_enriched=0,
-                                    n_components=0,
-                                    largest_component=0,
-                                    target_hits={},
-                                    component_sizes=[],
-                                    hit_sequences=set(),
-                                )
-                            )
-
-    assert runs, "Benchmark produced no runs"
-
-    run_df = pd.DataFrame(
+def _results_to_frame(runs: list[RunResult]) -> pd.DataFrame:
+    return pd.DataFrame(
         [
             {
-                "sample_id": r.sample_id,
-                "method": r.method,
-                "control_kind": r.control_kind,
-                "metric": r.metric,
-                "threshold": r.threshold,
-                "match_mode": r.match_mode,
+                "sample_id": r.spec.sample_id,
+                "method": r.spec.method,
+                "control_kind": r.spec.control_kind,
+                "metric": r.spec.metric,
+                "threshold": r.spec.threshold,
+                "match_mode": r.spec.match_mode,
                 "elapsed_s": r.elapsed_s,
                 "ok": r.ok,
                 "error": r.error,
@@ -523,128 +437,302 @@ def test_benchmark_alice_vs_tcrnet_components_and_targets(capsys) -> None:
         ]
     )
 
-    # Concordance: compare ALICE vs TCRNET synthetic/real in hamming settings.
+
+def _print_summary(
+    *,
+    title: str,
+    elapsed_total: float,
+    runs: list[RunResult],
+    missing_targets: dict[str, list[str]],
+    cmv_source: str,
+    extra_df: pd.DataFrame | None = None,
+) -> None:
+    run_df = _results_to_frame(runs)
+    ok_df = run_df[run_df["ok"]].copy()
+    err_df = run_df[~run_df["ok"]].copy()
+    print("\n" + "=" * 88)
+    print(title)
+    print(f"total elapsed: {elapsed_total:.2f}s")
+    print(f"CMV source: {cmv_source}")
+    for sid, miss in missing_targets.items():
+        if miss:
+            print(f"missing target references for {sid}: {', '.join(miss)}")
+    print("\nRun summary:")
+    if ok_df.empty:
+        print("  no successful runs")
+    else:
+        print(
+            ok_df.groupby(["sample_id", "method", "control_kind", "metric", "threshold"], as_index=False)
+            .agg(
+                elapsed_s=("elapsed_s", "mean"),
+                n_enriched=("n_enriched", "median"),
+                largest_component=("largest_component", "median"),
+                target_hits_total=("target_hits_total", "median"),
+            )
+            .sort_values(["sample_id", "method", "control_kind", "metric", "threshold"])
+            .to_string(index=False)
+        )
+        print("\nLongest runs:")
+        print(
+            ok_df.sort_values("elapsed_s", ascending=False)
+            .head(6)[["sample_id", "method", "control_kind", "metric", "threshold", "match_mode", "elapsed_s"]]
+            .to_string(index=False)
+        )
+    if extra_df is not None and not extra_df.empty:
+        print("\nConcordance:")
+        print(extra_df.to_string(index=False))
+    if not err_df.empty:
+        print("\nErrors:")
+        print(err_df[["sample_id", "method", "control_kind", "metric", "threshold", "match_mode", "elapsed_s", "error"]].to_string(index=False))
+    print("=" * 88)
+
+
+def _compute_hamming_concordance(runs: list[RunResult]) -> pd.DataFrame:
     idx = {
-        (r.sample_id, r.method, r.control_kind, r.metric, r.threshold, r.match_mode): r
+        (r.spec.sample_id, r.spec.method, r.spec.control_kind, r.spec.metric, r.spec.threshold, r.spec.match_mode): r
         for r in runs
         if r.ok
     }
-
-    conc_rows: list[dict[str, float | str]] = []
-    for sample_id in samples:
+    rows: list[dict[str, float | str]] = []
+    for sample_id in {r.spec.sample_id for r in runs}:
         for threshold in (0, 1):
-            for match_mode in gene_modes:
-                key_alice = (sample_id, "alice", "synthetic", "hamming", threshold, match_mode)
-                a = idx.get(key_alice)
-                if a is None:
+            for match_mode in ("none", "v", "j", "v_j"):
+                a = idx.get((sample_id, "alice", "synthetic", "hamming", threshold, match_mode))
+                t = idx.get((sample_id, "tcrnet", "synthetic", "hamming", threshold, match_mode))
+                if a is None or t is None:
                     continue
-                for control_kind in ("synthetic", "real"):
-                    key_t = (sample_id, "tcrnet", control_kind, "hamming", threshold, match_mode)
-                    t = idx.get(key_t)
-                    if t is None:
-                        continue
-                    x = _pad_vector(a.component_sizes, k=10)
-                    y = _pad_vector(t.component_sizes, k=10)
+                x = _pad_vector(a.component_sizes)
+                y = _pad_vector(t.component_sizes)
+                if np.std(x) == 0.0 or np.std(y) == 0.0:
+                    corr = 0.0
+                else:
                     corr = spearmanr(x, y).statistic
                     if corr is None or math.isnan(float(corr)):
                         corr = 0.0
+                union = a.hit_sequences | t.hit_sequences
+                inter = a.hit_sequences & t.hit_sequences
+                rows.append(
+                    {
+                        "sample_id": sample_id,
+                        "threshold": threshold,
+                        "match_mode": match_mode,
+                        "spearman_component_sizes": float(corr),
+                        "jaccard_target_hits": (len(inter) / len(union)) if union else 1.0,
+                        "alice_hits": len(a.hit_sequences),
+                        "tcrnet_hits": len(t.hit_sequences),
+                    }
+                )
+    return pd.DataFrame(rows)
 
-                    union = a.hit_sequences | t.hit_sequences
-                    inter = a.hit_sequences & t.hit_sequences
-                    jacc = float(len(inter) / len(union)) if union else 1.0
 
-                    conc_rows.append(
-                        {
-                            "sample_id": sample_id,
-                            "threshold": threshold,
-                            "match_mode": match_mode,
-                            "tcrnet_control": control_kind,
-                            "spearman_component_sizes": float(corr),
-                            "jaccard_target_hits": jacc,
-                            "alice_hits": len(a.hit_sequences),
-                            "tcrnet_hits": len(t.hit_sequences),
-                        }
-                    )
+def _run_specs(
+    *,
+    samples: dict[str, LocusRepertoire],
+    refs: dict[str, pd.DataFrame],
+    controls: dict[str, LocusRepertoire],
+    manager: ControlManager,
+    synthetic_n: int,
+    specs: list[RunSpec],
+    n_jobs: int,
+) -> list[RunResult]:
+    return [
+        _execute_run(
+            spec,
+            rep=samples[spec.sample_id],
+            ref_df=refs[spec.sample_id],
+            controls=controls,
+            synthetic_n=synthetic_n,
+            manager=manager,
+            n_jobs=n_jobs,
+        )
+        for spec in specs
+    ]
 
-    conc_df = pd.DataFrame(conc_rows)
 
-    elapsed_total = time.perf_counter() - t_start
-    ok_df = run_df[run_df["ok"]].copy()
-    err_df = run_df[~run_df["ok"]].copy()
+@skip_benchmarks
+@pytest.mark.benchmark
+def test_alice_tcrnet_synthetic_hamming_concordance(capsys) -> None:
+    t_start = time.perf_counter()
+    max_clonotypes = _env_int("MIRPY_BENCH_FAST_MAX_CLONOTYPES", 300)
+    synthetic_n = _env_int("MIRPY_BENCH_FAST_SYNTHETIC_N", 100_000)
+    real_control_limit = _env_int("MIRPY_BENCH_REAL_CONTROL_LIMIT", 50_000)
+    n_jobs = _env_int("MIRPY_BENCH_N_JOBS", 4)
+    match_modes = ["none", "v", "j", "v_j"]
 
-    benchmark_log_line(
-        "alice_tcrnet_compare "
-        f"elapsed_total_s={elapsed_total:.3f} "
-        f"runs_total={len(run_df)} runs_ok={len(ok_df)} runs_error={len(err_df)} "
-        f"b35_n={len(b35.clonotypes)} cmv_n={len(cmv.clonotypes)} cmv_source={cmv_source} "
-        f"synthetic_n={synthetic_n}"
+    samples, refs, missing, controls, cmv_source, manager = _build_context(
+        max_clonotypes=max_clonotypes,
+        synthetic_n=synthetic_n,
+        real_control_limit=real_control_limit,
     )
+    specs = []
+    for sample_id in samples:
+        for threshold in (0, 1):
+            for match_mode in match_modes:
+                specs.append(RunSpec(sample_id, "alice", "synthetic", "hamming", threshold, match_mode))
+                specs.append(RunSpec(sample_id, "tcrnet", "synthetic", "hamming", threshold, match_mode))
 
+    runs = _run_specs(
+        samples=samples,
+        refs=refs,
+        controls=controls,
+        manager=manager,
+        synthetic_n=synthetic_n,
+        specs=specs,
+        n_jobs=n_jobs,
+    )
+    elapsed_total = time.perf_counter() - t_start
+    concordance = _compute_hamming_concordance(runs)
+    benchmark_log_line(
+        f"alice_tcrnet_synth_hamming elapsed_total_s={elapsed_total:.3f} max_clonotypes={max_clonotypes} synthetic_n={synthetic_n}"
+    )
     with capsys.disabled():
-        print("\n" + "=" * 88)
-        print("ALICE vs TCRNET benchmark (TRB/human)")
-        print(f"total elapsed: {elapsed_total:.2f}s")
-        print(f"B35+ clonotypes: {len(b35.clonotypes)}")
-        print(f"CMV+ clonotypes: {len(cmv.clonotypes)} (source={cmv_source})")
-        print(f"synthetic control n: {synthetic_n}")
-        if missing_targets:
-            for sid, miss in missing_targets.items():
-                if miss:
-                    print(f"missing target references for {sid}: {', '.join(miss)}")
+        _print_summary(
+            title="ALICE vs TCRNET synthetic-control hamming concordance",
+            elapsed_total=elapsed_total,
+            runs=runs,
+            missing_targets=missing,
+            cmv_source=cmv_source,
+            extra_df=concordance,
+        )
+    assert all(r.ok for r in runs)
+    assert elapsed_total < 60.0
 
-        print("\nRun summary (ok runs):")
-        if ok_df.empty:
-            print("  no successful runs")
-        else:
-            print(
-                ok_df.groupby(["sample_id", "method", "control_kind", "metric", "threshold"], as_index=False)
-                .agg(
-                    elapsed_s=("elapsed_s", "mean"),
-                    n_enriched=("n_enriched", "median"),
-                    largest_component=("largest_component", "median"),
-                    target_hits_total=("target_hits_total", "median"),
-                )
-                .sort_values(["sample_id", "method", "control_kind", "metric", "threshold"]) 
-                .to_string(index=False)
-            )
 
-        print("\nConcordance (ALICE vs TCRNET, hamming):")
-        if conc_df.empty:
-            print("  no comparable successful pairs")
-        else:
-            print(
-                conc_df.groupby(["sample_id", "tcrnet_control"], as_index=False)
-                .agg(
-                    spearman_component_sizes=("spearman_component_sizes", "mean"),
-                    jaccard_target_hits=("jaccard_target_hits", "mean"),
-                    alice_hits=("alice_hits", "mean"),
-                    tcrnet_hits=("tcrnet_hits", "mean"),
-                )
-                .sort_values(["sample_id", "tcrnet_control"])
-                .to_string(index=False)
-            )
+@skip_benchmarks
+@pytest.mark.benchmark
+def test_tcrnet_synthetic_levenshtein_matrix(capsys) -> None:
+    t_start = time.perf_counter()
+    max_clonotypes = _env_int("MIRPY_BENCH_FAST_MAX_CLONOTYPES", 300)
+    synthetic_n = _env_int("MIRPY_BENCH_FAST_SYNTHETIC_N", 100_000)
+    real_control_limit = _env_int("MIRPY_BENCH_REAL_CONTROL_LIMIT", 50_000)
+    n_jobs = _env_int("MIRPY_BENCH_N_JOBS", 4)
+    match_modes = ["none", "v", "j", "v_j"]
 
-        if not err_df.empty:
-            print("\nErrors:")
-            cols = [
-                "sample_id",
-                "method",
-                "control_kind",
-                "metric",
-                "threshold",
-                "match_mode",
-                "elapsed_s",
-                "error",
-            ]
-            print(err_df[cols].to_string(index=False))
-        print("=" * 88)
+    samples, refs, missing, controls, cmv_source, manager = _build_context(
+        max_clonotypes=max_clonotypes,
+        synthetic_n=synthetic_n,
+        real_control_limit=real_control_limit,
+    )
+    specs = [
+        RunSpec(sample_id, "tcrnet", "synthetic", "levenshtein", threshold, match_mode)
+        for sample_id in samples
+        for threshold in (0, 1)
+        for match_mode in match_modes
+    ]
+    runs = _run_specs(
+        samples=samples,
+        refs=refs,
+        controls=controls,
+        manager=manager,
+        synthetic_n=synthetic_n,
+        specs=specs,
+        n_jobs=n_jobs,
+    )
+    elapsed_total = time.perf_counter() - t_start
+    benchmark_log_line(
+        f"tcrnet_synth_levenshtein elapsed_total_s={elapsed_total:.3f} max_clonotypes={max_clonotypes} synthetic_n={synthetic_n}"
+    )
+    with capsys.disabled():
+        _print_summary(
+            title="TCRNET synthetic-control levenshtein matrix",
+            elapsed_total=elapsed_total,
+            runs=runs,
+            missing_targets=missing,
+            cmv_source=cmv_source,
+        )
+    assert all(r.ok for r in runs)
+    assert elapsed_total < 60.0
 
-    # Acceptance: benchmark must execute enough successful runs and stay in time budget.
-    assert len(ok_df) >= 12
 
-    # If CMV+ file is present, enforce no proxy usage.
-    if _CMV_FILE.exists():
-        assert cmv_source == "file"
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.slow_benchmark
+def test_tcrnet_real_hamming_matrix(capsys) -> None:
+    t_start = time.perf_counter()
+    max_clonotypes = _env_int("MIRPY_BENCH_REAL_MAX_CLONOTYPES", 100)
+    synthetic_n = _env_int("MIRPY_BENCH_REAL_SYNTHETIC_N", 100_000)
+    real_control_limit = _env_int("MIRPY_BENCH_REAL_CONTROL_LIMIT", 50_000)
+    n_jobs = _env_int("MIRPY_BENCH_N_JOBS", 4)
+    match_modes = ["none", "v", "j", "v_j"]
 
-    max_s = benchmark_max_seconds(default=2400.0)
-    assert elapsed_total < max_s
+    samples, refs, missing, controls, cmv_source, manager = _build_context(
+        max_clonotypes=max_clonotypes,
+        synthetic_n=synthetic_n,
+        real_control_limit=real_control_limit,
+    )
+    specs = [
+        RunSpec(sample_id, "tcrnet", "real", "hamming", threshold, match_mode)
+        for sample_id in samples
+        for threshold in (0, 1)
+        for match_mode in match_modes
+    ]
+    runs = _run_specs(
+        samples=samples,
+        refs=refs,
+        controls=controls,
+        manager=manager,
+        synthetic_n=synthetic_n,
+        specs=specs,
+        n_jobs=n_jobs,
+    )
+    elapsed_total = time.perf_counter() - t_start
+    benchmark_log_line(
+        f"tcrnet_real_hamming elapsed_total_s={elapsed_total:.3f} max_clonotypes={max_clonotypes} real_control_limit={real_control_limit}"
+    )
+    with capsys.disabled():
+        _print_summary(
+            title="TCRNET real-control hamming matrix",
+            elapsed_total=elapsed_total,
+            runs=runs,
+            missing_targets=missing,
+            cmv_source=cmv_source,
+        )
+    assert all(r.ok for r in runs)
+    assert elapsed_total < 300.0
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.slow_benchmark
+def test_tcrnet_real_levenshtein_matrix(capsys) -> None:
+    t_start = time.perf_counter()
+    max_clonotypes = _env_int("MIRPY_BENCH_REAL_MAX_CLONOTYPES", 100)
+    synthetic_n = _env_int("MIRPY_BENCH_REAL_SYNTHETIC_N", 100_000)
+    real_control_limit = _env_int("MIRPY_BENCH_REAL_CONTROL_LIMIT", 50_000)
+    n_jobs = _env_int("MIRPY_BENCH_N_JOBS", 4)
+    match_modes = ["none", "v", "j", "v_j"]
+
+    samples, refs, missing, controls, cmv_source, manager = _build_context(
+        max_clonotypes=max_clonotypes,
+        synthetic_n=synthetic_n,
+        real_control_limit=real_control_limit,
+    )
+    specs = [
+        RunSpec(sample_id, "tcrnet", "real", "levenshtein", threshold, match_mode)
+        for sample_id in samples
+        for threshold in (0, 1)
+        for match_mode in match_modes
+    ]
+    runs = _run_specs(
+        samples=samples,
+        refs=refs,
+        controls=controls,
+        manager=manager,
+        synthetic_n=synthetic_n,
+        specs=specs,
+        n_jobs=n_jobs,
+    )
+    elapsed_total = time.perf_counter() - t_start
+    benchmark_log_line(
+        f"tcrnet_real_levenshtein elapsed_total_s={elapsed_total:.3f} max_clonotypes={max_clonotypes} real_control_limit={real_control_limit}"
+    )
+    with capsys.disabled():
+        _print_summary(
+            title="TCRNET real-control levenshtein matrix",
+            elapsed_total=elapsed_total,
+            runs=runs,
+            missing_targets=missing,
+            cmv_source=cmv_source,
+        )
+    assert all(r.ok for r in runs)
+    assert elapsed_total < 300.0

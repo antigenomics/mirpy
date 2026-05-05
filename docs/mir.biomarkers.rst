@@ -20,14 +20,6 @@ mir.biomarkers.kmer_stats module
    :undoc-members:
    :show-inheritance:
 
-mir.biomarkers.vdjbet module
------------------------------
-
-.. automodule:: mir.biomarkers.vdjbet
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.biomarkers.tcrnet module
 ----------------------------
 

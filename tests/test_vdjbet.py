@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`mir.biomarkers.vdjbet`.
+"""Unit tests for :mod:`mir.comparative.vdjbet`.
 
 Fast unit tests — always run
 -----------------------------
@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from mir.basic.pgen import OlgaModel
-from mir.biomarkers.vdjbet import (
+from mir.comparative.vdjbet import (
     OverlapResult,
     PgenBinPool,
     VDJBetOverlapAnalysis,

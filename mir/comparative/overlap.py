@@ -365,8 +365,8 @@ def count_overlap(
     ----------
     reference_keys:
         Set of clonotype keys (from :func:`make_reference_keys` or mock key
-        sets built by :class:`mir.biomarkers.vdjbet.VDJBetOverlapAnalysis`
-        / :class:`mir.biomarkers.vdjbet.PgenBinPool`).
+        sets built by :class:`mir.comparative.vdjbet.VDJBetOverlapAnalysis`
+        / :class:`mir.comparative.vdjbet.PgenBinPool`).
         Gene fields should already be ``""`` when the corresponding match
         requirement is disabled (controlled by ``match_v/match_j`` when
         building keys).
@@ -434,8 +434,8 @@ def compute_overlaps(
     ----------
     reference_key_sets:
         List of reference key sets — typically the mock null distribution from
-        :class:`mir.biomarkers.vdjbet.VDJBetOverlapAnalysis` /
-        :class:`mir.biomarkers.vdjbet.PgenBinPool`.
+        :class:`mir.comparative.vdjbet.VDJBetOverlapAnalysis` /
+        :class:`mir.comparative.vdjbet.PgenBinPool`.
     query_index:
         Query clonotype index from :func:`make_query_index`.
     allow_1mm:

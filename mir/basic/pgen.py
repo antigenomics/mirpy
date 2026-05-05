@@ -29,12 +29,15 @@ import numpy as np
 import olga.generation_probability as pgen
 import olga.load_model as load_model
 import olga.sequence_generation as seq_gen
+import pandas as pd
 
 from mir import get_resource_path
 from mir.basic.aliases import LOCUS_TO_OLGA_SUFFIX
 from mir.basic import mirseq as _mirseq
 
 translate_bidi = _mirseq.translate_bidi
+
+_GENE_USAGE_PROB_CACHE: dict[tuple[str, str, int], dict[str, dict[object, float]]] = {}
 
 
 def _mask_positions_fallback(seq: str) -> list[str]:
@@ -302,7 +305,7 @@ class OlgaModel:
         """Generate *n* annotated sequences with log₂ Pgen, optionally in parallel.
 
         This is the primary entry-point for building a
-        :class:`~mir.biomarkers.vdjbet.PgenBinPool`.  For large *n* (≥ 100 k)
+        :class:`~mir.comparative.vdjbet.PgenBinPool`.  For large *n* (≥ 100 k)
         parallel execution provides near-linear speedup over the number of
         cores because each worker computes both recombination events and Pgen.
 
@@ -644,3 +647,63 @@ class PgenGeneUsageAdjustment:
             pgen: Raw generation probability (linear, not log).
         """
         return pgen * self.factor(locus, v, j)
+
+
+def compute_gene_usage_probabilities_from_control_df(
+    control_df: pd.DataFrame,
+) -> dict[str, dict[object, float]]:
+    """Estimate OLGA V/J/VJ probabilities from a synthetic control table."""
+    from mir.common.alleles import allele_to_major
+
+    required = {"v_gene", "j_gene"}
+    missing = required.difference(control_df.columns)
+    if missing:
+        raise ValueError(f"control_df missing required columns: {sorted(missing)}")
+
+    df = control_df.loc[:, ["v_gene", "j_gene"]].copy()
+    df["v_gene"] = df["v_gene"].map(lambda x: allele_to_major(str(x or "")))
+    df["j_gene"] = df["j_gene"].map(lambda x: allele_to_major(str(x or "")))
+    df = df[(df["v_gene"] != "") & (df["j_gene"] != "")]
+    total = len(df)
+    if total == 0:
+        return {"v": {}, "j": {}, "vj": {}}
+
+    p_v = (df["v_gene"].value_counts(sort=False) / total).to_dict()
+    p_j = (df["j_gene"].value_counts(sort=False) / total).to_dict()
+    p_vj = (df.groupby(["v_gene", "j_gene"], sort=False).size() / total).to_dict()
+
+    return {
+        "v": {k: float(v) for k, v in p_v.items()},
+        "j": {k: float(v) for k, v in p_j.items()},
+        "vj": {k: float(v) for k, v in p_vj.items()},
+    }
+
+
+def get_olga_gene_usage_probabilities(
+    *,
+    species: str,
+    locus: str,
+    synthetic_n: int,
+    control_manager=None,
+    control_kwargs: dict | None = None,
+) -> dict[str, dict[object, float]]:
+    """Load or compute cached OLGA V/J/VJ probabilities for a locus."""
+    from mir.common.control import ControlManager
+
+    cache_key = (species.lower().strip(), locus, int(synthetic_n))
+    if cache_key in _GENE_USAGE_PROB_CACHE:
+        return _GENE_USAGE_PROB_CACHE[cache_key]
+
+    manager = control_manager or ControlManager()
+    kwargs = dict(control_kwargs or {})
+    kwargs.setdefault("n", int(synthetic_n))
+    kwargs.setdefault("progress", False)
+    control_df = manager.ensure_and_load_control_df(
+        "synthetic",
+        species,
+        locus,
+        **kwargs,
+    )
+    probs = compute_gene_usage_probabilities_from_control_df(control_df)
+    _GENE_USAGE_PROB_CACHE[cache_key] = probs
+    return probs

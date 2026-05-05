@@ -14,6 +14,12 @@ from mir.biomarkers.alice import (
 	compute_alice,
 	alice_table,
 )
+from mir.comparative.vdjbet import (
+	OverlapResult,
+	PgenBinPool,
+	VDJBetOverlapAnalysis,
+	compute_pgen_histogram,
+)
 
 __all__ = [
 	"TcrnetParams",
@@ -26,4 +32,8 @@ __all__ = [
 	"compute_alice",
 	"add_alice_metadata",
 	"alice_table",
+	"OverlapResult",
+	"PgenBinPool",
+	"VDJBetOverlapAnalysis",
+	"compute_pgen_histogram",
 ]
