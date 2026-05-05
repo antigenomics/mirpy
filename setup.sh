@@ -39,6 +39,13 @@ fi
 source "$VENV/bin/activate"
 PYTHON_BIN="$VENV/bin/python"
 
+# Verify that we're using the venv's pip, not the global one (safety check)
+if ! "$PYTHON_BIN" -c "import sys; sys.exit(0 if hasattr(sys, 'real_prefix') or sys.base_prefix != sys.prefix else 1)"; then
+    echo "Error: Python is not running in a virtual environment."
+    echo "This safety check prevents accidental installation to the global Python."
+    exit 1
+fi
+
 # ── Dependencies ──────────────────────────────────────────────────────────────
 echo "Upgrading pip..."
 "$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel --quiet
