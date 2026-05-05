@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from scipy import stats
-
 from mir.common.clonotype import Clonotype
 from mir.common.pool import pool_samples
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire

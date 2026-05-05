@@ -70,7 +70,6 @@ import math
 import os
 import time
 import tracemalloc
-import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -81,12 +80,9 @@ import pytest
 from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.comparative.vdjbet import (
-    OverlapResult,
     PgenBinPool,
     VDJBetOverlapAnalysis,
-    _log2_pgen_bin,
     _strip_allele,
-    compute_pgen_histogram,
 )
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager

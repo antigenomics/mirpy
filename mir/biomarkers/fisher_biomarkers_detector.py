@@ -2,7 +2,7 @@ import numpy as np
 from multipy.fdr import lsu
 from scipy.stats import fisher_exact
 
-from typing import Any as RepertoireDataset  # RepertoireDataset removed
+from typing import Any
 from tqdm.contrib.concurrent import process_map
 from datetime import datetime
 
@@ -29,8 +29,8 @@ class FisherBiomarkersDetector:
     comparison and adjusts the p-values afterwards.
     """
 
-    def __init__(self, control_repertoire_dataset: RepertoireDataset,
-                 ill_repertoire_dataset: RepertoireDataset, adjusted_p_value=0.05, threads=32):
+    def __init__(self, control_repertoire_dataset: Any,
+                 ill_repertoire_dataset: Any, adjusted_p_value=0.05, threads=32):
         """
         The initializing function. It takes two repertoires of control and ill people.
 

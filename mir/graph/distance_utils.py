@@ -6,7 +6,6 @@ Provides reusable pair-distance filtering logic to avoid duplication between
 
 from __future__ import annotations
 
-import typing as t
 from typing import NamedTuple
 
 from mir.distances.seqdist import hamming as _hamming

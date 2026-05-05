@@ -23,8 +23,6 @@ import time
 import unittest
 from pathlib import Path
 
-import pytest
-
 from tests.conftest import skip_benchmarks
 from tests.conftest import benchmark_repertoire_workers
 from mir.common.clonotype import Clonotype

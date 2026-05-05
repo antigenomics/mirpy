@@ -10,7 +10,6 @@ from tests.conftest import skip_benchmarks, skip_integration
 from mir.basic.token_tables import (
     Kmer,
     KmerAnnotation,
-    KmerMatch,
     KmerSeq,
     KmerStats,
     summarize_annotations,

@@ -15,7 +15,7 @@ import pytest
 
 from mir.common.control import ControlManager
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_max_seconds, benchmark_scale, skip_benchmarks
+from tests.conftest import benchmark_max_seconds, skip_benchmarks
 
 
 def _env_float(name: str, default: float) -> float:

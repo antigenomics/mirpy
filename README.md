@@ -70,16 +70,16 @@ the default resource file automatically.
 ```python
 from mir.common.parser import VDJtoolsParser
 
-parser = VDJtoolsParser(lib=lib, sep="\t")
+parser = VDJtoolsParser(sep="\t")
 clonotypes = parser.parse("example.tsv")
 ```
 
 ### Work with repertoires
 
 ```python
-from mir.common.repertoire import Repertoire
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
+repertoire = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
 print(repertoire.duplicate_count)
 print(repertoire.clonotype_count)
 
@@ -95,14 +95,14 @@ canonical_rep = filter_canonical(repertoire, gene_library=imgt_lib)
 You can also load a repertoire directly from a file:
 
 ```python
-from mir.common.repertoire import Repertoire
 from mir.common.parser import VDJtoolsParser
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire.load(
-    parser=VDJtoolsParser(lib=lib, sep="\t"),
-    path="example.tsv",
-    gene="TRB",
+repertoire = LocusRepertoire(
+    clonotypes=VDJtoolsParser(sep="\t").parse("example.tsv"),
+    locus="TRB",
 )
+```
 
 ### Pool repertoires across samples
 

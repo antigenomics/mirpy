@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 from multiprocessing import Pool
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 import olga.generation_probability as pgen
@@ -34,6 +34,9 @@ import pandas as pd
 from mir import get_resource_path
 from mir.basic.aliases import LOCUS_TO_OLGA_SUFFIX
 from mir.basic import mirseq as _mirseq
+
+if TYPE_CHECKING:
+    from mir.basic.gene_usage import GeneUsage
 
 translate_bidi = _mirseq.translate_bidi
 

@@ -18,6 +18,12 @@ For editable development installs:
 
    pip install -e .
 
+To install the documentation toolchain as well:
+
+.. code-block:: bash
+
+   ./setup.sh --docs
+
 Core Concepts
 =============
 
@@ -58,7 +64,7 @@ Typical Workflow
 ================
 
 1. Parse a file with one of the supported repertoire parsers.
-2. Wrap clonotypes into a ``Repertoire`` or ``RepertoireDataset``.
+2. Wrap clonotypes into a ``LocusRepertoire``, ``SampleRepertoire``, or ``RepertoireDataset``.
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
 

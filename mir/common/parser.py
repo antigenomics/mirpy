@@ -21,12 +21,10 @@ import csv
 import gzip
 import io
 import json
-import logging
 import re
 import sys
 import tempfile
 import urllib.request
-import warnings
 import zipfile
 from collections import namedtuple
 from pathlib import Path
@@ -45,7 +43,7 @@ import polars as pl
 from mir.basic.alphabets import back_translate
 from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
 from mir.common.alleles import allele_to_major
-from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMarkup
+from mir.common.clonotype import Clonotype
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
 # GeneLibrary is only imported lazily when needed (functional checks, germline sequences).

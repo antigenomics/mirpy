@@ -13,8 +13,6 @@ import time
 import tracemalloc
 from pathlib import Path
 
-import pytest
-
 from mir.common.parser import VDJtoolsParser
 from mir.common.repertoire_dataset import RepertoireDataset
 from tests.conftest import (

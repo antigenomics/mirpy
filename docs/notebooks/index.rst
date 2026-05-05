@@ -4,6 +4,9 @@ Notebook Gallery
 All notebooks from the repository are listed below. They are rendered in the
 docs site without execution during the build.
 
+Some notebooks are polished walkthroughs, while a smaller set remain as legacy
+exploratory analyses that may require local assets or older research context.
+
 Core Workflows
 ==============
 
@@ -40,6 +43,19 @@ Distance, Matching, And Embedding
 Analysis And Modeling
 =====================
 
+These notebooks are exploratory and may require larger local datasets.
+
+.. toctree::
+   :maxdepth: 1
+
+   vdjbet_yf
+
+Legacy Exploratory Notebooks
+============================
+
+These notebooks are kept for reference, but parts of their workflow predate the
+current public API and may need manual adaptation before rerunning.
+
 .. toctree::
    :maxdepth: 1
 
@@ -47,4 +63,3 @@ Analysis And Modeling
    cluster_associations
    grid_search_clf
    kmer_generator
-   vdjbet_yf
