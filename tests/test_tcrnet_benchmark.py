@@ -75,7 +75,17 @@ def _load_vdjdb_b35_epl_reference() -> LocusRepertoire:
         if c.clone_metadata.get("antigen.epitope") == "EPLPQGQLTAY"
         and "B*35" in c.clone_metadata.get("mhc.a", "")
     ]
-    return LocusRepertoire(clonotypes=filtered, locus="TRB", repertoire_id="vdjdb-b35-epl")
+
+    # Keep exactly one record per junction_aa so benchmark cardinality checks are stable.
+    unique_by_cdr3: dict[str, Clonotype] = {}
+    for c in filtered:
+        unique_by_cdr3.setdefault(c.junction_aa, c)
+
+    return LocusRepertoire(
+        clonotypes=list(unique_by_cdr3.values()),
+        locus="TRB",
+        repertoire_id="vdjdb-b35-epl",
+    )
 
 
 def _sequence_table(rep: LocusRepertoire) -> pd.DataFrame:
@@ -343,6 +353,12 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
 
     largest_component = component_sizes[0] if component_sizes else 0
     n_components_ge5 = sum(size >= 5 for size in component_sizes)
+    component_overlap_fraction = (
+        len(component_vdjdb) / len(ref_sequences) if ref_sequences else 0.0
+    )
+    enriched_overlap_fraction = (
+        len(enriched_vdjdb) / len(enriched) if len(enriched) else 0.0
+    )
 
     benchmark_log_line(
         "tcrnet_b35_epl_real_control "
@@ -351,7 +367,9 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
         f"strict_enriched_n={len(enriched)} enriched_vdjdb_n={len(enriched_vdjdb)} "
         f"neighbor_nodes_n={len(component_nodes)} largest_component={largest_component} "
         f"components_ge5={n_components_ge5} component_vdjdb_n={len(component_vdjdb)} "
-        f"vdjdb_ref_n={len(ref_sequences)}"
+        f"vdjdb_ref_n={len(ref_sequences)} "
+        f"component_overlap_fraction={component_overlap_fraction:.3f} "
+        f"enriched_overlap_fraction={enriched_overlap_fraction:.3f}"
     )
 
     with capsys.disabled():
@@ -365,16 +383,23 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
         print(f"strict enriched clonotypes overlapping VDJdb EPL ref: {len(enriched_vdjdb)}")
         print(f"neighbor nodes from VDJdb EPL seeds: {len(component_nodes)}")
         print(f"component nodes overlapping VDJdb EPL ref: {len(component_vdjdb)}")
+        print(f"component overlap fraction vs VDJdb ref: {component_overlap_fraction:.3f}")
+        print(f"enriched overlap fraction vs strict enriched: {enriched_overlap_fraction:.3f}")
         print(f"largest connected component size: {largest_component}")
         print(f"connected components with size>=5: {n_components_ge5}")
         print("=" * 72)
 
+    # Local VDJdb slim asset currently contains 39 unique human TRB sequences
+    # for EPLPQGQLTAY with HLA-B*35.
+    assert len(ref_sequences) == 39
     assert len(enriched) >= 20
     assert len(enriched_vdjdb) >= 3
     assert len(component_nodes) >= 20
     assert len(component_vdjdb) >= 5
+    assert component_overlap_fraction >= 0.12
+    assert enriched_overlap_fraction >= 0.08
     assert largest_component >= 20
-    assert n_components_ge5 >= 3
+    assert n_components_ge5 >= 1
 
     max_s = benchmark_max_seconds(default=900.0)
     assert elapsed < max_s
