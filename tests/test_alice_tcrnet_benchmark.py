@@ -92,6 +92,17 @@ def _env_int(name: str, default: int) -> int:
     return max(1, value)
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(1.0, value)
+
+
 def _bh_adjust(p_values: pd.Series) -> pd.Series:
     values = pd.Series(p_values, dtype=float)
     if values.empty:
@@ -595,7 +606,7 @@ def test_alice_tcrnet_synthetic_hamming_concordance(capsys) -> None:
             extra_df=concordance,
         )
     assert all(r.ok for r in runs)
-    assert elapsed_total < 60.0
+    assert elapsed_total < _env_float("MIRPY_BENCH_ALICE_SYNTH_MAX_SECONDS", 60.0)
 
 
 @skip_benchmarks
@@ -641,7 +652,7 @@ def test_tcrnet_synthetic_levenshtein_matrix(capsys) -> None:
             cmv_source=cmv_source,
         )
     assert all(r.ok for r in runs)
-    assert elapsed_total < 60.0
+    assert elapsed_total < _env_float("MIRPY_BENCH_TCRNET_SYNTH_MAX_SECONDS", 60.0)
 
 
 @skip_benchmarks
@@ -688,7 +699,7 @@ def test_tcrnet_real_hamming_matrix(capsys) -> None:
             cmv_source=cmv_source,
         )
     assert all(r.ok for r in runs)
-    assert elapsed_total < 300.0
+    assert elapsed_total < _env_float("MIRPY_BENCH_TCRNET_REAL_MAX_SECONDS", 300.0)
 
 
 @skip_benchmarks
@@ -735,4 +746,4 @@ def test_tcrnet_real_levenshtein_matrix(capsys) -> None:
             cmv_source=cmv_source,
         )
     assert all(r.ok for r in runs)
-    assert elapsed_total < 300.0
+    assert elapsed_total < _env_float("MIRPY_BENCH_TCRNET_REAL_MAX_SECONDS", 300.0)
