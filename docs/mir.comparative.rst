@@ -20,6 +20,14 @@ mir.comparative.overlap module
    :undoc-members:
    :show-inheritance:
 
+mir.comparative.vdjbet module
+-----------------------------
+
+.. automodule:: mir.comparative.vdjbet
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.comparative.pair_matcher module
 -----------------------------------
 

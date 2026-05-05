@@ -15,6 +15,7 @@ import pandas as pd
 from scipy.stats import betabinom, binom
 
 from mir.basic.gene_usage import GeneUsage
+from mir.biomarkers._shared import MatchMode, iter_loci, match_flags, normalize_match_mode
 from mir.common.clonotype import Clonotype
 from mir.common.alleles import allele_to_major
 from mir.common.control import ControlManager
@@ -22,7 +23,6 @@ from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.sampling import resample_to_gene_usage
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
-MatchMode = t.Literal["none", "v", "j", "vj"]
 PValueMode = t.Literal["binomial", "beta-binomial"]
 
 
@@ -52,21 +52,6 @@ class TcrnetResult:
 
     table: pd.DataFrame
     params: TcrnetParams
-
-
-def _match_flags(match_mode: MatchMode) -> tuple[bool, bool]:
-    return match_mode in {"v", "vj"}, match_mode in {"j", "vj"}
-
-
-def _iter_loci(
-    repertoire: LocusRepertoire | SampleRepertoire,
-) -> dict[str, LocusRepertoire]:
-    if isinstance(repertoire, SampleRepertoire):
-        return dict(repertoire.loci)
-    if isinstance(repertoire, LocusRepertoire):
-        return {repertoire.locus: repertoire}
-    raise TypeError("repertoire must be LocusRepertoire or SampleRepertoire")
-
 
 def _empty_locus(locus: str) -> LocusRepertoire:
     return LocusRepertoire(clonotypes=[], locus=locus)
@@ -100,7 +85,7 @@ def _resolve_control_loci(
     control_kwargs: dict | None,
 ) -> dict[str, LocusRepertoire]:
     if control is not None:
-        control_loci = _iter_loci(control)
+        control_loci = iter_loci(control)
         out: dict[str, LocusRepertoire] = {}
         for locus in target_loci:
             out[locus] = control_loci.get(locus, _empty_locus(locus))
@@ -176,7 +161,7 @@ def tcrnet_table(
 ) -> pd.DataFrame:
     """Build a TCRNET result table from clonotype metadata."""
     rows: list[dict[str, t.Any]] = []
-    for locus, lrep in _iter_loci(repertoire).items():
+    for locus, lrep in iter_loci(repertoire).items():
         for clonotype in lrep.clonotypes:
             md = clonotype.clone_metadata
             n = int(md.get(f"{metadata_prefix}_n", 0))
@@ -217,7 +202,7 @@ def compute_tcrnet(
     normalize_control_vj_usage: bool = False,
     metric: t.Literal["hamming", "levenshtein"] = "hamming",
     threshold: int = 1,
-    match_mode: MatchMode = "none",
+    match_mode: str = "none",
     pvalue_mode: PValueMode = "binomial",
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
@@ -229,16 +214,17 @@ def compute_tcrnet(
     Either pass an explicit control repertoire (``control=...``) or request a
     managed control via ``control_type`` with :class:`ControlManager`.
     """
+    norm_match_mode = normalize_match_mode(match_mode)
     params = TcrnetParams(
         metric=metric,
         threshold=threshold,
-        match_mode=match_mode,
+        match_mode=norm_match_mode,
         pvalue_mode=pvalue_mode,
     )
     params.validate()
-    match_v, match_j = _match_flags(match_mode)
+    match_v, match_j = match_flags(norm_match_mode)
 
-    query_loci = _iter_loci(repertoire)
+    query_loci = iter_loci(repertoire)
     control_loci = _resolve_control_loci(
         target_loci=query_loci,
         control=control,
@@ -316,7 +302,7 @@ def add_tcrnet_metadata(
     normalize_control_vj_usage: bool = False,
     metric: t.Literal["hamming", "levenshtein"] = "hamming",
     threshold: int = 1,
-    match_mode: MatchMode = "none",
+    match_mode: str = "none",
     pvalue_mode: PValueMode = "binomial",
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",

@@ -1,4 +1,4 @@
-"""Benchmark and integration tests for :mod:`mir.biomarkers.vdjbet`.
+"""Benchmark and integration tests for :mod:`mir.comparative.vdjbet`.
 
 Run all benchmarks::
 
@@ -80,7 +80,7 @@ import pytest
 
 from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
-from mir.biomarkers.vdjbet import (
+from mir.comparative.vdjbet import (
     OverlapResult,
     PgenBinPool,
     VDJBetOverlapAnalysis,

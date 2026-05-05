@@ -27,17 +27,15 @@ from dataclasses import dataclass
 import pandas as pd
 from scipy.stats import poisson
 
-from mir.basic.pgen import OlgaModel
+from mir.basic.pgen import OlgaModel, get_olga_gene_usage_probabilities
 from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+from mir.biomarkers._shared import MatchMode, iter_loci, match_flags, normalize_match_mode
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
-MatchMode = t.Literal["none", "v", "j", "vj"]
 PgenMode = t.Literal["exact", "1mm"]
-
-_GENE_USAGE_CACHE: dict[tuple[str, str, int], dict[str, dict[t.Any, float]]] = {}
 
 
 @dataclass(frozen=True)
@@ -64,30 +62,6 @@ class AliceResult:
     table: pd.DataFrame
     params: AliceParams
 
-
-def _normalize_match_mode(match_mode: str) -> MatchMode:
-    mode = match_mode.strip().lower().replace("_", "")
-    if mode == "vj":
-        return "vj"
-    if mode in {"none", "v", "j"}:
-        return t.cast(MatchMode, mode)
-    raise ValueError("match_mode must be one of: none, v, j, vj (or v_j)")
-
-
-def _match_flags(match_mode: MatchMode) -> tuple[bool, bool]:
-    return match_mode in {"v", "vj"}, match_mode in {"j", "vj"}
-
-
-def _iter_loci(
-    repertoire: LocusRepertoire | SampleRepertoire,
-) -> dict[str, LocusRepertoire]:
-    if isinstance(repertoire, SampleRepertoire):
-        return dict(repertoire.loci)
-    if isinstance(repertoire, LocusRepertoire):
-        return {repertoire.locus: repertoire}
-    raise TypeError("repertoire must be LocusRepertoire or SampleRepertoire")
-
-
 def _fold_enrichment(n: int, N: int, pgen: float) -> float:
     denom = float(N) * float(pgen)
     if denom <= 0.0:
@@ -100,64 +74,6 @@ def _poisson_pvalue(n: int, N: int, pgen: float) -> float:
     if expected <= 0.0:
         return 0.0 if n > 0 else 1.0
     return float(poisson.sf(n - 1, expected))
-
-
-def _compute_gene_usage_probabilities(
-    *,
-    control_df: pd.DataFrame,
-) -> dict[str, dict[t.Any, float]]:
-    """Compute OLGA gene usage probabilities from synthetic controls."""
-    required = {"v_gene", "j_gene"}
-    missing = required.difference(control_df.columns)
-    if missing:
-        raise ValueError(f"control_df missing required columns: {sorted(missing)}")
-
-    df = control_df.loc[:, ["v_gene", "j_gene"]].copy()
-    df["v_gene"] = df["v_gene"].map(lambda x: allele_to_major(str(x or "")))
-    df["j_gene"] = df["j_gene"].map(lambda x: allele_to_major(str(x or "")))
-    df = df[(df["v_gene"] != "") & (df["j_gene"] != "")]
-    total = len(df)
-    if total == 0:
-        return {"v": {}, "j": {}, "vj": {}}
-
-    p_v = (df["v_gene"].value_counts(sort=False) / total).to_dict()
-    p_j = (df["j_gene"].value_counts(sort=False) / total).to_dict()
-    p_vj = (
-        df.groupby(["v_gene", "j_gene"], sort=False).size() / total
-    ).to_dict()
-
-    return {
-        "v": {k: float(v) for k, v in p_v.items()},
-        "j": {k: float(v) for k, v in p_j.items()},
-        "vj": {k: float(v) for k, v in p_vj.items()},
-    }
-
-
-def _get_olga_gene_usage_probs(
-    *,
-    species: str,
-    locus: str,
-    synthetic_n: int,
-    control_manager: ControlManager | None,
-    control_kwargs: dict | None,
-) -> dict[str, dict[t.Any, float]]:
-    cache_key = (species.lower().strip(), locus, int(synthetic_n))
-    if cache_key in _GENE_USAGE_CACHE:
-        return _GENE_USAGE_CACHE[cache_key]
-
-    manager = control_manager or ControlManager()
-    kwargs = dict(control_kwargs or {})
-    kwargs.setdefault("n", int(synthetic_n))
-    kwargs.setdefault("progress", False)
-    control_df = manager.ensure_and_load_control_df(
-        "synthetic",
-        species,
-        locus,
-        **kwargs,
-    )
-    probs = _compute_gene_usage_probabilities(control_df=control_df)
-    _GENE_USAGE_CACHE[cache_key] = probs
-    return probs
 
 
 def _gene_usage_divisor(
@@ -188,7 +104,7 @@ def alice_table(
 ) -> pd.DataFrame:
     """Build an ALICE result table from clonotype metadata."""
     rows: list[dict[str, t.Any]] = []
-    for locus, lrep in _iter_loci(repertoire).items():
+    for locus, lrep in iter_loci(repertoire).items():
         for clonotype in lrep.clonotypes:
             md = clonotype.clone_metadata
             n = int(md.get(f"{metadata_prefix}_n", 0))
@@ -234,7 +150,7 @@ def compute_alice(
     n_jobs: int = 4,
 ) -> AliceResult | LocusRepertoire | SampleRepertoire:
     """Compute ALICE enrichment, write clonotype metadata, and optionally return a table."""
-    norm_match_mode = _normalize_match_mode(match_mode)
+    norm_match_mode = normalize_match_mode(match_mode)
     params = AliceParams(
         threshold=threshold,
         match_mode=norm_match_mode,
@@ -245,14 +161,14 @@ def compute_alice(
     if metric != "hamming":
         raise ValueError("ALICE currently supports only metric='hamming'")
 
-    match_v, match_j = _match_flags(norm_match_mode)
-    query_loci = _iter_loci(repertoire)
+    match_v, match_j = match_flags(norm_match_mode)
+    query_loci = iter_loci(repertoire)
 
     for locus, qrep in query_loci.items():
         olga_model = OlgaModel(locus=locus, species=species, seed=random_seed)
         probs = None
         if norm_match_mode != "none":
-            probs = _get_olga_gene_usage_probs(
+            probs = get_olga_gene_usage_probabilities(
                 species=species,
                 locus=locus,
                 synthetic_n=gene_usage_synthetic_n,
