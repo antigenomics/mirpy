@@ -74,7 +74,7 @@ def _load_rearrangements() -> list[Clonotype]:
 
 @unittest.skipUnless(
     GILG_FILE.exists(),
-    "VDJdb GILG asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh",
+    "VDJdb GILG asset missing — run python tests/prepare_airr_benchmark_data.py",
 )
 @skip_benchmarks
 class TestRSGraphOverlap(unittest.TestCase):

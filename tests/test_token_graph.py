@@ -393,7 +393,7 @@ def _load_gilg():
 
 
 @unittest.skipUnless(GILG_FILE.exists(),
-                     "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")
+                     "VDJdb asset missing — run python tests/prepare_airr_benchmark_data.py")
 @skip_benchmarks
 class TestTokenGraphBenchmark(unittest.TestCase):
 

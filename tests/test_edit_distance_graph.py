@@ -384,7 +384,7 @@ def _load_gilg_rearrangements() -> list[Clonotype]:
     return [Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
-@unittest.skipUnless(GILG_FILE.exists(), "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")
+@unittest.skipUnless(GILG_FILE.exists(), "VDJdb asset missing — run python tests/prepare_airr_benchmark_data.py")
 @skip_benchmarks
 class TestEditDistanceGraphBenchmark(unittest.TestCase):
 

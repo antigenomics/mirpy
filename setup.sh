@@ -74,6 +74,10 @@ CMAKE_POLICY_VERSION_MINIMUM=3.5 "$PYTHON_BIN" -m pip install -e . --no-build-is
 # ── Tests ─────────────────────────────────────────────────────────────────────
 if [ "$RUN_TESTS" -eq 1 ]; then
     echo ""
+    echo "Preparing test data from Hugging Face (isalgo/airr_benchmark)..."
+    "$PYTHON_BIN" tests/prepare_airr_benchmark_data.py
+
+    echo ""
     echo "Running fast test suite..."
     "$PYTHON_BIN" -m pytest tests -m "not benchmark and not integration" -q
 
