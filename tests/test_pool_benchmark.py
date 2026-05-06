@@ -19,7 +19,7 @@ from mir.common.repertoire import SampleRepertoire
 from mir.common.repertoire_dataset import RepertoireDataset
 from tests.conftest import benchmark_repertoire_workers, skip_benchmarks
 
-REAL_REPS = Path(__file__).parent / "real_repertoires"
+REAL_REPS = Path(__file__).parent / "assets" / "real_repertoires"
 META_PATH = REAL_REPS / "metadata_aging.txt"
 
 

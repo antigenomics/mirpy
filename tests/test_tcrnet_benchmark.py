@@ -32,7 +32,7 @@ from tests.conftest import benchmark_max_seconds, skip_benchmarks
 
 
 _AA = "ACDEFGHIKLMNPQRSTVWY"
-_B35_FILE = Path(__file__).parent / "assets" / "B35+.txt.gz"
+_B35_FILE = Path(__file__).parent / "assets" / "real_repertoires" / "B35+.txt.gz"
 _VDJDB_FILE = Path(__file__).parent / "assets" / "vdjdb.slim.txt.gz"
 
 
@@ -57,7 +57,7 @@ def _bh_adjust(p_values: pd.Series) -> pd.Series:
 
 def _load_b35_target_repertoire() -> LocusRepertoire:
     if not _B35_FILE.exists():
-        pytest.skip("B35+ benchmark asset missing: tests/assets/B35+.txt.gz")
+        pytest.skip("B35+ benchmark asset missing: tests/assets/real_repertoires/B35+.txt.gz")
 
     parser = ClonotypeTableParser()
     rep = LocusRepertoire(parser.parse(str(_B35_FILE)), locus="TRB", repertoire_id="B35+")

@@ -1,4 +1,4 @@
-"""Benchmark: parallel loading of real repertoires from real_repertoires/.
+"""Benchmark: parallel loading of real repertoires from assets/real_repertoires/.
 
 Run with:  RUN_BENCHMARK=1 pytest tests/test_repertoire_benchmark.py -s
 
@@ -22,7 +22,7 @@ from tests.conftest import (
     skip_benchmarks,
 )
 
-REAL_REPS = Path(__file__).parent / "real_repertoires"
+REAL_REPS = Path(__file__).parent / "assets" / "real_repertoires"
 METADATA  = REAL_REPS / "metadata_aging.txt"
 
 

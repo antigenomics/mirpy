@@ -25,10 +25,11 @@ from mir.common.repertoire import LocusRepertoire
 from tests.conftest import skip_benchmarks
 
 ASSETS = Path(__file__).parent / "assets"
+REAL_ASSETS = ASSETS / "real_repertoires"
 
 # Test files with known sizes
-_SMALL_FILE = ASSETS / "Q1_0_F1.airr.tsv.gz"  # compact donor day-0 sample
-_MEDIUM_FILE = ASSETS / "Q1_15_F1.airr.tsv.gz"  # compact donor day-15 sample
+_SMALL_FILE = REAL_ASSETS / "Q1_0_F1.airr.tsv.gz"  # compact donor day-0 sample
+_MEDIUM_FILE = REAL_ASSETS / "Q1_15_F1.airr.tsv.gz"  # compact donor day-15 sample
 _FILES_EXIST = _SMALL_FILE.exists() and _MEDIUM_FILE.exists()
 
 

@@ -1,6 +1,6 @@
 """Tests for SampleRepertoire and LocusRepertoire using SRX-format data.
 
-Samples are read directly from the tarball (tests/srx_repertoires/samples.tar.gz)
+Samples are read directly from the tarball (tests/assets/srx_repertoires/samples.tar.gz)
 so no extracted files need to be kept in the repository.
 """
 
@@ -17,7 +17,7 @@ import pytest
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire, infer_locus
 
-SRX_DIR = Path(__file__).parent / "srx_repertoires"
+SRX_DIR = Path(__file__).parent / "assets" / "srx_repertoires"
 TARBALL = SRX_DIR / "samples.tar.gz"
 META_PATH = SRX_DIR / "meta.tsv"
 

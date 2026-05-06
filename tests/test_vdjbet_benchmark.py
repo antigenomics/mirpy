@@ -35,8 +35,8 @@ Full-data benchmark (``RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1``)
 
 Dataset notes
 -------------
-* **Q1 donor** (test assets): ``tests/assets/Q1_0_F1.airr.tsv.gz`` and
-  ``tests/assets/Q1_15_F1.airr.tsv.gz`` — Preferred for regular testing;
+* **Q1 donor** (test assets): ``tests/assets/real_repertoires/Q1_0_F1.airr.tsv.gz`` and
+    ``tests/assets/real_repertoires/Q1_15_F1.airr.tsv.gz`` — Preferred for regular testing;
   compact subsets suitable for CI/regular benchmarks.
 * **Full YFV cohort**: ``notebooks/assets/large/yfv19/`` — Full-data integration
   tests (requires ``RUN_FULL_BENCHMARK=1``).
@@ -98,8 +98,8 @@ _LLW_FILE = ASSETS / "llwngpmav_trb_a02.tsv.gz"
 _VDJDB_FILE = ASSETS / "vdjdb.slim.txt.gz"
 
 # Q1 donor repertoires for integration tests
-_Q1_D0   = ASSETS / "Q1_0_F1.airr.tsv.gz"
-_Q1_D15  = ASSETS / "Q1_15_F1.airr.tsv.gz"
+_Q1_D0   = ASSETS / "real_repertoires" / "Q1_0_F1.airr.tsv.gz"
+_Q1_D15  = ASSETS / "real_repertoires" / "Q1_15_F1.airr.tsv.gz"
 
 # Full YFV cohort for large-scale integration tests
 _YFV_FULL_DIR = Path(__file__).parent.parent / "notebooks" / "assets" / "large" / "yfv19"
