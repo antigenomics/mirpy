@@ -14,7 +14,7 @@ from mir.common.repertoire import Repertoire, SampleRepertoire
 from tests.conftest import skip_benchmarks
 
 ASSETS_DIR = Path(__file__).parent / "assets"
-REAL_DIR = Path(__file__).parent / "real_repertoires"
+REAL_DIR = Path(__file__).parent / "assets" / "real_repertoires"
 
 # metadata_hsct.txt has 4 time-series samples in the older per-sample export format
 # metadata_aging.txt has 41 HSCT cohort samples in VDJtools format
@@ -127,7 +127,7 @@ class TestTimeSeriesRepertoires(unittest.TestCase):
         parser = VDJtoolsParser(sep='\t')
         cls.repertoires = []
         for _, row in meta.iterrows():
-            # paths in metadata are ../samples/; files live in real_repertoires/
+            # paths in metadata are ../samples/; files live in assets/real_repertoires/
             fname = Path(row['file.name']).name
             path = REAL_DIR / fname
             df = read_timeseries_df(path)

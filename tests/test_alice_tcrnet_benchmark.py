@@ -39,7 +39,7 @@ from tests.benchmark_helpers import benchmark_log_line
 from tests.conftest import skip_benchmarks
 
 _ASSETS = Path(__file__).parent / "assets"
-_B35_FILE = _ASSETS / "B35+.txt.gz"
+_B35_FILE = _ASSETS / "real_repertoires" / "B35+.txt.gz"
 _CMV_FILE = _ASSETS / "CMV+.txt.gz"
 _VDJDB_FILE = _ASSETS / "vdjdb.slim.txt.gz"
 
@@ -183,7 +183,7 @@ def _load_trb_from_table(path: Path, sample_id: str) -> LocusRepertoire:
 
 def _load_b35_sample(max_clonotypes: int) -> LocusRepertoire:
     if not _B35_FILE.exists():
-        pytest.skip("B35+ benchmark asset missing: tests/assets/B35+.txt.gz")
+        pytest.skip("B35+ benchmark asset missing: tests/assets/real_repertoires/B35+.txt.gz")
     rep = _load_trb_from_table(_B35_FILE, "B35+")
     return _top_clone_count_limited(rep, max_clonotypes=max_clonotypes)
 

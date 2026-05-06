@@ -19,8 +19,8 @@ HF_TREE_API = "https://huggingface.co/api/datasets/isalgo/airr_benchmark/tree/ma
 DATASET_ROOT = REPO_ROOT / "airr_benchmark"
 TESTS_DIR = REPO_ROOT / "tests"
 ASSETS_DIR = TESTS_DIR / "assets"
-REAL_REPS_DIR = TESTS_DIR / "real_repertoires"
-SRX_DIR = TESTS_DIR / "srx_repertoires"
+REAL_REPS_DIR = ASSETS_DIR / "real_repertoires"
+SRX_DIR = ASSETS_DIR / "srx_repertoires"
 
 TOY_DATASET_METADATA_TSV = """sample_id\tfile_name\tbatch_id
 s1\tvdjtools_trb_d_dot.tsv\tbatch_A
@@ -262,8 +262,15 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
             vdjdb_local.unlink()
         _download(vdjdb_rel, vdjdb_local, verbose=verbose)
 
+    # Remove legacy pre-reorganization directories if they still exist.
+    legacy_real = TESTS_DIR / "real_repertoires"
+    legacy_srx = TESTS_DIR / "srx_repertoires"
+    for legacy in (legacy_real, legacy_srx):
+        if legacy.exists():
+            shutil.rmtree(legacy)
+
     if force:
-        for d in (ASSETS_DIR, REAL_REPS_DIR, SRX_DIR):
+        for d in (ASSETS_DIR,):
             if d.exists():
                 shutil.rmtree(d)
 
@@ -284,13 +291,13 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
     _copy(DATASET_ROOT / vdjdb_rel, ASSETS_DIR / "vdjdb.slim.txt.gz")
     _convert_yf_vdjtools_to_airr(
         DATASET_ROOT / "alice/yf/Q1_d0.tsv.gz",
-        ASSETS_DIR / "Q1_0_F1.airr.tsv.gz",
+        REAL_REPS_DIR / "Q1_0_F1.airr.tsv.gz",
     )
     _convert_yf_vdjtools_to_airr(
         DATASET_ROOT / "alice/yf/Q1_d15.tsv.gz",
-        ASSETS_DIR / "Q1_15_F1.airr.tsv.gz",
+        REAL_REPS_DIR / "Q1_15_F1.airr.tsv.gz",
     )
-    _copy(DATASET_ROOT / "tcrnet/B35+.txt.gz", ASSETS_DIR / "B35+.txt.gz")
+    _copy(DATASET_ROOT / "tcrnet/B35+.txt.gz", REAL_REPS_DIR / "B35+.txt.gz")
     _copy(DATASET_ROOT / "sra/meta.tsv", SRX_DIR / "meta.tsv")
     _copy(DATASET_ROOT / "sra/samples.tar.gz", SRX_DIR / "samples.tar.gz")
 

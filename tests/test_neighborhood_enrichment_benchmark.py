@@ -25,21 +25,21 @@ from tests.benchmark_helpers import (
 )
 from tests.conftest import benchmark_repertoire_workers, skip_benchmarks
 
-REAL_REPS = Path(__file__).parent / "real_repertoires"
+REAL_REPS = Path(__file__).parent / "assets" / "real_repertoires"
 
 
 @skip_benchmarks
 def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
     """Benchmark: shorter junction_aa sequences have more neighbors.
 
-    Load a couple of samples from real_repertoires/A* and compute neighborhood
+    Load a couple of samples from assets/real_repertoires/A* and compute neighborhood
     statistics. Verify that clonotypes with shorter junction_aa lengths tend
     to have more neighbors.
     """
-    # Find A* files (A2, A3, A4 in real_repertoires)
+    # Find A* files (A2, A3, A4 in assets/real_repertoires)
     a_files = sorted(REAL_REPS.glob("A[2-9]-*.txt.gz"))[:2]
     if len(a_files) < 2:
-        pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in real_repertoires/")
+        pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in tests/assets/real_repertoires/")
 
     workers = benchmark_repertoire_workers(default="4")[0]
     parser = VDJtoolsParser()
@@ -140,10 +140,10 @@ def test_pooled_repertoire_convergence_by_length(capsys) -> None:
     Shorter junction_aa sequences should show higher convergence (more incidence)
     when pooled across samples. Convergence is defined as incidence / pool size.
     """
-    # Find A* files (A2, A3, A4 in real_repertoires)
+    # Find A* files (A2, A3, A4 in assets/real_repertoires)
     a_files = sorted(REAL_REPS.glob("A[2-9]-*.txt.gz"))[:2]
     if len(a_files) < 2:
-        pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in real_repertoires/")
+        pytest.skip("Need at least 2 A[2-9]-*.txt.gz files in tests/assets/real_repertoires/")
 
     workers = benchmark_repertoire_workers(default="4")[0]
     parser = VDJtoolsParser()

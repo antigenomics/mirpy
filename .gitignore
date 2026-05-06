@@ -4,9 +4,6 @@ tmp/
 ## Data
 airr_benchmark/
 tests/assets/
-tests/real_repertoires/
-tests/srx_repertoires/
-tests/srx_repertoires/samples/
 *.airr.tsv
 notebooks/assets/large/
 notebooks/assets/*
