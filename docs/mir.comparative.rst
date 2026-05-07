@@ -28,6 +28,14 @@ mir.comparative.vdjbet module
    :undoc-members:
    :show-inheritance:
 
+mir.comparative.vdjbet_workflow module
+--------------------------------------
+
+.. automodule:: mir.comparative.vdjbet_workflow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.comparative.pair_matcher module
 -----------------------------------
 

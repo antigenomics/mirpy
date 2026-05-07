@@ -84,6 +84,7 @@ from mir.comparative.vdjbet import (
     VDJBetOverlapAnalysis,
     _strip_allele,
 )
+from mir.comparative.vdjbet_workflow import score_samples_dataframe
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
 from mir.common.filter import filter_functional
@@ -644,31 +645,16 @@ class TestYFVQ1F1:
         return ControlManager()
 
     @staticmethod
-    def _cohens_d(observed: float, values: list[float]) -> float:
-        arr = np.asarray(values, dtype=float)
-        if arr.size == 0:
-            return 0.0
-        std = float(arr.std())
-        if std <= 0:
-            return 0.0
-        return float((observed - float(arr.mean())) / std)
-
-    def _score_summary(self, analysis: VDJBetOverlapAnalysis, rep: LocusRepertoire) -> dict[str, float]:
-        r = analysis.score(rep, allow_1mm=False)
-        d_n = self._cohens_d(float(r.n), [float(x) for x in r.mock_n])
-        d_dc = self._cohens_d(
-            float(math.log2(r.dc + 1)),
-            [float(math.log2(x + 1)) for x in r.mock_dc],
-        )
+    def _score_summary_from_row(row: pd.Series) -> dict[str, float]:
         return {
-            "n": float(r.n),
-            "dc": float(r.dc),
-            "frac_n": float(r.frac_n),
-            "frac_dc": float(r.frac_dc),
-            "p_n": float(r.p_n),
-            "p_dc": float(r.p_dc),
-            "d_n": d_n,
-            "d_dc": d_dc,
+            "n": float(row["matched_n_real"]),
+            "dc": float(row["matched_dc_real"]),
+            "frac_n": float(row["matched_n_fraction"]),
+            "frac_dc": float(row["matched_dc_fraction"]),
+            "p_n": float(row["matched_n_p_emp"]),
+            "p_dc": float(row["matched_dc_log2_p_emp"]),
+            "d_n": float(row["matched_n_cohen_d"]),
+            "d_dc": float(row["matched_dc_log2_cohen_d"]),
         }
 
     def _build_pool(
@@ -719,6 +705,10 @@ class TestYFVQ1F1:
         base_n = int(os.getenv("MIRPY_BENCH_Q1_POOL_N", "20000"))
         n_mocks = int(os.getenv("MIRPY_BENCH_Q1_MOCKS", "100"))
         scaled_factor = int(os.getenv("MIRPY_BENCH_Q1_SCALED_FACTOR", "3"))
+        samples = [
+            {"donor": "Q1", "day": 0, "replica": "F1", "repertoire": q1_d0},
+            {"donor": "Q1", "day": 15, "replica": "F1", "repertoire": q1_d15},
+        ]
 
         results: dict[str, dict] = {}
         t_all = time.perf_counter()
@@ -738,8 +728,9 @@ class TestYFVQ1F1:
 
             t1 = time.perf_counter()
             analysis = VDJBetOverlapAnalysis(llw_ref, pool=pool, n_mocks=n_mocks, seed=42, n_jobs=4)
-            d0 = self._score_summary(analysis, q1_d0)
-            d15 = self._score_summary(analysis, q1_d15)
+            scored = score_samples_dataframe(analysis, samples, progress_every=0)
+            d0 = self._score_summary_from_row(scored.loc[scored["day"] == 0].iloc[0])
+            d15 = self._score_summary_from_row(scored.loc[scored["day"] == 15].iloc[0])
             t_score = time.perf_counter() - t1
             t_total = time.perf_counter() - t0
 
