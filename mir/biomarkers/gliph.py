@@ -8,6 +8,8 @@ Provides:
 - :func:`extract_vpos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
 - :func:`extract_u4mer_artifacts` — ungapped 4-mer extraction.
 - :func:`extract_g4mer_artifacts` — gapped 4-mer extraction.
+- :func:`extract_g5mer_artifacts` — gapped 5-mer extraction.
+- :func:`normalize_control_v` — resample control to match sample unweighted V usage.
 - :func:`normalize_control_vj` — resample control to match sample unweighted VJ usage.
 
 Threaded tokenisation
@@ -67,7 +69,7 @@ class GliphTokenArtifacts:
     count_mode: Literal["occurrence", "clonotype"] = "clonotype"
 
 
-TOKEN_FAMILY = Literal["v3", "vpos3", "u4", "g4"]
+TOKEN_FAMILY = Literal["v3", "vpos3", "u4", "g4", "g5"]
 COUNT_MODE = Literal["occurrence", "clonotype"]
 
 _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
@@ -178,6 +180,8 @@ def _token_table_for_family(
         return tokenize_rearrangements(clones, k=4, mask_byte=None)
     if family == "g4":
         return tokenize_rearrangements(clones, k=4, mask_byte=ord("X"))
+    if family == "g5":
+        return tokenize_rearrangements(clones, k=5, mask_byte=ord("X"))
     raise ValueError(f"Unknown GLIPH token family: {family}")
 
 
@@ -192,6 +196,8 @@ def _token_from_match(family: TOKEN_FAMILY, kmer, match) -> str:
         return f"u4::{seq}"
     if family == "g4":
         return f"g4::{seq}"
+    if family == "g5":
+        return f"g5::{seq}"
     raise ValueError(f"Unknown GLIPH token family: {family}")
 
 
@@ -326,7 +332,7 @@ def extract_gliph_token_artifacts(
     df : pd.DataFrame
         Clonotype table with columns ``row_id``, ``junction_aa``, ``v_gene``,
         ``j_gene`` (optional), ``duplicate_count``.
-    family : {"v3", "vpos3", "u4", "g4"}
+    family : {"v3", "vpos3", "u4", "g4", "g5"}
         Token family to extract.
     threads : int, optional
         Number of worker threads (default ``1``).
@@ -450,38 +456,68 @@ def extract_g4mer_artifacts(
     )
 
 
+def extract_g5mer_artifacts(
+    df: pd.DataFrame,
+    threads: int = 1,
+    *,
+    count_mode: COUNT_MODE = "clonotype",
+    unique_clonotypes: bool = False,
+    unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    n_workers: int | None = None,
+) -> GliphTokenArtifacts:
+    """Extract gapped 5-mer token artifacts."""
+    return extract_gliph_token_artifacts(
+        df,
+        family="g5",
+        threads=threads,
+        count_mode=count_mode,
+        unique_clonotypes=unique_clonotypes,
+        unique_subset=unique_subset,
+        n_workers=n_workers,
+    )
+
+
 # ---------------------------------------------------------------------------
-# VJ-normalised control resampling
+# Gene-usage-normalised control resampling
 # ---------------------------------------------------------------------------
 
 
-def normalize_control_vj(
+def _normalize_gene_usage_series(df: pd.DataFrame, gene_col: str) -> pd.Series:
+    return df[gene_col].fillna("").astype(str).str.strip().str.split("*").str[0]
+
+
+def _normalize_control_by_gene_columns(
     sample_df: pd.DataFrame,
     control_pool_df: pd.DataFrame,
     n: int,
     *,
+    gene_columns: tuple[str, ...],
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Resample *control_pool_df* to match the unweighted VJ usage of *sample_df*.
+    """Resample *control_pool_df* to match unweighted gene usage in *sample_df*.
 
     **Unweighted** means every clonotype (row) counts once regardless of its
     ``duplicate_count``.  The returned rows all receive ``duplicate_count=1``.
 
     Algorithm
     ---------
-    1. Compute (V_base, J_base) frequency in *sample_df* (one count per row).
-    2. For each (V, J) pair, sample from the matching rows in *control_pool_df*
-       proportionally; use replacement when the control has fewer rows than needed.
-    3. If a VJ pair present in the sample is absent from the control, those slots
-       are back-filled from the global control at random.
+     1. Compute the frequency of the requested base-gene columns in *sample_df*
+         (one count per row).
+     2. For each gene-usage bucket, sample from the matching rows in
+         *control_pool_df* proportionally; use replacement when the control has
+         fewer rows than needed.
+     3. If a bucket present in the sample is absent from the control, those slots
+         are back-filled from the global control at random.
     4. Truncate / pad to exactly *n* rows.
 
     Parameters
     ----------
     sample_df, control_pool_df : pd.DataFrame
-        Must contain ``v_gene`` and ``j_gene`` columns (alleles are stripped).
+        Must contain the requested gene columns (alleles are stripped).
     n : int
         Target number of control clonotypes after resampling.
+    gene_columns : tuple[str, ...]
+        Columns whose stripped base-gene usage should be matched.
     seed : int
         Random seed for reproducibility.
 
@@ -493,29 +529,39 @@ def normalize_control_vj(
     """
     rng = np.random.default_rng(seed)
 
-    # --- Unweighted VJ frequency of the sample (strip alleles) ---
-    # Coerce to string first because pandas .str accessor fails on float/NaN columns.
-    sv = sample_df["v_gene"].fillna("").astype(str).str.strip().str.split("*").str[0]
-    sj = sample_df["j_gene"].fillna("").astype(str).str.strip().str.split("*").str[0]
-    sample_vj = pd.DataFrame({"v": sv, "j": sj})
-    sample_vj = sample_vj[(sample_vj["v"] != "") & (sample_vj["j"] != "")]
-    vj_counts = sample_vj.groupby(["v", "j"]).size()
-    vj_freq = vj_counts / float(vj_counts.sum())
+    if not gene_columns:
+        raise ValueError("gene_columns must not be empty")
 
-    # --- Group control by stripped VJ ---
+    sample_keys = pd.DataFrame(
+        {
+            f"g{i}": _normalize_gene_usage_series(sample_df, col)
+            for i, col in enumerate(gene_columns)
+        }
+    )
+    for col in sample_keys.columns:
+        sample_keys = sample_keys[sample_keys[col] != ""]
+    key_counts = sample_keys.groupby(list(sample_keys.columns)).size()
+    key_freq = key_counts / float(key_counts.sum())
+
+    # --- Group control by stripped gene-usage key ---
     ctrl = control_pool_df.copy()
-    ctrl["_v"] = ctrl["v_gene"].fillna("").astype(str).str.strip().str.split("*").str[0]
-    ctrl["_j"] = ctrl["j_gene"].fillna("").astype(str).str.strip().str.split("*").str[0]
-    ctrl = ctrl[(ctrl["_v"] != "") & (ctrl["_j"] != "")]
-    ctrl_groups: dict[tuple[str, str], pd.DataFrame] = {
-        vj: grp for vj, grp in ctrl.groupby(["_v", "_j"], sort=False)
+    key_cols = []
+    for i, col in enumerate(gene_columns):
+        key_col = f"_g{i}"
+        key_cols.append(key_col)
+        ctrl[key_col] = _normalize_gene_usage_series(ctrl, col)
+        ctrl = ctrl[ctrl[key_col] != ""]
+    ctrl_groups = {
+        key: grp for key, grp in ctrl.groupby(key_cols, sort=False)
     }
 
-    # --- Sample per VJ pair ---
+    # --- Sample per gene-usage bucket ---
     sampled: list[pd.DataFrame] = []
-    for (v, j), freq in vj_freq.items():
+    for key, freq in key_freq.items():
+        if not isinstance(key, tuple):
+            key = (key,)
         n_target = max(1, round(n * float(freq)))
-        grp = ctrl_groups.get((v, j))
+        grp = ctrl_groups.get(tuple(key))
         if grp is None or len(grp) == 0:
             continue
         replace = n_target > len(grp)
@@ -540,7 +586,41 @@ def normalize_control_vj(
             )
             result = pd.concat([result, extra], ignore_index=True)
 
-    result = result.drop(columns=["_v", "_j"], errors="ignore").reset_index(drop=True)
+    result = result.drop(columns=key_cols, errors="ignore").reset_index(drop=True)
     result["duplicate_count"] = 1
     result["row_id"] = ["ctrl_" + str(i) for i in range(len(result))]
     return result
+
+
+def normalize_control_v(
+    sample_df: pd.DataFrame,
+    control_pool_df: pd.DataFrame,
+    n: int,
+    *,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Resample *control_pool_df* to match the unweighted V usage of *sample_df*."""
+    return _normalize_control_by_gene_columns(
+        sample_df,
+        control_pool_df,
+        n,
+        gene_columns=("v_gene",),
+        seed=seed,
+    )
+
+
+def normalize_control_vj(
+    sample_df: pd.DataFrame,
+    control_pool_df: pd.DataFrame,
+    n: int,
+    *,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Resample *control_pool_df* to match the unweighted VJ usage of *sample_df*."""
+    return _normalize_control_by_gene_columns(
+        sample_df,
+        control_pool_df,
+        n,
+        gene_columns=("v_gene", "j_gene"),
+        seed=seed,
+    )
