@@ -134,19 +134,29 @@ rep_matched = resample_to_gene_usage(rep, target_usage, scope="v", weighted=True
 ## 7. Graph And Neighborhood Analysis
 
 Use the graph utilities in `mir.graph` for edit-distance neighborhoods and
-token graphs.
+token (k-mer) graphs.
 
 ```python
 from mir.graph import compute_neighborhood_stats
 from mir.graph.edit_distance_graph import build_edit_distance_graph
+from mir.basic.token_tables import filter_token_table, tokenize_rearrangements
+from mir.graph.token_graph import build_token_graph
 
+# Edit-distance graph (Hamming or Levenshtein on junction_aa)
 stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=4)
 graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=4)
+
+# K-mer (token) graph filtered to RS-bearing 3-mers
+table    = tokenize_rearrangements(rep.clonotypes, k=3)
+rs_table = filter_token_table(table, kmer_pattern="RS")
+g_rs     = build_token_graph(rep.clonotypes, rs_table)
 ```
 
 Notes:
 
-- Trie-backed search is used when available.
+- `tokenize_rearrangements` accepts a `list[Clonotype]`; the former `Rearrangement` wrapper class has been removed.
+- Use `Graph.are_adjacent()` instead of the deprecated `Graph.are_connected()` when querying igraph graphs directly.
+- Trie-backed search is used for edit-distance graphs when available.
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
 
 ## 8. Control Repertoires
@@ -185,7 +195,33 @@ analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
 
-## 10. Practical Defaults
+## 10. SampleRepertoire Construction
+
+`SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
+from a flat clonotype list rather than pre-built locus repertoires wherever
+possible:
+
+```python
+from mir.common.clonotype import Clonotype
+from mir.common.repertoire import SampleRepertoire
+
+clonotypes = [
+    Clonotype(junction_aa=cdr3, locus="TRB", v_gene=v, duplicate_count=cnt)
+    for cdr3, v, cnt in rows
+]
+sample = SampleRepertoire.from_clonotypes(clonotypes, sample_id="donor1")
+```
+
+Notes:
+
+- `SampleRepertoire.__init__` takes `loci: dict[str, LocusRepertoire]`; do not
+  pass `segments=` or `runs=`.
+- When merging multiple sequencing runs into one sample, concatenate all
+  clonotype lists from each run and pass the merged list to `from_clonotypes`.
+- AIRR TSV files from SRA do not always contain a `locus` column; infer it from
+  the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
+
+## 11. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

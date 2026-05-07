@@ -83,25 +83,25 @@ Quick example
 .. code-block:: python
 
    import gzip
-   from pathlib import Path
 
-   from mir.basic.token_tables import Rearrangement, filter_token_table, tokenize_rearrangements
+   from mir.basic.token_tables import filter_token_table, tokenize_rearrangements
+   from mir.common.clonotype import Clonotype
    from mir.graph.token_graph import build_token_graph
 
    # Load CDR3 sequences and build an RS-filtered k-mer graph
    with gzip.open("gilgfvftl_trb_cdr3.txt.gz", "rt") as fh:
        cdr3s = [line.strip() for line in fh if line.strip()]
 
-   rearrangements = [
-       Rearrangement(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1)
-       for i, seq in enumerate(cdr3s)
+   clonotypes = [
+       Clonotype(junction_aa=seq, locus="TRB", v_gene="TRBV", duplicate_count=1)
+       for seq in cdr3s
    ]
 
-   table    = tokenize_rearrangements(rearrangements, k=3)
+   table    = tokenize_rearrangements(clonotypes, k=3)
    rs_table = filter_token_table(table, kmer_pattern="RS")
-   g_rs     = build_token_graph(rearrangements, rs_table)
+   g_rs     = build_token_graph(clonotypes, rs_table)
 
-   # Largest connected component — the RS-bearing rearrangement cluster
+   # Largest connected component — the RS-bearing clonotype cluster
    rs_cluster = g_rs.components().giant()
    print(f"RS cluster: {rs_cluster.vcount()} nodes")
 
