@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from mir.biomarkers.gliph import (
     deduplicate_clonotype_rows,
+    extract_g5mer_artifacts,
     extract_u4mer_artifacts,
     extract_v3mer_artifacts,
     extract_vpos3mer_artifacts,
+    normalize_control_v,
 )
 import pandas as pd
 
@@ -72,3 +74,48 @@ def test_extract_vpos3_and_u4_artifacts_expose_new_token_families() -> None:
     assert vpos.counts["vpos3::TRBV1::0::AAA"] == 1
     assert vpos.counts["vpos3::TRBV1::1::AAA"] == 1
     assert u4.counts["u4::AAAA"] == 1
+
+
+def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
+    df = pd.DataFrame(
+        {
+            "reference_id": ["study"],
+            "junction_aa": ["AAAAA"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1-1*01"],
+            "duplicate_count": [1],
+            "row_id": ["0"],
+        }
+    )
+
+    g5 = extract_g5mer_artifacts(df, count_mode="clonotype")
+
+    assert "g5::XAAAA" in g5.counts
+    assert "g5::AAAAX" in g5.counts
+    assert g5.counts["g5::XAAAA"] == 1
+
+
+def test_normalize_control_v_matches_v_usage_only() -> None:
+    sample_df = pd.DataFrame(
+        {
+            "row_id": ["0", "1", "2"],
+            "junction_aa": ["AAAAA", "CCCCC", "GGGGG"],
+            "v_gene": ["TRBV1*01", "TRBV1*01", "TRBV2*01"],
+            "j_gene": ["TRBJ1-1*01", "TRBJ2-1*01", "TRBJ2-3*01"],
+            "duplicate_count": [1, 1, 1],
+        }
+    )
+    control_df = pd.DataFrame(
+        {
+            "junction_aa": ["VVVVV", "WWWWW", "XXXXX", "YYYYY"],
+            "v_gene": ["TRBV1", "TRBV1", "TRBV2", "TRBV3"],
+            "j_gene": ["TRBJ1-1", "TRBJ2-1", "TRBJ2-3", "TRBJ1-2"],
+            "duplicate_count": [1, 1, 1, 1],
+        }
+    )
+
+    norm = normalize_control_v(sample_df, control_df, n=30, seed=1)
+    v_freq = norm["v_gene"].astype(str).str.split("*").str[0].value_counts(normalize=True)
+
+    assert set(v_freq.index).issubset({"TRBV1", "TRBV2"})
+    assert v_freq["TRBV1"] > v_freq["TRBV2"]
