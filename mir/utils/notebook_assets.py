@@ -113,3 +113,26 @@ def find_airr_benchmark_tcrnet_file(dataset_root: Path, filename: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"Could not find {filename} under {dataset_root / 'tcrnet'}")
     return path
+
+
+def ensure_airr_benchmark_alice(
+    repo_root: Path | None = None,
+    subsets: list[str] | None = None,
+) -> Path:
+    """Download the ALICE subset of the AIRR benchmark dataset.
+
+    Parameters
+    ----------
+    subsets:
+        Which sub-folders to fetch.  Defaults to ``["yf", "as"]``.
+        Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
+
+    Returns
+    -------
+    Path
+        ``notebooks/assets/large/airr_benchmark`` root.
+    """
+    if subsets is None:
+        subsets = ["yf", "as"]
+    patterns = [f"alice/{sub}/*" for sub in subsets]
+    return ensure_airr_benchmark(repo_root=repo_root, allow_patterns=patterns)

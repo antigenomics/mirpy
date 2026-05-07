@@ -63,6 +63,14 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'DStart':   'd_sequence_start',
     'DEnd':     'd_sequence_end',
     'JStart':   'j_sequence_start',
+    # Alternative locus column names used in some tools / AIRR variants.
+    'chain':                      'locus',
+    # MiXCR v2/v3 export format (e.g. alice benchmark files).
+    'Read.count':                 'duplicate_count',
+    'CDR3.amino.acid.sequence':   'junction_aa',
+    'CDR3.nucleotide.sequence':   'junction',
+    'bestVGene':                  'v_gene',
+    'bestJGene':                  'j_gene',
 }
 
 # Backward-compat namedtuple kept as a public export.
