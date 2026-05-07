@@ -73,10 +73,10 @@ def _resolve_locus(repertoire: Repertoire) -> str:
     for clone in repertoire.clonotypes:
         if clone.locus:
             return clone.locus
-        if clone.v_gene:
-            loc = infer_locus(clone.v_gene)
-            if loc:
-                return loc
+        # J-gene prefix is more reliable for mixed-locus files (e.g. TRBJ → TRB).
+        loc = infer_locus(clone.j_gene or clone.v_gene or "")
+        if loc:
+            return loc
     raise ValueError(
         "Cannot determine locus from repertoire. "
         "Set Repertoire.locus or populate Clonotype.locus / v_gene fields."
