@@ -195,6 +195,122 @@ analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
 
+### 9.1 VDJBet YF Shortcuts (new reusable workflow API)
+
+Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
+copying large notebook blocks:
+
+```python
+from mir.comparative.vdjbet_workflow import (
+  build_real_control_analysis,
+  build_synthetic_comparison,
+  compute_bin_alignment_diagnostics,
+  compute_olga_usage_adjustment,
+  load_yfv_trb_samples,
+  score_samples_dataframe,
+)
+
+samples, yfv_gu = load_yfv_trb_samples(yfv_dir)
+usage = compute_olga_usage_adjustment(
+  yfv_gu,
+  seed=42,
+  olga_usage_n=1_000_000,
+  count_mode="count_rearrangement",
+  pseudocount=1.0,
+)
+
+real = build_real_control_analysis(
+  reference_rep,
+  yfv_gu,
+  seed=42,
+  count_mode="count_rearrangement",
+  pseudocount=1.0,
+  pool_size=100_000,
+  n_mocks=100,
+  n_jobs=8,
+)
+
+diag = compute_bin_alignment_diagnostics(real.analysis)
+df_res = score_samples_dataframe(real.analysis, samples)
+
+pool_s, analysis_s, df_synth, x_scale, df_synth_scaled = build_synthetic_comparison(
+  reference_rep,
+  samples,
+  pgen_adj_olga=usage.pgen_adj_olga,
+  pool_size=100_000,
+  n_mocks=100,
+  n_jobs=8,
+  seed=42,
+  df_res_real=df_res,
+)
+```
+
+Recommended defaults for reproducible runs:
+
+- ``seed=42``
+- ``pool_size=100_000`` for notebook iteration speed, ``1_000_000`` for final analyses
+- ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
+- ``n_jobs`` set to available cores but avoid oversubscription in shared environments
+
+## 12. Plotting Standards (publication-ready)
+
+Use these defaults for all notebook and report figures.
+
+Typography and export:
+
+- Prefer vector output (SVG/PDF) for manuscripts and slides.
+- Use consistent font families in all panels (e.g. Source Sans Pro, Helvetica, Arial fallback).
+- Keep body text in the 8-10 pt range for multi-panel figures.
+- Match axis/title/legend sizes across panels.
+
+Theme and panel style:
+
+- Use light backgrounds with subtle panel gridlines (alpha ~0.15-0.25).
+- Keep frame lines thin and consistent.
+- Minimize chart junk; favor clean panel labels and short titles.
+
+Color strategy (Nature/Science style):
+
+- Use restrained palettes with high contrast and colorblind safety.
+- Keep one semantic mapping per color across all panels.
+- Avoid red-green pairings for binary contrasts; prefer blue/orange or blue/magenta.
+
+Bar/stacked/overlay plots:
+
+- Keep identical bin width across compared groups.
+- For grouped bars, use a position_dodge-style layout (side-by-side, same width).
+- For overlays, show outlines or transparency so both groups remain visible.
+
+Scatter/volcano labeling:
+
+- Ensure labels are readable at final figure size.
+- Use repel or position_dodge-type label placement to reduce overlap.
+- Label only key points (top hits/outliers), not all points.
+
+Distribution plots:
+
+- Pair boxplots/violin plots with individual points (ggbeeswarm-like jitter).
+- Keep jitter width small and deterministic where possible (seeded randomness).
+
+Graph/network layouts:
+
+- Avoid overclumped full-graph rendering with all edges visible.
+- For large graphs: show a node-only overview + zoom-in inset with edges.
+- Prefer spring/charge or MDS layouts depending on structure and interpretability.
+- If needed, sample a representative subgraph by component or degree quantile.
+
+Multi-panel composition:
+
+- Use a compact grid with shared axes where meaningful.
+- Align panel extents, labels, and legends.
+- Reserve white space for panel letters and concise captions (Nature/Science style).
+
+VDJBet notebook-specific plotting tips:
+
+- Keep day-aligned x-axes consistent across all donor/replica panels.
+- When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
+- Use the same y-axis transform (raw or log2) for directly compared metrics.
+
 ## 10. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it

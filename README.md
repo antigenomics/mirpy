@@ -26,17 +26,25 @@ Install from PyPI:
 pip install mirpy-lib
 ```
 
-Install from the repository root:
+Install from source (one-shot):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
 pip install .
 ```
 
-For development:
+Install from source (editable development mode):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
+./setup.sh
 pip install -e .
 ```
+
+If you only need the package for project usage, prefer `pip install mirpy-lib`.
+If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 
 ## Main modules
 
@@ -179,8 +187,10 @@ assert matches_aa_reduced(aa, mask(reduced, 3, AA_MASK))
 ## Resources
 
 - Example notebooks are available in [notebooks/](https://github.com/antigenomics/mirpy/tree/main/notebooks).
-- Source files for the API documentation are stored in [docs/](docs/).
-- After GitHub Pages is enabled for the repository, the documentation site will be rebuilt automatically on each push to `main`.
+- API and module/function documentation: [https://antigenomics.github.io/mirpy/modules.html](https://antigenomics.github.io/mirpy/modules.html)
+- Notebook gallery in docs: [https://antigenomics.github.io/mirpy/examples.html](https://antigenomics.github.io/mirpy/examples.html)
+- Docs source tree: [docs/](docs/)
+- Agent skill guide for LLM-assisted workflows (Claude, GitHub Copilot, similar agents): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 
 ## Project status
 

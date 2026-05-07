@@ -10,12 +10,23 @@ source.
 
 .. code-block:: bash
 
+   pip install mirpy-lib
+
+For source installs from GitHub:
+
+.. code-block:: bash
+
+   git clone https://github.com/antigenomics/mirpy.git
+   cd mirpy
    pip install .
 
 For editable development installs:
 
 .. code-block:: bash
 
+   git clone https://github.com/antigenomics/mirpy.git
+   cd mirpy
+   ./setup.sh
    pip install -e .
 
 To install the documentation toolchain as well:
@@ -23,6 +34,14 @@ To install the documentation toolchain as well:
 .. code-block:: bash
 
    ./setup.sh --docs
+
+Useful links
+============
+
+* API/module reference: https://antigenomics.github.io/mirpy/modules.html
+* Notebook gallery page: https://antigenomics.github.io/mirpy/examples.html
+* Notebook source directory: https://github.com/antigenomics/mirpy/tree/main/notebooks
+* LLM agent skill guide: https://github.com/antigenomics/mirpy/blob/main/skills/mirpy/SKILL.md
 
 Core Concepts
 =============
