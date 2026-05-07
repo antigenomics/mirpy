@@ -233,6 +233,77 @@ class GeneUsage:
                 obj._add_locus_repertoire(rep)
         return obj
 
+    @classmethod
+    def from_dataframe(
+        cls,
+        table: pd.DataFrame,
+        *,
+        locus: str,
+        v_col: str = "v_gene",
+        j_col: str = "j_gene",
+        duplicate_count_col: str = "duplicate_count",
+        strip_alleles: bool = True,
+    ) -> "GeneUsage":
+        """Build from a DataFrame with V/J columns.
+
+        Parameters
+        ----------
+        table
+            Input table containing V/J gene fields and optionally duplicate counts.
+        locus
+            IMGT locus code to assign to all rows.
+        v_col, j_col
+            Column names for V/J genes.
+        duplicate_count_col
+            Column name for duplicate count. If absent, duplicates default to 1.
+        strip_alleles
+            Whether to strip allele suffixes (default ``True``).
+        """
+        if v_col not in table.columns or j_col not in table.columns:
+            raise ValueError(
+                f"DataFrame must contain columns {v_col!r} and {j_col!r}"
+            )
+
+        obj = cls(strip_alleles=strip_alleles)
+        locus_data = obj._data.setdefault(locus, {})
+        locus_totals = obj._totals.setdefault(locus, [0, 0])
+
+        work = table[[v_col, j_col]].copy()
+        if duplicate_count_col in table.columns:
+            work[duplicate_count_col] = pd.to_numeric(
+                table[duplicate_count_col],
+                errors="coerce",
+            ).fillna(1).astype(int)
+        else:
+            work[duplicate_count_col] = 1
+
+        work[v_col] = work[v_col].fillna("").astype(str)
+        work[j_col] = work[j_col].fillna("").astype(str)
+        work = work[(work[v_col] != "") & (work[j_col] != "")]
+        if work.empty:
+            return obj
+
+        grouped = (
+            work.groupby([v_col, j_col], sort=False, dropna=False)
+            .agg(
+                n_clones=(v_col, "size"),
+                n_dc=(duplicate_count_col, "sum"),
+            )
+            .reset_index()
+        )
+
+        for row in grouped.itertuples(index=False):
+            v = obj._normalize_gene(getattr(row, v_col) or "")
+            j = obj._normalize_gene(getattr(row, j_col) or "")
+            n_clones = int(getattr(row, "n_clones"))
+            n_dc = int(getattr(row, "n_dc"))
+            entry = locus_data.setdefault((v, j), [0, 0])
+            entry[0] += n_clones
+            entry[1] += n_dc
+            locus_totals[0] += n_clones
+            locus_totals[1] += n_dc
+        return obj
+
     def _add_locus_repertoire(self, repertoire, *, locus: str = "") -> None:
         loc = locus or repertoire.locus or ""
         locus_data = self._data.setdefault(loc, {})

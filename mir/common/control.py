@@ -17,7 +17,7 @@ import json
 import os
 import pickle
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -44,6 +44,21 @@ _LOCKS_DIR = ".locks"
 _DEFAULT_LOCK_TIMEOUT_S = 1200.0
 _DEFAULT_LOCK_POLL_S = 0.25
 _DEFAULT_STALE_LOCK_S = 12 * 1200.0
+
+
+def _compute_log2_pgen_chunk(
+    args: tuple[list[str], str, str, int],
+) -> dict[str, float]:
+    """Compute log2(Pgen) for a chunk of unique junction_aa strings."""
+    junction_aas, species, locus, seed = args
+    model = OlgaModel(species=species, locus=locus, seed=seed)
+    out: dict[str, float] = {}
+    for jaa in junction_aas:
+        pgen_val = model.compute_pgen_junction_aa(jaa)
+        if pgen_val is None or pgen_val <= 0:
+            continue
+        out[jaa] = math.log2(float(pgen_val))
+    return out
 
 @dataclass
 class ControlRecord:
@@ -746,64 +761,80 @@ def compute_control_pgen_records(
     if not rows:
         return []
 
-    def _worker(batch: list[tuple[str, str, str, float | None]], worker_seed: int) -> list[dict[str, str | float]]:
-        model: OlgaModel | None = None
-        out: list[dict[str, str | float]] = []
-        for jaa, vg, jg, log2_pgen in batch:
-            if log2_pgen is not None:
-                if pgen_adjustment is None:
-                    out.append(
-                        {
-                            "junction_aa": jaa,
-                            "v_gene": vg,
-                            "j_gene": jg,
-                            "log2_pgen": float(log2_pgen),
-                        }
-                    )
-                    continue
-                factor = float(pgen_adjustment.factor(locus, vg, jg))
+    jobs = max(1, int(n_jobs))
+
+    factor_cache: dict[tuple[str, str], float] = {}
+    if pgen_adjustment is not None:
+        unique_pairs = {(vg, jg) for _, vg, jg, _ in rows}
+        factor_cache = {
+            pair: float(pgen_adjustment.factor(locus, pair[0], pair[1]))
+            for pair in unique_pairs
+        }
+
+    # Fast path when control table already has log2_pgen values.
+    if all(log2_pgen is not None for _, _, _, log2_pgen in rows):
+        records: list[dict[str, str | float]] = []
+        for jaa, vg, jg, log2_pgen in rows:
+            l2p = float(log2_pgen)
+            if pgen_adjustment is not None:
+                factor = factor_cache.get((vg, jg), 1.0)
                 if factor <= 0:
                     continue
-                out.append(
-                    {
-                        "junction_aa": jaa,
-                        "v_gene": vg,
-                        "j_gene": jg,
-                        "log2_pgen": float(log2_pgen) + math.log2(factor),
-                    }
-                )
-                continue
-
-            if model is None:
-                model = OlgaModel(species=species, locus=locus, seed=worker_seed)
-            pgen_val = model.compute_pgen_junction_aa(jaa)
-            if pgen_val is None or pgen_val <= 0:
-                continue
-            if pgen_adjustment is not None:
-                pgen_val = pgen_adjustment.adjust_pgen(locus, vg, jg, pgen_val)
-                if pgen_val <= 0:
-                    continue
-            out.append(
+                l2p += math.log2(factor)
+            records.append(
                 {
                     "junction_aa": jaa,
                     "v_gene": vg,
                     "j_gene": jg,
-                    "log2_pgen": math.log2(float(pgen_val)),
+                    "log2_pgen": l2p,
                 }
             )
-        return out
+        return records
 
-    jobs = max(1, int(n_jobs))
-    if jobs == 1 or len(rows) < 1024:
-        return _worker(rows, seed)
+    # Real-control path: compute base log2(Pgen) once per unique junction_aa.
+    ordered_unique_jaa = list(dict.fromkeys(jaa for jaa, _, _, _ in rows))
+    log2_by_jaa: dict[str, float] = {}
 
-    chunk_size = max(256, len(rows) // jobs)
-    chunks = [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
+    if jobs == 1 or len(ordered_unique_jaa) < 2048:
+        model = OlgaModel(species=species, locus=locus, seed=seed)
+        for jaa in ordered_unique_jaa:
+            pgen_val = model.compute_pgen_junction_aa(jaa)
+            if pgen_val is None or pgen_val <= 0:
+                continue
+            log2_by_jaa[jaa] = math.log2(float(pgen_val))
+    else:
+        chunk_size = max(1024, len(ordered_unique_jaa) // jobs)
+        chunks = [
+            ordered_unique_jaa[i : i + chunk_size]
+            for i in range(0, len(ordered_unique_jaa), chunk_size)
+        ]
+        args = [
+            (chunk, species, locus, seed + i + 1)
+            for i, chunk in enumerate(chunks)
+        ]
+        with ProcessPoolExecutor(max_workers=jobs) as executor:
+            for partial in executor.map(_compute_log2_pgen_chunk, args):
+                log2_by_jaa.update(partial)
+
     records: list[dict[str, str | float]] = []
-    with ThreadPoolExecutor(max_workers=jobs) as executor:
-        futures = [executor.submit(_worker, chunk, seed + i + 1) for i, chunk in enumerate(chunks)]
-        for future in futures:
-            records.extend(future.result())
+    for jaa, vg, jg, _ in rows:
+        base = log2_by_jaa.get(jaa)
+        if base is None:
+            continue
+        l2p = base
+        if pgen_adjustment is not None:
+            factor = factor_cache.get((vg, jg), 1.0)
+            if factor <= 0:
+                continue
+            l2p += math.log2(factor)
+        records.append(
+            {
+                "junction_aa": jaa,
+                "v_gene": vg,
+                "j_gene": jg,
+                "log2_pgen": l2p,
+            }
+        )
     return records
 
 
