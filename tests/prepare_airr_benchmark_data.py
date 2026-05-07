@@ -247,6 +247,7 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
         "tcrnet/B35+.txt.gz",
         "alice/yf/Q1_d0.tsv.gz",
         "alice/yf/Q1_d15.tsv.gz",
+        "gliph/gliph_trb.tsv.gz",
         vdjdb_rel,
     ]
     required_remote.extend(

@@ -24,11 +24,12 @@ Functions
 from __future__ import annotations
 
 from collections import Counter
+from typing import Literal
 from typing import Callable
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2_contingency
+from scipy.stats import chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
 from mir.basic.tokens import tokenize_str
@@ -105,10 +106,12 @@ class KmerCounter:
 def compare_kmer_counts(
     counts_1: dict[str, int],
     counts_2: dict[str, int],
+    test: Literal["chi2", "fisher"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
+    pseudocount: int = 0,
 ) -> pd.DataFrame:
-    """Chi-squared comparison of two k-mer count dictionaries.
+    """Statistical comparison of two k-mer count dictionaries.
 
     For every k-mer observed in either repertoire a 2 × 2 contingency test
     is performed.  P-values are corrected for multiple testing.
@@ -117,22 +120,40 @@ def compare_kmer_counts(
     ----------
     counts_1, counts_2 : dict[str, int]
         K-mer occurrence counts (e.g. from :meth:`KmerCounter.counts`).
+    test : {"chi2", "fisher"}
+        Statistical test used on each 2 x 2 table.
+        The table is built as ``[[kmer_count_1, total_1-kmer_count_1],
+        [kmer_count_2, total_2-kmer_count_2]]`` where ``total_*`` is the
+        sum of all k-mer occurrences in the corresponding repertoire.
     p_adj_method : str
         Method for :func:`statsmodels.stats.multitest.multipletests`
         (default ``"holm"``).  Ignored when *p_adj_func* is given.
     p_adj_func : callable, optional
         Custom function that accepts and returns an array of p-values.
         When provided, *p_adj_method* is ignored.
+    pseudocount : int, optional
+        Non-negative integer added to every k-mer count in both tables *before*
+        computing totals and test statistics (default ``0`` = no pseudocount).
+        Adding a small pseudocount (e.g. ``1``) prevents zero-cell contingency
+        tables, stabilises frequency estimates for rare k-mers, and makes the
+        Fisher test more conservative for very low-count tokens.
 
     Returns
     -------
     pandas.DataFrame
         Columns: ``count_1``, ``count_2``, ``freq_1``, ``freq_2``,
-        ``freq_fc``, ``p_val``, ``p_val_adj``.  Indexed by k-mer.
+        ``freq_fc``, ``odds_ratio``, ``p_val``, ``p_val_adj``.
+        Indexed by k-mer.
     """
     df1 = pd.DataFrame.from_dict(counts_1, orient="index", columns=["count_1"])
     df2 = pd.DataFrame.from_dict(counts_2, orient="index", columns=["count_2"])
     df = df1.join(df2, how="outer").fillna(0).astype({"count_1": int, "count_2": int})
+
+    if pseudocount < 0:
+        raise ValueError(f"pseudocount must be >= 0, got {pseudocount}")
+    if pseudocount > 0:
+        df["count_1"] += pseudocount
+        df["count_2"] += pseudocount
 
     n1 = df["count_1"].sum()
     n2 = df["count_2"].sum()
@@ -142,13 +163,24 @@ def compare_kmer_counts(
     df["freq_1"] = df["count_1"] / n1
     df["freq_2"] = df["count_2"] / n2
 
-    # Vectorised contingency tables → chi-squared p-values
+    if test not in {"chi2", "fisher"}:
+        raise ValueError(f"Unknown test {test!r}; use 'chi2' or 'fisher'")
+
+    # Contingency tables -> per-kmer p-values and odds ratios
     pvals = np.empty(len(df))
+    odds = np.empty(len(df))
     c1 = df["count_1"].values
     c2 = df["count_2"].values
     for i in range(len(df)):
-        table = [[c1[i], n1 - c1[i]], [c2[i], n2 - c2[i]]]
-        pvals[i] = chi2_contingency(table)[1]
+        table = [[int(c1[i]), int(n1 - c1[i])], [int(c2[i]), int(n2 - c2[i])]]
+        if test == "fisher":
+            odds_i, p_i = fisher_exact(table, alternative="two-sided")
+        else:
+            odds_i = np.inf if c2[i] == 0 else (c1[i] / c2[i])
+            p_i = chi2_contingency(table)[1]
+        odds[i] = float(odds_i)
+        pvals[i] = float(p_i)
+    df["odds_ratio"] = odds
     df["p_val"] = pvals
 
     # Fold change (freq_1 / freq_2); 0-frequency guarded by fillna above
@@ -168,10 +200,11 @@ def compare_repertoire_kmers(
     repertoire_1: Repertoire,
     repertoire_2: Repertoire,
     k: int,
+    test: Literal["chi2", "fisher"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> pd.DataFrame:
-    """Compare two repertoires by k-mer frequency using chi-squared tests.
+    """Compare two repertoires by k-mer frequency using 2 x 2 tests.
 
     Convenience wrapper that builds :class:`KmerCounter` instances,
     extracts counts, and delegates to :func:`compare_kmer_counts`.
@@ -182,6 +215,8 @@ def compare_repertoire_kmers(
         Repertoires to compare.
     k : int
         K-mer length.
+    test : {"chi2", "fisher"}
+        Statistical test applied to each k-mer 2 x 2 table.
     p_adj_method : str
         Multiple-testing correction method (default ``"holm"``).
     p_adj_func : callable, optional
@@ -194,7 +229,13 @@ def compare_repertoire_kmers(
     """
     c1 = KmerCounter(k, repertoire_1).counts()
     c2 = KmerCounter(k, repertoire_2).counts()
-    return compare_kmer_counts(c1, c2, p_adj_method=p_adj_method, p_adj_func=p_adj_func)
+    return compare_kmer_counts(
+        c1,
+        c2,
+        test=test,
+        p_adj_method=p_adj_method,
+        p_adj_func=p_adj_func,
+    )
 
 
 # ---------------------------------------------------------------------------
