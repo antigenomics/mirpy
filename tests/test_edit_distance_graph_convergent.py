@@ -45,9 +45,9 @@ def test_edit_distance_graph_convergent_rearrangements() -> None:
     assert g.ecount() == 3  # complete triangle
     
     # Verify edges exist
-    assert g.are_connected(0, 1)
-    assert g.are_connected(0, 2)
-    assert g.are_connected(1, 2)
+    assert g.are_adjacent(0, 1)
+    assert g.are_adjacent(0, 2)
+    assert g.are_adjacent(1, 2)
 
 
 def test_edit_distance_graph_convergent_with_v_gene_match() -> None:
@@ -90,4 +90,4 @@ def test_edit_distance_graph_convergent_with_matching_v_and_j() -> None:
 
     assert g.vcount() == 2
     assert g.ecount() == 1  # edge exists because V and J match and junction_aa distance is 0
-    assert g.are_connected(0, 1)
+    assert g.are_adjacent(0, 1)
