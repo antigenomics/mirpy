@@ -618,6 +618,7 @@ class VDJBetOverlapAnalysis:
         self._ref_bin_counts: "dict[int, int] | None" = None
         self._mock_key_sets: "list[frozenset] | None" = None
         self._mock_bin_samples: "list[list[int]] | None" = None
+        self._mock_key_sets_by_match: dict[tuple[bool, bool], list[frozenset]] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -672,6 +673,31 @@ class VDJBetOverlapAnalysis:
             self._mock_key_sets, self._mock_bin_samples = self._build_mock_key_sets()
         return self._mock_key_sets
 
+    def _get_mock_key_sets_for_match(
+        self,
+        *,
+        match_v: bool,
+        match_j: bool,
+    ) -> list[frozenset]:
+        key = (match_v, match_j)
+        cached = self._mock_key_sets_by_match.get(key)
+        if cached is not None:
+            return cached
+
+        raw_mocks = self._get_mock_key_sets()
+        if match_v and match_j:
+            out = cast(list[frozenset[tuple[str, str, str]]], raw_mocks)
+        else:
+            out = cast(list[frozenset[tuple[str, str, str]]], [
+                frozenset(
+                    (jaa, v if match_v else "", j if match_j else "")
+                    for jaa, v, j in ks
+                )
+                for ks in raw_mocks
+            ])
+        self._mock_key_sets_by_match[key] = out
+        return out
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -714,18 +740,7 @@ class VDJBetOverlapAnalysis:
         )
         real = count_overlap(ref_keys, qi, allow_1mm=allow_1mm)
 
-        raw_mocks = self._get_mock_key_sets()
-        # Normalise V/J fields in mock keys to match the requested match flags.
-        if match_v and match_j:
-            norm_mocks = cast(list[frozenset[tuple[str, str, str]]], raw_mocks)
-        else:
-            norm_mocks = cast(list[frozenset[tuple[str, str, str]]], [
-                frozenset(
-                    (jaa, v if match_v else "", j if match_j else "")
-                    for jaa, v, j in ks
-                )
-                for ks in raw_mocks
-            ])
+        norm_mocks = self._get_mock_key_sets_for_match(match_v=match_v, match_j=match_j)
 
         mock_res = compute_overlaps(
             norm_mocks, qi, allow_1mm=allow_1mm, n_jobs=self._n_jobs

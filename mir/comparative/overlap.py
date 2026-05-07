@@ -457,7 +457,14 @@ def compute_overlaps(
     list[OverlapCounts]
         One :class:`OverlapCounts` per key set, in the same order.
     """
-    if n_jobs == 1 or len(reference_key_sets) <= 1:
+    # Process startup on macOS can dominate runtime for small exact-match batches.
+    estimated_keys = sum(len(keys) for keys in reference_key_sets)
+    should_run_serial = (
+        n_jobs == 1
+        or len(reference_key_sets) <= 1
+        or (not allow_1mm and estimated_keys <= 2_000_000)
+    )
+    if should_run_serial:
         return [
             count_overlap(
                 k,
