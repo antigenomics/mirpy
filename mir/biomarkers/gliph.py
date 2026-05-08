@@ -3,6 +3,8 @@
 Provides:
 - :class:`GliphTokenArtifacts` — counts and bipartite adjacency for one token family.
 - :func:`deduplicate_clonotype_rows` — aggregate repeated clonotype rows.
+- :func:`extract_gliph_artifacts_batch_from_repertoire` — extract multiple
+    token families from one :class:`~mir.common.repertoire.LocusRepertoire`.
 - :func:`extract_v3mer_artifacts` — V-gene anchored 3-mer extraction.
 - :func:`extract_pos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
 - :func:`extract_vpos3mer_artifacts` — deprecated alias for :func:`extract_pos3mer_artifacts`.
@@ -32,6 +34,14 @@ CDR3 trimming
 Token extraction supports optional CDR3 trimming (first N and last M amino acids).
 Use ``trim_first`` and ``trim_last`` parameters to enable.  Position tracking
 is preserved: position in tokens reflects offset into trimmed sequence.
+
+Control/background strategy
+---------------------------
+This module supports two control strategies:
+- unnormalized background controls (recommended for fast notebook iteration,
+    typically with a fixed-size random control subset),
+- optional V/VJ normalization via ``normalize_control_v`` and
+    ``normalize_control_vj`` when explicit gene-usage matching is required.
 """
 
 from __future__ import annotations
@@ -46,7 +56,7 @@ import numpy as np
 import pandas as pd
 
 from mir.biomarkers.kmer_stats import compare_kmer_counts
-from mir.basic.token_tables import tokenize_rearrangements
+from mir.basic.token_tables import compute_token_tables_batch, tokenize_rearrangements
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
 
@@ -96,32 +106,19 @@ _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
 
 
 def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
-    """Build a LocusRepertoire from a pandas DataFrame with backward compatibility."""
-    from_pandas = getattr(LocusRepertoire, "from_pandas", None)
-    if callable(from_pandas):
-        return from_pandas(df, locus=locus)
-
+    """Build a LocusRepertoire from a pandas DataFrame using polars backend.
+    
+    Converts to polars for compatibility with LocusRepertoire.from_polars,
+    accepting both 'sequence_id' and legacy 'row_id' column names.
+    """
+    import polars as pl
+    
     tmp = df.copy()
     if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
         tmp = tmp.rename(columns={"row_id": "sequence_id"})
-    seq_ids = tmp["sequence_id"].astype(str).tolist() if "sequence_id" in tmp.columns else [str(i) for i in range(len(tmp))]
-    jaa = tmp["junction_aa"].astype(str).tolist()
-    vg = tmp["v_gene"].astype(str).tolist()
-    jg = tmp["j_gene"].astype(str).tolist() if "j_gene" in tmp.columns else [""] * len(tmp)
-    dc = pd.to_numeric(tmp.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int).tolist()
-    clones = [
-        Clonotype(
-            sequence_id=sid,
-            locus=locus,
-            junction_aa=jaa_i,
-            v_gene=vg_i,
-            j_gene=jg_i,
-            duplicate_count=dc_i,
-            _validate=False,
-        )
-        for sid, jaa_i, vg_i, jg_i, dc_i in zip(seq_ids, jaa, vg, jg, dc)
-    ]
-    return LocusRepertoire(clones, locus=locus)
+    
+    pl_df = pl.from_pandas(tmp, include_index=False)
+    return LocusRepertoire.from_polars(pl_df, locus=locus)
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +359,44 @@ def _build_artifacts_from_clones(
     )
 
 
+def _build_artifacts_from_token_table(
+    token_table,
+    family: TOKEN_FAMILY,
+    count_mode: COUNT_MODE,
+    *,
+    position_offset: int = 0,
+) -> GliphTokenArtifacts:
+    """Build token artifacts for one family from a precomputed token table."""
+    occurrence_counts: Counter[str] = Counter()
+    token_to_clone: dict[str, set[str]] = defaultdict(set)
+    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
+
+    for kmer, matches in token_table.items():
+        for match in matches:
+            token = _token_from_match(
+                family,
+                kmer,
+                match,
+                position_offset=position_offset,
+            )
+            rid = str(match.rearrangement.id)
+            occurrence_counts[token] += 1
+            token_to_clone[token].add(rid)
+            clone_to_tokens[rid].add(token)
+
+    clonotype_counts = {token: len(cloneset) for token, cloneset in token_to_clone.items()}
+    counts = dict(clonotype_counts if count_mode == "clonotype" else occurrence_counts)
+
+    return GliphTokenArtifacts(
+        counts=counts,
+        token_to_clone=dict(token_to_clone),
+        clone_to_tokens=dict(clone_to_tokens),
+        occurrence_counts=dict(occurrence_counts),
+        clonotype_counts=clonotype_counts,
+        count_mode=count_mode,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Process-pool worker functions — must be importable at module level
 # ---------------------------------------------------------------------------
@@ -541,6 +576,45 @@ def extract_gliph_token_artifacts(
         ]
         parts = [future.result() for future in futures]
     return _merge_artifact_parts(parts)
+
+
+def extract_gliph_artifacts_batch_from_repertoire(
+    repertoire: LocusRepertoire,
+    families: list[str],
+    *,
+    count_mode: COUNT_MODE = "clonotype",
+    trim_first: int = 3,
+    trim_last: int = 4,
+) -> dict[str, GliphTokenArtifacts]:
+    """Extract GLIPH token artifacts for multiple families from one repertoire.
+
+    This helper tokenizes all requested families from a single repertoire and
+    returns artifacts keyed by family name. It avoids repeated DataFrame
+    conversion in notebook workflows and keeps control handling repertoire-based.
+    """
+    clones = repertoire_to_clonotypes(
+        repertoire,
+        trim_first=trim_first,
+        trim_last=trim_last,
+    )
+
+    fams: list[str] = []
+    for family in families:
+        fam_norm = "pos3" if family == "vpos3" else family
+        if fam_norm not in {"v3", "pos3", "u3", "u4", "g4", "g5"}:
+            raise ValueError(f"Unknown GLIPH token family: {family}")
+        fams.append(fam_norm)
+
+    token_tables = compute_token_tables_batch(clones, families=fams)
+    out: dict[str, GliphTokenArtifacts] = {}
+    for family in fams:
+        out[family] = _build_artifacts_from_token_table(
+            token_tables[family],
+            family,
+            count_mode,
+            position_offset=trim_first,
+        )
+    return out
 
 
 def extract_v3mer_artifacts(
@@ -741,6 +815,26 @@ def extract_g5mer_artifacts(
 
 
 # ---------------------------------------------------------------------------
+# Family extractors registry (default GLIPH family extractors)
+# ---------------------------------------------------------------------------
+
+FAMILY_EXTRACTORS: dict[str, callable] = {
+    "v3": extract_v3mer_artifacts,
+    "pos3": extract_pos3mer_artifacts,
+    "u3": extract_u3mer_artifacts,
+    "u4": extract_u4mer_artifacts,
+    "g4": extract_g4mer_artifacts,
+    "g5": extract_g5mer_artifacts,
+}
+"""Registry of default GLIPH family extractors.
+
+Maps token family names to their extraction functions. This registry is used
+to standardize the set of families extracted across the mir library and can be
+imported by downstream code (e.g., notebook analysis workflows).
+"""
+
+
+# ---------------------------------------------------------------------------
 # Full-GLIPH graph helpers (moved to mir.graph.token_graph)
 # ---------------------------------------------------------------------------
 
@@ -758,6 +852,7 @@ from mir.graph.token_graph import (
 
 __all__ = [
     "GliphTokenArtifacts",
+    "FAMILY_EXTRACTORS",
     "extract_v3mer_artifacts",
     "extract_pos3mer_artifacts",
     "extract_vpos3mer_artifacts",
@@ -765,6 +860,7 @@ __all__ = [
     "extract_u4mer_artifacts",
     "extract_g4mer_artifacts",
     "extract_g5mer_artifacts",
+    "extract_gliph_artifacts_batch_from_repertoire",
     "compare_gliph_token_incidence",
     "extract_gliph_token_artifacts",
     "combine_enriched_token_maps",
