@@ -1,4 +1,4 @@
-"""K-mer frequency analysis and differential comparison of immune repertoires.
+"""Token frequency analysis and differential comparison of immune repertoires.
 
 Extracts overlapping k-mers from CDR3 amino-acid sequences, counts their
 occurrences across a :class:`~mir.common.repertoire.Repertoire`, and performs
@@ -10,6 +10,7 @@ K-mer tokenisation is delegated to the C-accelerated
 Classes
 -------
 * :class:`KmerCounter` — Extract and count k-mers from a single repertoire.
+* :class:`TokenCounter` — Alias of :class:`KmerCounter`.
 
 Functions
 ---------
@@ -17,6 +18,8 @@ Functions
   with multiple-testing correction.
 * :func:`compare_repertoire_kmers` — End-to-end comparison of two
   :class:`~mir.common.repertoire.Repertoire` objects.
+* :func:`compare_repertoire_tokens` — Alias of
+    :func:`compare_repertoire_kmers`.
 * :func:`plot_comparison` — Scatter / volcano visualisation of comparison
   results.
 """
@@ -32,7 +35,7 @@ import pandas as pd
 from scipy.stats import binom, chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
-from mir.basic.tokens import tokenize_str
+from mir.basic.tokens import count_tokens_str
 from mir.common.repertoire import Repertoire
 
 
@@ -78,9 +81,9 @@ class KmerCounter:
             Mapping from k-mer string to occurrence count.
         """
         if self._counts is None:
-            self._counts = Counter()
-            for cl in self.repertoire.clonotypes:
-                self._counts.update(tokenize_str(cl.junction_aa, self.k))
+            self._counts = Counter(
+                count_tokens_str((cl.junction_aa for cl in self.repertoire.clonotypes), self.k)
+            )
         return dict(self._counts)
 
     def counts_dataframe(self, column: str = "count") -> pd.DataFrame:
@@ -247,6 +250,29 @@ def compare_repertoire_kmers(
     )
 
 
+class TokenCounter(KmerCounter):
+    """Token-oriented alias for :class:`KmerCounter`."""
+
+
+def compare_repertoire_tokens(
+    repertoire_1: Repertoire,
+    repertoire_2: Repertoire,
+    k: int,
+    test: Literal["chi2", "fisher", "binom"] = "chi2",
+    p_adj_method: str = "holm",
+    p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> pd.DataFrame:
+    """Token-oriented alias for :func:`compare_repertoire_kmers`."""
+    return compare_repertoire_kmers(
+        repertoire_1,
+        repertoire_2,
+        k,
+        test=test,
+        p_adj_method=p_adj_method,
+        p_adj_func=p_adj_func,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Visualisation helpers
 # ---------------------------------------------------------------------------
@@ -316,3 +342,13 @@ def plot_comparison(
         raise ValueError(f"Unknown plot kind {kind!r}; use 'scatter' or 'volcano'")
 
     return ax
+
+
+__all__ = [
+    "KmerCounter",
+    "TokenCounter",
+    "compare_kmer_counts",
+    "compare_repertoire_kmers",
+    "compare_repertoire_tokens",
+    "plot_comparison",
+]

@@ -1,61 +1,47 @@
-"""Benchmark GLIPH control tokenization cost and rare-token coverage.
+"""Benchmarks for GLIPH control tokenization and rare-token coverage.
 
-Runs only when ``RUN_BENCHMARK=1``.
+These benchmarks are opt-in and run only with RUN_BENCHMARK=1.
+Default sizes are intentionally bounded to avoid stall-prone runs.
+"""
 
-        # --- batch all families, with mappings (study mode, for comparison) ---
-        _study_art, study_stats = _measure_extraction(rep, list(DEFAULT_FAMILIES), count_mode="clonotype", build_mappings=True)
-        rows.append(
-            {
-                "size": n,
-                "mode": "batch_study",
-                "family": "all",
-                "elapsed_s": float(study_stats["elapsed_s"]),
-                "peak_mb": float(study_stats["peak_mb"]),
-                "tokens_total": int(study_stats["tokens_total"]),
-                "single_family_total_s": np.nan,
-                "single_family_peak_mb": np.nan,
-                "speedup_vs_single_total": np.nan,
-            }
-        )
+from __future__ import annotations
 
-        benchmark_log_line(
-            "GLIPH tokenization scale "
-            f"n={n}: ctrl_batch_s={batch_stats['elapsed_s']:.3f}, "
-            f"study_batch_s={study_stats['elapsed_s']:.3f}, "
-            f"single_total_s={per_family_elapsed:.3f}, "
-            f"ctrl_peak_mb={batch_stats['peak_mb']:.1f}, study_peak_mb={study_stats['peak_mb']:.1f}"
-        )
+import gc
+import os
+from pathlib import Path
+import re
+import resource
+import sys
+import time
+import tracemalloc
 
-    result_df = pd.DataFrame(rows)
-    ctrl_df = result_df[result_df["mode"] == "batch_ctrl"].copy()
-    study_df_bm = result_df[result_df["mode"] == "batch_study"].copy()
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
 
-    print("\nGLIPH control tokenization benchmark (per family + batch):")
-    print(result_df.to_string(index=False))
-    print("\nControl-mode (counts-only) batch summary by control size:")
-    print(ctrl_df[["size", "elapsed_s", "single_family_total_s", "speedup_vs_single_total", "peak_mb", "tokens_total"]].to_string(index=False))
-    print("\nStudy-mode (with mappings) batch summary by control size:")
-    print(study_df_bm[["size", "elapsed_s", "peak_mb", "tokens_total"]].to_string(index=False))
-    if not ctrl_df.empty and not study_df_bm.empty:
-        merged = ctrl_df[["size", "elapsed_s", "peak_mb"]].merge(
-            study_df_bm[["size", "elapsed_s", "peak_mb"]],
-            on="size", suffixes=("_ctrl", "_study"),
-        )
-        merged["speedup_ctrl_vs_study"] = merged["elapsed_s_study"] / merged["elapsed_s_ctrl"]
-        merged["mem_reduction"] = merged["peak_mb_study"] / merged["peak_mb_ctrl"]
-        print("\nControl vs study mode comparison (speedup = study_time / ctrl_time):")
-        print(merged.to_string(index=False))
+from mir.biomarkers.gliph import (
+    deduplicate_clonotype_rows,
+    extract_gliph_artifacts_batch_from_repertoire,
+)
+from mir.common.control import ControlManager
+from mir.common.repertoire import LocusRepertoire
+from tests.benchmark_helpers import benchmark_log_line
+from tests.conftest import skip_benchmarks
+
+
 GLIPH_PATH = Path(__file__).resolve().parents[1] / "airr_benchmark" / "gliph" / "gliph_trb.tsv.gz"
-    assert not ctrl_df.empty
-    assert set(ctrl_df["size"]) == set(sizes)
-    assert ctrl_df["tokens_total"].gt(0).all()
 DEFAULT_FAMILIES = ("v3", "pos3", "u3", "u4", "g4", "g5")
 AA_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
 SEED = 42
+TRIM_FIRST = 3
+TRIM_LAST = 4
+MIN_TOKEN_K = 3
+CHUNK_SIZE = int(os.getenv("MIRPY_GLIPH_CHUNK_SIZE", "200000"))
 
 
 def _control_sizes() -> list[int]:
-    raw = os.getenv("MIRPY_GLPH_CONTROL_SIZES", "100000,1000000,10000000")
+    raw = os.getenv("MIRPY_GLIPH_CONTROL_SIZES", "10000,100000")
     values: list[int] = []
     for tok in raw.split(","):
         tok = tok.strip()
@@ -67,20 +53,23 @@ def _control_sizes() -> list[int]:
             continue
         if value > 0:
             values.append(value)
-    if not values:
-        values = [100_000, 1_000_000, 10_000_000]
-    return sorted(set(values))
+    return sorted(set(values)) if values else [10_000, 100_000]
 
 
-def _token_threads() -> int:
-    raw = os.getenv("MIRPY_GLPH_TOKEN_THREADS")
-    if raw is None:
-        return 8
-    try:
-        value = int(raw)
-    except ValueError:
-        return 8
-    return max(1, value)
+def _min_raw_len_for_tokenization() -> int:
+    return TRIM_FIRST + TRIM_LAST + MIN_TOKEN_K
+
+
+def _to_mb(bytes_value: int) -> float:
+    return float(bytes_value) / (1024.0 * 1024.0)
+
+
+def _maxrss_mb() -> float:
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    rss = float(usage.ru_maxrss)
+    if sys.platform == "darwin":
+        return _to_mb(int(rss))
+    return rss / 1024.0
 
 
 def _canonical_control_df() -> pd.DataFrame:
@@ -93,9 +82,9 @@ def _canonical_control_df() -> pd.DataFrame:
             "duplicate_count": pd.to_numeric(ctrl_raw.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int),
         }
     )
-    mask = df["junction_aa"].str.len().ge(5) & df["junction_aa"].str.match(AA_RE)
-    df = df.loc[mask].reset_index(drop=True)
-    return df
+    min_len = _min_raw_len_for_tokenization()
+    mask = df["junction_aa"].str.len().ge(min_len) & df["junction_aa"].str.match(AA_RE)
+    return df.loc[mask].reset_index(drop=True)
 
 
 def _sample_to_repertoire(control_df: pd.DataFrame, idx: np.ndarray) -> LocusRepertoire:
@@ -105,33 +94,38 @@ def _sample_to_repertoire(control_df: pd.DataFrame, idx: np.ndarray) -> LocusRep
     return LocusRepertoire.from_polars(pl_df, locus="TRB")
 
 
-def _measure_extraction(
+def _measure_batch_extraction(
     repertoire: LocusRepertoire,
-    families: list[str],
     *,
-    count_mode: str,
-    build_mappings: bool = False,
-) -> tuple[dict[str, object], dict[str, object]]:
+    families: tuple[str, ...],
+    chunk_size: int,
+) -> dict[str, float | int]:
     gc.collect()
+    rss_before = _maxrss_mb()
+
     tracemalloc.start()
     t0 = time.perf_counter()
     artifacts = extract_gliph_artifacts_batch_from_repertoire(
         repertoire,
-        families,
-        count_mode=count_mode,
-        build_mappings=build_mappings,
+        list(families),
+        count_mode="clonotype",
+        build_mappings=False,
+        trim_first=TRIM_FIRST,
+        trim_last=TRIM_LAST,
+        chunk_size=chunk_size,
     )
     elapsed_s = time.perf_counter() - t0
-    _curr, peak_bytes = tracemalloc.get_traced_memory()
+    _current, py_peak_after = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    summary = {
-        "families": list(families),
-        "elapsed_s": elapsed_s,
-        "peak_mb": peak_bytes / (1024.0 * 1024.0),
+    rss_after = _maxrss_mb()
+
+    return {
+        "elapsed_s": float(elapsed_s),
+        "py_peak_mb": float(_to_mb(int(py_peak_after))),
+        "rss_delta_mb": float(max(0.0, rss_after - rss_before)),
         "tokens_total": int(sum(len(art.counts) for art in artifacts.values())),
     }
-    return artifacts, summary
 
 
 def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
@@ -147,9 +141,13 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
             "gliph_cluster_id": raw["gliph_cluster_id"].astype(str).str.strip(),
         }
     )
-    out = out[out["junction_aa"].str.len() >= 5].copy()
+    min_len = _min_raw_len_for_tokenization()
+    out = out[out["junction_aa"].str.len() >= min_len].copy()
     out = out[out["junction_aa"].str.match(AA_RE)].copy()
-    return deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa"))
+    out = deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa"))
+    out = out.reset_index(drop=True)
+    out["row_id"] = out.index.astype(str)
+    return out
 
 
 def _zipf_fit(counts: dict[str, int]) -> dict[str, float]:
@@ -168,13 +166,36 @@ def _zipf_fit(counts: dict[str, int]) -> dict[str, float]:
     return {"zipf_slope": float(slope), "zipf_r2": float(r2)}
 
 
+def _fit_missing_powerlaw(sizes: np.ndarray, missing_fraction: np.ndarray) -> dict[str, float]:
+    mask = (sizes > 0) & (missing_fraction > 0) & np.isfinite(missing_fraction)
+    if int(mask.sum()) < 2:
+        return {"log_a": np.nan, "b": np.nan, "r2": np.nan}
+
+    x = np.log(sizes[mask].astype(float))
+    y = np.log(missing_fraction[mask].astype(float))
+    b, log_a = np.polyfit(x, y, 1)
+    y_hat = b * x + log_a
+    ss_res = float(np.sum((y - y_hat) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    return {"log_a": float(log_a), "b": float(b), "r2": float(r2)}
+
+
+def _n_for_coverage(log_a: float, b: float, coverage: float) -> float:
+    if not np.isfinite(log_a) or not np.isfinite(b) or b >= 0:
+        return np.nan
+    miss = 1.0 - coverage
+    if miss <= 0:
+        return np.nan
+    return float(np.exp((np.log(miss) - log_a) / b))
+
+
 @skip_benchmarks
 @pytest.mark.very_slow_benchmark
-def test_gliph_control_tokenization_scale_benchmark() -> None:
+def test_gliph_control_tokenization() -> None:
     sizes = _control_sizes()
-    threads = _token_threads()
-
     control_df = _canonical_control_df()
+
     max_n = max(sizes)
     if max_n > len(control_df):
         pytest.skip(f"Requested max size {max_n} exceeds available control clonotypes {len(control_df)}")
@@ -184,56 +205,97 @@ def test_gliph_control_tokenization_scale_benchmark() -> None:
 
     rows: list[dict[str, object]] = []
     benchmark_log_line(
-        f"GLIPH control tokenization benchmark start: sizes={sizes}, families={list(DEFAULT_FAMILIES)}, threads={threads}"
+        "GLIPH control tokenization start: "
+        f"sizes={sizes}, families={list(DEFAULT_FAMILIES)}, trim=({TRIM_FIRST},{TRIM_LAST}), chunk_size={CHUNK_SIZE}"
     )
 
     for n in sizes:
         idx = np.sort(chosen[:n])
         rep = _sample_to_repertoire(control_df, idx)
 
-        # --- single family, counts-only (control mode) ---
-        per_family_elapsed = 0.0
-        per_family_peak = 0.0
+        single_total = 0.0
+        single_peak_py = 0.0
+        single_peak_rss = 0.0
         for family in DEFAULT_FAMILIES:
-            _art, stats = _measure_extraction(rep, [family], count_mode="clonotype", build_mappings=False)
-            per_family_elapsed += float(stats["elapsed_s"])
-            per_family_peak = max(per_family_peak, float(stats["peak_mb"]))
+            stats = _measure_batch_extraction(
+                rep,
+                families=(family,),
+                chunk_size=CHUNK_SIZE,
+            )
+            single_total += float(stats["elapsed_s"])
+            single_peak_py = max(single_peak_py, float(stats["py_peak_mb"]))
+            single_peak_rss = max(single_peak_rss, float(stats["rss_delta_mb"]))
             rows.append(
                 {
                     "size": n,
                     "mode": "single_family_ctrl",
                     "family": family,
                     "elapsed_s": float(stats["elapsed_s"]),
-                    "peak_mb": float(stats["peak_mb"]),
+                    "py_peak_mb": float(stats["py_peak_mb"]),
+                    "rss_delta_mb": float(stats["rss_delta_mb"]),
                     "tokens_total": int(stats["tokens_total"]),
                 }
             )
 
-        # --- batch all families, counts-only (control mode) ---
-        _batch_art, batch_stats = _measure_extraction(rep, list(DEFAULT_FAMILIES), count_mode="clonotype", build_mappings=False)
+        batch_ctrl = _measure_batch_extraction(
+            rep,
+            families=DEFAULT_FAMILIES,
+            chunk_size=CHUNK_SIZE,
+        )
         rows.append(
             {
                 "size": n,
                 "mode": "batch_ctrl",
                 "family": "all",
-                "elapsed_s": float(batch_stats["elapsed_s"]),
-                "peak_mb": float(batch_stats["peak_mb"]),
-                "tokens_total": int(batch_stats["tokens_total"]),
-                "single_family_total_s": per_family_elapsed,
-                "single_family_peak_mb": per_family_peak,
+                "elapsed_s": float(batch_ctrl["elapsed_s"]),
+                "py_peak_mb": float(batch_ctrl["py_peak_mb"]),
+                "rss_delta_mb": float(batch_ctrl["rss_delta_mb"]),
+                "tokens_total": int(batch_ctrl["tokens_total"]),
+                "single_family_total_s": single_total,
+                "single_family_peak_py_mb": single_peak_py,
+                "single_family_peak_rss_mb": single_peak_rss,
                 "speedup_vs_single_total": (
-                    per_family_elapsed / float(batch_stats["elapsed_s"])
-                    if float(batch_stats["elapsed_s"]) > 0
+                    single_total / float(batch_ctrl["elapsed_s"])
+                    if float(batch_ctrl["elapsed_s"]) > 0
                     else np.nan
                 ),
             }
         )
 
+        benchmark_log_line(
+            "GLIPH control tokenization "
+            f"n={n}: batch_s={batch_ctrl['elapsed_s']:.3f}, single_total_s={single_total:.3f}, "
+            f"batch_py_peak_mb={batch_ctrl['py_peak_mb']:.1f}, batch_rss_delta_mb={batch_ctrl['rss_delta_mb']:.1f}"
+        )
+
+    result_df = pd.DataFrame(rows)
+    ctrl_df = result_df[result_df["mode"] == "batch_ctrl"].copy()
+
+    print("\nGLIPH control tokenization benchmark (per family + batch):")
+    print(result_df.sort_values(["size", "mode", "family"]).to_string(index=False))
+    print("\nControl-mode batch summary by control size:")
+    print(
+        ctrl_df[
+            [
+                "size",
+                "elapsed_s",
+                "single_family_total_s",
+                "speedup_vs_single_total",
+                "py_peak_mb",
+                "rss_delta_mb",
+                "tokens_total",
+            ]
+        ].to_string(index=False)
+    )
+
+    assert not ctrl_df.empty
+    assert set(ctrl_df["size"]) == set(sizes)
+    assert ctrl_df["tokens_total"].gt(0).all()
 
 
 @skip_benchmarks
 @pytest.mark.very_slow_benchmark
-def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
+def test_gliph_rare_token_coverage() -> None:
     if not GLIPH_PATH.exists():
         pytest.skip(f"Missing GLIPH dataset: {GLIPH_PATH}")
 
@@ -256,6 +318,10 @@ def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
         study_rep,
         list(DEFAULT_FAMILIES),
         count_mode="clonotype",
+        build_mappings=False,
+        trim_first=TRIM_FIRST,
+        trim_last=TRIM_LAST,
+        chunk_size=CHUNK_SIZE,
     )
 
     rare_sets: dict[str, dict[str, set[str]]] = {}
@@ -288,6 +354,10 @@ def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
             rep,
             list(DEFAULT_FAMILIES),
             count_mode="clonotype",
+            build_mappings=False,
+            trim_first=TRIM_FIRST,
+            trim_last=TRIM_LAST,
+            chunk_size=CHUNK_SIZE,
         )
 
         for family in DEFAULT_FAMILIES:
@@ -314,13 +384,10 @@ def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
                     }
                 )
 
+        benchmark_log_line(f"GLIPH rare-token coverage computed for n={n}")
+
     coverage_df = pd.DataFrame(rows)
     zipf_df = pd.DataFrame(zipf_rows).sort_values("family")
-
-    print("\nGLIPH token-frequency Zipf fit by family:")
-    print(zipf_df.to_string(index=False))
-    print("\nRare-token coverage vs control size:")
-    print(coverage_df.sort_values(["size", "family", "bucket"]).to_string(index=False))
 
     aggregate = (
         coverage_df.groupby(["size", "bucket"], as_index=False)
@@ -333,10 +400,36 @@ def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
             )
         )
     )
+
+    model_rows: list[dict[str, object]] = []
+    for bucket in ("n1", "n2", "n3p"):
+        sub = aggregate[aggregate["bucket"] == bucket].sort_values("size")
+        fit = _fit_missing_powerlaw(
+            sub["size"].to_numpy(dtype=float),
+            sub["missing_fraction"].to_numpy(dtype=float),
+        )
+        model_rows.append(
+            {
+                "bucket": bucket,
+                "fit_b": fit["b"],
+                "fit_r2": fit["r2"],
+                "n_for_90pct": _n_for_coverage(fit["log_a"], fit["b"], 0.90),
+                "n_for_95pct": _n_for_coverage(fit["log_a"], fit["b"], 0.95),
+                "n_for_99pct": _n_for_coverage(fit["log_a"], fit["b"], 0.99),
+            }
+        )
+    model_df = pd.DataFrame(model_rows)
+
+    print("\nGLIPH token-frequency Zipf fit by family:")
+    print(zipf_df.to_string(index=False))
+    print("\nRare-token coverage vs control size:")
+    print(coverage_df.sort_values(["size", "family", "bucket"]).to_string(index=False))
     print("\nAggregate missing fraction across families:")
     print(aggregate.to_string(index=False))
+    print("\nPower-law fit for missing fraction vs control size:")
+    print(model_df.to_string(index=False))
 
-    benchmark_log_line("GLIPH rare token coverage benchmark complete")
+    benchmark_log_line("GLIPH rare-token coverage benchmark complete")
 
     assert not coverage_df.empty
     assert set(coverage_df["size"]) == set(sizes)
@@ -344,6 +437,6 @@ def test_gliph_rare_token_coverage_vs_control_size_benchmark() -> None:
         fam = coverage_df[coverage_df["family"] == family].copy()
         for bucket in ("n1", "n2", "n3p"):
             sub = fam[fam["bucket"] == bucket].sort_values("size")
-            vals = [v for v in sub["missing_tokens"].tolist() if pd.notna(v)]
+            vals = [int(v) for v in sub["missing_tokens"].tolist() if pd.notna(v)]
             if len(vals) >= 2:
                 assert all(later <= earlier for earlier, later in zip(vals[:-1], vals[1:]))

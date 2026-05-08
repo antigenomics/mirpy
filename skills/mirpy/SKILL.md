@@ -190,18 +190,26 @@ from mir.biomarkers.gliph import (
 
 families = ["v3", "pos3", "u3", "u4", "g4", "g5"]
 
-# Compute control artifacts once
+# Compute control artifacts once (counts only, memory-safe chunking)
 ctrl_artifacts = extract_gliph_artifacts_batch_from_repertoire(
   control_repertoire,
   families,
   count_mode="clonotype",
+  build_mappings=False,
+  trim_first=3,
+  trim_last=4,
+  chunk_size=200_000,
 )
 
-# Reuse for each study
+# Reuse for each study with identical trim settings
 study_artifacts = extract_gliph_artifacts_batch_from_repertoire(
   study_repertoire,
   families,
   count_mode="clonotype",
+  build_mappings=False,
+  trim_first=3,
+  trim_last=4,
+  chunk_size=200_000,
 )
 
 comp = compare_gliph_token_incidence(
@@ -222,7 +230,8 @@ Interpretation notes:
 
 - In `test="binom"`, `p_background` is computed as `count_2 / total_control_clonotypes`.
 - The p-value is one-sided enrichment (`P[X >= count_1]`) under `Binomial(total_sample_clonotypes, p_background)`.
-- For large real controls, use a fixed-size random background subset for predictable runtime.
+- For large real controls, use `build_mappings=False` plus `chunk_size` to stream control extraction without materializing large clonotype-token maps.
+- Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 
 ## 9. Pgen And VDJBet Workflows
 

@@ -22,12 +22,13 @@ No runtime type checks — relies on static typing.
 from __future__ import annotations
 
 import re
+from itertools import islice
 from typing import NamedTuple
 
 from mir.basic.alphabets import _to_bytes
-from mir.basic.mirseq import (
-    tokenize_bytes as _c_tokenize_bytes,
-    tokenize_gapped_bytes as _c_tokenize_gapped_bytes,
+from mir.basic.tokens import (
+    tokenize_with_positions,
+    tokenize_gapped_with_positions,
 )
 from mir.common.clonotype import Clonotype
 
@@ -95,8 +96,7 @@ def _plain_kmers(raw: bytes, k: int) -> list[tuple[bytes, int]]:
 
     Delegates to the C extension for the k-mer extraction.
     """
-    kmers = _c_tokenize_bytes(raw, k)
-    return [(kmer, i) for i, kmer in enumerate(kmers)]
+    return list(tokenize_with_positions(raw, k))
 
 
 def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]:
@@ -104,15 +104,7 @@ def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]
 
     Delegates to the C extension for the gapped k-mer extraction.
     """
-    gapped = _c_tokenize_gapped_bytes(raw, k, mask_byte)
-    n_windows = len(raw) - k + 1
-    result: list[tuple[bytes, int]] = []
-    idx = 0
-    for i in range(n_windows):
-        for _ in range(k):
-            result.append((gapped[idx], i))
-            idx += 1
-    return result
+    return list(tokenize_gapped_with_positions(raw, k, mask_byte))
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +178,7 @@ def summarize_rearrangements(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    ids: dict[Kmer, set[int]] = {}
+    counts: dict[Kmer, int] = {}
     dups: dict[Kmer, int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -195,19 +187,16 @@ def summarize_rearrangements(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
-        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
+        seen: set[Kmer] = set()
         for s, _pos in pairs:
             key = Kmer(locus, v_gene, c_gene, s)
-            id_set = ids.get(key)
-            if id_set is None:
-                ids[key] = {rid}
-                dups[key] = dc
-            elif rid not in id_set:
-                id_set.add(rid)
-                dups[key] += dc
-    return {k: KmerStats(len(ids[k]), dups[k]) for k in ids}
+            seen.add(key)
+        for key in seen:
+            counts[key] = counts.get(key, 0) + 1
+            dups[key] = dups.get(key, 0) + dc
+    return {kmer: KmerStats(counts[kmer], dups[kmer]) for kmer in counts}
 
 
 def summarize_annotations(
@@ -234,7 +223,7 @@ def summarize_annotations(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    ids: dict[tuple[KmerSeq, KmerAnnotation], set[int]] = {}
+    counts: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
     dups: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -243,28 +232,94 @@ def summarize_annotations(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
-        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
+        seen: set[tuple[KmerSeq, KmerAnnotation]] = set()
         for s, pos in pairs:
             ks = KmerSeq(locus, s)
             ka = KmerAnnotation(v_gene, c_gene, pos)
             flat_key = (ks, ka)
-            id_set = ids.get(flat_key)
-            if id_set is None:
-                ids[flat_key] = {rid}
-                dups[flat_key] = dc
-            elif rid not in id_set:
-                id_set.add(rid)
-                dups[flat_key] += dc
+            seen.add(flat_key)
+        for flat_key in seen:
+            counts[flat_key] = counts.get(flat_key, 0) + 1
+            dups[flat_key] = dups.get(flat_key, 0) + dc
     # Pivot into nested dict
     result: dict[KmerSeq, dict[KmerAnnotation, KmerStats]] = {}
-    for (ks, ka), id_set in ids.items():
+    for (ks, ka), rc in counts.items():
         inner = result.get(ks)
         if inner is None:
             inner = {}
             result[ks] = inner
-        inner[ka] = KmerStats(len(id_set), dups[(ks, ka)])
+        inner[ka] = KmerStats(rc, dups[(ks, ka)])
+    return result
+
+
+def summarize_rearrangements_chunked(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+    *,
+    chunk_size: int = 100_000,
+) -> dict[Kmer, KmerStats]:
+    """Chunked variant of :func:`summarize_rearrangements`.
+
+    Useful for very large repertoires when the input can be iterated in
+    batches. Produces the same output as the non-chunked function.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+
+    counts: dict[Kmer, int] = {}
+    dups: dict[Kmer, int] = {}
+    it = iter(rearrangements)
+    while True:
+        chunk = list(islice(it, chunk_size))
+        if not chunk:
+            break
+        part = summarize_rearrangements(chunk, k=k, mask_byte=mask_byte)
+        for key, stats in part.items():
+            counts[key] = counts.get(key, 0) + stats.rearrangement_count
+            dups[key] = dups.get(key, 0) + stats.duplicate_count
+
+    return {kmer: KmerStats(counts[kmer], dups[kmer]) for kmer in counts}
+
+
+def summarize_annotations_chunked(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+    *,
+    chunk_size: int = 100_000,
+) -> dict[KmerSeq, dict[KmerAnnotation, KmerStats]]:
+    """Chunked variant of :func:`summarize_annotations`.
+
+    Useful for very large repertoires when the input can be iterated in
+    batches. Produces the same output as the non-chunked function.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+
+    counts: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
+    dups: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
+    it = iter(rearrangements)
+    while True:
+        chunk = list(islice(it, chunk_size))
+        if not chunk:
+            break
+        part = summarize_annotations(chunk, k=k, mask_byte=mask_byte)
+        for ks, inner in part.items():
+            for ka, stats in inner.items():
+                flat = (ks, ka)
+                counts[flat] = counts.get(flat, 0) + stats.rearrangement_count
+                dups[flat] = dups.get(flat, 0) + stats.duplicate_count
+
+    result: dict[KmerSeq, dict[KmerAnnotation, KmerStats]] = {}
+    for (ks, ka), rc in counts.items():
+        inner = result.get(ks)
+        if inner is None:
+            inner = {}
+            result[ks] = inner
+        inner[ka] = KmerStats(rc, dups[(ks, ka)])
     return result
 
 

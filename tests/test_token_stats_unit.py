@@ -5,7 +5,7 @@ import math
 import numpy as np
 from scipy.stats import binom
 
-from mir.biomarkers.kmer_stats import compare_kmer_counts
+from mir.biomarkers.token_stats import compare_kmer_counts
 
 
 def test_compare_kmer_counts_binom_uses_control_background_probability() -> None:

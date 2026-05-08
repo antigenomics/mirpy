@@ -125,6 +125,19 @@ class TestSummarizeByGenePl:
         assert trb["rearrangement_count"][0] == 1 and trb["duplicate_count"][0] == 1
         assert tra["rearrangement_count"][0] == 1 and tra["duplicate_count"][0] == 4
 
+    def test_chunked_matches_full(self):
+        rows = [_row("CASSLAP", id=i, duplicate_count=1 + (i % 3)) for i in range(1, 17)]
+        df = _make_pl_df(rows)
+        full = (
+            plmod.summarize_by_gene(plmod.expand_kmers(df, k=3))
+            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+        )
+        chunked = (
+            plmod.summarize_by_gene_chunked(df, k=3, chunk_size=5)
+            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+        )
+        assert chunked.to_dicts() == full.to_dicts()
+
 
 class TestSummarizeByPosPl:
     def test_positions(self):
