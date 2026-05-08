@@ -28,3 +28,11 @@ mir.biomarkers.alice module
    :undoc-members:
    :show-inheritance:
 
+mir.biomarkers.gliph module
+---------------------------
+
+.. automodule:: mir.biomarkers.gliph
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
