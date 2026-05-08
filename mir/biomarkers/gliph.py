@@ -55,9 +55,10 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from mir.biomarkers.kmer_stats import compare_kmer_counts
-from mir.basic.token_tables import compute_token_tables_batch, tokenize_rearrangements
+from mir.biomarkers.token_stats import compare_kmer_counts
+from mir.basic.token_tables import tokenize_rearrangements
 from mir.basic.alphabets import _to_bytes as _aa_to_bytes
+from mir.basic.tokens import trim_sequence
 from mir.basic.mirseq import (
     tokenize_bytes as _c_tokenize_bytes,
     tokenize_gapped_bytes as _c_tokenize_gapped_bytes,
@@ -148,14 +149,7 @@ def _trim_junction_aa(junction_aa: str, trim_first: int = 3, trim_last: int = 4)
     str
         Trimmed junction_aa sequence.
     """
-    if not (trim_first or trim_last):
-        return junction_aa
-    if trim_first >= len(junction_aa):
-        return ""
-    end = len(junction_aa) - trim_last if trim_last else len(junction_aa)
-    if trim_first >= end:
-        return ""
-    return junction_aa[trim_first:end]
+    return trim_sequence(junction_aa, trim_first=trim_first, trim_last=trim_last)
 
 
 def repertoire_to_clonotypes(
@@ -474,18 +468,21 @@ def _merge_artifact_parts(
 
     count_mode = parts[0].count_mode
     merged_occurrences: Counter[str] = Counter()
+    merged_clonotypes: Counter[str] = Counter()
     merged_t2c: dict[str, set[str]] = defaultdict(set)
     merged_c2t: dict[str, set[str]] = defaultdict(set)
     for part in parts:
         merged_occurrences.update(part.occurrence_counts)
+        merged_clonotypes.update(part.clonotype_counts)
         for tok, rids in part.token_to_clone.items():
             merged_t2c[tok].update(rids)
         for rid, toks in part.clone_to_tokens.items():
             merged_c2t[rid].update(toks)
 
-    merged_clonotype_counts = {
-        token: len(rids) for token, rids in merged_t2c.items()
-    }
+    if merged_t2c:
+        merged_clonotype_counts = {token: len(rids) for token, rids in merged_t2c.items()}
+    else:
+        merged_clonotype_counts = dict(merged_clonotypes)
     merged_counts = (
         dict(merged_clonotype_counts)
         if count_mode == "clonotype"
@@ -583,13 +580,113 @@ def extract_gliph_token_artifacts(
     return _merge_artifact_parts(parts)
 
 
+def _extract_artifacts_direct(
+    clonotypes: list[Clonotype],
+    families: list[str],
+    *,
+    count_mode: COUNT_MODE = "clonotype",
+    build_mappings: bool = True,
+    trim_first: int = 0,
+) -> dict[str, GliphTokenArtifacts]:
+    """Single-pass token artifact extraction for all requested families.
+
+    This avoids allocating intermediate token tables and can skip adjacency
+    mappings when only counts are needed (control-mode workflows).
+    """
+    if not families:
+        return {}
+
+    need_plain3 = any(f in {"v3", "pos3", "u3"} for f in families)
+    need_u4 = "u4" in families
+    need_g4 = "g4" in families
+    need_g5 = "g5" in families
+    mask_byte = ord("X")
+
+    occ_counts: dict[str, Counter[str]] = {f: Counter() for f in families}
+    clo_counts: dict[str, Counter[str]] = {f: Counter() for f in families}
+    t2c: dict[str, defaultdict[str, set[str]]] = (
+        {f: defaultdict(set) for f in families} if build_mappings else {}
+    )
+    c2t: dict[str, defaultdict[str, set[str]]] = (
+        {f: defaultdict(set) for f in families} if build_mappings else {}
+    )
+
+    for clonotype in clonotypes:
+        raw = _aa_to_bytes(clonotype.junction_aa)
+        n = len(raw)
+        rid = str(clonotype.id)
+        v_base = (clonotype.v_gene or "").split("*")[0]
+
+        seen: dict[str, set[str]] = {f: set() for f in families}
+
+        if need_plain3 and n >= 3:
+            for pos, seq_b in enumerate(_c_tokenize_bytes(raw, 3)):
+                seq = seq_b.decode("ascii")
+                if "v3" in families:
+                    tok = f"v3::{v_base}::{seq}"
+                    seen["v3"].add(tok)
+                    occ_counts["v3"][tok] += 1
+                if "pos3" in families:
+                    tok = f"pos3::{v_base}::{trim_first + pos}::{seq}"
+                    seen["pos3"].add(tok)
+                    occ_counts["pos3"][tok] += 1
+                if "u3" in families:
+                    tok = f"u3::{seq}"
+                    seen["u3"].add(tok)
+                    occ_counts["u3"][tok] += 1
+
+        if need_u4 and n >= 4:
+            for seq_b in _c_tokenize_bytes(raw, 4):
+                tok = f"u4::{seq_b.decode('ascii')}"
+                seen["u4"].add(tok)
+                occ_counts["u4"][tok] += 1
+
+        if need_g4 and n >= 4:
+            for seq_b in _c_tokenize_gapped_bytes(raw, 4, mask_byte):
+                tok = f"g4::{seq_b.decode('ascii')}"
+                seen["g4"].add(tok)
+                occ_counts["g4"][tok] += 1
+
+        if need_g5 and n >= 5:
+            for seq_b in _c_tokenize_gapped_bytes(raw, 5, mask_byte):
+                tok = f"g5::{seq_b.decode('ascii')}"
+                seen["g5"].add(tok)
+                occ_counts["g5"][tok] += 1
+
+        for family in families:
+            for tok in seen[family]:
+                clo_counts[family][tok] += 1
+            if build_mappings:
+                for tok in seen[family]:
+                    t2c[family][tok].add(rid)
+                c2t[family][rid] = seen[family].copy()
+
+    result: dict[str, GliphTokenArtifacts] = {}
+    for family in families:
+        occ = dict(occ_counts[family])
+        clo = dict(clo_counts[family])
+        counts = clo if count_mode == "clonotype" else occ
+        result[family] = GliphTokenArtifacts(
+            counts=counts,
+            token_to_clone={tok: rids for tok, rids in t2c[family].items()} if build_mappings else {},
+            clone_to_tokens=dict(c2t[family]) if build_mappings else {},
+            occurrence_counts=occ,
+            clonotype_counts=clo,
+            count_mode=count_mode,
+        )
+
+    return result
+
+
 def extract_gliph_artifacts_batch_from_repertoire(
     repertoire: LocusRepertoire,
     families: list[str],
     *,
     count_mode: COUNT_MODE = "clonotype",
+    build_mappings: bool = True,
     trim_first: int = 3,
     trim_last: int = 4,
+    chunk_size: int | None = None,
 ) -> dict[str, GliphTokenArtifacts]:
     """Extract GLIPH token artifacts for multiple families from one repertoire.
 
@@ -597,12 +694,6 @@ def extract_gliph_artifacts_batch_from_repertoire(
     returns artifacts keyed by family name. It avoids repeated DataFrame
     conversion in notebook workflows and keeps control handling repertoire-based.
     """
-    clones = repertoire_to_clonotypes(
-        repertoire,
-        trim_first=trim_first,
-        trim_last=trim_last,
-    )
-
     fams: list[str] = []
     for family in families:
         fam_norm = "pos3" if family == "vpos3" else family
@@ -610,13 +701,66 @@ def extract_gliph_artifacts_batch_from_repertoire(
             raise ValueError(f"Unknown GLIPH token family: {family}")
         fams.append(fam_norm)
 
-    return _extract_artifacts_direct(
-        clones,
-        fams,
-        count_mode=count_mode,
-        build_mappings=build_mappings,
-        trim_first=trim_first,
-    )
+    if chunk_size is None:
+        chunk_size = 0
+    if chunk_size < 0:
+        raise ValueError(f"chunk_size must be >= 0, got {chunk_size}")
+
+    # Fast path for in-memory repertoires.
+    if chunk_size == 0:
+        clones = repertoire_to_clonotypes(
+            repertoire,
+            trim_first=trim_first,
+            trim_last=trim_last,
+        )
+        return _extract_artifacts_direct(
+            clones,
+            fams,
+            count_mode=count_mode,
+            build_mappings=build_mappings,
+            trim_first=trim_first,
+        )
+
+    table = repertoire.to_polars()
+    if table.height == 0:
+        return {
+            family: GliphTokenArtifacts(
+                counts={},
+                token_to_clone={},
+                clone_to_tokens={},
+                occurrence_counts={},
+                clonotype_counts={},
+                count_mode=count_mode,
+            )
+            for family in fams
+        }
+
+    by_family_parts: dict[str, list[GliphTokenArtifacts]] = {family: [] for family in fams}
+
+    start = 0
+    while start < table.height:
+        chunk = table.slice(start, chunk_size)
+        start += chunk_size
+        chunk_rep = LocusRepertoire.from_polars(chunk, locus=repertoire.locus)
+        chunk_clones = repertoire_to_clonotypes(
+            chunk_rep,
+            trim_first=trim_first,
+            trim_last=trim_last,
+        )
+        part = _extract_artifacts_direct(
+            chunk_clones,
+            fams,
+            count_mode=count_mode,
+            build_mappings=build_mappings,
+            trim_first=trim_first,
+        )
+        for family in fams:
+            by_family_parts[family].append(part[family])
+
+    return {
+        family: _merge_artifact_parts(parts)
+        for family, parts in by_family_parts.items()
+    }
 
 
 def extract_v3mer_artifacts(
@@ -840,17 +984,12 @@ imported by downstream code (e.g., notebook analysis workflows).
 # Full-GLIPH graph helpers (moved to mir.graph.token_graph)
 # ---------------------------------------------------------------------------
 
-# For backward compatibility, import and re-export graph construction helpers.
-# These are now in mir.graph.token_graph:
-#  - combine_enriched_token_maps
-#  - build_full_gliph_clonotype_graph  
-#  - build_kmer_projection_graph
-
 from mir.graph.token_graph import (
     combine_enriched_token_maps,
     build_full_gliph_clonotype_graph,
     build_kmer_projection_graph,
 )
+
 
 __all__ = [
     "GliphTokenArtifacts",
@@ -862,156 +1001,16 @@ __all__ = [
     "extract_u4mer_artifacts",
     "extract_g4mer_artifacts",
     "extract_g5mer_artifacts",
-    def _extract_artifacts_direct(
-        clonotypes: list[Clonotype],
-        families: list[str],
-        *,
-        count_mode: COUNT_MODE = "clonotype",
-        build_mappings: bool = True,
-        trim_first: int = 0,
-    ) -> dict[str, GliphTokenArtifacts]:
-        """Single-pass, memory-efficient token artifact extraction for all families.
-
-        Unlike the two-stage ``tokenize_rearrangements`` → ``_build_artifacts_from_token_table``
-        pipeline, this iterates the clonotype list exactly once and builds all
-        requested family artifacts simultaneously. It avoids allocating intermediate
-        ``dict[Kmer, list[KmerMatch]]`` structures, which can require 10–20× more
-        memory than the final count dicts alone.
-
-        When ``build_mappings=False`` (suitable for control/background repertoires
-        where only ``.counts`` is consumed downstream), the bidirectional
-        ``token_to_clone`` and ``clone_to_tokens`` mappings are skipped entirely,
-        reducing peak memory by another 2–4×.
-
-        Args:
-            clonotypes: Input clonotypes with sequences already trimmed.
-            families: Normalized family names (``"vpos3"`` must be resolved to
-                ``"pos3"`` before calling).
-            count_mode: ``"clonotype"`` or ``"occurrence"``.
-            build_mappings: Build bidirectional token↔clone adjacency maps.
-                Set ``False`` for control artifacts (only counts needed).
-            trim_first: Position offset added to ``pos3`` token position numbers,
-                reflecting how many amino acids were trimmed from the CDR3 start.
-
-        Returns:
-            Dict mapping family name to :class:`GliphTokenArtifacts`.
-        """
-        need_plain3 = any(f in {"v3", "pos3", "u3"} for f in families)
-        need_u4 = "u4" in families
-        need_g4 = "g4" in families
-        need_g5 = "g5" in families
-        _MASK = ord("X")
-
-        occ_counts: dict[str, Counter] = {f: Counter() for f in families}
-        clo_counts: dict[str, Counter] = {f: Counter() for f in families}
-        t2c: dict[str, defaultdict] = {f: defaultdict(set) for f in families} if build_mappings else {}
-        c2t: dict[str, defaultdict] = {f: defaultdict(set) for f in families} if build_mappings else {}
-
-        for c in clonotypes:
-            raw = _aa_to_bytes(c.junction_aa)
-            n = len(raw)
-            rid = str(c.id)
-            v_base = (c.v_gene or "").split("*")[0]
-
-            # Per-clonotype seen sets for clonotype-level deduplication.
-            # Kept small (O(tokens_per_seq)), discarded after each clonotype.
-            seen: dict[str, set[str]] = {f: set() for f in families}
-
-            if need_plain3 and n >= 3:
-                p3 = _c_tokenize_bytes(raw, 3)  # list[bytes], len = n - 2
-                for pos, seq_b in enumerate(p3):
-                    seq = seq_b.decode("ascii")
-                    if "v3" in families:
-                        seen["v3"].add(f"v3::{v_base}::{seq}")
-                        occ_counts["v3"][f"v3::{v_base}::{seq}"] += 1
-                    if "pos3" in families:
-                        seen["pos3"].add(f"pos3::{v_base}::{trim_first + pos}::{seq}")
-                        occ_counts["pos3"][f"pos3::{v_base}::{trim_first + pos}::{seq}"] += 1
-                    if "u3" in families:
-                        seen["u3"].add(f"u3::{seq}")
-                        occ_counts["u3"][f"u3::{seq}"] += 1
-
-            if need_u4 and n >= 4:
-                for seq_b in _c_tokenize_bytes(raw, 4):
-                    tok = f"u4::{seq_b.decode('ascii')}"
-                    seen["u4"].add(tok)
-                    occ_counts["u4"][tok] += 1
-
-            if need_g4 and n >= 4:
-                for seq_b in _c_tokenize_gapped_bytes(raw, 4, _MASK):
-                    tok = f"g4::{seq_b.decode('ascii')}"
-                    seen["g4"].add(tok)
-                    occ_counts["g4"][tok] += 1
-
-            if need_g5 and n >= 5:
-                for seq_b in _c_tokenize_gapped_bytes(raw, 5, _MASK):
-                    tok = f"g5::{seq_b.decode('ascii')}"
-                    seen["g5"].add(tok)
-                    occ_counts["g5"][tok] += 1
-
-            # Flush per-clonotype seen sets into clonotype counters (and optionally mappings).
-            for f in families:
-                for tok in seen[f]:
-                    clo_counts[f][tok] += 1
-                if build_mappings:
-                    for tok in seen[f]:
-                        t2c[f][tok].add(rid)
-                    c2t[f][rid] = seen[f].copy()
-
-        result: dict[str, GliphTokenArtifacts] = {}
-        for f in families:
-            occ = dict(occ_counts[f])
-            clo = dict(clo_counts[f])
-            counts = clo if count_mode == "clonotype" else occ
-            result[f] = GliphTokenArtifacts(
-                counts=counts,
-                token_to_clone={tok: rids for tok, rids in t2c[f].items()} if build_mappings else {},
-                clone_to_tokens=dict(c2t[f]) if build_mappings else {},
-                occurrence_counts=occ,
-                clonotype_counts=clo,
-                count_mode=count_mode,
-            )
-        return result
-
-
-    def extract_gliph_artifacts_batch_from_repertoire(
-        repertoire: LocusRepertoire,
-        families: list[str],
-        *,
-        count_mode: COUNT_MODE = "clonotype",
-        build_mappings: bool = True,
-        trim_first: int = 3,
-        trim_last: int = 4,
-    ) -> dict[str, GliphTokenArtifacts]:
-        """Extract GLIPH token artifacts for multiple families from one repertoire.
-
-        Uses a single-pass direct extraction strategy that avoids allocating
-        intermediate token tables, resulting in significantly lower memory usage
-        and faster execution compared to the legacy two-stage pipeline (especially
-        for large control repertoires).
-
-        Args:
-            repertoire: Source repertoire.
-            families: Token families to extract. Supported: ``"v3"``, ``"pos3"``,
-                ``"u3"``, ``"u4"``, ``"g4"``, ``"g5"``.
-            count_mode: ``"clonotype"`` (default) or ``"occurrence"``.
-            build_mappings: Whether to build bidirectional ``token_to_clone`` /
-                ``clone_to_tokens`` adjacency maps. Set ``False`` for control
-                repertoires where only ``.counts`` is needed downstream (saves
-                2–4× memory on large controls).
-            trim_first: Amino acids to trim from CDR3 start before tokenising
-                (default 3).
-            trim_last: Amino acids to trim from CDR3 end before tokenising
-                (default 4).
-
-        Returns:
-            Dict mapping family name to :class:`GliphTokenArtifacts`.
-        """
-        clones = repertoire_to_clonotypes(
-            repertoire,
-            trim_first=trim_first,
-            trim_last=trim_last,
-        )
+    "extract_gliph_token_artifacts",
+    "extract_gliph_artifacts_batch_from_repertoire",
+    "compare_gliph_token_incidence",
+    "deduplicate_clonotype_rows",
+    "normalize_control_v",
+    "normalize_control_vj",
+    "combine_enriched_token_maps",
+    "build_full_gliph_clonotype_graph",
+    "build_kmer_projection_graph",
+]
 def _normalize_gene_usage_series(df: pd.DataFrame, gene_col: str) -> pd.Series:
     return df[gene_col].fillna("").astype(str).str.strip().str.split("*").str[0]
 

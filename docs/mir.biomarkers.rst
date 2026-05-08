@@ -4,10 +4,10 @@ mir.biomarkers package
 Submodules
 ----------
 
-mir.biomarkers.kmer_stats module
+mir.biomarkers.token_stats module
 ---------------------------------
 
-.. automodule:: mir.biomarkers.kmer_stats
+.. automodule:: mir.biomarkers.token_stats
    :members:
    :undoc-members:
    :show-inheritance:

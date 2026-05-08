@@ -13,7 +13,9 @@ from mir.basic.token_tables import (
     KmerSeq,
     KmerStats,
     summarize_annotations,
+    summarize_annotations_chunked,
     summarize_rearrangements,
+    summarize_rearrangements_chunked,
     tokenize_rearrangements,
 )
 from mir.common.clonotype import Clonotype
@@ -78,6 +80,28 @@ class TestKmer:
         a = Kmer("TRB", "TRBV5-1", "TRBC1", b"CASS")
         b = Kmer("TRB", "TRBV5-2", "TRBC1", b"CASS")
         assert a != b
+
+
+class TestChunkedSummaries:
+    def test_summarize_rearrangements_chunked_matches_nonchunked(self):
+        rearrangements = [
+            _make_rearrangement("CASSLAP", id=1, duplicate_count=2),
+            _make_rearrangement("CASSLAP", id=2, duplicate_count=3),
+            _make_rearrangement("CASSQWE", id=3, duplicate_count=4),
+        ]
+        full = summarize_rearrangements(rearrangements, k=3)
+        chunked = summarize_rearrangements_chunked(rearrangements, k=3, chunk_size=2)
+        assert chunked == full
+
+    def test_summarize_annotations_chunked_matches_nonchunked(self):
+        rearrangements = [
+            _make_rearrangement("CASSLAP", id=1, duplicate_count=2),
+            _make_rearrangement("CASSLAP", id=2, duplicate_count=3),
+            _make_rearrangement("CASSQWE", id=3, duplicate_count=4),
+        ]
+        full = summarize_annotations(rearrangements, k=3)
+        chunked = summarize_annotations_chunked(rearrangements, k=3, chunk_size=2)
+        assert chunked == full
 
 
 # ---------------------------------------------------------------------------

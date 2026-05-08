@@ -34,7 +34,7 @@ from mir.biomarkers.gliph import (
     extract_v3mer_artifacts,
     normalize_control_v,
 )
-from mir.biomarkers.kmer_stats import compare_kmer_counts
+from mir.biomarkers.token_stats import compare_kmer_counts
 from mir.common.control import ControlManager
 from tests.conftest import skip_benchmarks
 
