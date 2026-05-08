@@ -305,3 +305,58 @@ def filter_token_table(
                 continue
         result[kmer] = matches
     return result
+
+
+def compute_token_tables_batch(
+    rearrangements: list[Clonotype],
+    families: list[str] | None = None,
+) -> dict[str, dict[Kmer, list[KmerMatch]]]:
+    """Compute token tables for multiple k-mer families at once.
+    
+    This is a convenience function for batch extraction of all requested
+    token families from a single set of rearrangements, avoiding redundant
+    processing of the input data.
+    
+    Parameters
+    ----------
+    rearrangements : list[Clonotype]
+        Input rearrangements.
+    families : list[str] | None
+        Token families to compute. Supported values: 'v3', 'pos3', 'u3',
+        'u4', 'g4', 'g5'. If None, all six families are computed.
+    
+    Returns
+    -------
+    dict[str, dict[Kmer, list[KmerMatch]]]
+        Dictionary mapping family name to its token table.
+    
+    Notes
+    -----
+    Each family uses different k-mer parameters:
+    - 'v3': plain 3-mers
+    - 'pos3': plain 3-mers (position-annotated in token_graph)
+    - 'u3': ungapped 3-mers
+    - 'u4': ungapped 4-mers
+    - 'g4': gapped 4-mers (mask_byte=ord('X'))
+    - 'g5': gapped 5-mers (mask_byte=ord('X'))
+    """
+    if families is None:
+        families = ['v3', 'pos3', 'u3', 'u4', 'g4', 'g5']
+    
+    result: dict[str, dict[Kmer, list[KmerMatch]]] = {}
+    
+    for family in families:
+        if family == 'vpos3':
+            family = 'pos3'
+        if family in ('v3', 'pos3', 'u3'):
+            result[family] = tokenize_rearrangements(rearrangements, k=3, mask_byte=None)
+        elif family == 'u4':
+            result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=None)
+        elif family == 'g4':
+            result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=ord('X'))
+        elif family == 'g5':
+            result[family] = tokenize_rearrangements(rearrangements, k=5, mask_byte=ord('X'))
+        else:
+            raise ValueError(f"Unknown token family: {family}")
+    
+    return result

@@ -35,31 +35,15 @@ from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 
 def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
-    from_pandas = getattr(LocusRepertoire, "from_pandas", None)
-    if callable(from_pandas):
-        return from_pandas(df, locus=locus)
-
+    """Build a LocusRepertoire from a pandas DataFrame using polars backend."""
+    import polars as pl
+    
     tmp = df.copy()
     if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
         tmp = tmp.rename(columns={"row_id": "sequence_id"})
-    seq_ids = tmp["sequence_id"].astype(str).tolist() if "sequence_id" in tmp.columns else [str(i) for i in range(len(tmp))]
-    jaa = tmp["junction_aa"].astype(str).tolist()
-    vg = tmp["v_gene"].astype(str).tolist()
-    jg = tmp["j_gene"].astype(str).tolist() if "j_gene" in tmp.columns else [""] * len(tmp)
-    dc = pd.to_numeric(tmp.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int).tolist()
-    clones = [
-        CommonClonotype(
-            sequence_id=sid,
-            locus=locus,
-            junction_aa=jaa_i,
-            v_gene=vg_i,
-            j_gene=jg_i,
-            duplicate_count=dc_i,
-            _validate=False,
-        )
-        for sid, jaa_i, vg_i, jg_i, dc_i in zip(seq_ids, jaa, vg, jg, dc)
-    ]
-    return LocusRepertoire(clones, locus=locus)
+    
+    pl_df = pl.from_pandas(tmp, include_index=False)
+    return LocusRepertoire.from_polars(pl_df, locus=locus)
 
 
 def build_token_graph(
