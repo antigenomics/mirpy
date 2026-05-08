@@ -5,10 +5,13 @@ Provides:
 - :func:`rows_to_clonotypes` — fast DataFrame-to-Clonotype conversion.
 - :func:`deduplicate_clonotype_rows` — aggregate repeated clonotype rows.
 - :func:`extract_v3mer_artifacts` — V-gene anchored 3-mer extraction.
-- :func:`extract_vpos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
+- :func:`extract_pos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
+- :func:`extract_vpos3mer_artifacts` — deprecated alias for :func:`extract_pos3mer_artifacts`.
 - :func:`extract_u4mer_artifacts` — ungapped 4-mer extraction.
 - :func:`extract_g4mer_artifacts` — gapped 4-mer extraction.
 - :func:`extract_g5mer_artifacts` — gapped 5-mer extraction.
+- :func:`combine_enriched_token_maps` — merge enriched token neighborhoods across families.
+- :func:`build_full_gliph_clonotype_graph` — build a combined k-mer/Hamming clonotype graph.
 - :func:`normalize_control_v` — resample control to match sample unweighted V usage.
 - :func:`normalize_control_vj` — resample control to match sample unweighted VJ usage.
 
@@ -29,11 +32,13 @@ from dataclasses import dataclass
 from typing import Literal
 import warnings
 
+import igraph as ig
 import numpy as np
 import pandas as pd
 
 from mir.basic.token_tables import tokenize_rearrangements
 from mir.common.clonotype import Clonotype
+from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +74,7 @@ class GliphTokenArtifacts:
     count_mode: Literal["occurrence", "clonotype"] = "clonotype"
 
 
-TOKEN_FAMILY = Literal["v3", "vpos3", "u4", "g4", "g5"]
+TOKEN_FAMILY = Literal["v3", "pos3", "u4", "g4", "g5", "vpos3"]
 COUNT_MODE = Literal["occurrence", "clonotype"]
 
 _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
@@ -172,9 +177,11 @@ def _token_table_for_family(
     clones: list[Clonotype],
     family: TOKEN_FAMILY,
 ):
+    if family == "vpos3":
+        family = "pos3"
     if family == "v3":
         return tokenize_rearrangements(clones, k=3, mask_byte=None)
-    if family == "vpos3":
+    if family == "pos3":
         return tokenize_rearrangements(clones, k=3, mask_byte=None)
     if family == "u4":
         return tokenize_rearrangements(clones, k=4, mask_byte=None)
@@ -186,12 +193,14 @@ def _token_table_for_family(
 
 
 def _token_from_match(family: TOKEN_FAMILY, kmer, match) -> str:
+    if family == "vpos3":
+        family = "pos3"
     seq = kmer.seq.decode("ascii")
     v_base = (kmer.v_gene or "").split("*")[0]
     if family == "v3":
         return f"v3::{v_base}::{seq}"
-    if family == "vpos3":
-        return f"vpos3::{v_base}::{match.position}::{seq}"
+    if family == "pos3":
+        return f"pos3::{v_base}::{match.position}::{seq}"
     if family == "u4":
         return f"u4::{seq}"
     if family == "g4":
@@ -332,7 +341,7 @@ def extract_gliph_token_artifacts(
     df : pd.DataFrame
         Clonotype table with columns ``row_id``, ``junction_aa``, ``v_gene``,
         ``j_gene`` (optional), ``duplicate_count``.
-    family : {"v3", "vpos3", "u4", "g4", "g5"}
+    family : {"v3", "pos3", "u4", "g4", "g5"}
         Token family to extract.
     threads : int, optional
         Number of worker threads (default ``1``).
@@ -402,10 +411,35 @@ def extract_vpos3mer_artifacts(
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
-    """Extract V-gene + junction-position anchored 3-mer token artifacts."""
+    """Deprecated alias for :func:`extract_pos3mer_artifacts`."""
+    warnings.warn(
+        "extract_vpos3mer_artifacts is deprecated; use extract_pos3mer_artifacts.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return extract_pos3mer_artifacts(
+        df,
+        threads=threads,
+        count_mode=count_mode,
+        unique_clonotypes=unique_clonotypes,
+        unique_subset=unique_subset,
+        n_workers=n_workers,
+    )
+
+
+def extract_pos3mer_artifacts(
+    df: pd.DataFrame,
+    threads: int = 1,
+    *,
+    count_mode: COUNT_MODE = "clonotype",
+    unique_clonotypes: bool = False,
+    unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    n_workers: int | None = None,
+) -> GliphTokenArtifacts:
+    """Extract pos+3-mer token artifacts (V-gene + junction position + 3-mer)."""
     return extract_gliph_token_artifacts(
         df,
-        family="vpos3",
+        family="pos3",
         threads=threads,
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
@@ -475,6 +509,182 @@ def extract_g5mer_artifacts(
         unique_subset=unique_subset,
         n_workers=n_workers,
     )
+
+
+# ---------------------------------------------------------------------------
+# Full-GLIPH graph helpers (k-mer enrichment + hamming expansion)
+# ---------------------------------------------------------------------------
+
+
+def combine_enriched_token_maps(
+    artifacts_by_family: dict[str, GliphTokenArtifacts],
+    enriched_tokens_by_family: dict[str, set[str]],
+) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, str]]:
+    """Merge enriched token neighborhoods across token families.
+
+    Returns
+    -------
+    tuple
+        ``(token_to_clones, clone_to_tokens, token_family)`` where:
+        - ``token_to_clones[token]`` is the clonotype-id set carrying ``token``;
+        - ``clone_to_tokens[clone_id]`` are enriched tokens linked to the clonotype;
+        - ``token_family[token]`` stores the source family key.
+    """
+    token_to_clones: dict[str, set[str]] = defaultdict(set)
+    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
+    token_family: dict[str, str] = {}
+
+    for family, artifacts in artifacts_by_family.items():
+        tokens = enriched_tokens_by_family.get(family, set())
+        for token in tokens:
+            clone_ids = set(artifacts.token_to_clone.get(token, set()))
+            if not clone_ids:
+                continue
+            token_to_clones[token].update(clone_ids)
+            token_family[token] = family
+            for clone_id in clone_ids:
+                clone_to_tokens[clone_id].add(token)
+
+    return dict(token_to_clones), dict(clone_to_tokens), token_family
+
+
+def build_full_gliph_clonotype_graph(
+    study_df: pd.DataFrame,
+    token_to_clones: dict[str, set[str]],
+    *,
+    hamming_threshold: int = 1,
+    hamming_threads: int = 4,
+    expand_hamming_neighbors: bool = True,
+    min_kmer_edge_weight: float = 0.35,
+    hamming_bonus: float = 1.0,
+) -> tuple[ig.Graph, dict[str, set[str]], ig.Graph]:
+    """Build the combined GLIPH clonotype graph with Hamming expansion.
+
+    The graph is built in three stages:
+
+    1. Start from clonotypes linked to at least one enriched token.
+    2. Add edges between clonotypes sharing enriched tokens.
+    3. Add Hamming ``<= threshold`` edges, and (optionally) one-hop Hamming
+       neighbors of already-active clonotypes.
+
+    Returns
+    -------
+    tuple
+        ``(full_clone_graph, clone_to_tokens_expanded, hamming_graph)``.
+    """
+    all_clones = rows_to_clonotypes(study_df)
+    hamming_graph = build_edit_distance_graph(
+        all_clones,
+        metric="hamming",
+        threshold=hamming_threshold,
+        n_jobs=hamming_threads,
+    )
+
+    all_clone_ids = [str(clone.id) for clone in all_clones]
+    initial_active = set(str(clone_id) for clone_ids in token_to_clones.values() for clone_id in clone_ids)
+    active = set(initial_active)
+
+    # Add one hop of Hamming neighbors around the currently active set.
+    if expand_hamming_neighbors and active and hamming_graph.vcount() > 0:
+        id_to_idx = {str(rid): idx for idx, rid in enumerate(hamming_graph.vs["r_id"])}
+        for clone_id in list(active):
+            idx = id_to_idx.get(clone_id)
+            if idx is None:
+                continue
+            for nbr in hamming_graph.neighbors(idx):
+                active.add(str(hamming_graph.vs[nbr]["r_id"]))
+
+    # Build shared-kmer edge counts and specificity-weighted contributions over active nodes.
+    active_clone_nodes = sorted(active)
+    clone_idx = {clone_id: i for i, clone_id in enumerate(active_clone_nodes)}
+    edge_shared_kmers: dict[tuple[int, int], int] = defaultdict(int)
+    edge_kmer_weight: dict[tuple[int, int], float] = defaultdict(float)
+    for clone_ids in token_to_clones.values():
+        present = sorted(set(str(clone_id) for clone_id in clone_ids if str(clone_id) in clone_idx))
+        degree = len(present)
+        if degree < 2:
+            continue
+        contribution = 1.0 / max(1.0, float(degree - 1))
+        for left_i in range(len(present) - 1):
+            left = present[left_i]
+            for right in present[left_i + 1 :]:
+                edge = tuple(sorted((clone_idx[left], clone_idx[right])))
+                edge_shared_kmers[edge] += 1
+                edge_kmer_weight[edge] += contribution
+
+    # Add hamming edges among active nodes.
+    edge_hamming: set[tuple[int, int]] = set()
+    if hamming_graph.vcount() > 0 and active_clone_nodes:
+        id_to_local = {str(rid): clone_idx[str(rid)] for rid in active_clone_nodes if str(rid) in clone_idx}
+        for edge in hamming_graph.es:
+            source = str(hamming_graph.vs[edge.source]["r_id"])
+            target = str(hamming_graph.vs[edge.target]["r_id"])
+            if source not in id_to_local or target not in id_to_local:
+                continue
+            edge_hamming.add(tuple(sorted((id_to_local[source], id_to_local[target]))))
+
+    keep_kmer_edges = {edge for edge, weight in edge_kmer_weight.items() if weight >= min_kmer_edge_weight}
+    all_edges = sorted(keep_kmer_edges | edge_hamming)
+    graph = ig.Graph(n=len(active_clone_nodes), directed=False)
+    graph.vs["name"] = active_clone_nodes
+    if all_edges:
+        graph.add_edges(all_edges)
+        graph.es["shared_kmers"] = [int(edge_shared_kmers.get(edge, 0)) for edge in all_edges]
+        graph.es["kmer_weight"] = [float(edge_kmer_weight.get(edge, 0.0)) for edge in all_edges]
+        graph.es["is_hamming"] = [edge in edge_hamming for edge in all_edges]
+        graph.es["weight"] = [
+            float(edge_kmer_weight.get(edge, 0.0)) + (hamming_bonus if edge in edge_hamming else 0.0)
+            for edge in all_edges
+        ]
+
+    clone_to_tokens_expanded: dict[str, set[str]] = {
+        clone_id: set() for clone_id in all_clone_ids if clone_id in active
+    }
+    for token, clone_ids in token_to_clones.items():
+        for clone_id in clone_ids:
+            clone_id = str(clone_id)
+            if clone_id in clone_to_tokens_expanded:
+                clone_to_tokens_expanded[clone_id].add(token)
+
+    return graph, clone_to_tokens_expanded, hamming_graph
+
+
+def build_kmer_projection_graph(
+    token_to_clones: dict[str, set[str]],
+) -> tuple[ig.Graph, dict[str, int]]:
+    """Project token-clone bipartite links to a token co-occurrence graph.
+
+    This is the one-mode projection (token side) of the underlying bipartite
+    graph, where tokens are connected if at least one clonotype carries both.
+    """
+    tokens = sorted(token_to_clones)
+    token_idx = {token: idx for idx, token in enumerate(tokens)}
+    graph = ig.Graph(n=len(tokens), directed=False)
+    graph.vs["name"] = tokens
+
+    clone_to_tokens: dict[str, list[str]] = defaultdict(list)
+    for token, clone_ids in token_to_clones.items():
+        for clone_id in clone_ids:
+            clone_to_tokens[str(clone_id)].append(token)
+
+    edge_weights: dict[tuple[int, int], int] = defaultdict(int)
+    for token_list in clone_to_tokens.values():
+        unique_tokens = sorted(set(token_list))
+        if len(unique_tokens) < 2:
+            continue
+        for left_i in range(len(unique_tokens) - 1):
+            left = unique_tokens[left_i]
+            for right in unique_tokens[left_i + 1 :]:
+                edge = tuple(sorted((token_idx[left], token_idx[right])))
+                edge_weights[edge] += 1
+
+    if edge_weights:
+        edges = list(edge_weights.keys())
+        graph.add_edges(edges)
+        graph.es["weight"] = [float(edge_weights[edge]) for edge in edges]
+
+    token_degree = {token: len(token_to_clones.get(token, set())) for token in tokens}
+    return graph, token_degree
 
 
 # ---------------------------------------------------------------------------

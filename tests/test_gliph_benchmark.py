@@ -13,11 +13,8 @@ expanded workflow:
 
 from __future__ import annotations
 
-from collections import defaultdict
-from itertools import combinations
 from pathlib import Path
 
-import igraph as ig
 import numpy as np
 import pandas as pd
 import pytest
@@ -25,12 +22,15 @@ from sklearn.metrics import adjusted_mutual_info_score, normalized_mutual_info_s
 
 from mir.biomarkers.gliph import (
     GliphTokenArtifacts,
+    build_full_gliph_clonotype_graph,
+    build_kmer_projection_graph,
+    combine_enriched_token_maps,
     deduplicate_clonotype_rows,
     extract_g4mer_artifacts,
     extract_g5mer_artifacts,
+    extract_pos3mer_artifacts,
     extract_u4mer_artifacts,
     extract_v3mer_artifacts,
-    extract_vpos3mer_artifacts,
     normalize_control_v,
 )
 from mir.biomarkers.kmer_stats import compare_kmer_counts
@@ -42,7 +42,7 @@ GLIPH_PATH = Path(__file__).resolve().parents[1] / "airr_benchmark" / "gliph" / 
 AA_RE = r"^[ACDEFGHIKLMNPQRSTVWY]+$"
 THREADS = 4
 CONTROL_SAMPLE = 1_000_000
-FAMILIES = ("v3", "vpos3", "u4", "g4", "g5")
+FAMILIES = ("v3", "pos3", "u4", "g4", "g5")
 METHODS = ("components", "leiden")
 MIN_CLONOTYPE_SUPPORT = 2
 MIN_CLUSTER_SIZE = 3
@@ -73,8 +73,8 @@ def _extract_family(df: pd.DataFrame, family: str) -> GliphTokenArtifacts:
     kwargs = dict(threads=THREADS, count_mode="clonotype", unique_clonotypes=False)
     if family == "v3":
         return extract_v3mer_artifacts(df, **kwargs)
-    if family == "vpos3":
-        return extract_vpos3mer_artifacts(df, **kwargs)
+    if family == "pos3":
+        return extract_pos3mer_artifacts(df, **kwargs)
     if family == "u4":
         return extract_u4mer_artifacts(df, **kwargs)
     if family == "g4":
@@ -120,80 +120,16 @@ def _family_payloads(study_df: pd.DataFrame, ctrl_df: pd.DataFrame) -> tuple[dic
     return payloads, n_sig_by_family
 
 
-def _combine_enriched_tokens(payloads: dict[str, dict[str, object]]) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    token_to_clones: dict[str, set[str]] = defaultdict(set)
-    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
-    for family, payload in payloads.items():
-        sample_art = payload["sample_art"]
-        for token in payload["enriched_tokens"]:
-            clone_ids = set(sample_art.token_to_clone.get(token, set()))
-            if not clone_ids:
-                continue
-            token_to_clones[token].update(clone_ids)
-            for clone_id in clone_ids:
-                clone_to_tokens[clone_id].add(token)
-    return dict(token_to_clones), dict(clone_to_tokens)
-
-
-def _project_clonotype_graph(study_df: pd.DataFrame, token_to_clones: dict[str, set[str]]) -> tuple[ig.Graph, list[str]]:
-    clone_ids = sorted(study_df["row_id"].astype(str).tolist())
-    active_clone_ids = sorted({clone_id for clone_ids_for_token in token_to_clones.values() for clone_id in clone_ids_for_token})
-    if not active_clone_ids:
-        graph = ig.Graph(n=0, directed=False)
-        graph.vs["name"] = []
-        return graph, clone_ids
-
-    clone_idx = {clone_id: i for i, clone_id in enumerate(active_clone_ids)}
-    edge_weights: dict[tuple[int, int], int] = defaultdict(int)
-    for clone_ids_for_token in token_to_clones.values():
-        ordered = sorted(clone_ids_for_token)
-        if len(ordered) < 2:
-            continue
-        for left, right in combinations(ordered, 2):
-            edge = tuple(sorted((clone_idx[left], clone_idx[right])))
-            edge_weights[edge] += 1
-
-    graph = ig.Graph(n=len(active_clone_ids), directed=False)
-    graph.vs["name"] = active_clone_ids
-    if edge_weights:
-        graph.add_edges(list(edge_weights.keys()))
-        graph.es["weight"] = [float(weight) for weight in edge_weights.values()]
-    return graph, clone_ids
-
-
-def _build_weighted_clonotype_graph(
-    study_df: pd.DataFrame,
-    token_to_clones: dict[str, set[str]],
-    *,
-    min_weight: float = CLONE_EDGE_MIN_WEIGHT,
-) -> tuple[ig.Graph, list[str]]:
-    raw_graph, all_clone_ids = _project_clonotype_graph(study_df, token_to_clones)
-    if raw_graph.vcount() == 0:
-        return raw_graph, all_clone_ids
-
-    clone_idx = {clone_id: idx for idx, clone_id in enumerate(raw_graph.vs["name"])}
-    edge_weights: dict[tuple[int, int], float] = defaultdict(float)
-    for clone_ids_for_token in token_to_clones.values():
-        ordered = sorted(clone_ids_for_token)
-        degree = len(ordered)
-        if degree < 2:
-            continue
-        contribution = 1.0 / max(1.0, float(degree - 1))
-        for left, right in combinations(ordered, 2):
-            edge = tuple(sorted((clone_idx[left], clone_idx[right])))
-            edge_weights[edge] += contribution
-
-    keep_edges = [(edge, weight) for edge, weight in edge_weights.items() if weight >= min_weight]
-    weighted = ig.Graph(n=raw_graph.vcount(), directed=False)
-    weighted.vs["name"] = raw_graph.vs["name"]
-    if keep_edges:
-        weighted.add_edges([edge for edge, _ in keep_edges])
-        weighted.es["weight"] = [float(weight) for _, weight in keep_edges]
-    return weighted, all_clone_ids
-
-
 def _community_labels(study_df: pd.DataFrame, token_to_clones: dict[str, set[str]], method: str) -> tuple[dict[str, int], dict[str, int]]:
-    graph, all_clone_ids = _build_weighted_clonotype_graph(study_df, token_to_clones)
+    graph, _clone_to_tokens, _hamming_graph = build_full_gliph_clonotype_graph(
+        study_df,
+        token_to_clones,
+        hamming_threshold=1,
+        hamming_threads=THREADS,
+        expand_hamming_neighbors=True,
+        min_kmer_edge_weight=CLONE_EDGE_MIN_WEIGHT,
+    )
+    all_clone_ids = study_df["row_id"].astype(str).tolist()
     labels = {clone_id: -1 for clone_id in all_clone_ids}
     if graph.vcount() == 0:
         return labels, {"n_clusters": 0, "n_clustered": 0, "n_total": len(all_clone_ids)}
@@ -278,7 +214,13 @@ def test_gliph_combined_graph_benchmark() -> None:
     for study, study_df in df.groupby("reference_id", sort=True):
         ctrl_df = normalize_control_v(study_df, ctrl_all, n=CONTROL_SAMPLE, seed=42)
         payloads, n_sig_by_family = _family_payloads(study_df, ctrl_df)
-        token_to_clones, _clone_to_tokens = _combine_enriched_tokens(payloads)
+        artifacts_by_family = {family: payloads[family]["sample_art"] for family in FAMILIES}
+        enriched_by_family = {family: payloads[family]["enriched_tokens"] for family in FAMILIES}
+        token_to_clones, _clone_to_tokens, _token_family = combine_enriched_token_maps(
+            artifacts_by_family,
+            enriched_by_family,
+        )
+        kmer_graph, _token_degree = build_kmer_projection_graph(token_to_clones)
 
         for method in METHODS:
             labels, stats = _community_labels(study_df, token_to_clones, method)
@@ -290,10 +232,12 @@ def test_gliph_combined_graph_benchmark() -> None:
                     "method": method,
                     "n_enriched_total": int(sum(n_sig_by_family.values())),
                     "n_enriched_v3": n_sig_by_family["v3"],
-                    "n_enriched_vpos3": n_sig_by_family["vpos3"],
+                    "n_enriched_pos3": n_sig_by_family["pos3"],
                     "n_enriched_u4": n_sig_by_family["u4"],
                     "n_enriched_g4": n_sig_by_family["g4"],
                     "n_enriched_g5": n_sig_by_family["g5"],
+                    "n_kmer_nodes": int(kmer_graph.vcount()),
+                    "n_kmer_edges": int(kmer_graph.ecount()),
                     "n_clusters": stats["n_clusters"],
                     "n_clustered": stats["n_clustered"],
                     "ami_gliph": gliph_metrics["ami"],

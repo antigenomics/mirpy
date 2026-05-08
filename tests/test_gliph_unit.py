@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import warnings
+
 from mir.biomarkers.gliph import (
     deduplicate_clonotype_rows,
     extract_g5mer_artifacts,
+    extract_pos3mer_artifacts,
     extract_u4mer_artifacts,
     extract_v3mer_artifacts,
     extract_vpos3mer_artifacts,
@@ -54,7 +57,7 @@ def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
     assert art.counts["v3::TRBV1::AAA"] == 1
 
 
-def test_extract_vpos3_and_u4_artifacts_expose_new_token_families() -> None:
+def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
     df = pd.DataFrame(
         {
             "reference_id": ["study"],
@@ -66,13 +69,13 @@ def test_extract_vpos3_and_u4_artifacts_expose_new_token_families() -> None:
         }
     )
 
-    vpos = extract_vpos3mer_artifacts(df, count_mode="clonotype")
+    pos3 = extract_pos3mer_artifacts(df, count_mode="clonotype")
     u4 = extract_u4mer_artifacts(df, count_mode="clonotype")
 
-    assert "vpos3::TRBV1::0::AAA" in vpos.counts
-    assert "vpos3::TRBV1::1::AAA" in vpos.counts
-    assert vpos.counts["vpos3::TRBV1::0::AAA"] == 1
-    assert vpos.counts["vpos3::TRBV1::1::AAA"] == 1
+    assert "pos3::TRBV1::0::AAA" in pos3.counts
+    assert "pos3::TRBV1::1::AAA" in pos3.counts
+    assert pos3.counts["pos3::TRBV1::0::AAA"] == 1
+    assert pos3.counts["pos3::TRBV1::1::AAA"] == 1
     assert u4.counts["u4::AAAA"] == 1
 
 
@@ -93,6 +96,26 @@ def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
     assert "g5::XAAAA" in g5.counts
     assert "g5::AAAAX" in g5.counts
     assert g5.counts["g5::XAAAA"] == 1
+
+
+def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
+    df = pd.DataFrame(
+        {
+            "reference_id": ["study"],
+            "junction_aa": ["AAAA"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1-1*01"],
+            "duplicate_count": [1],
+            "row_id": ["0"],
+        }
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        vpos_alias = extract_vpos3mer_artifacts(df, count_mode="clonotype")
+
+    assert any("deprecated" in str(w.message).lower() for w in caught)
+    assert "pos3::TRBV1::0::AAA" in vpos_alias.counts
 
 
 def test_normalize_control_v_matches_v_usage_only() -> None:
