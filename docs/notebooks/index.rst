@@ -78,7 +78,10 @@ Advanced analysis and biomarker detection; these notebooks may require larger lo
 .. toctree::
    :maxdepth: 1
 
+   gliph_analysis
    vdjbet_yf
+
+**gliph_analysis** — GLIPH-style multi-family token enrichment and clustering with binomial control baseline.
 
 **vdjbet_yf** — Disease-associated overlap analysis using VDJBET stratification.
 

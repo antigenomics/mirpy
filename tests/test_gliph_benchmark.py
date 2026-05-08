@@ -6,7 +6,7 @@ expanded workflow:
 - deduplicate GLIPH rows to unique ``(reference_id, v_gene, junction_aa)``
   clonotypes,
 - match controls on V usage only,
-- run separate Fisher tests for five token families,
+- run separate binomial enrichment tests for five token families,
 - combine all enriched tokens into one projected clonotype graph,
 - evaluate concordance to ``gliph_cluster_id`` and ``stimulus``.
 """
@@ -88,7 +88,7 @@ def _comparison_df(sample_art: GliphTokenArtifacts, ctrl_art: GliphTokenArtifact
     df = compare_kmer_counts(
         sample_art.counts,
         ctrl_art.counts,
-        test="fisher",
+        test="binom",
         p_adj_method="fdr_bh",
         pseudocount=1,
     )

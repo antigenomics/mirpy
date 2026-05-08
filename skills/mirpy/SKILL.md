@@ -177,6 +177,39 @@ Operational notes:
 - Override with `MIRPY_CONTROL_DIR` for shared or scratch storage.
 - Synthetic caches are keyed by species, locus, and `n`.
 
+## 8.1 GLIPH-Style K-mer Enrichment (binomial)
+
+For GLIPH-like motif workflows, use clonotype-level token counts and a
+binomial enrichment test against control background frequency.
+
+```python
+from mir.biomarkers.gliph import extract_v3mer_artifacts, normalize_control_v
+from mir.biomarkers.kmer_stats import compare_kmer_counts
+
+study_art = extract_v3mer_artifacts(study_df, threads=4, count_mode="clonotype")
+ctrl_df = normalize_control_v(study_df, ctrl_pool_df, n=1_000_000, seed=42)
+ctrl_art = extract_v3mer_artifacts(ctrl_df, threads=4, count_mode="clonotype")
+
+comp = compare_kmer_counts(
+  study_art.counts,
+  ctrl_art.counts,
+  test="binom",
+  p_adj_method="fdr_bh",
+  pseudocount=1,
+)
+
+sig = (
+  (comp["p_val_adj"] < 0.05)
+  & (comp["freq_fc"] > 1.0)
+)
+```
+
+Interpretation notes:
+
+- In `test="binom"`, `p_background` is computed as `count_2 / total_control_clonotypes`.
+- The p-value is one-sided enrichment (`P[X >= count_1]`) under `Binomial(total_sample_clonotypes, p_background)`.
+- If controls are only V-matched, inspect residual VJ drift; strong VJ imbalance can inflate enriched-kmer calls.
+
 ## 9. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
