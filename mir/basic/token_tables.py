@@ -6,7 +6,7 @@ summary statistics, and filtered views of token tables.
 
 Functions
 ---------
-* ``tokenize_rearrangements`` — ``dict[Kmer, list[KmerMatch]]`` with
+* ``tokenize_clonotypes`` — ``dict[Kmer, list[KmerMatch]]`` with
   position tracking.
 * ``filter_token_table``      — filter by regex pattern and/or minimum
   rearrangement count; both criteria may be combined.
@@ -22,6 +22,7 @@ No runtime type checks — relies on static typing.
 from __future__ import annotations
 
 import re
+import warnings
 from itertools import islice
 from typing import NamedTuple
 
@@ -105,31 +106,31 @@ def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]
 # Indexing
 # ---------------------------------------------------------------------------
 
-def tokenize_rearrangements(
-    rearrangements: list[Clonotype],
+def tokenize_clonotypes(
+    clonotypes: list[Clonotype],
     k: int,
     mask_byte: int | None = None,
 ) -> dict[Kmer, list[KmerMatch]]:
     """Build an inverted index from annotated k-mers to their source
-    rearrangements, tracking the position each k-mer was extracted from.
+    clonotypes, tracking the position each token was extracted from.
 
     When *mask_byte* is given, gapped k-mers are produced instead (each
     position masked once per window, as in :func:`tokens.tokenize_gapped`).
 
     Args:
-        rearrangements: Input rearrangements.
+        clonotypes: Input clonotypes.
         k: K-mer length.
         mask_byte: If not ``None``, replacement byte for gapped k-mers
             (e.g. ``ord('X')``).  ``None`` (default) produces plain k-mers.
 
     Returns:
         Dict mapping each :class:`Kmer` to a list of :class:`KmerMatch`
-        (rearrangement, position) pairs.
+        (clonotype, position) pairs.
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
     index: dict[Kmer, list[KmerMatch]] = {}
-    for r in rearrangements:
+    for r in clonotypes:
         raw = _to_bytes(r.junction_aa)
         if k > len(raw):
             continue
@@ -146,6 +147,20 @@ def tokenize_rearrangements(
             else:
                 lst.append(match)
     return index
+
+
+def tokenize_rearrangements(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+) -> dict[Kmer, list[KmerMatch]]:
+    """Deprecated alias for :func:`tokenize_clonotypes`."""
+    warnings.warn(
+        "tokenize_rearrangements is deprecated; use tokenize_clonotypes.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return tokenize_clonotypes(rearrangements, k=k, mask_byte=mask_byte)
 
 
 def summarize_rearrangements(
@@ -328,7 +343,7 @@ def filter_token_table(
     to be retained.
 
     Args:
-        table: Output of :func:`tokenize_rearrangements`.
+        table: Output of :func:`tokenize_clonotypes`.
         kmer_pattern: Regular expression matched against each k-mer sequence
             decoded as ASCII.  Only k-mers whose sequence matches are kept.
             ``None`` (default) skips pattern filtering.
@@ -404,16 +419,16 @@ def compute_token_tables_batch(
     # Reuse the same plain 3-mer tokenization across v3/pos3/u3.
     plain3: dict[Kmer, list[KmerMatch]] | None = None
     if any(fam in {'v3', 'pos3', 'u3'} for fam in normalized_families):
-        plain3 = tokenize_rearrangements(rearrangements, k=3, mask_byte=None)
+        plain3 = tokenize_clonotypes(rearrangements, k=3, mask_byte=None)
 
     for family in normalized_families:
         if family in {'v3', 'pos3', 'u3'}:
             result[family] = plain3 if plain3 is not None else {}
         elif family == 'u4':
-            result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=None)
+            result[family] = tokenize_clonotypes(rearrangements, k=4, mask_byte=None)
         elif family == 'g4':
-            result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=ord('X'))
+            result[family] = tokenize_clonotypes(rearrangements, k=4, mask_byte=ord('X'))
         elif family == 'g5':
-            result[family] = tokenize_rearrangements(rearrangements, k=5, mask_byte=ord('X'))
+            result[family] = tokenize_clonotypes(rearrangements, k=5, mask_byte=ord('X'))
 
     return result

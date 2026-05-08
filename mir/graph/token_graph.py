@@ -1,18 +1,18 @@
-"""Bipartite token graph construction for Clonotypes and Kmers.
+"""Bipartite token graph construction for clonotypes and tokens.
 
 Builds an ``igraph.Graph`` with two vertex types:
 
-* **rearrangement** — one vertex per :class:`~mir.basic.token_tables.Clonotype`.
-* **kmer** — one vertex per unique :class:`~mir.basic.token_tables.Kmer` key
+* **clonotype** — one vertex per :class:`~mir.basic.token_tables.Clonotype`.
+* **token** — one vertex per unique :class:`~mir.basic.token_tables.Kmer` key
   present in the token table.
 
-Edges connect each rearrangement vertex to every kmer vertex whose sequence
-appears in that rearrangement's ``junction_aa``, as recorded by the token
-table produced by :func:`~mir.basic.token_tables.tokenize_rearrangements`.
+Edges connect each clonotype vertex to every token vertex whose sequence
+appears in that clonotype's ``junction_aa``, as recorded by the token
+table produced by :func:`~mir.basic.token_tables.tokenize_clonotypes`.
 
 Use :func:`~mir.basic.token_tables.filter_token_table` to restrict the
 token table before building the graph — by regex pattern, minimum
-rearrangement count, or both.
+clonotype count, or both.
 
 GLIPH-style graph construction
 -------------------------------
@@ -50,34 +50,34 @@ def build_token_graph(
     rearrangements: list[Clonotype],
     token_table: dict[Kmer, list[KmerMatch]],
 ) -> ig.Graph:
-    """Build a bipartite Clonotype–Kmer graph from a token table.
+    """Build a bipartite clonotype-token graph from a token table.
 
-    Vertices 0 … n_r-1 represent the rearrangements (in list order).
-    Vertices n_r … n_r+n_k-1 represent the unique kmers (in token-table
-    insertion order).  An edge exists between rearrangement *i* and kmer *j*
-    when kmer *j* appears in rearrangement *i*'s ``junction_aa``.  Parallel
-    edges are deduplicated (a kmer may match a rearrangement at multiple
+    Vertices 0 … n_r-1 represent the clonotypes (in list order).
+    Vertices n_r … n_r+n_k-1 represent the unique tokens (in token-table
+    insertion order).  An edge exists between clonotype *i* and token *j*
+    when token *j* appears in clonotype *i*'s ``junction_aa``.  Parallel
+    edges are deduplicated (a token may match a clonotype at multiple
     positions).
 
     Each vertex carries the following attributes:
 
     ``node_type``
-        ``"rearrangement"`` or ``"kmer"``
+        ``"rearrangement"`` or ``"kmer"`` (legacy naming retained for compatibility)
     ``name``
-        ``junction_aa`` for rearrangements; decoded kmer sequence for kmers.
+        ``junction_aa`` for clonotypes; decoded token sequence for token vertices.
     ``r_id``
-        :attr:`Clonotype.id` for rearrangement vertices; ``-1`` for kmer vertices.
+        :attr:`Clonotype.id` for clonotype vertices; ``-1`` for token vertices.
     ``v_gene``
-        ``v_gene`` field (rearrangements) or kmer v-gene annotation.
+        ``v_gene`` field (clonotypes) or token v-gene annotation.
     ``c_gene``
-        ``c_gene`` field (rearrangements) or kmer c-gene annotation.
+        ``c_gene`` field (clonotypes) or token c-gene annotation.
     ``locus``
         locus field for both vertex types.
 
     Args:
-        rearrangements: Full list of rearrangements.  All are included as
+        rearrangements: Full list of clonotypes.  All are included as
             vertices even if they have no edges in the (filtered) token table.
-        token_table: Output of :func:`~mir.basic.token_tables.tokenize_rearrangements`,
+        token_table: Output of :func:`~mir.basic.token_tables.tokenize_clonotypes`,
             optionally pre-filtered by
             :func:`~mir.basic.token_tables.filter_token_table`.
 

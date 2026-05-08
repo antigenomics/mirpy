@@ -84,11 +84,11 @@ Quick example
 
    import gzip
 
-   from mir.basic.token_tables import filter_token_table, tokenize_rearrangements
+    from mir.basic.token_tables import filter_token_table, tokenize_clonotypes
    from mir.common.clonotype import Clonotype
    from mir.graph.token_graph import build_token_graph
 
-   # Load CDR3 sequences and build an RS-filtered k-mer graph
+    # Load CDR3 sequences and build an RS-filtered token graph
    with gzip.open("gilgfvftl_trb_cdr3.txt.gz", "rt") as fh:
        cdr3s = [line.strip() for line in fh if line.strip()]
 
@@ -97,7 +97,7 @@ Quick example
        for seq in cdr3s
    ]
 
-   table    = tokenize_rearrangements(clonotypes, k=3)
+    table    = tokenize_clonotypes(clonotypes, k=3)
    rs_table = filter_token_table(table, kmer_pattern="RS")
    g_rs     = build_token_graph(clonotypes, rs_table)
 

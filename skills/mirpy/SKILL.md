@@ -139,22 +139,22 @@ token (k-mer) graphs.
 ```python
 from mir.graph import compute_neighborhood_stats
 from mir.graph.edit_distance_graph import build_edit_distance_graph
-from mir.basic.token_tables import filter_token_table, tokenize_rearrangements
+from mir.basic.token_tables import filter_token_table, tokenize_clonotypes
 from mir.graph.token_graph import build_token_graph
 
 # Edit-distance graph (Hamming or Levenshtein on junction_aa)
 stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=4)
 graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=4)
 
-# K-mer (token) graph filtered to RS-bearing 3-mers
-table    = tokenize_rearrangements(rep.clonotypes, k=3)
+# Token graph filtered to RS-bearing 3-mers
+table    = tokenize_clonotypes(rep.clonotypes, k=3)
 rs_table = filter_token_table(table, kmer_pattern="RS")
 g_rs     = build_token_graph(rep.clonotypes, rs_table)
 ```
 
 Notes:
 
-- `tokenize_rearrangements` accepts a `list[Clonotype]`; the former `Rearrangement` wrapper class has been removed.
+- `tokenize_clonotypes` accepts a `list[Clonotype]`; `tokenize_rearrangements` remains as a deprecated alias for compatibility.
 - Use `Graph.are_adjacent()` instead of the deprecated `Graph.are_connected()` when querying igraph graphs directly.
 - Trie-backed search is used for edit-distance graphs when available.
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
