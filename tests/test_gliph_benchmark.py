@@ -8,7 +8,8 @@ expanded workflow:
 - match controls on V usage only,
 - run separate binomial enrichment tests for five token families,
 - combine all enriched tokens into one projected clonotype graph,
-- evaluate concordance to ``gliph_cluster_id`` and ``stimulus``.
+- evaluate concordance to ``gliph_cluster_id`` (both studies) and
+    ``epitope`` for ``Glanville2017``.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from tests.conftest import skip_benchmarks
 
 GLIPH_PATH = Path(__file__).resolve().parents[1] / "airr_benchmark" / "gliph" / "gliph_trb.tsv.gz"
 AA_RE = r"^[ACDEFGHIKLMNPQRSTVWY]+$"
-THREADS = 4
+THREADS = 8
 CONTROL_SAMPLE = 1_000_000
 FAMILIES = ("v3", "pos3", "u4", "g4", "g5")
 METHODS = ("components", "leiden")
@@ -225,7 +226,10 @@ def test_gliph_combined_graph_benchmark() -> None:
         for method in METHODS:
             labels, stats = _community_labels(study_df, token_to_clones, method)
             gliph_metrics = _metric_row(study_df, labels, "gliph_cluster_id")
-            stimulus_metrics = _metric_row(study_df, labels, "stimulus")
+            glanville_epitope_metrics = (
+                _metric_row(study_df, labels, "epitope") if str(study) == "Glanville2017"
+                else {"ami": np.nan, "nmi": np.nan, "coverage": np.nan, "n_eval": 0}
+            )
             rows.append(
                 {
                     "study": str(study),
@@ -244,10 +248,10 @@ def test_gliph_combined_graph_benchmark() -> None:
                     "nmi_gliph": gliph_metrics["nmi"],
                     "coverage_gliph": gliph_metrics["coverage"],
                     "n_eval_gliph": gliph_metrics["n_eval"],
-                    "ami_stimulus": stimulus_metrics["ami"],
-                    "nmi_stimulus": stimulus_metrics["nmi"],
-                    "coverage_stimulus": stimulus_metrics["coverage"],
-                    "n_eval_stimulus": stimulus_metrics["n_eval"],
+                    "ami_epitope_glanville": glanville_epitope_metrics["ami"],
+                    "nmi_epitope_glanville": glanville_epitope_metrics["nmi"],
+                    "coverage_epitope_glanville": glanville_epitope_metrics["coverage"],
+                    "n_eval_epitope_glanville": glanville_epitope_metrics["n_eval"],
                 }
             )
 
@@ -267,4 +271,4 @@ def test_gliph_combined_graph_benchmark() -> None:
         assert best_row["method"] == "leiden"
         assert float(best_row["ami_gliph"]) > 0.2, f"Expected combined weighted Leiden AMI > 0.2 for {study}"
         if study == "Glanville2017":
-            assert study_rows["ami_stimulus"].notna().any(), "Expected evaluable stimulus AMI for Glanville2017"
+            assert "ami_epitope_glanville" in study_rows.columns

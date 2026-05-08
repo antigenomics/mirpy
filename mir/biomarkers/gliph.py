@@ -2,7 +2,6 @@
 
 Provides:
 - :class:`GliphTokenArtifacts` — counts and bipartite adjacency for one token family.
-- :func:`rows_to_clonotypes` — fast DataFrame-to-Clonotype conversion.
 - :func:`deduplicate_clonotype_rows` — aggregate repeated clonotype rows.
 - :func:`extract_v3mer_artifacts` — V-gene anchored 3-mer extraction.
 - :func:`extract_pos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
@@ -10,10 +9,14 @@ Provides:
 - :func:`extract_u4mer_artifacts` — ungapped 4-mer extraction.
 - :func:`extract_g4mer_artifacts` — gapped 4-mer extraction.
 - :func:`extract_g5mer_artifacts` — gapped 5-mer extraction.
-- :func:`combine_enriched_token_maps` — merge enriched token neighborhoods across families.
-- :func:`build_full_gliph_clonotype_graph` — build a combined k-mer/Hamming clonotype graph.
 - :func:`normalize_control_v` — resample control to match sample unweighted V usage.
 - :func:`normalize_control_vj` — resample control to match sample unweighted VJ usage.
+
+Graph construction helpers (moved to :mod:`mir.graph.token_graph`)
+-------------------------------------------------------------------
+- ``combine_enriched_token_maps`` — merge enriched token neighborhoods across families.
+- ``build_full_gliph_clonotype_graph`` — build a combined k-mer/Hamming clonotype graph.
+- ``build_kmer_projection_graph`` — project token co-occurrence graph.
 
 Threaded tokenisation
 ---------------------
@@ -22,6 +25,12 @@ input DataFrame is split into chunks and processed via
 :class:`concurrent.futures.ThreadPoolExecutor`.  The underlying tokeniser spends
 most of its time in the C-extension, so threads retain a lightweight API while
 keeping naming consistent with the rest of the codebase.
+
+CDR3 trimming
+-------------
+Token extraction supports optional CDR3 trimming (first N and last M amino acids).
+Use ``trim_first`` and ``trim_last`` parameters to enable.  Position tracking
+is preserved: position in tokens reflects offset into trimmed sequence.
 """
 
 from __future__ import annotations
@@ -32,12 +41,12 @@ from dataclasses import dataclass
 from typing import Literal
 import warnings
 
-import igraph as ig
 import numpy as np
 import pandas as pd
 
 from mir.basic.token_tables import tokenize_rearrangements
 from mir.common.clonotype import Clonotype
+from mir.common.repertoire import LocusRepertoire
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +93,122 @@ _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
 )
 
 
+def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
+    """Build a LocusRepertoire from a pandas DataFrame with backward compatibility."""
+    from_pandas = getattr(LocusRepertoire, "from_pandas", None)
+    if callable(from_pandas):
+        return from_pandas(df, locus=locus)
+
+    tmp = df.copy()
+    if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
+        tmp = tmp.rename(columns={"row_id": "sequence_id"})
+    seq_ids = tmp["sequence_id"].astype(str).tolist() if "sequence_id" in tmp.columns else [str(i) for i in range(len(tmp))]
+    jaa = tmp["junction_aa"].astype(str).tolist()
+    vg = tmp["v_gene"].astype(str).tolist()
+    jg = tmp["j_gene"].astype(str).tolist() if "j_gene" in tmp.columns else [""] * len(tmp)
+    dc = pd.to_numeric(tmp.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int).tolist()
+    clones = [
+        Clonotype(
+            sequence_id=sid,
+            locus=locus,
+            junction_aa=jaa_i,
+            v_gene=vg_i,
+            j_gene=jg_i,
+            duplicate_count=dc_i,
+            _validate=False,
+        )
+        for sid, jaa_i, vg_i, jg_i, dc_i in zip(seq_ids, jaa, vg, jg, dc)
+    ]
+    return LocusRepertoire(clones, locus=locus)
+
+
 # ---------------------------------------------------------------------------
-# Row → Clonotype conversion
+# Row → Clonotype conversion and CDR3 trimming
 # ---------------------------------------------------------------------------
+
+
+def _trim_junction_aa(junction_aa: str, trim_first: int = 3, trim_last: int = 4) -> str:
+    """Trim junction_aa and return trimmed sequence.
+    
+    Parameters
+    ----------
+    junction_aa : str
+        Full junction amino acid sequence.
+    trim_first : int
+        Number of amino acids to trim from the start (default 0).
+    trim_last : int
+        Number of amino acids to trim from the end (default 0).
+    
+    Returns
+    -------
+    str
+        Trimmed junction_aa sequence.
+    """
+    if not (trim_first or trim_last):
+        return junction_aa
+    if trim_first >= len(junction_aa):
+        return ""
+    end = len(junction_aa) - trim_last if trim_last else len(junction_aa)
+    if trim_first >= end:
+        return ""
+    return junction_aa[trim_first:end]
+
+
+def repertoire_to_clonotypes(
+    repertoire: LocusRepertoire,
+    *,
+    trim_first: int = 3,
+    trim_last: int = 4,
+) -> list[Clonotype]:
+    """Convert a LocusRepertoire to a list of Clonotype objects.
+    
+    Optionally trims CDR3 (junction_aa) sequences before returning.
+    
+    Parameters
+    ----------
+    repertoire : LocusRepertoire
+        Source repertoire.
+    trim_first : int
+        Number of amino acids to trim from start (default 0).
+    trim_last : int
+        Number of amino acids to trim from end (default 0).
+    
+    Returns
+    -------
+    list[Clonotype]
+        List of clonotypes, with junction_aa trimmed if requested.
+    """
+    clonotypes = repertoire.clonotypes
+    if not (trim_first or trim_last):
+        return clonotypes
+    
+    trimmed = []
+    for c in clonotypes:
+        trimmed_jaa = _trim_junction_aa(c.junction_aa, trim_first=trim_first, trim_last=trim_last)
+        if trimmed_jaa:  # Skip clonotypes that trim to empty
+            trimmed_c = Clonotype(
+                sequence_id=c.sequence_id,
+                locus=c.locus,
+                junction_aa=trimmed_jaa,
+                junction=c.junction,
+                v_gene=c.v_gene,
+                d_gene=c.d_gene,
+                j_gene=c.j_gene,
+                v_sequence_end=c.v_sequence_end,
+                d_sequence_start=c.d_sequence_start,
+                d_sequence_end=c.d_sequence_end,
+                j_sequence_start=c.j_sequence_start,
+                duplicate_count=c.duplicate_count,
+                _validate=False,
+            )
+            trimmed.append(trimmed_c)
+    return trimmed
 
 
 def rows_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
     """Convert a DataFrame of AIRR-schema rows to :class:`Clonotype` objects.
+
+    **Deprecated**: Use :func:`repertoire_to_clonotypes` with :class:`LocusRepertoire` instead.
 
     Uses column-level list extraction (not :meth:`DataFrame.iterrows`) for
     substantially faster conversion on large tables.
@@ -100,23 +218,13 @@ def rows_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
     ``row_id``, ``junction_aa``, ``v_gene``, ``duplicate_count``.
     Optional: ``j_gene`` (defaults to ``""`` if absent).
     """
-    row_ids = df["row_id"].tolist()
-    jaa = df["junction_aa"].tolist()
-    vg = df["v_gene"].tolist()
-    jg = df["j_gene"].tolist() if "j_gene" in df.columns else [""] * len(df)
-    dc = df["duplicate_count"].tolist()
-    return [
-        Clonotype(
-            sequence_id=str(rid),
-            locus="TRB",
-            junction_aa=str(jaa_i),
-            v_gene=str(vg_i),
-            j_gene=str(jg_i),
-            duplicate_count=int(dc_i),
-            _validate=False,
-        )
-        for rid, jaa_i, vg_i, jg_i, dc_i in zip(row_ids, jaa, vg, jg, dc)
-    ]
+    warnings.warn(
+        "rows_to_clonotypes is deprecated; use repertoire_to_clonotypes with LocusRepertoire.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    repertoire = _locus_repertoire_from_dataframe(df, locus="TRB")
+    return repertoire_to_clonotypes(repertoire, trim_first=0, trim_last=0)
 
 
 def _first_nonempty(series: pd.Series):
@@ -191,7 +299,13 @@ def _token_table_for_family(
     raise ValueError(f"Unknown GLIPH token family: {family}")
 
 
-def _token_from_match(family: TOKEN_FAMILY, kmer, match) -> str:
+def _token_from_match(
+    family: TOKEN_FAMILY,
+    kmer,
+    match,
+    *,
+    position_offset: int = 0,
+) -> str:
     if family == "vpos3":
         family = "pos3"
     seq = kmer.seq.decode("ascii")
@@ -199,7 +313,7 @@ def _token_from_match(family: TOKEN_FAMILY, kmer, match) -> str:
     if family == "v3":
         return f"v3::{v_base}::{seq}"
     if family == "pos3":
-        return f"pos3::{v_base}::{match.position}::{seq}"
+        return f"pos3::{v_base}::{position_offset + match.position}::{seq}"
     if family == "u4":
         return f"u4::{seq}"
     if family == "g4":
@@ -251,9 +365,46 @@ def _worker_extract(
     chunk_df: pd.DataFrame,
     family: TOKEN_FAMILY,
     count_mode: COUNT_MODE,
+    trim_first: int = 3,
+    trim_last: int = 4,
 ) -> GliphTokenArtifacts:
     """ThreadPoolExecutor worker for GLIPH token extraction."""
-    return _build_artifacts_from_clones(rows_to_clonotypes(chunk_df), family=family, count_mode=count_mode)
+    repertoire = _locus_repertoire_from_dataframe(chunk_df, locus="TRB")
+    clones = repertoire_to_clonotypes(
+        repertoire,
+        trim_first=trim_first,
+        trim_last=trim_last,
+    )
+    token_table = _token_table_for_family(clones, family)
+
+    occurrence_counts: Counter[str] = Counter()
+    token_to_clone: dict[str, set[str]] = defaultdict(set)
+    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
+
+    for kmer, matches in token_table.items():
+        for match in matches:
+            token = _token_from_match(
+                family,
+                kmer,
+                match,
+                position_offset=trim_first,
+            )
+            rid = str(match.rearrangement.id)
+            occurrence_counts[token] += 1
+            token_to_clone[token].add(rid)
+            clone_to_tokens[rid].add(token)
+
+    clonotype_counts = {token: len(cloneset) for token, cloneset in token_to_clone.items()}
+    counts = dict(clonotype_counts if count_mode == "clonotype" else occurrence_counts)
+
+    return GliphTokenArtifacts(
+        counts=counts,
+        token_to_clone=dict(token_to_clone),
+        clone_to_tokens=dict(clone_to_tokens),
+        occurrence_counts=dict(occurrence_counts),
+        clonotype_counts=clonotype_counts,
+        count_mode=count_mode,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +482,8 @@ def extract_gliph_token_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
     """Extract GLIPH-style token artifacts for one token family.
@@ -351,6 +504,10 @@ def extract_gliph_token_artifacts(
         When ``True``, aggregate repeated clonotype rows before tokenisation.
     unique_subset : tuple[str, ...], optional
         Columns defining clonotype uniqueness when ``unique_clonotypes=True``.
+    trim_first : int, optional
+        Number of amino acids to trim from start of junction_aa (default 3).
+    trim_last : int, optional
+        Number of amino acids to trim from end of junction_aa (default 4).
     n_workers : int, optional
         Backward-compatible alias for ``threads``.
     """
@@ -368,12 +525,12 @@ def extract_gliph_token_artifacts(
         df = df.copy()
 
     if threads <= 1:
-        return _worker_extract(df, family=family, count_mode=count_mode)
+        return _worker_extract(df, family=family, count_mode=count_mode, trim_first=trim_first, trim_last=trim_last)
 
     chunks = _split_dataframe(df.reset_index(drop=True), threads)
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
         futures = [
-            pool.submit(_worker_extract, chunk, family, count_mode)
+            pool.submit(_worker_extract, chunk, family, count_mode, trim_first, trim_last)
             for chunk in chunks
         ]
         parts = [future.result() for future in futures]
@@ -387,6 +544,8 @@ def extract_v3mer_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
     """Extract V-gene anchored 3-mer (V+3-mer) token artifacts."""
@@ -397,6 +556,8 @@ def extract_v3mer_artifacts(
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
         unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
         n_workers=n_workers,
     )
 
@@ -433,9 +594,15 @@ def extract_pos3mer_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
-    """Extract pos+3-mer token artifacts (V-gene + junction position + 3-mer)."""
+    """Extract pos+3-mer token artifacts (V-gene + junction position + 3-mer).
+    
+    Position in returned tokens is reported against original CDR3 coordinates:
+    ``reported_pos = trim_first + pos_in_trimmed_cdr3``.
+    """
     return extract_gliph_token_artifacts(
         df,
         family="pos3",
@@ -443,6 +610,8 @@ def extract_pos3mer_artifacts(
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
         unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
         n_workers=n_workers,
     )
 
@@ -454,6 +623,8 @@ def extract_u4mer_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
     """Extract ungapped 4-mer token artifacts."""
@@ -464,6 +635,8 @@ def extract_u4mer_artifacts(
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
         unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
         n_workers=n_workers,
     )
 
@@ -475,6 +648,8 @@ def extract_g4mer_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
     """Extract gapped 4-mer token artifacts."""
@@ -485,6 +660,8 @@ def extract_g4mer_artifacts(
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
         unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
         n_workers=n_workers,
     )
 
@@ -496,6 +673,8 @@ def extract_g5mer_artifacts(
     count_mode: COUNT_MODE = "clonotype",
     unique_clonotypes: bool = False,
     unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
     n_workers: int | None = None,
 ) -> GliphTokenArtifacts:
     """Extract gapped 5-mer token artifacts."""
@@ -506,187 +685,46 @@ def extract_g5mer_artifacts(
         count_mode=count_mode,
         unique_clonotypes=unique_clonotypes,
         unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
         n_workers=n_workers,
     )
 
 
 # ---------------------------------------------------------------------------
-# Full-GLIPH graph helpers (k-mer enrichment + hamming expansion)
+# Full-GLIPH graph helpers (moved to mir.graph.token_graph)
 # ---------------------------------------------------------------------------
 
+# For backward compatibility, import and re-export graph construction helpers.
+# These are now in mir.graph.token_graph:
+#  - combine_enriched_token_maps
+#  - build_full_gliph_clonotype_graph  
+#  - build_kmer_projection_graph
 
-def combine_enriched_token_maps(
-    artifacts_by_family: dict[str, GliphTokenArtifacts],
-    enriched_tokens_by_family: dict[str, set[str]],
-) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, str]]:
-    """Merge enriched token neighborhoods across token families.
+from mir.graph.token_graph import (
+    combine_enriched_token_maps,
+    build_full_gliph_clonotype_graph,
+    build_kmer_projection_graph,
+)
 
-    Returns
-    -------
-    tuple
-        ``(token_to_clones, clone_to_tokens, token_family)`` where:
-        - ``token_to_clones[token]`` is the clonotype-id set carrying ``token``;
-        - ``clone_to_tokens[clone_id]`` are enriched tokens linked to the clonotype;
-        - ``token_family[token]`` stores the source family key.
-    """
-    token_to_clones: dict[str, set[str]] = defaultdict(set)
-    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
-    token_family: dict[str, str] = {}
-
-    for family, artifacts in artifacts_by_family.items():
-        tokens = enriched_tokens_by_family.get(family, set())
-        for token in tokens:
-            clone_ids = set(artifacts.token_to_clone.get(token, set()))
-            if not clone_ids:
-                continue
-            token_to_clones[token].update(clone_ids)
-            token_family[token] = family
-            for clone_id in clone_ids:
-                clone_to_tokens[clone_id].add(token)
-
-    return dict(token_to_clones), dict(clone_to_tokens), token_family
-
-
-def build_full_gliph_clonotype_graph(
-    study_df: pd.DataFrame,
-    token_to_clones: dict[str, set[str]],
-    *,
-    hamming_threshold: int = 1,
-    hamming_threads: int = 4,
-    expand_hamming_neighbors: bool = True,
-    min_kmer_edge_weight: float = 0.35,
-    hamming_bonus: float = 1.0,
-) -> tuple[ig.Graph, dict[str, set[str]], ig.Graph]:
-    """Build the combined GLIPH clonotype graph with Hamming expansion.
-
-    The graph is built in three stages:
-
-    1. Start from clonotypes linked to at least one enriched token.
-    2. Add edges between clonotypes sharing enriched tokens.
-    3. Add Hamming ``<= threshold`` edges, and (optionally) one-hop Hamming
-       neighbors of already-active clonotypes.
-
-    Returns
-    -------
-    tuple
-        ``(full_clone_graph, clone_to_tokens_expanded, hamming_graph)``.
-    """
-    # Import lazily to keep tokenization utilities usable without optional trie deps.
-    from mir.graph.edit_distance_graph import build_edit_distance_graph
-
-    all_clones = rows_to_clonotypes(study_df)
-    hamming_graph = build_edit_distance_graph(
-        all_clones,
-        metric="hamming",
-        threshold=hamming_threshold,
-        n_jobs=hamming_threads,
-    )
-
-    all_clone_ids = [str(clone.id) for clone in all_clones]
-    initial_active = set(str(clone_id) for clone_ids in token_to_clones.values() for clone_id in clone_ids)
-    active = set(initial_active)
-
-    # Add one hop of Hamming neighbors around the currently active set.
-    if expand_hamming_neighbors and active and hamming_graph.vcount() > 0:
-        id_to_idx = {str(rid): idx for idx, rid in enumerate(hamming_graph.vs["r_id"])}
-        for clone_id in list(active):
-            idx = id_to_idx.get(clone_id)
-            if idx is None:
-                continue
-            for nbr in hamming_graph.neighbors(idx):
-                active.add(str(hamming_graph.vs[nbr]["r_id"]))
-
-    # Build shared-kmer edge counts and specificity-weighted contributions over active nodes.
-    active_clone_nodes = sorted(active)
-    clone_idx = {clone_id: i for i, clone_id in enumerate(active_clone_nodes)}
-    edge_shared_kmers: dict[tuple[int, int], int] = defaultdict(int)
-    edge_kmer_weight: dict[tuple[int, int], float] = defaultdict(float)
-    for clone_ids in token_to_clones.values():
-        present = sorted(set(str(clone_id) for clone_id in clone_ids if str(clone_id) in clone_idx))
-        degree = len(present)
-        if degree < 2:
-            continue
-        contribution = 1.0 / max(1.0, float(degree - 1))
-        for left_i in range(len(present) - 1):
-            left = present[left_i]
-            for right in present[left_i + 1 :]:
-                edge = tuple(sorted((clone_idx[left], clone_idx[right])))
-                edge_shared_kmers[edge] += 1
-                edge_kmer_weight[edge] += contribution
-
-    # Add hamming edges among active nodes.
-    edge_hamming: set[tuple[int, int]] = set()
-    if hamming_graph.vcount() > 0 and active_clone_nodes:
-        id_to_local = {str(rid): clone_idx[str(rid)] for rid in active_clone_nodes if str(rid) in clone_idx}
-        for edge in hamming_graph.es:
-            source = str(hamming_graph.vs[edge.source]["r_id"])
-            target = str(hamming_graph.vs[edge.target]["r_id"])
-            if source not in id_to_local or target not in id_to_local:
-                continue
-            edge_hamming.add(tuple(sorted((id_to_local[source], id_to_local[target]))))
-
-    keep_kmer_edges = {edge for edge, weight in edge_kmer_weight.items() if weight >= min_kmer_edge_weight}
-    all_edges = sorted(keep_kmer_edges | edge_hamming)
-    graph = ig.Graph(n=len(active_clone_nodes), directed=False)
-    graph.vs["name"] = active_clone_nodes
-    if all_edges:
-        graph.add_edges(all_edges)
-        graph.es["shared_kmers"] = [int(edge_shared_kmers.get(edge, 0)) for edge in all_edges]
-        graph.es["kmer_weight"] = [float(edge_kmer_weight.get(edge, 0.0)) for edge in all_edges]
-        graph.es["is_hamming"] = [edge in edge_hamming for edge in all_edges]
-        graph.es["weight"] = [
-            float(edge_kmer_weight.get(edge, 0.0)) + (hamming_bonus if edge in edge_hamming else 0.0)
-            for edge in all_edges
-        ]
-
-    clone_to_tokens_expanded: dict[str, set[str]] = {
-        clone_id: set() for clone_id in all_clone_ids if clone_id in active
-    }
-    for token, clone_ids in token_to_clones.items():
-        for clone_id in clone_ids:
-            clone_id = str(clone_id)
-            if clone_id in clone_to_tokens_expanded:
-                clone_to_tokens_expanded[clone_id].add(token)
-
-    return graph, clone_to_tokens_expanded, hamming_graph
-
-
-def build_kmer_projection_graph(
-    token_to_clones: dict[str, set[str]],
-) -> tuple[ig.Graph, dict[str, int]]:
-    """Project token-clone bipartite links to a token co-occurrence graph.
-
-    This is the one-mode projection (token side) of the underlying bipartite
-    graph, where tokens are connected if at least one clonotype carries both.
-    """
-    tokens = sorted(token_to_clones)
-    token_idx = {token: idx for idx, token in enumerate(tokens)}
-    graph = ig.Graph(n=len(tokens), directed=False)
-    graph.vs["name"] = tokens
-
-    clone_to_tokens: dict[str, list[str]] = defaultdict(list)
-    for token, clone_ids in token_to_clones.items():
-        for clone_id in clone_ids:
-            clone_to_tokens[str(clone_id)].append(token)
-
-    edge_weights: dict[tuple[int, int], int] = defaultdict(int)
-    for token_list in clone_to_tokens.values():
-        unique_tokens = sorted(set(token_list))
-        if len(unique_tokens) < 2:
-            continue
-        for left_i in range(len(unique_tokens) - 1):
-            left = unique_tokens[left_i]
-            for right in unique_tokens[left_i + 1 :]:
-                edge = tuple(sorted((token_idx[left], token_idx[right])))
-                edge_weights[edge] += 1
-
-    if edge_weights:
-        edges = list(edge_weights.keys())
-        graph.add_edges(edges)
-        graph.es["weight"] = [float(edge_weights[edge]) for edge in edges]
-
-    token_degree = {token: len(token_to_clones.get(token, set())) for token in tokens}
-    return graph, token_degree
+__all__ = [
+    "GliphTokenArtifacts",
+    "extract_v3mer_artifacts",
+    "extract_pos3mer_artifacts",
+    "extract_vpos3mer_artifacts",
+    "extract_u4mer_artifacts",
+    "extract_g4mer_artifacts",
+    "extract_g5mer_artifacts",
+    "extract_gliph_token_artifacts",
+    "combine_enriched_token_maps",
+    "build_full_gliph_clonotype_graph",
+    "build_kmer_projection_graph",
+    "normalize_control_v",
+    "normalize_control_vj",
+    "deduplicate_clonotype_rows",
+    "repertoire_to_clonotypes",
+    "rows_to_clonotypes",  # deprecated
+]
 
 
 # ---------------------------------------------------------------------------

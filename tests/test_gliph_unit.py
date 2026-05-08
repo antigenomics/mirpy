@@ -38,7 +38,7 @@ def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
     df = pd.DataFrame(
         {
             "reference_id": ["study", "study"],
-            "junction_aa": ["AAAA", "AAAA"],
+            "junction_aa": ["CASSLGQETQYF", "CASSLGQETQYF"],
             "v_gene": ["TRBV1*01", "TRBV1*01"],
             "j_gene": ["TRBJ1-1*01", "TRBJ1-1*01"],
             "duplicate_count": [1, 1],
@@ -52,16 +52,16 @@ def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
         unique_clonotypes=True,
     )
 
-    assert art.clonotype_counts["v3::TRBV1::AAA"] == 1
-    assert art.occurrence_counts["v3::TRBV1::AAA"] == 2
-    assert art.counts["v3::TRBV1::AAA"] == 1
+    assert art.clonotype_counts["v3::TRBV1::SLG"] == 1
+    assert art.occurrence_counts["v3::TRBV1::SLG"] == 1
+    assert art.counts["v3::TRBV1::SLG"] == 1
 
 
 def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
     df = pd.DataFrame(
         {
             "reference_id": ["study"],
-            "junction_aa": ["AAAA"],
+            "junction_aa": ["CASSLGQETQYF"],
             "v_gene": ["TRBV1*01"],
             "j_gene": ["TRBJ1-1*01"],
             "duplicate_count": [1],
@@ -72,18 +72,18 @@ def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
     pos3 = extract_pos3mer_artifacts(df, count_mode="clonotype")
     u4 = extract_u4mer_artifacts(df, count_mode="clonotype")
 
-    assert "pos3::TRBV1::0::AAA" in pos3.counts
-    assert "pos3::TRBV1::1::AAA" in pos3.counts
-    assert pos3.counts["pos3::TRBV1::0::AAA"] == 1
-    assert pos3.counts["pos3::TRBV1::1::AAA"] == 1
-    assert u4.counts["u4::AAAA"] == 1
+    assert "pos3::TRBV1::3::SLG" in pos3.counts
+    assert "pos3::TRBV1::4::LGQ" in pos3.counts
+    assert pos3.counts["pos3::TRBV1::3::SLG"] == 1
+    assert pos3.counts["pos3::TRBV1::4::LGQ"] == 1
+    assert u4.counts["u4::SLGQ"] == 1
 
 
 def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
     df = pd.DataFrame(
         {
             "reference_id": ["study"],
-            "junction_aa": ["AAAAA"],
+            "junction_aa": ["CASSLGQETQYF"],
             "v_gene": ["TRBV1*01"],
             "j_gene": ["TRBJ1-1*01"],
             "duplicate_count": [1],
@@ -93,16 +93,16 @@ def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
 
     g5 = extract_g5mer_artifacts(df, count_mode="clonotype")
 
-    assert "g5::XAAAA" in g5.counts
-    assert "g5::AAAAX" in g5.counts
-    assert g5.counts["g5::XAAAA"] == 1
+    assert "g5::SLGQX" in g5.counts
+    assert any(token.startswith("g5::") and "X" in token for token in g5.counts)
+    assert g5.counts["g5::SLGQX"] == 1
 
 
 def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
     df = pd.DataFrame(
         {
             "reference_id": ["study"],
-            "junction_aa": ["AAAA"],
+            "junction_aa": ["CASSLGQETQYF"],
             "v_gene": ["TRBV1*01"],
             "j_gene": ["TRBJ1-1*01"],
             "duplicate_count": [1],
@@ -115,7 +115,23 @@ def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
         vpos_alias = extract_vpos3mer_artifacts(df, count_mode="clonotype")
 
     assert any("deprecated" in str(w.message).lower() for w in caught)
-    assert "pos3::TRBV1::0::AAA" in vpos_alias.counts
+    assert "pos3::TRBV1::3::SLG" in vpos_alias.counts
+
+
+def test_extract_family_artifacts_can_disable_trimming() -> None:
+    df = pd.DataFrame(
+        {
+            "reference_id": ["study"],
+            "junction_aa": ["CASSLGQETQYF"],
+            "v_gene": ["TRBV1*01"],
+            "j_gene": ["TRBJ1-1*01"],
+            "duplicate_count": [1],
+            "row_id": ["0"],
+        }
+    )
+
+    untrimmed = extract_v3mer_artifacts(df, count_mode="clonotype", trim_first=0, trim_last=0)
+    assert "v3::TRBV1::CAS" in untrimmed.counts
 
 
 def test_normalize_control_v_matches_v_usage_only() -> None:

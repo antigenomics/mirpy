@@ -425,6 +425,28 @@ class LocusRepertoire:
         obj.repertoire_metadata = repertoire_metadata if repertoire_metadata is not None else {}
         return obj
 
+    @classmethod
+    def from_pandas(
+        cls,
+        df: pd.DataFrame,
+        *,
+        locus: str = "",
+        repertoire_id: str = "",
+        repertoire_metadata: dict | None = None,
+    ) -> "LocusRepertoire":
+        """Deserialise a pandas DataFrame (AIRR schema) into a LocusRepertoire.
+
+        Accepts ``row_id`` as a legacy alias for ``sequence_id``.
+        """
+        if "sequence_id" not in df.columns and "row_id" in df.columns:
+            df = df.rename(columns={"row_id": "sequence_id"})
+        return cls.from_polars(
+            pl.from_pandas(df, include_index=False),
+            locus=locus,
+            repertoire_id=repertoire_id,
+            repertoire_metadata=repertoire_metadata,
+        )
+
     # ------------------------------------------------------------------
     # Filtering
     # ------------------------------------------------------------------
@@ -1134,6 +1156,28 @@ class SampleRepertoire:
         else:
             loci[""] = LocusRepertoire.from_polars(df)
         return cls(loci=loci, sample_id=sample_id, sample_metadata=sample_metadata)
+
+    @classmethod
+    def from_pandas(
+        cls,
+        df: pd.DataFrame,
+        *,
+        locus_column: str = "locus",
+        sample_id: str = "",
+        sample_metadata: dict | None = None,
+    ) -> "SampleRepertoire":
+        """Deserialise a pandas DataFrame into a SampleRepertoire.
+
+        Accepts ``row_id`` as a legacy alias for ``sequence_id``.
+        """
+        if "sequence_id" not in df.columns and "row_id" in df.columns:
+            df = df.rename(columns={"row_id": "sequence_id"})
+        return cls.from_polars(
+            pl.from_pandas(df, include_index=False),
+            locus_column=locus_column,
+            sample_id=sample_id,
+            sample_metadata=sample_metadata,
+        )
 
     # ------------------------------------------------------------------
     # Dunder
