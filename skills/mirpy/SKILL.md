@@ -1,6 +1,6 @@
 # mirpy Agentic Skills
 
-This guide summarizes the current, reusable workflows in mirpy.
+This guide summarizes stable, reusable workflows in mirpy.
 Examples below use the public APIs that match the current source tree, tests,
 and documentation.
 
@@ -232,6 +232,7 @@ Interpretation notes:
 - The p-value is one-sided enrichment (`P[X >= count_1]`) under `Binomial(total_sample_clonotypes, p_background)`.
 - For large real controls, use `build_mappings=False` plus `chunk_size` to stream control extraction without materializing large clonotype-token maps.
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
+- For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
 ## 9. Pgen And VDJBet Workflows
 
@@ -308,7 +309,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 12. Plotting Standards (publication-ready)
+## 10. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
@@ -367,7 +368,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 10. SampleRepertoire Construction
+## 11. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever
@@ -393,7 +394,7 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 11. Practical Defaults
+## 12. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

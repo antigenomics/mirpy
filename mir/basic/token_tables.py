@@ -36,12 +36,6 @@ from mir.common.clonotype import Clonotype
 # ---------------------------------------------------------------------------
 # Types
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
 class Kmer(NamedTuple):
     """Annotated k-mer: sequence plus the gene context it was drawn from.
 

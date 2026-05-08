@@ -1,25 +1,19 @@
 """GLIPH-style k-mer token artifact extraction for TCR repertoires.
 
-Provides:
-- :class:`GliphTokenArtifacts` — counts and bipartite adjacency for one token family.
-- :func:`deduplicate_clonotype_rows` — aggregate repeated clonotype rows.
-- :func:`extract_gliph_artifacts_batch_from_repertoire` — extract multiple
-    token families from one :class:`~mir.common.repertoire.LocusRepertoire`.
-- :func:`extract_v3mer_artifacts` — V-gene anchored 3-mer extraction.
-- :func:`extract_pos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
-- :func:`extract_vpos3mer_artifacts` — deprecated alias for :func:`extract_pos3mer_artifacts`.
-- :func:`extract_u3mer_artifacts` — ungapped 3-mer extraction.
-- :func:`extract_u4mer_artifacts` — ungapped 4-mer extraction.
-- :func:`extract_g4mer_artifacts` — gapped 4-mer extraction.
-- :func:`extract_g5mer_artifacts` — gapped 5-mer extraction.
-- :func:`normalize_control_v` — resample control to match sample unweighted V usage.
-- :func:`normalize_control_vj` — resample control to match sample unweighted VJ usage.
+Core API includes :class:`GliphTokenArtifacts`,
+:func:`extract_gliph_artifacts_batch_from_repertoire`, per-family extractors
+(:func:`extract_v3mer_artifacts`, :func:`extract_pos3mer_artifacts`,
+:func:`extract_u3mer_artifacts`, :func:`extract_u4mer_artifacts`,
+:func:`extract_g4mer_artifacts`, :func:`extract_g5mer_artifacts`), and optional
+control normalization helpers :func:`normalize_control_v` /
+:func:`normalize_control_vj`.
 
 Graph construction helpers (moved to :mod:`mir.graph.token_graph`)
 -------------------------------------------------------------------
-- ``combine_enriched_token_maps`` — merge enriched token neighborhoods across families.
-- ``build_full_gliph_clonotype_graph`` — build a combined k-mer/Hamming clonotype graph.
-- ``build_kmer_projection_graph`` — project token co-occurrence graph.
+``combine_enriched_token_maps`` merges enriched token neighborhoods across
+families, ``build_full_gliph_clonotype_graph`` builds a combined
+k-mer/Hamming clonotype graph, and ``build_kmer_projection_graph`` builds the
+token co-occurrence projection.
 
 Threaded tokenisation
 ---------------------
@@ -38,10 +32,8 @@ is preserved: position in tokens reflects offset into trimmed sequence.
 Control/background strategy
 ---------------------------
 This module supports two control strategies:
-- unnormalized background controls (recommended for fast notebook iteration,
-    typically with a fixed-size random control subset),
-- optional V/VJ normalization via ``normalize_control_v`` and
-    ``normalize_control_vj`` when explicit gene-usage matching is required.
+- unnormalized background controls (recommended for fast notebook iteration),
+- optional V/VJ normalization when explicit gene-usage matching is required.
 """
 
 from __future__ import annotations
@@ -49,7 +41,7 @@ from __future__ import annotations
 import concurrent.futures
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal
 import warnings
 
 import numpy as np
@@ -140,9 +132,9 @@ def _trim_junction_aa(junction_aa: str, trim_first: int = 3, trim_last: int = 4)
     junction_aa : str
         Full junction amino acid sequence.
     trim_first : int
-        Number of amino acids to trim from the start (default 0).
+        Number of amino acids to trim from the start (default 3).
     trim_last : int
-        Number of amino acids to trim from the end (default 0).
+        Number of amino acids to trim from the end (default 4).
     
     Returns
     -------
@@ -167,9 +159,9 @@ def repertoire_to_clonotypes(
     repertoire : LocusRepertoire
         Source repertoire.
     trim_first : int
-        Number of amino acids to trim from start (default 0).
+        Number of amino acids to trim from start (default 3).
     trim_last : int
-        Number of amino acids to trim from end (default 0).
+        Number of amino acids to trim from end (default 4).
     
     Returns
     -------
@@ -325,39 +317,6 @@ def _token_from_match(
     raise ValueError(f"Unknown GLIPH token family: {family}")
 
 
-def _build_artifacts_from_clones(
-    clones: list[Clonotype],
-    family: TOKEN_FAMILY,
-    count_mode: COUNT_MODE,
-) -> GliphTokenArtifacts:
-    """Build token artifacts for one family from a clonotype list."""
-    token_table = _token_table_for_family(clones, family)
-
-    occurrence_counts: Counter[str] = Counter()
-    token_to_clone: dict[str, set[str]] = defaultdict(set)
-    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
-
-    for kmer, matches in token_table.items():
-        for match in matches:
-            token = _token_from_match(family, kmer, match)
-            rid = str(match.rearrangement.id)
-            occurrence_counts[token] += 1
-            token_to_clone[token].add(rid)
-            clone_to_tokens[rid].add(token)
-
-    clonotype_counts = {token: len(cloneset) for token, cloneset in token_to_clone.items()}
-    counts = dict(clonotype_counts if count_mode == "clonotype" else occurrence_counts)
-
-    return GliphTokenArtifacts(
-        counts=counts,
-        token_to_clone=dict(token_to_clone),
-        clone_to_tokens=dict(clone_to_tokens),
-        occurrence_counts=dict(occurrence_counts),
-        clonotype_counts=clonotype_counts,
-        count_mode=count_mode,
-    )
-
-
 def _build_artifacts_from_token_table(
     token_table,
     family: TOKEN_FAMILY,
@@ -416,34 +375,11 @@ def _worker_extract(
         trim_last=trim_last,
     )
     token_table = _token_table_for_family(clones, family)
-
-    occurrence_counts: Counter[str] = Counter()
-    token_to_clone: dict[str, set[str]] = defaultdict(set)
-    clone_to_tokens: dict[str, set[str]] = defaultdict(set)
-
-    for kmer, matches in token_table.items():
-        for match in matches:
-            token = _token_from_match(
-                family,
-                kmer,
-                match,
-                position_offset=trim_first,
-            )
-            rid = str(match.rearrangement.id)
-            occurrence_counts[token] += 1
-            token_to_clone[token].add(rid)
-            clone_to_tokens[rid].add(token)
-
-    clonotype_counts = {token: len(cloneset) for token, cloneset in token_to_clone.items()}
-    counts = dict(clonotype_counts if count_mode == "clonotype" else occurrence_counts)
-
-    return GliphTokenArtifacts(
-        counts=counts,
-        token_to_clone=dict(token_to_clone),
-        clone_to_tokens=dict(clone_to_tokens),
-        occurrence_counts=dict(occurrence_counts),
-        clonotype_counts=clonotype_counts,
-        count_mode=count_mode,
+    return _build_artifacts_from_token_table(
+        token_table,
+        family,
+        count_mode,
+        position_offset=trim_first,
     )
 
 
@@ -964,7 +900,7 @@ def extract_g5mer_artifacts(
 # Family extractors registry (default GLIPH family extractors)
 # ---------------------------------------------------------------------------
 
-FAMILY_EXTRACTORS: dict[str, callable] = {
+FAMILY_EXTRACTORS: dict[str, Callable[..., GliphTokenArtifacts]] = {
     "v3": extract_v3mer_artifacts,
     "pos3": extract_pos3mer_artifacts,
     "u3": extract_u3mer_artifacts,
