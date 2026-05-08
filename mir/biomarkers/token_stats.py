@@ -26,7 +26,6 @@ Functions
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Literal
 from typing import Callable
 
@@ -68,7 +67,7 @@ class KmerCounter:
             raise ValueError(f"k must be >= 1, got {k}")
         self.k = k
         self.repertoire = repertoire
-        self._counts: Counter[str] | None = None
+        self._counts: dict[str, int] | None = None
 
     def counts(self) -> dict[str, int]:
         """Return k-mer counts for the repertoire.
@@ -81,8 +80,9 @@ class KmerCounter:
             Mapping from k-mer string to occurrence count.
         """
         if self._counts is None:
-            self._counts = Counter(
-                count_tokens_str((cl.junction_aa for cl in self.repertoire.clonotypes), self.k)
+            self._counts = count_tokens_str(
+                (cl.junction_aa for cl in self.repertoire.clonotypes),
+                self.k,
             )
         return dict(self._counts)
 
@@ -123,26 +123,26 @@ def compare_kmer_counts(
     ----------
     counts_1, counts_2 : dict[str, int]
         K-mer occurrence counts (e.g. from :meth:`KmerCounter.counts`).
-        test : {"chi2", "fisher", "binom"}
-                Statistical test mode.
+    test : {"chi2", "fisher", "binom"}
+        Statistical test mode.
 
-                - ``"chi2"`` and ``"fisher"`` use a 2 x 2 table per k-mer:
-                    ``[[count_1, total_1-count_1], [count_2, total_2-count_2]]``.
-                - ``"binom"`` treats ``count_1`` as successes in ``total_1`` Bernoulli
-                    trials with background rate ``p_background = count_2 / total_2`` and
-                    computes one-sided enrichment p-values via
-                    ``binom.sf(count_1 - 1, total_1, p_background)``.
+        ``"chi2"`` and ``"fisher"`` use a 2 x 2 table per k-mer:
+        ``[[count_1, total_1-count_1], [count_2, total_2-count_2]]``.
+        ``"binom"`` treats ``count_1`` as successes in ``total_1`` Bernoulli
+        trials with background rate ``p_background = count_2 / total_2`` and
+        computes one-sided enrichment p-values via
+        ``binom.sf(count_1 - 1, total_1, p_background)``.
     p_adj_method : str
         Method for :func:`statsmodels.stats.multitest.multipletests`
-        (default ``"holm"``).  Ignored when *p_adj_func* is given.
+        (default ``"holm"``). Ignored when *p_adj_func* is given.
     p_adj_func : callable, optional
         Custom function that accepts and returns an array of p-values.
         When provided, *p_adj_method* is ignored.
     pseudocount : int, optional
-        Non-negative integer added to every k-mer count in both tables *before*
+        Non-negative integer added to every k-mer count in both tables before
         computing totals and test statistics (default ``0`` = no pseudocount).
         Adding a small pseudocount (e.g. ``1``) prevents zero-cell contingency
-        tables, stabilises frequency estimates for rare k-mers, and makes the
+        tables, stabilizes frequency estimates for rare k-mers, and makes the
         Fisher test more conservative for very low-count tokens.
 
     Returns
