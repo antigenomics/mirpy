@@ -342,21 +342,29 @@ def compute_token_tables_batch(
     """
     if families is None:
         families = ['v3', 'pos3', 'u3', 'u4', 'g4', 'g5']
-    
-    result: dict[str, dict[Kmer, list[KmerMatch]]] = {}
-    
+
+    normalized_families: list[str] = []
     for family in families:
-        if family == 'vpos3':
-            family = 'pos3'
-        if family in ('v3', 'pos3', 'u3'):
-            result[family] = tokenize_rearrangements(rearrangements, k=3, mask_byte=None)
+        fam = 'pos3' if family == 'vpos3' else family
+        if fam not in {'v3', 'pos3', 'u3', 'u4', 'g4', 'g5'}:
+            raise ValueError(f"Unknown token family: {family}")
+        normalized_families.append(fam)
+
+    result: dict[str, dict[Kmer, list[KmerMatch]]] = {}
+
+    # Reuse the same plain 3-mer tokenization across v3/pos3/u3.
+    plain3: dict[Kmer, list[KmerMatch]] | None = None
+    if any(fam in {'v3', 'pos3', 'u3'} for fam in normalized_families):
+        plain3 = tokenize_rearrangements(rearrangements, k=3, mask_byte=None)
+
+    for family in normalized_families:
+        if family in {'v3', 'pos3', 'u3'}:
+            result[family] = plain3 if plain3 is not None else {}
         elif family == 'u4':
             result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=None)
         elif family == 'g4':
             result[family] = tokenize_rearrangements(rearrangements, k=4, mask_byte=ord('X'))
         elif family == 'g5':
             result[family] = tokenize_rearrangements(rearrangements, k=5, mask_byte=ord('X'))
-        else:
-            raise ValueError(f"Unknown token family: {family}")
-    
+
     return result
