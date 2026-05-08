@@ -6,6 +6,7 @@ Provides:
 - :func:`extract_v3mer_artifacts` — V-gene anchored 3-mer extraction.
 - :func:`extract_pos3mer_artifacts` — V-gene + junction position + 3-mer extraction.
 - :func:`extract_vpos3mer_artifacts` — deprecated alias for :func:`extract_pos3mer_artifacts`.
+- :func:`extract_u3mer_artifacts` — ungapped 3-mer extraction.
 - :func:`extract_u4mer_artifacts` — ungapped 4-mer extraction.
 - :func:`extract_g4mer_artifacts` — gapped 4-mer extraction.
 - :func:`extract_g5mer_artifacts` — gapped 5-mer extraction.
@@ -44,6 +45,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from mir.biomarkers.kmer_stats import compare_kmer_counts
 from mir.basic.token_tables import tokenize_rearrangements
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
@@ -82,7 +84,7 @@ class GliphTokenArtifacts:
     count_mode: Literal["occurrence", "clonotype"] = "clonotype"
 
 
-TOKEN_FAMILY = Literal["v3", "pos3", "u4", "g4", "g5", "vpos3"]
+TOKEN_FAMILY = Literal["v3", "pos3", "u3", "u4", "g4", "g5", "vpos3"]
 COUNT_MODE = Literal["occurrence", "clonotype"]
 
 _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
@@ -290,6 +292,8 @@ def _token_table_for_family(
         return tokenize_rearrangements(clones, k=3, mask_byte=None)
     if family == "pos3":
         return tokenize_rearrangements(clones, k=3, mask_byte=None)
+    if family == "u3":
+        return tokenize_rearrangements(clones, k=3, mask_byte=None)
     if family == "u4":
         return tokenize_rearrangements(clones, k=4, mask_byte=None)
     if family == "g4":
@@ -314,6 +318,8 @@ def _token_from_match(
         return f"v3::{v_base}::{seq}"
     if family == "pos3":
         return f"pos3::{v_base}::{position_offset + match.position}::{seq}"
+    if family == "u3":
+        return f"u3::{seq}"
     if family == "u4":
         return f"u4::{seq}"
     if family == "g4":
@@ -493,7 +499,7 @@ def extract_gliph_token_artifacts(
     df : pd.DataFrame
         Clonotype table with columns ``row_id``, ``junction_aa``, ``v_gene``,
         ``j_gene`` (optional), ``duplicate_count``.
-    family : {"v3", "pos3", "u4", "g4", "g5"}
+    family : {"v3", "pos3", "u3", "u4", "g4", "g5"}
         Token family to extract.
     threads : int, optional
         Number of worker threads (default ``1``).
@@ -616,6 +622,31 @@ def extract_pos3mer_artifacts(
     )
 
 
+def extract_u3mer_artifacts(
+    df: pd.DataFrame,
+    threads: int = 1,
+    *,
+    count_mode: COUNT_MODE = "clonotype",
+    unique_clonotypes: bool = False,
+    unique_subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
+    trim_first: int = 3,
+    trim_last: int = 4,
+    n_workers: int | None = None,
+) -> GliphTokenArtifacts:
+    """Extract ungapped 3-mer token artifacts."""
+    return extract_gliph_token_artifacts(
+        df,
+        family="u3",
+        threads=threads,
+        count_mode=count_mode,
+        unique_clonotypes=unique_clonotypes,
+        unique_subset=unique_subset,
+        trim_first=trim_first,
+        trim_last=trim_last,
+        n_workers=n_workers,
+    )
+
+
 def extract_u4mer_artifacts(
     df: pd.DataFrame,
     threads: int = 1,
@@ -638,6 +669,24 @@ def extract_u4mer_artifacts(
         trim_first=trim_first,
         trim_last=trim_last,
         n_workers=n_workers,
+    )
+
+
+def compare_gliph_token_incidence(
+    sample_artifacts: GliphTokenArtifacts,
+    control_artifacts: GliphTokenArtifacts,
+    *,
+    test: Literal["chi2", "fisher", "binom"] = "binom",
+    p_adj_method: str = "fdr_bh",
+    pseudocount: int = 1,
+) -> pd.DataFrame:
+    """Compare token incidence (clonotype presence) between sample and control."""
+    return compare_kmer_counts(
+        sample_artifacts.clonotype_counts,
+        control_artifacts.clonotype_counts,
+        test=test,
+        p_adj_method=p_adj_method,
+        pseudocount=pseudocount,
     )
 
 
@@ -712,9 +761,11 @@ __all__ = [
     "extract_v3mer_artifacts",
     "extract_pos3mer_artifacts",
     "extract_vpos3mer_artifacts",
+    "extract_u3mer_artifacts",
     "extract_u4mer_artifacts",
     "extract_g4mer_artifacts",
     "extract_g5mer_artifacts",
+    "compare_gliph_token_incidence",
     "extract_gliph_token_artifacts",
     "combine_enriched_token_maps",
     "build_full_gliph_clonotype_graph",
