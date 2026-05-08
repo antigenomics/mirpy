@@ -38,7 +38,6 @@ import pandas as pd
 
 from mir.basic.token_tables import tokenize_rearrangements
 from mir.common.clonotype import Clonotype
-from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +571,9 @@ def build_full_gliph_clonotype_graph(
     tuple
         ``(full_clone_graph, clone_to_tokens_expanded, hamming_graph)``.
     """
+    # Import lazily to keep tokenization utilities usable without optional trie deps.
+    from mir.graph.edit_distance_graph import build_edit_distance_graph
+
     all_clones = rows_to_clonotypes(study_df)
     hamming_graph = build_edit_distance_graph(
         all_clones,

@@ -29,7 +29,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2_contingency, fisher_exact
+from scipy.stats import binom, chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
 from mir.basic.tokens import tokenize_str
@@ -106,25 +106,29 @@ class KmerCounter:
 def compare_kmer_counts(
     counts_1: dict[str, int],
     counts_2: dict[str, int],
-    test: Literal["chi2", "fisher"] = "chi2",
+    test: Literal["chi2", "fisher", "binom"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
     pseudocount: int = 0,
 ) -> pd.DataFrame:
     """Statistical comparison of two k-mer count dictionaries.
 
-    For every k-mer observed in either repertoire a 2 × 2 contingency test
-    is performed.  P-values are corrected for multiple testing.
+    For every k-mer observed in either repertoire a per-k-mer test is
+    performed. P-values are corrected for multiple testing.
 
     Parameters
     ----------
     counts_1, counts_2 : dict[str, int]
         K-mer occurrence counts (e.g. from :meth:`KmerCounter.counts`).
-    test : {"chi2", "fisher"}
-        Statistical test used on each 2 x 2 table.
-        The table is built as ``[[kmer_count_1, total_1-kmer_count_1],
-        [kmer_count_2, total_2-kmer_count_2]]`` where ``total_*`` is the
-        sum of all k-mer occurrences in the corresponding repertoire.
+        test : {"chi2", "fisher", "binom"}
+                Statistical test mode.
+
+                - ``"chi2"`` and ``"fisher"`` use a 2 x 2 table per k-mer:
+                    ``[[count_1, total_1-count_1], [count_2, total_2-count_2]]``.
+                - ``"binom"`` treats ``count_1`` as successes in ``total_1`` Bernoulli
+                    trials with background rate ``p_background = count_2 / total_2`` and
+                    computes one-sided enrichment p-values via
+                    ``binom.sf(count_1 - 1, total_1, p_background)``.
     p_adj_method : str
         Method for :func:`statsmodels.stats.multitest.multipletests`
         (default ``"holm"``).  Ignored when *p_adj_func* is given.
@@ -142,7 +146,7 @@ def compare_kmer_counts(
     -------
     pandas.DataFrame
         Columns: ``count_1``, ``count_2``, ``freq_1``, ``freq_2``,
-        ``freq_fc``, ``odds_ratio``, ``p_val``, ``p_val_adj``.
+        ``freq_fc``, ``odds_ratio``, ``p_background``, ``p_val``, ``p_val_adj``.
         Indexed by k-mer.
     """
     df1 = pd.DataFrame.from_dict(counts_1, orient="index", columns=["count_1"])
@@ -163,8 +167,8 @@ def compare_kmer_counts(
     df["freq_1"] = df["count_1"] / n1
     df["freq_2"] = df["count_2"] / n2
 
-    if test not in {"chi2", "fisher"}:
-        raise ValueError(f"Unknown test {test!r}; use 'chi2' or 'fisher'")
+    if test not in {"chi2", "fisher", "binom"}:
+        raise ValueError(f"Unknown test {test!r}; use 'chi2', 'fisher', or 'binom'")
 
     # Contingency tables -> per-kmer p-values and odds ratios
     pvals = np.empty(len(df))
@@ -175,12 +179,17 @@ def compare_kmer_counts(
         table = [[int(c1[i]), int(n1 - c1[i])], [int(c2[i]), int(n2 - c2[i])]]
         if test == "fisher":
             odds_i, p_i = fisher_exact(table, alternative="two-sided")
+        elif test == "binom":
+            p_background = float(c2[i] / n2)
+            odds_i = np.inf if p_background == 0 else float((c1[i] / n1) / p_background)
+            p_i = binom.sf(int(c1[i]) - 1, int(n1), p_background)
         else:
             odds_i = np.inf if c2[i] == 0 else (c1[i] / c2[i])
             p_i = chi2_contingency(table)[1]
         odds[i] = float(odds_i)
         pvals[i] = float(p_i)
     df["odds_ratio"] = odds
+    df["p_background"] = df["freq_2"]
     df["p_val"] = pvals
 
     # Fold change (freq_1 / freq_2); 0-frequency guarded by fillna above
@@ -200,7 +209,7 @@ def compare_repertoire_kmers(
     repertoire_1: Repertoire,
     repertoire_2: Repertoire,
     k: int,
-    test: Literal["chi2", "fisher"] = "chi2",
+    test: Literal["chi2", "fisher", "binom"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> pd.DataFrame:
@@ -215,8 +224,8 @@ def compare_repertoire_kmers(
         Repertoires to compare.
     k : int
         K-mer length.
-    test : {"chi2", "fisher"}
-        Statistical test applied to each k-mer 2 x 2 table.
+    test : {"chi2", "fisher", "binom"}
+        Statistical test mode passed to :func:`compare_kmer_counts`.
     p_adj_method : str
         Multiple-testing correction method (default ``"holm"``).
     p_adj_func : callable, optional
