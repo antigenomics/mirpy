@@ -48,7 +48,7 @@ import numpy as np
 import pandas as pd
 
 from mir.biomarkers.token_stats import compare_kmer_counts
-from mir.basic.token_tables import tokenize_rearrangements
+from mir.basic.token_tables import tokenize_clonotypes
 from mir.basic.alphabets import _to_bytes as _aa_to_bytes
 from mir.basic.tokens import trim_sequence
 from mir.basic.mirseq import (
@@ -277,17 +277,17 @@ def _token_table_for_family(
     if family == "vpos3":
         family = "pos3"
     if family == "v3":
-        return tokenize_rearrangements(clones, k=3, mask_byte=None)
+        return tokenize_clonotypes(clones, k=3, mask_byte=None)
     if family == "pos3":
-        return tokenize_rearrangements(clones, k=3, mask_byte=None)
+        return tokenize_clonotypes(clones, k=3, mask_byte=None)
     if family == "u3":
-        return tokenize_rearrangements(clones, k=3, mask_byte=None)
+        return tokenize_clonotypes(clones, k=3, mask_byte=None)
     if family == "u4":
-        return tokenize_rearrangements(clones, k=4, mask_byte=None)
+        return tokenize_clonotypes(clones, k=4, mask_byte=None)
     if family == "g4":
-        return tokenize_rearrangements(clones, k=4, mask_byte=ord("X"))
+        return tokenize_clonotypes(clones, k=4, mask_byte=ord("X"))
     if family == "g5":
-        return tokenize_rearrangements(clones, k=5, mask_byte=ord("X"))
+        return tokenize_clonotypes(clones, k=5, mask_byte=ord("X"))
     raise ValueError(f"Unknown GLIPH token family: {family}")
 
 
