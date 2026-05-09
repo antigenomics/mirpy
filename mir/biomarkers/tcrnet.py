@@ -3,13 +3,26 @@
 This implementation is metadata-first:
 - neighborhood counts and p-values are written directly into clonotype metadata,
 - table output is optional and derived from the annotated repertoire.
+
+This module is a highly customized MIR implementation inspired by ideas
+described in the TCRNET framework paper, not a literal line-by-line
+reimplementation of the original software.
+
+Reference
+---------
+Pogorelyy MV, Shugay M. A Framework for Annotation of Antigen Specificities in
+High-Throughput T-Cell Repertoire Sequencing Studies. Front Immunol.
+2019;10:2159.
+doi:10.3389/fimmu.2019.02159. PMID:31616409.
+PubMed: https://pubmed.ncbi.nlm.nih.gov/31616409/
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from math import ceil
 import math
+import os
 import typing as t
 from dataclasses import dataclass
 
@@ -17,7 +30,13 @@ import pandas as pd
 from scipy.stats import betabinom, binom
 
 from mir.basic.gene_usage import GeneUsage
-from mir.biomarkers._shared import MatchMode, iter_loci, match_flags, normalize_match_mode
+from mir.biomarkers._shared import (
+    MatchMode,
+    apply_bh_qvalues_to_metadata,
+    iter_loci,
+    match_flags,
+    normalize_match_mode,
+)
 from mir.common.clonotype import Clonotype
 from mir.common.alleles import allele_to_major
 from mir.common.control import ControlManager
@@ -162,6 +181,7 @@ def _compute_tcrnet_metrics_batch(
     locus_self: dict[str, dict[str, int]],
     locus_ctrl: dict[str, dict[str, int]],
     pvalue_mode: PValueMode,
+    pseudocount: float = 1.0,
 ) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
     out: list[tuple[str, int, int, int, int, float, float, float, float]] = []
     for clonotype in clonotypes:
@@ -170,15 +190,35 @@ def _compute_tcrnet_metrics_batch(
         c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         n = int(s_stat["neighbor_count"])
         N = int(s_stat["potential_neighbors"])
-        # Add pseudocount of 1 to control: virtual clonotype-of-interest inserted into control
-        m = int(c_stat["neighbor_count"]) + 1
-        M = int(c_stat["potential_neighbors"]) + 1
+        # Add pseudocount to control: virtual clonotype-of-interest inserted into control
+        m = int(c_stat["neighbor_count"]) + pseudocount
+        M = int(c_stat["potential_neighbors"]) + pseudocount
         p = _p_value(n, N, m, M, pvalue_mode)
         fe = _fold_enrichment(n, N, m, M)
         sample_density = float(n / N) if N > 0 else 0.0
         control_density = float(m / M) if M > 0 else 0.0
         out.append((sid, n, N, m, M, p, fe, sample_density, control_density))
     return out
+
+
+def _compute_tcrnet_metrics_batch_from_args(
+    args: tuple[
+        list[Clonotype],
+        dict[str, dict[str, int]],
+        dict[str, dict[str, int]],
+        PValueMode,
+        float,
+    ],
+) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
+    """Pickle-friendly wrapper for process-pool batch execution."""
+    clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount = args
+    return _compute_tcrnet_metrics_batch(
+        clonotypes,
+        locus_self=locus_self,
+        locus_ctrl=locus_ctrl,
+        pvalue_mode=pvalue_mode,
+        pseudocount=pseudocount,
+    )
 
 
 def tcrnet_table(
@@ -211,6 +251,7 @@ def tcrnet_table(
                     "control_density": float(m / M) if M > 0 else 0.0,
                     "fold_enrichment": float(md.get(f"{metadata_prefix}_fold", 0.0)),
                     "p_value": float(md.get(f"{metadata_prefix}_p_value", 1.0)),
+                    "q_value": float(md.get(f"{metadata_prefix}_q_value", 1.0)),
                 }
             )
     table = pd.DataFrame.from_records(rows)
@@ -232,6 +273,7 @@ def compute_tcrnet(
     threshold: int = 1,
     match_mode: str = "none",
     pvalue_mode: PValueMode = "binomial",
+    pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     as_table: bool = True,
@@ -301,26 +343,28 @@ def compute_tcrnet(
                 qrep.clonotypes[start : start + batch_size]
                 for start in range(0, len(qrep.clonotypes), batch_size)
             ]
-            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-                futures = [
-                    executor.submit(
-                        _compute_tcrnet_metrics_batch,
-                        batch,
-                        locus_self=locus_self,
-                        locus_ctrl=locus_ctrl,
-                        pvalue_mode=pvalue_mode,
-                    )
-                    for batch in batches
-                ]
-                for future in futures:
-                    for sid, n, N, m, M, p, fe, sample_density, control_density in future.result():
-                        metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
+            batch_args = [
+                (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount)
+                for batch in batches
+            ]
+            executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
+            if executor_mode == "thread":
+                with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                    metric_chunks = list(executor.map(_compute_tcrnet_metrics_batch_from_args, batch_args))
+            else:
+                with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+                    metric_chunks = list(executor.map(_compute_tcrnet_metrics_batch_from_args, batch_args))
+
+            for chunk in metric_chunks:
+                for sid, n, N, m, M, p, fe, sample_density, control_density in chunk:
+                    metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
         else:
             for sid, n, N, m, M, p, fe, sample_density, control_density in _compute_tcrnet_metrics_batch(
                 qrep.clonotypes,
                 locus_self=locus_self,
                 locus_ctrl=locus_ctrl,
                 pvalue_mode=pvalue_mode,
+                pseudocount=pseudocount,
             ):
                 metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
 
@@ -335,6 +379,8 @@ def compute_tcrnet(
             clonotype.clone_metadata[f"{metadata_prefix}_control_density"] = control_density
             clonotype.clone_metadata[f"{metadata_prefix}_fold"] = fe
             clonotype.clone_metadata[f"{metadata_prefix}_p_value"] = p
+
+    apply_bh_qvalues_to_metadata(repertoire, metadata_prefix=metadata_prefix)
 
     if as_table:
         return TcrnetResult(table=tcrnet_table(repertoire, metadata_prefix=metadata_prefix), params=params)
@@ -354,6 +400,7 @@ def add_tcrnet_metadata(
     threshold: int = 1,
     match_mode: str = "none",
     pvalue_mode: PValueMode = "binomial",
+    pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     n_jobs: int = 4,
@@ -373,6 +420,7 @@ def add_tcrnet_metadata(
             threshold=threshold,
             match_mode=match_mode,
             pvalue_mode=pvalue_mode,
+            pseudocount=pseudocount,
             random_seed=random_seed,
             metadata_prefix=metadata_prefix,
             as_table=False,

@@ -21,7 +21,8 @@ reduces wall-clock time from ~10 min (single-process) to ~80 s.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from math import ceil
 import math
 from multiprocessing import Pool
@@ -259,8 +260,29 @@ class OlgaModel:
 
         batch_size = max(1, ceil(len(seqs) / n_jobs))
         batches = [seqs[start : start + batch_size] for start in range(0, len(seqs), batch_size)]
+
+        # True multicore default: process pool workers each hold their own OLGA model.
+        # Set MIRPY_OLGA_BULK_EXECUTOR=thread to use shared-model threading instead.
+        executor_mode = os.getenv("MIRPY_OLGA_BULK_EXECUTOR", "process").strip().lower()
+        if executor_mode == "thread":
+            if max_mismatches == 0:
+                raw_compute = self.pgen_model.compute_aa_CDR3_pgen
+            else:
+                raw_compute = lambda seq: self.pgen_model.compute_hamming_dist_1_pgen(seq, print_warnings=False)
+
+            def _compute_batch(batch: list[str]) -> list[float]:
+                return [float(raw_compute(seq)) for seq in batch]
+
+            try:
+                with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                    chunks = list(executor.map(_compute_batch, batches))
+                return [pgen for chunk in chunks for pgen in chunk]
+            except Exception:
+                # Fallback to process mode if shared-model threading fails.
+                pass
+
         args = [(self._init_kwargs, batch, max_mismatches) for batch in batches]
-        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+        with ProcessPoolExecutor(max_workers=n_jobs) as executor:
             chunks = list(executor.map(_compute_pgen_bulk_chunk, args))
         return [pgen for chunk in chunks for pgen in chunk]
 

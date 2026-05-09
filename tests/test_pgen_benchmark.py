@@ -13,7 +13,7 @@ import pytest
 
 from mir.basic.pgen import OlgaModel
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_repertoire_workers, skip_benchmarks
+from tests.conftest import benchmark_max_seconds, benchmark_repertoire_workers, skip_benchmarks
 
 
 def _unique_generated_sequences(model: OlgaModel, n: int, *, seed: int = 42) -> list[str]:
@@ -83,3 +83,5 @@ def test_pgen_bulk_parallel_exact_and_1mm(capsys) -> None:
         print("=" * 92)
 
     assert not df.empty
+    cap_s = benchmark_max_seconds(default=900.0)
+    assert (df["elapsed_s"] < cap_s).all()

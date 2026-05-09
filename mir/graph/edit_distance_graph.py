@@ -9,7 +9,7 @@ back to constrained brute-force only when trie search raises an error.
 from __future__ import annotations
 
 import typing as t
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from math import ceil
 
 import igraph as ig
@@ -17,6 +17,47 @@ from tcrtrie import Trie
 
 from mir.common.clonotype import Clonotype
 from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
+
+
+_EDGE_WORKER_STATE: dict[str, t.Any] = {}
+
+
+def _init_edge_worker(
+    seqs: list[str],
+    v_genes: list[str],
+    j_genes: list[str],
+    c_genes: list[str],
+    metric: str,
+    threshold: int,
+    v_gene_match: bool,
+    c_gene_match: bool,
+) -> None:
+    _EDGE_WORKER_STATE["seqs"] = seqs
+    _EDGE_WORKER_STATE["v_genes"] = v_genes
+    _EDGE_WORKER_STATE["j_genes"] = j_genes
+    _EDGE_WORKER_STATE["c_genes"] = c_genes
+    _EDGE_WORKER_STATE["metric"] = metric
+    _EDGE_WORKER_STATE["threshold"] = threshold
+    _EDGE_WORKER_STATE["v_gene_match"] = v_gene_match
+    _EDGE_WORKER_STATE["c_gene_match"] = c_gene_match
+    _EDGE_WORKER_STATE["trie"] = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
+
+
+def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int]]:
+    start, stop = range_pair
+    return _build_batch_edges(
+        _EDGE_WORKER_STATE["seqs"],
+        _EDGE_WORKER_STATE["v_genes"],
+        _EDGE_WORKER_STATE["j_genes"],
+        _EDGE_WORKER_STATE["trie"],
+        _EDGE_WORKER_STATE["c_genes"],
+        metric=_EDGE_WORKER_STATE["metric"],
+        threshold=_EDGE_WORKER_STATE["threshold"],
+        v_gene_match=_EDGE_WORKER_STATE["v_gene_match"],
+        c_gene_match=_EDGE_WORKER_STATE["c_gene_match"],
+        start=start,
+        stop=stop,
+    )
 
 
 def _build_batch_edges(
@@ -61,20 +102,43 @@ def _build_edges_parallel(
     n: int,
     jobs: int,
     chunk_sz: int,
-    builder: t.Callable[[int, int], set[tuple[int, int]]],
+    seqs: list[str],
+    v_genes: list[str],
+    j_genes: list[str],
+    c_genes: list[str],
+    metric: str,
+    threshold: int,
+    v_gene_match: bool,
+    c_gene_match: bool,
 ) -> set[tuple[int, int]]:
     if n <= 1:
         return set()
     if jobs <= 1 or n <= chunk_sz:
-        return builder(0, n)
+        trie = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
+        return _build_batch_edges(
+            seqs,
+            v_genes,
+            j_genes,
+            trie,
+            c_genes,
+            metric=metric,
+            threshold=threshold,
+            v_gene_match=v_gene_match,
+            c_gene_match=c_gene_match,
+            start=0,
+            stop=n,
+        )
 
     batch_size = max(1, chunk_sz, ceil(n / jobs))
     ranges = [(start, min(start + batch_size, n)) for start in range(0, n, batch_size)]
     edges: set[tuple[int, int]] = set()
-    with ThreadPoolExecutor(max_workers=jobs) as executor:
-        futures = [executor.submit(builder, start, stop) for start, stop in ranges]
-        for future in futures:
-            edges.update(future.result())
+    with ProcessPoolExecutor(
+        max_workers=jobs,
+        initializer=_init_edge_worker,
+        initargs=(seqs, v_genes, j_genes, c_genes, metric, threshold, v_gene_match, c_gene_match),
+    ) as executor:
+        for chunk_edges in executor.map(_build_batch_edges_worker, ranges):
+            edges.update(chunk_edges)
     return edges
 
 
@@ -118,26 +182,20 @@ def build_edit_distance_graph(
     seqs = [str(getattr(r, "junction_aa", "") or "") for r in rearrangements]
     v_genes = [str(getattr(r, "v_gene", "") or "") for r in rearrangements]
     j_genes = [str(getattr(r, "j_gene", "") or "") for r in rearrangements]
-    trie = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
     c_genes = [str(getattr(r, "c_gene", "") or "") for r in rearrangements]
 
     edges = _build_edges_parallel(
         n=n,
         jobs=jobs,
         chunk_sz=chunk_sz,
-        builder=lambda start, stop: _build_batch_edges(
-            seqs,
-            v_genes,
-            j_genes,
-            trie,
-            c_genes,
-            metric=metric,
-            threshold=threshold,
-            v_gene_match=v_gene_match,
-            c_gene_match=c_gene_match,
-            start=start,
-            stop=stop,
-        ),
+        seqs=seqs,
+        v_genes=v_genes,
+        j_genes=j_genes,
+        c_genes=c_genes,
+        metric=metric,
+        threshold=threshold,
+        v_gene_match=v_gene_match,
+        c_gene_match=c_gene_match,
     )
 
     g = ig.Graph(n=n, directed=False)

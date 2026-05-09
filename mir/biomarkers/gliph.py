@@ -15,13 +15,12 @@ families, ``build_full_gliph_clonotype_graph`` builds a combined
 k-mer/Hamming clonotype graph, and ``build_kmer_projection_graph`` builds the
 token co-occurrence projection.
 
-Threaded tokenisation
----------------------
+Multiprocess tokenisation
+-------------------------
 The extraction helpers accept a ``threads`` argument. When ``threads > 1`` the
 input DataFrame is split into chunks and processed via
-:class:`concurrent.futures.ThreadPoolExecutor`.  The underlying tokeniser spends
-most of its time in the C-extension, so threads retain a lightweight API while
-keeping naming consistent with the rest of the codebase.
+:class:`concurrent.futures.ProcessPoolExecutor` so CPU-bound token extraction
+uses true multi-core execution.
 
 CDR3 trimming
 -------------
@@ -34,11 +33,22 @@ Control/background strategy
 This module supports two control strategies:
 - unnormalized background controls (recommended for fast notebook iteration),
 - optional V/VJ normalization when explicit gene-usage matching is required.
+
+This module is a highly customized MIR implementation inspired by ideas
+described in the original GLIPH publication, not a literal line-by-line
+reimplementation of the original software.
+
+Reference
+---------
+Glanville J, Huang H, Nau A, et al. Identifying specificity groups in the T
+cell receptor repertoire. Nature. 2017;547(7661):94-98.
+doi:10.1038/nature22976. PMID:28636589.
+PubMed: https://pubmed.ncbi.nlm.nih.gov/28636589/
 """
 
 from __future__ import annotations
 
-import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Callable, Literal
@@ -367,7 +377,7 @@ def _worker_extract(
     trim_first: int = 3,
     trim_last: int = 4,
 ) -> GliphTokenArtifacts:
-    """ThreadPoolExecutor worker for GLIPH token extraction."""
+    """ProcessPoolExecutor worker for GLIPH token extraction."""
     repertoire = _locus_repertoire_from_dataframe(chunk_df, locus="TRB")
     clones = repertoire_to_clonotypes(
         repertoire,
@@ -391,7 +401,7 @@ def _worker_extract(
 def _merge_artifact_parts(
     parts: list[GliphTokenArtifacts],
 ) -> GliphTokenArtifacts:
-    """Merge partial artifact objects produced by threaded workers."""
+    """Merge partial artifact objects produced by parallel workers."""
     if not parts:
         return GliphTokenArtifacts(
             counts={},
@@ -507,12 +517,17 @@ def extract_gliph_token_artifacts(
         return _worker_extract(df, family=family, count_mode=count_mode, trim_first=trim_first, trim_last=trim_last)
 
     chunks = _split_dataframe(df.reset_index(drop=True), threads)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
-        futures = [
-            pool.submit(_worker_extract, chunk, family, count_mode, trim_first, trim_last)
-            for chunk in chunks
-        ]
-        parts = [future.result() for future in futures]
+    with ProcessPoolExecutor(max_workers=threads) as pool:
+        parts = list(
+            pool.map(
+                _worker_extract,
+                chunks,
+                [family] * len(chunks),
+                [count_mode] * len(chunks),
+                [trim_first] * len(chunks),
+                [trim_last] * len(chunks),
+            )
+        )
     return _merge_artifact_parts(parts)
 
 

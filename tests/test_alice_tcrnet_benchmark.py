@@ -351,13 +351,13 @@ def _execute_run(
     t0 = time.perf_counter()
     try:
         if spec.method == "alice":
+            alice_pgen_mode = "1mm" if spec.threshold > 0 else "exact"
             result = compute_alice(
                 rep,
                 species="human",
-                threshold=spec.threshold,
                 match_mode=spec.match_mode,
                 metric="hamming",
-                pgen_mode="exact",
+                pgen_mode=alice_pgen_mode,
                 gene_usage_synthetic_n=synthetic_n,
                 control_manager=manager,
                 n_jobs=n_jobs,
@@ -439,6 +439,7 @@ def _print_summary(
     elapsed_total: float,
     runs: list[RunResult],
     missing_targets: dict[str, list[str]],
+    cmv_source: str,
     extra_df: pd.DataFrame | None = None,
 ) -> None:
     run_df = _results_to_frame(runs)

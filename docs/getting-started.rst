@@ -155,6 +155,9 @@ Supported options:
 * ``match_v_gene``: If True, only count neighbors with matching V gene
 * ``match_j_gene``: If True, only count neighbors with matching J gene
 
+For larger repertoires, neighborhood and edit-distance graph builders run with
+multiprocess workers when ``n_jobs > 1`` to leverage true multi-core execution.
+
 You can compute neighborhood stats against an explicit background repertoire:
 
 .. code-block:: python
@@ -235,6 +238,7 @@ asset in ``tests/test_tcrnet_benchmark.py``.
 Benchmark timing details are appended to ``tests/benchmarks.log``.
 Timeouts for long benchmarks can be configured via
 ``MIRPY_BENCH_SLOW_TIMEOUT_S`` and ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``.
+Defaults are 600 s and 1200 s, respectively.
 
 For a larger ALICE/TCRNET benchmark profile (higher than the fast CI defaults):
 
@@ -336,6 +340,52 @@ To enable profile-table caching for repeated runs, pass ``cache=True``:
 Cached profile writes are lock-protected to avoid race conditions under
 concurrent workers.
 
+ALICE-Style Neighborhood Enrichment
+====================================
+
+Use ``mir.biomarkers.alice`` to compute per-clonotype neighborhood enrichment
+using OLGA generation probabilities as null model. ALICE estimates how many
+neighbors each clonotype would accumulate by chance given its sequence's Pgen.
+
+ALICE is metadata-first: neighbor counts, expected neighbors, fold enrichment,
+p-values, and BH-adjusted q-values are written directly into clonotype
+metadata. A tabular result is also returned by default.
+
+.. code-block:: python
+
+   from mir.biomarkers.alice import compute_alice, add_alice_metadata
+
+   # Compute enrichment; result.table has pre-computed q_value column.
+   result = compute_alice(
+      repertoire,
+      metric="hamming",
+      match_mode="vj",         # one of: none, v, j, vj
+      pgen_mode="1mm",         # "exact" (Hamming-0) or "1mm" (Hamming-1)
+      pvalue_mode="poisson",   # or "negative-binomial" for overdispersed data
+      pseudocount=0.0,         # added to n and N before expected/p-value
+      n_jobs=4,
+   )
+   df = result.table   # columns: sequence_id, locus, junction_aa, ..., q_value
+
+   # Or annotate clonotypes in-place.
+   add_alice_metadata(
+      repertoire,
+      metric="hamming",
+      match_mode="vj",
+      pgen_mode="1mm",
+      pvalue_mode="poisson",
+      pseudocount=0.0,
+   )
+
+Output columns: ``alice_n``, ``alice_N``, ``alice_pgen_raw``, ``alice_pgen``,
+``alice_expected``, ``alice_fold``, ``alice_p_value``, ``alice_q_value``.
+
+OLGA models are cached per ``(species, locus, seed, model_class)`` — repeated
+calls within a session reuse the loaded model without re-reading from disk.
+Bulk Pgen and per-batch metric stages use multiprocess workers by default to
+achieve true CPU parallelism; set ``MIRPY_..._EXECUTOR=thread`` only when
+debugging thread-local behavior.
+
 TCRNET-Style Neighborhood Enrichment
 ====================================
 
@@ -343,8 +393,9 @@ Use ``mir.biomarkers.tcrnet`` to compute per-clonotype neighborhood
 enrichment against either user-provided controls or built-in real/synthetic
 controls managed by ``ControlManager``.
 
-TCRNET is metadata-first: neighbor counts and p-values are written directly
-into clonotype metadata. A tabular result is optional.
+TCRNET is metadata-first: neighbor counts, p-values, and BH-adjusted
+q-values are written directly into clonotype metadata. A tabular result is
+optional.
 
 .. code-block:: python
 
@@ -358,7 +409,8 @@ into clonotype metadata. A tabular result is optional.
       threshold=1,
       n_jobs=4,
       match_mode="none",       # one of: none, v, j, vj
-      pvalue_mode="binomial",  # or beta-binomial
+      pvalue_mode="binomial",  # or "beta-binomial"
+      pseudocount=1.0,         # added to control m and M before density calculation
    )
 
    # Optional table view from clonotype metadata.

@@ -168,6 +168,7 @@ Notes:
 - Use `Graph.are_adjacent()` instead of the deprecated `Graph.are_connected()` when querying igraph graphs directly.
 - Trie-backed search is used for edit-distance graphs when available.
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
+- `compute_neighborhood_stats` and `build_edit_distance_graph` use multiprocess workers when `n_jobs > 1` for true multi-core execution.
 
 ## 8. Control Repertoires
 
@@ -192,24 +193,120 @@ Operational notes:
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 
 ```python
-from mir.biomarkers.alice import compute_alice
+from mir.biomarkers.alice import compute_alice, AliceParams, AliceResult
 
+# Returns AliceResult(table=pd.DataFrame, params=AliceParams) when as_table=True
 result = compute_alice(
-  rep,
-  species="human",
-  threshold=1,
-  match_mode="vj",
-  pgen_mode="exact",
-  n_jobs=8,
+    rep,
+    species="human",
+    match_mode="vj",      # "none" | "v" | "j" | "vj"
+  pgen_mode="1mm",      # "exact" (Hamming-0) | "1mm" (Hamming-1)
+    pvalue_mode="poisson",         # "poisson" | "negative-binomial"
+    pseudocount=0.0,               # added to n and N before p-value computation
+    n_jobs=8,
 )
+
+# result.table columns:
+#   sequence_id, locus, junction_aa, v_gene, j_gene,
+#   n_neighbors, N_possible, pgen_raw, pgen,
+#   expected_neighbors, fold_enrichment, p_value, q_value
+
+# Filter at FDR < 0.05 (q_value is BH-corrected over all locus clonotypes)
+hits = result.table[result.table["q_value"] < 0.05]
 ```
 
-Execution behavior:
+Metadata-first variant (writes results into clonotype metadata in-place):
 
-- ALICE computes neighborhood stats first (parallel trie search), then computes OLGA Pgen values (parallel) as a second phase.
-- The two phases are intentionally not overlapped to reduce thread contention on shared CPU resources.
+```python
+from mir.biomarkers.alice import add_alice_metadata
 
-## 8.1 GLIPH-Style K-mer Enrichment (binomial)
+rep = add_alice_metadata(
+    rep,
+    species="human",
+    match_mode="vj",
+  pgen_mode="1mm",
+    pvalue_mode="poisson",
+    pseudocount=0.0,
+    n_jobs=8,
+)
+# Metadata keys: alice_n, alice_N, alice_pgen_raw, alice_pgen,
+#                alice_expected, alice_fold, alice_p_value, alice_q_value
+```
+
+Key behavior notes:
+
+- ALICE computes neighborhood stats first, then OLGA Pgen values, then BH FDR; heavy parallel sections use multiprocess workers by default for true multi-core scaling.
+- Pgen bulk computation defaults to process workers (`MIRPY_OLGA_BULK_EXECUTOR=process`) and supports thread override for debugging (`thread`).
+- P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`) with optional thread mode override.
+- V/J gene usage conditioning (`match_mode != "none"`) divides raw Pgen by OLGA gene usage probability from a synthetic control (cached per locus/species/n).
+- `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
+- `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
+- The 10k ALICE benchmark test includes an explicit speedup assertion (`MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP`, default 5.0x).
+
+## 9.1 TCRNET Enrichment
+
+Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
+
+TCRNET compares sample neighborhoods to a control (real or synthetic) using
+binomial or beta-binomial statistics.
+
+```python
+from mir.biomarkers.tcrnet import compute_tcrnet, TcrnetParams, TcrnetResult
+
+# Pass an explicit control repertoire or request a managed one via control_type.
+result = compute_tcrnet(
+    rep,
+    control=control_rep,               # explicit LocusRepertoire / SampleRepertoire
+    # control_type="real",             # alternative: load managed control
+    species="human",
+    metric="hamming",                  # "hamming" | "levenshtein"
+    threshold=1,                       # 0 (exact) or 1
+    match_mode="vj",                   # "none" | "v" | "j" | "vj"
+    pvalue_mode="binomial",            # "binomial" | "beta-binomial"
+    pseudocount=1.0,                   # added to control m and M (Laplace smoothing)
+    normalize_control_vj_usage=False,  # resample control to match sample V/J usage
+    n_jobs=4,
+)
+
+# result.table columns:
+#   sequence_id, locus, junction_aa, v_gene, j_gene,
+#   n_neighbors, N_possible,
+#   m_control_neighbors, M_control_possible,
+#   sample_density, control_density,
+#   fold_enrichment, p_value, q_value
+
+# Filter at FDR < 0.05
+hits = result.table[result.table["q_value"] < 0.05]
+```
+
+Metadata-first variant:
+
+```python
+from mir.biomarkers.tcrnet import add_tcrnet_metadata
+
+rep = add_tcrnet_metadata(
+    rep,
+    control=control_rep,
+    metric="hamming",
+    threshold=1,
+    match_mode="vj",
+    pvalue_mode="binomial",
+    pseudocount=1.0,
+    n_jobs=4,
+)
+# Metadata keys: tcrnet_n, tcrnet_N, tcrnet_m, tcrnet_M,
+#                tcrnet_sample_density, tcrnet_control_density,
+#                tcrnet_fold, tcrnet_p_value, tcrnet_q_value
+```
+
+Key behavior notes:
+
+- p-value: `P(X >= n) where X ~ Binomial(N, (m+pc)/(M+pc))` (binomial mode). `beta-binomial` is overdispersed alternative using `BetaBinom(N, alpha=m+pc, beta=(M-m)+pc)`.
+- Control pseudocount (`pseudocount`, default 1.0) is added to both `m` and `M` — equivalent to inserting one virtual match in the control.
+- `q_value` in the output table is BH-corrected over all clonotypes in the locus.
+- Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
+
+## 9.2 GLIPH-Style K-mer Enrichment (binomial)
 
 For GLIPH-like motif workflows, prefer repertoire-first extraction and reuse
 one shared unnormalized control background across studies.
@@ -266,7 +363,7 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
-## 9. Pgen And VDJBet Workflows
+## 10. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
 with `PgenGeneUsageAdjustment` and `VDJBetOverlapAnalysis` for overlap tests.
@@ -284,7 +381,14 @@ analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
 
-### 9.1 VDJBet YF Shortcuts (new reusable workflow API)
+`OlgaModel` caching notes:
+
+- Each `OlgaModel(locus, species, seed)` instance caches per-sequence Pgen in a bounded dict (cap 2M entries). Warm cache is ~80,000× faster than cold.
+- `compute_pgen_junction_aa_bulk(seqs, max_mismatches=0)` uses process workers by default for true multicore scaling; set `MIRPY_OLGA_BULK_EXECUTOR=thread` for compatibility/debugging.
+- `compute_pgen_junction_aa_1mm(seq)` uses OLGA's vectorized 1-mismatch path (`compute_hamming_dist_1_pgen`), much faster than enumerating neighbors.
+- For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
+
+## 10.1 VDJBet YF Shortcuts (new reusable workflow API)
 
 Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
 copying large notebook blocks:
@@ -341,7 +445,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 10. Plotting Standards (publication-ready)
+## 11. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
