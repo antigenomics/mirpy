@@ -11,6 +11,8 @@ Practical notes
 - For GLIPH-style runs on large controls, prefer
    ``extract_gliph_artifacts_batch_from_repertoire(..., build_mappings=False, chunk_size=...)``
    and keep identical ``trim_first``/``trim_last`` settings for sample and control.
+- ALICE runs neighborhood search and Pgen in two sequential parallel phases
+   (trie search first, then OLGA Pgen) to avoid thread-pool contention.
 
 Submodules
 ----------

@@ -35,6 +35,7 @@ from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
+from mir.utils.stats import bh_fdr
 from tests.benchmark_helpers import benchmark_log_line
 from tests.conftest import skip_benchmarks
 
@@ -101,23 +102,6 @@ def _env_float(name: str, default: float) -> float:
     except ValueError:
         return default
     return max(1.0, value)
-
-
-def _bh_adjust(p_values: pd.Series) -> pd.Series:
-    values = pd.Series(p_values, dtype=float)
-    if values.empty:
-        return values
-    order = np.argsort(values.to_numpy())
-    ranked = values.to_numpy()[order]
-    n = len(ranked)
-    adjusted = np.empty(n, dtype=float)
-    running = 1.0
-    for i in range(n - 1, -1, -1):
-        running = min(running, ranked[i] * n / (i + 1))
-        adjusted[i] = running
-    out = np.empty(n, dtype=float)
-    out[order] = np.clip(adjusted, 0.0, 1.0)
-    return pd.Series(out, index=values.index)
 
 
 def _clone_from_row(row: pd.Series, *, sid: str, duplicate_count: int = 1) -> Clonotype:
@@ -258,7 +242,7 @@ def _enriched_table(table: pd.DataFrame) -> pd.DataFrame:
     if table.empty:
         return table.copy()
     df = table.copy()
-    df["p.adj"] = _bh_adjust(df["p_value"])
+    df["p.adj"] = bh_fdr(df["p_value"].to_numpy())
     return df[(df["p.adj"] <= 0.05) & (df["fold_enrichment"] > 1.0)].copy()
 
 
@@ -455,7 +439,6 @@ def _print_summary(
     elapsed_total: float,
     runs: list[RunResult],
     missing_targets: dict[str, list[str]],
-    cmv_source: str,
     extra_df: pd.DataFrame | None = None,
 ) -> None:
     run_df = _results_to_frame(runs)

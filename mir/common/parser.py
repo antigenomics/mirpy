@@ -6,6 +6,7 @@ Parsers
   (returns ``list[Clonotype]``).
 * :class:`VDJtoolsParser` — VDJtools-format tables.
 * :class:`AIRRParser` — AIRR-format tables.
+* :class:`AdaptiveParser` — Adaptive immunoSEQ / MLR tables.
 * :class:`OldMiXCRParser` — legacy MiXCR clone tables → :class:`SampleRepertoire`.
 * :class:`VDJdbSlimParser` — VDJdb slim export → :class:`SampleRepertoire`.
 * :class:`OlgaParser` — OLGA sequence generation output → :class:`SampleRepertoire`.
@@ -411,6 +412,141 @@ class AIRRParser(ClonotypeTableParser):
         if 'clone_id' in df.columns:
             df.index = df['clone_id'].astype(str)
         return super().parse_inner(df)
+
+
+# ---------------------------------------------------------------------------
+# AdaptiveParser — Adaptive immunoSEQ / MLR tables → LocusRepertoire
+# ---------------------------------------------------------------------------
+
+class AdaptiveParser(ClonotypeTableParser):
+    """Parse Adaptive immunoSEQ / MLR tables into a single-locus repertoire.
+
+    The MLR benchmark files expose Adaptive-style annotations.  This parser
+    maps the relevant columns to AIRR names, normalizes gene naming, and then
+    returns a :class:`~mir.common.repertoire.LocusRepertoire` for a chosen
+    locus (default: ``TRB``).
+
+    Field mapping
+    -------------
+    ``nucleotide``     → ``junction``
+    ``aminoAcid``      → ``junction_aa``
+    ``count``          → ``duplicate_count``
+    ``vMaxResolved``   → ``v_gene``
+    ``jMaxResolved``   → ``j_gene``
+    ``dMaxResolved``   → ``d_gene``
+
+    Gene-name normalization keeps the file names usable as IMGT-style gene
+    strings:
+
+    * ``TCRBV01`` → ``TRBV1``
+    * ``TCR`` → ``TR``
+    * zero-padded allele suffixes like ``*01`` are normalized to ``*1``
+
+    Boundary reconstruction from insertion/deletion annotations is deferred to
+    a later pass that uses the reference library.
+    """
+
+    _ADAPTIVE_TO_AIRR: dict[str, str] = {
+        "nucleotide": "junction",
+        "aminoAcid": "junction_aa",
+        "count": "duplicate_count",
+        "vMaxResolved": "v_gene",
+        "jMaxResolved": "j_gene",
+        "dMaxResolved": "d_gene",
+    }
+
+    def __init__(self, sep: str = '\t', locus: str = 'TRB') -> None:
+        super().__init__(sep=sep)
+        self.locus = locus
+
+    @staticmethod
+    def _normalize_gene_value(value) -> str:
+        """Return a cleaned Adaptive gene string.
+        
+        Normalizations:
+        - TCRBV → TRBV (TCR → TR)
+        - TRBV05-01 → TRBV5-1 (remove leading zeros from gene number and subtype)
+        - *01 → *1 (remove leading zeros from allele)
+        """
+        if value is None or (not isinstance(value, str) and pd.isna(value)):
+            return ""
+        gene = str(value).strip().split(',')[0].split(';')[0]
+        if not gene or gene == '.':
+            return ""
+        gene = gene.replace('TCR', 'TR')
+        # Remove leading zeros from gene number (e.g., TRBV05 → TRBV5)
+        gene = re.sub(r'^(TR[ABDG][VDJ])0+(\d+)', r'\1\2', gene)
+        # Remove leading zeros from subtype after dash (e.g., V5-01 → V5-1)
+        gene = re.sub(r'-0+(\d+)', r'-\1', gene)
+        # Remove leading zeros from allele suffix (e.g., *01 → *1)
+        gene = re.sub(r'\*0+(\d+)', r'*\1', gene)
+        return gene
+
+    @classmethod
+    def _normalize_pl(cls, df: pl.DataFrame) -> pl.DataFrame:
+        """Normalise Adaptive table columns to AIRR-style names in polars."""
+        df = df.rename({str(col).strip().lstrip('#'): str(col).strip().lstrip('#') for col in df.columns})
+        rename = {src: dst for src, dst in cls._ADAPTIVE_TO_AIRR.items() if src in df.columns}
+        if rename:
+            df = df.rename(rename)
+        for col in ('v_gene', 'd_gene', 'j_gene'):
+            if col in df.columns:
+                df = df.with_columns(
+                    pl.col(col)
+                    .cast(pl.Utf8)
+                    .fill_null('')
+                    .map_elements(cls._normalize_gene_value, return_dtype=pl.Utf8)
+                    .alias(col)
+                )
+        if 'duplicate_count' in df.columns:
+            df = df.with_columns(
+                pl.col('duplicate_count').cast(pl.Int64, strict=False).fill_null(1).alias('duplicate_count')
+            )
+        if 'junction_aa' in df.columns:
+            df = df.with_columns(pl.col('junction_aa').cast(pl.Utf8).fill_null('').alias('junction_aa'))
+        if 'junction' in df.columns:
+            df = df.with_columns(pl.col('junction').cast(pl.Utf8).fill_null('').alias('junction'))
+        return df
+
+    @classmethod
+    def normalize_df(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalise Adaptive table columns to AIRR-style names."""
+        return cls._normalize_pl(pl.from_pandas(df, include_index=False, strict=False)).to_pandas()
+
+    def parse_file(
+        self,
+        path: str | Path,
+        sample_id: str = '',
+        locus: str = '',
+    ) -> LocusRepertoire:
+        """Parse *path* and return a single-locus repertoire."""
+        path = Path(path)
+        if not sample_id:
+            sample_id = path.stem
+
+        df = pl.read_csv(
+            path,
+            separator=self.sep,
+            infer_schema_length=0,
+            null_values=['', 'NA'],
+            truncate_ragged_lines=True,
+        )
+        df = self._normalize_pl(df)
+
+        target_locus = locus or self.locus or ''
+        clonotypes = self._polars_to_clonotypes(df)
+        if target_locus:
+            clonotypes = [clonotype for clonotype in clonotypes if clonotype.locus == target_locus]
+        return LocusRepertoire(clonotypes=clonotypes, locus=target_locus, repertoire_id=sample_id)
+
+    def parse_inner(self, df: pd.DataFrame) -> LocusRepertoire:
+        """Parse an already-loaded Adaptive table into a locus repertoire."""
+        normalized = self.normalize_df(df)
+        target_locus = self.locus or ''
+        clonotypes = self._polars_to_clonotypes(pl.from_pandas(normalized, include_index=False, strict=False))
+        if target_locus:
+            clonotypes = [clonotype for clonotype in clonotypes if clonotype.locus == target_locus]
+        return LocusRepertoire(clonotypes=clonotypes, locus=target_locus)
 
 
 # ---------------------------------------------------------------------------

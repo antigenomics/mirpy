@@ -83,6 +83,19 @@ def test_pgen_model(olga_model):
     assert mean_exact > -25, f"mean log10 Pgen too low for {species} {locus}: {mean_exact}"
 
 
+def test_bulk_pgen_parallel_matches_serial() -> None:
+    model = OlgaModel(locus="TRB", species="human", seed=42)
+    seqs = list(dict.fromkeys(model.generate_sequences(64, seed=123)))[:32]
+
+    exact_serial = model.compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=1)
+    exact_parallel = model.compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=4)
+    one_mm_serial = model.compute_pgen_junction_aa_bulk(seqs[:8], max_mismatches=1, n_jobs=1)
+    one_mm_parallel = model.compute_pgen_junction_aa_bulk(seqs[:8], max_mismatches=1, n_jobs=4)
+
+    assert exact_parallel == exact_serial
+    assert one_mm_parallel == one_mm_serial
+
+
 # ---------------------------------------------------------------------------
 # Parallel-generation benchmark (opt-in via RUN_BENCHMARK=1)
 # ---------------------------------------------------------------------------

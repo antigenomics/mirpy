@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pandas as pd
 import pytest
 
@@ -53,6 +56,18 @@ def _toy_control() -> LocusRepertoire:
         ],
         locus="TRB",
     )
+
+
+def _toy_large(seed_prefix: str, *, n: int = 320) -> LocusRepertoire:
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+    clonotypes = [
+        _clone(
+            f"{seed_prefix}{i}",
+            f"CASSLGQETQ{aa[i % len(aa)]}{aa[(i // len(aa)) % len(aa)]}{aa[(i // (len(aa) * len(aa))) % len(aa)]}",
+        )
+        for i in range(n)
+    ]
+    return LocusRepertoire(clonotypes, locus="TRB")
 
 
 def test_compute_tcrnet_binomial_basic() -> None:
@@ -173,3 +188,31 @@ def test_tcrnet_parallel_matches_single_worker() -> None:
     )
 
     pd.testing.assert_frame_equal(serial.table, parallel.table)
+
+
+def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:
+    from mir.biomarkers import tcrnet as tcrnet_mod
+
+    thread_names: set[str] = set()
+    thread_names_lock = threading.Lock()
+    original = tcrnet_mod._p_value
+
+    def _tracking_p_value(n: int, N: int, m: int, M: int, mode: str) -> float:
+        with thread_names_lock:
+            thread_names.add(threading.current_thread().name)
+        time.sleep(0.001)
+        return original(n, N, m, M, mode)
+
+    monkeypatch.setattr("mir.biomarkers.tcrnet._p_value", _tracking_p_value)
+
+    compute_tcrnet(
+        _toy_large("q"),
+        control=_toy_large("c"),
+        metric="hamming",
+        threshold=0,
+        match_mode="none",
+        pvalue_mode="binomial",
+        n_jobs=8,
+    )
+
+    assert len(thread_names) > 1

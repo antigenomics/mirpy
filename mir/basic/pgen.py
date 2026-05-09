@@ -21,6 +21,8 @@ reduces wall-clock time from ~10 min (single-process) to ~80 s.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 import math
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Iterable
@@ -95,6 +97,17 @@ def _generate_pool_chunk(args: tuple) -> list[dict]:
         )
         result.append(rec)
     return result
+
+
+def _compute_pgen_bulk_chunk(args: tuple) -> list[float]:
+    """Worker: compute amino-acid Pgen values for one chunk."""
+    init_kwargs, junction_aas, max_mismatches = args
+    model = OlgaModel(**init_kwargs, seed=None)
+    if max_mismatches == 0:
+        return [float(model.compute_pgen_junction_aa(seq)) for seq in junction_aas]
+    if max_mismatches == 1:
+        return [float(model.compute_pgen_junction_aa_1mm(seq)) for seq in junction_aas]
+    raise ValueError("max_mismatches must be 0 or 1")
 
 
 class OlgaModel:
@@ -186,6 +199,7 @@ class OlgaModel:
 
         # Cache repeated CDR3aa Pgen queries (common in large cohort analyses).
         self._pgen_aa_cache: dict[str, float] = {}
+        self._pgen_aa_1mm_cache: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Pgen computation
@@ -208,22 +222,47 @@ class OlgaModel:
         cached = self._pgen_aa_cache.get(junction_aa)
         if cached is not None:
             return cached
-        val = self.pgen_model.compute_aa_CDR3_pgen(junction_aa)
+        val = float(self.pgen_model.compute_aa_CDR3_pgen(junction_aa))
         # Cap cache growth in long-running notebook sessions.
         if len(self._pgen_aa_cache) < 2_000_000:
             self._pgen_aa_cache[junction_aa] = val
         return val
 
-    def compute_pgen_junction_aa_bulk(self, junction_aas: Iterable[str]) -> list[float]:
+    def compute_pgen_junction_aa_bulk(
+        self,
+        junction_aas: Iterable[str],
+        *,
+        max_mismatches: int = 0,
+        n_jobs: int = 1,
+    ) -> list[float]:
         """Compute Pgen for many amino-acid junctions with cache reuse.
 
         Args:
             junction_aas: Iterable of CDR3 amino-acid sequences.
+            max_mismatches: Allowed amino-acid mismatches in the probability
+                calculation. Supported values are 0 and 1.
+            n_jobs: Number of worker threads. Each worker reconstructs a fresh
+                OLGA model to avoid shared-model contention.
 
         Returns:
             List of Pgen values in input order.
         """
-        return [self.compute_pgen_junction_aa(s) for s in junction_aas]
+        seqs = list(junction_aas)
+        if not seqs:
+            return []
+        if max_mismatches not in {0, 1}:
+            raise ValueError("max_mismatches must be 0 or 1")
+
+        compute_one = self.compute_pgen_junction_aa if max_mismatches == 0 else self.compute_pgen_junction_aa_1mm
+        if n_jobs <= 1 or len(seqs) < 64:
+            return [float(compute_one(seq)) for seq in seqs]
+
+        batch_size = max(1, ceil(len(seqs) / n_jobs))
+        batches = [seqs[start : start + batch_size] for start in range(0, len(seqs), batch_size)]
+        args = [(self._init_kwargs, batch, max_mismatches) for batch in batches]
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            chunks = list(executor.map(_compute_pgen_bulk_chunk, args))
+        return [pgen for chunk in chunks for pgen in chunk]
 
     def compute_pgen_junction_aa_1mm(self, junction_aa: str) -> float:
         """Return the cumulative generation probability allowing one amino-acid mismatch.
@@ -235,10 +274,15 @@ class OlgaModel:
         Args:
             junction_aa: Amino-acid sequence (CDR3).
         """
-        pgen_exact = self.compute_pgen_junction_aa(junction_aa)
-        masked_seqs = mask_positions(junction_aa)
-        sum_pgen_1mm = sum(map(self.pgen_model.compute_regex_CDR3_template_pgen, masked_seqs))
-        return sum_pgen_1mm - pgen_exact * (len(junction_aa) - 1)
+        cached = self._pgen_aa_1mm_cache.get(junction_aa)
+        if cached is not None:
+            return cached
+
+        val = float(self.pgen_model.compute_hamming_dist_1_pgen(junction_aa, print_warnings=False))
+
+        if len(self._pgen_aa_1mm_cache) < 2_000_000:
+            self._pgen_aa_1mm_cache[junction_aa] = val
+        return val
 
     # ------------------------------------------------------------------
     # Sequence generation
