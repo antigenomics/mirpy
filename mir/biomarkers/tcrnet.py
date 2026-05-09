@@ -7,6 +7,8 @@ This implementation is metadata-first:
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 import math
 import typing as t
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from mir.common.sampling import resample_to_gene_usage
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
 PValueMode = t.Literal["binomial", "beta-binomial"]
+_PVALUE_PARALLEL_MIN_CLONOTYPES = 256
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,31 @@ def _fold_enrichment(n: int, N: int, m: int, M: int) -> float:
     return float((n / N) * (M / m))
 
 
+def _compute_tcrnet_metrics_batch(
+    clonotypes: list[Clonotype],
+    *,
+    locus_self: dict[str, dict[str, int]],
+    locus_ctrl: dict[str, dict[str, int]],
+    pvalue_mode: PValueMode,
+) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
+    out: list[tuple[str, int, int, int, int, float, float, float, float]] = []
+    for clonotype in clonotypes:
+        sid = clonotype.sequence_id
+        s_stat = locus_self.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
+        c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
+        n = int(s_stat["neighbor_count"])
+        N = int(s_stat["potential_neighbors"])
+        # Add pseudocount of 1 to control: virtual clonotype-of-interest inserted into control
+        m = int(c_stat["neighbor_count"]) + 1
+        M = int(c_stat["potential_neighbors"]) + 1
+        p = _p_value(n, N, m, M, pvalue_mode)
+        fe = _fold_enrichment(n, N, m, M)
+        sample_density = float(n / N) if N > 0 else 0.0
+        control_density = float(m / M) if M > 0 else 0.0
+        out.append((sid, n, N, m, M, p, fe, sample_density, control_density))
+    return out
+
+
 def tcrnet_table(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
@@ -266,23 +294,45 @@ def compute_tcrnet(
         locus_self = self_stats.get(locus, {})
         locus_ctrl = control_stats.get(locus, {})
 
+        metrics_by_sid: dict[str, tuple[int, int, int, int, float, float, float, float]] = {}
+        if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
+            batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
+            batches = [
+                qrep.clonotypes[start : start + batch_size]
+                for start in range(0, len(qrep.clonotypes), batch_size)
+            ]
+            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                futures = [
+                    executor.submit(
+                        _compute_tcrnet_metrics_batch,
+                        batch,
+                        locus_self=locus_self,
+                        locus_ctrl=locus_ctrl,
+                        pvalue_mode=pvalue_mode,
+                    )
+                    for batch in batches
+                ]
+                for future in futures:
+                    for sid, n, N, m, M, p, fe, sample_density, control_density in future.result():
+                        metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
+        else:
+            for sid, n, N, m, M, p, fe, sample_density, control_density in _compute_tcrnet_metrics_batch(
+                qrep.clonotypes,
+                locus_self=locus_self,
+                locus_ctrl=locus_ctrl,
+                pvalue_mode=pvalue_mode,
+            ):
+                metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
+
         for clonotype in qrep.clonotypes:
             sid = clonotype.sequence_id
-            s_stat = locus_self.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
-            c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
-            n = int(s_stat["neighbor_count"])
-            N = int(s_stat["potential_neighbors"])
-            # Add pseudocount of 1 to control: virtual clonotype-of-interest inserted into control
-            m = int(c_stat["neighbor_count"]) + 1
-            M = int(c_stat["potential_neighbors"]) + 1
-            p = _p_value(n, N, m, M, pvalue_mode)
-            fe = _fold_enrichment(n, N, m, M)
+            n, N, m, M, p, fe, sample_density, control_density = metrics_by_sid[sid]
             clonotype.clone_metadata[f"{metadata_prefix}_n"] = n
             clonotype.clone_metadata[f"{metadata_prefix}_N"] = N
             clonotype.clone_metadata[f"{metadata_prefix}_m"] = m
             clonotype.clone_metadata[f"{metadata_prefix}_M"] = M
-            clonotype.clone_metadata[f"{metadata_prefix}_sample_density"] = float(n / N) if N > 0 else 0.0
-            clonotype.clone_metadata[f"{metadata_prefix}_control_density"] = float(m / M) if M > 0 else 0.0
+            clonotype.clone_metadata[f"{metadata_prefix}_sample_density"] = sample_density
+            clonotype.clone_metadata[f"{metadata_prefix}_control_density"] = control_density
             clonotype.clone_metadata[f"{metadata_prefix}_fold"] = fe
             clonotype.clone_metadata[f"{metadata_prefix}_p_value"] = p
 

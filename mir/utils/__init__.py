@@ -11,6 +11,7 @@ from .notebook_assets import (
     notebook_assets_root,
     notebook_large_assets_root,
 )
+from .stats import bh_fdr
 
 __all__ = [
     "ensure_airr_benchmark",
@@ -22,4 +23,5 @@ __all__ = [
     "find_repo_root",
     "notebook_assets_root",
     "notebook_large_assets_root",
+    "bh_fdr",
 ]

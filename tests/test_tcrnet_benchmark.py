@@ -21,6 +21,7 @@ from mir.common.control import ControlManager
 from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser, VDJdbSlimParser
 from mir.common.repertoire import LocusRepertoire
+from mir.utils.stats import bh_fdr
 from tests.benchmark_helpers import (
     benchmark_log_line,
     load_gilg_target_repertoire,
@@ -34,25 +35,6 @@ from tests.conftest import benchmark_max_seconds, skip_benchmarks
 _AA = "ACDEFGHIKLMNPQRSTVWY"
 _B35_FILE = Path(__file__).parent / "assets" / "real_repertoires" / "B35+.txt.gz"
 _VDJDB_FILE = Path(__file__).parent / "assets" / "vdjdb.slim.txt.gz"
-
-
-def _bh_adjust(p_values: pd.Series) -> pd.Series:
-    values = pd.Series(p_values, dtype=float)
-    if values.empty:
-        return values
-
-    order = np.argsort(values.to_numpy())
-    ranked = values.to_numpy()[order]
-    n = len(ranked)
-    adjusted = np.empty(n, dtype=float)
-    running = 1.0
-    for i in range(n - 1, -1, -1):
-        running = min(running, ranked[i] * n / (i + 1))
-        adjusted[i] = running
-
-    out = np.empty(n, dtype=float)
-    out[order] = np.clip(adjusted, 0.0, 1.0)
-    return pd.Series(out, index=values.index)
 
 
 def _load_b35_target_repertoire() -> LocusRepertoire:
@@ -115,7 +97,7 @@ def _tcrnet_table_with_counts(rep: LocusRepertoire, result_table: pd.DataFrame) 
     table = result_table.merge(counts, on="junction_aa", how="left")
     table = table.rename(columns={"junction_aa": "cdr3aa", "fold_enrichment": "fold"})
     table = table[table["count"].fillna(0).gt(1)].copy()
-    table["p.adj"] = _bh_adjust(table["p_value"])
+    table["p.adj"] = bh_fdr(table["p_value"].to_numpy())
     return table.sort_values(["p.adj", "fold"], ascending=[True, False]).reset_index(drop=True)
 
 

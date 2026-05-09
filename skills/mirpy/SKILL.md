@@ -13,8 +13,8 @@ and documentation.
 
 ## 1. Parse Repertoire Files
 
-Use `VDJtoolsParser`, `AIRRParser`, `OldMiXCRParser`, `VDJdbSlimParser`, and
-`OlgaParser` from `mir.common.parser`.
+Use `VDJtoolsParser`, `AIRRParser`, `AdaptiveParser`, `OldMiXCRParser`,
+`VDJdbSlimParser`, and `OlgaParser` from `mir.common.parser`.
 
 ```python
 from mir.common.parser import VDJtoolsParser
@@ -23,6 +23,16 @@ from mir.common.repertoire import LocusRepertoire
 parser = VDJtoolsParser(sep="\t")
 clonotypes = parser.parse("sample.tsv.gz")
 rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+```
+
+For Adaptive immunoSEQ / MLR tables, use `AdaptiveParser` and the returned
+`LocusRepertoire` directly:
+
+```python
+from mir.common.parser import AdaptiveParser
+
+parser = AdaptiveParser(locus="TRB")
+rep = parser.parse_file("alice/mlr/MLR7_TCR1_Fresh_1.adap.txt.results.tsv")
 ```
 
 For multi-locus formats, prefer parser helpers that already return a
@@ -176,6 +186,28 @@ Operational notes:
 - Default cache root is `~/.cache/mirpy/controls`.
 - Override with `MIRPY_CONTROL_DIR` for shared or scratch storage.
 - Synthetic caches are keyed by species, locus, and `n`.
+
+## 9. ALICE Enrichment
+
+Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
+
+```python
+from mir.biomarkers.alice import compute_alice
+
+result = compute_alice(
+  rep,
+  species="human",
+  threshold=1,
+  match_mode="vj",
+  pgen_mode="exact",
+  n_jobs=8,
+)
+```
+
+Execution behavior:
+
+- ALICE computes neighborhood stats first (parallel trie search), then computes OLGA Pgen values (parallel) as a second phase.
+- The two phases are intentionally not overlapped to reduce thread contention on shared CPU resources.
 
 ## 8.1 GLIPH-Style K-mer Enrichment (binomial)
 

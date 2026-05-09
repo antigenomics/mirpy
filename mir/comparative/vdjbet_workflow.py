@@ -24,6 +24,7 @@ from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire, Repertoire, infer_locus
 from mir.comparative.vdjbet import PgenBinPool, VDJBetOverlapAnalysis
+from mir.utils.stats import bh_fdr
 
 
 @dataclass
@@ -269,20 +270,6 @@ def compute_bin_alignment_diagnostics(
         "max_abs_diff": max_abs_diff,
         "rmsd": rmsd,
     }
-
-
-def bh_fdr(pvals: np.ndarray | list[float]) -> np.ndarray:
-    """Benjamini-Hochberg FDR adjustment."""
-    p = np.asarray(pvals, dtype=float)
-    n = len(p)
-    order = np.argsort(p)
-    ranked = p[order]
-    q = ranked * n / (np.arange(1, n + 1))
-    q = np.minimum.accumulate(q[::-1])[::-1]
-    q = np.clip(q, 0.0, 1.0)
-    out = np.empty_like(q)
-    out[order] = q
-    return out
 
 
 def score_samples_dataframe(

@@ -20,6 +20,8 @@ Synthetic control gene-usage estimates are cached in-process and loaded via
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from math import ceil
 import math
 import typing as t
 from dataclasses import dataclass
@@ -36,6 +38,9 @@ from mir.biomarkers._shared import MatchMode, iter_loci, match_flags, normalize_
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
 PgenMode = t.Literal["exact", "1mm"]
+_PGEN_PARALLEL_MIN_UNIQUE = 256
+_PVALUE_PARALLEL_MIN_CLONOTYPES = 256
+_OLGA_MODEL_CACHE: dict[tuple[str, str, int | None, type], OlgaModel] = {}
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,46 @@ class AliceResult:
     table: pd.DataFrame
     params: AliceParams
 
+
+def _get_cached_olga_model(*, locus: str, species: str, random_seed: int | None) -> OlgaModel:
+    key = (locus, species, random_seed, OlgaModel)
+    model = _OLGA_MODEL_CACHE.get(key)
+    if model is None:
+        model = OlgaModel(locus=locus, species=species, seed=random_seed)
+        _OLGA_MODEL_CACHE[key] = model
+    return model
+
+
+def _compute_pgen_raw_by_junction_aa(
+    clonotypes: list[Clonotype],
+    *,
+    locus: str,
+    species: str,
+    random_seed: int | None,
+    pgen_mode: PgenMode,
+    n_jobs: int,
+) -> dict[str, float]:
+    if not clonotypes:
+        return {}
+
+    unique_aas = list(dict.fromkeys(c.junction_aa for c in clonotypes))
+    model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
+    mismatch_budget = 1 if pgen_mode == "1mm" else 0
+    if hasattr(model, "compute_pgen_junction_aa_bulk"):
+        pgens = model.compute_pgen_junction_aa_bulk(
+            unique_aas,
+            max_mismatches=mismatch_budget,
+            # Benchmarks show threaded Pgen is typically slower than serial
+            # due per-worker OLGA model construction overhead.
+            n_jobs=1,
+        )
+    elif mismatch_budget == 1:
+        pgens = [float(model.compute_pgen_junction_aa_1mm(seq)) for seq in unique_aas]
+    else:
+        pgens = [float(model.compute_pgen_junction_aa(seq)) for seq in unique_aas]
+    return {junction_aa: float(pgen) for junction_aa, pgen in zip(unique_aas, pgens)}
+
+
 def _fold_enrichment(n: int, N: int, pgen: float) -> float:
     denom = float(N) * float(pgen)
     if denom <= 0.0:
@@ -74,6 +119,54 @@ def _poisson_pvalue(n: int, N: int, pgen: float) -> float:
     if expected <= 0.0:
         return 0.0 if n > 0 else 1.0
     return float(poisson.sf(n - 1, expected))
+
+
+def _compute_alice_metrics_batch(
+    clonotypes: list[Clonotype],
+    *,
+    locus_stats: dict[str, dict[str, int]],
+    pgen_raw_by_aa: dict[str, float],
+    match_mode: MatchMode,
+    probs: dict[str, dict[t.Any, float]] | None,
+    gene_usage_epsilon: float,
+) -> list[tuple[int, int, float, float, float, float, float]]:
+    out: list[tuple[int, int, float, float, float, float, float]] = []
+    for clonotype in clonotypes:
+        sid = clonotype.sequence_id
+        stat = locus_stats.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
+        n = int(stat["neighbor_count"])
+        N = int(stat["potential_neighbors"])
+        pgen_raw = float(pgen_raw_by_aa.get(clonotype.junction_aa, 0.0))
+
+        divisor = _gene_usage_divisor(
+            clonotype,
+            match_mode=match_mode,
+            probs=probs,
+            epsilon=gene_usage_epsilon,
+        )
+        pgen = pgen_raw / divisor if divisor > 0 else 0.0
+
+        expected = float(N) * pgen
+        p_value = _poisson_pvalue(n, N, pgen)
+        fold = _fold_enrichment(n, N, pgen)
+        out.append((n, N, pgen_raw, pgen, expected, fold, p_value))
+    return out
+
+
+def _apply_alice_metrics_batch(
+    clonotypes: list[Clonotype],
+    metrics: list[tuple[int, int, float, float, float, float, float]],
+    *,
+    metadata_prefix: str,
+) -> None:
+    for clonotype, (n, N, pgen_raw, pgen, expected, fold, p_value) in zip(clonotypes, metrics):
+        clonotype.clone_metadata[f"{metadata_prefix}_n"] = n
+        clonotype.clone_metadata[f"{metadata_prefix}_N"] = N
+        clonotype.clone_metadata[f"{metadata_prefix}_pgen_raw"] = pgen_raw
+        clonotype.clone_metadata[f"{metadata_prefix}_pgen"] = pgen
+        clonotype.clone_metadata[f"{metadata_prefix}_expected"] = expected
+        clonotype.clone_metadata[f"{metadata_prefix}_fold"] = fold
+        clonotype.clone_metadata[f"{metadata_prefix}_p_value"] = p_value
 
 
 def _gene_usage_divisor(
@@ -149,7 +242,12 @@ def compute_alice(
     as_table: bool = True,
     n_jobs: int = 4,
 ) -> AliceResult | LocusRepertoire | SampleRepertoire:
-    """Compute ALICE enrichment, write clonotype metadata, and optionally return a table."""
+    """Compute ALICE enrichment, write clonotype metadata, and optionally return a table.
+
+    Execution order per locus is two-phase to reduce thread contention:
+    1. Compute neighborhood stats (trie search) with ``n_jobs``.
+    2. Compute OLGA Pgen values with ``n_jobs``.
+    """
     norm_match_mode = normalize_match_mode(match_mode)
     params = AliceParams(
         threshold=threshold,
@@ -165,7 +263,6 @@ def compute_alice(
     query_loci = iter_loci(repertoire)
 
     for locus, qrep in query_loci.items():
-        olga_model = OlgaModel(locus=locus, species=species, seed=random_seed)
         probs = None
         if norm_match_mode != "none":
             probs = get_olga_gene_usage_probabilities(
@@ -176,6 +273,7 @@ def compute_alice(
                 control_kwargs=control_kwargs,
             )
 
+        # Run phases sequentially to avoid trie-search and Pgen thread contention.
         self_stats = compute_neighborhood_stats_by_locus(
             qrep,
             background=None,
@@ -186,38 +284,54 @@ def compute_alice(
             add_background_pseudocount=False,
             n_jobs=n_jobs,
         )
+        pgen_raw_by_aa = _compute_pgen_raw_by_junction_aa(
+            qrep.clonotypes,
+            locus=locus,
+            species=species,
+            random_seed=random_seed,
+            pgen_mode=pgen_mode,
+            n_jobs=n_jobs,
+        )
+
         locus_stats = self_stats.get(locus, {})
-
-        for clonotype in qrep.clonotypes:
-            sid = clonotype.sequence_id
-            stat = locus_stats.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
-            n = int(stat["neighbor_count"])
-            N = int(stat["potential_neighbors"])
-
-            if pgen_mode == "1mm":
-                pgen_raw = float(olga_model.compute_pgen_junction_aa_1mm(clonotype.junction_aa))
-            else:
-                pgen_raw = float(olga_model.compute_pgen_junction_aa(clonotype.junction_aa))
-
-            divisor = _gene_usage_divisor(
-                clonotype,
-                match_mode=norm_match_mode,
-                probs=probs,
-                epsilon=gene_usage_epsilon,
+        if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
+            batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
+            batches = [
+                qrep.clonotypes[start : start + batch_size]
+                for start in range(0, len(qrep.clonotypes), batch_size)
+            ]
+            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                futures = [
+                    executor.submit(
+                        _compute_alice_metrics_batch,
+                        batch,
+                        locus_stats=locus_stats,
+                        pgen_raw_by_aa=pgen_raw_by_aa,
+                        match_mode=norm_match_mode,
+                        probs=probs,
+                        gene_usage_epsilon=gene_usage_epsilon,
+                    )
+                    for batch in batches
+                ]
+                for batch, future in zip(batches, futures):
+                    _apply_alice_metrics_batch(
+                        batch,
+                        future.result(),
+                        metadata_prefix=metadata_prefix,
+                    )
+        else:
+            _apply_alice_metrics_batch(
+                qrep.clonotypes,
+                _compute_alice_metrics_batch(
+                    qrep.clonotypes,
+                    locus_stats=locus_stats,
+                    pgen_raw_by_aa=pgen_raw_by_aa,
+                    match_mode=norm_match_mode,
+                    probs=probs,
+                    gene_usage_epsilon=gene_usage_epsilon,
+                ),
+                metadata_prefix=metadata_prefix,
             )
-            pgen = pgen_raw / divisor if divisor > 0 else 0.0
-
-            expected = float(N) * pgen
-            p_value = _poisson_pvalue(n, N, pgen)
-            fold = _fold_enrichment(n, N, pgen)
-
-            clonotype.clone_metadata[f"{metadata_prefix}_n"] = n
-            clonotype.clone_metadata[f"{metadata_prefix}_N"] = N
-            clonotype.clone_metadata[f"{metadata_prefix}_pgen_raw"] = pgen_raw
-            clonotype.clone_metadata[f"{metadata_prefix}_pgen"] = pgen
-            clonotype.clone_metadata[f"{metadata_prefix}_expected"] = expected
-            clonotype.clone_metadata[f"{metadata_prefix}_fold"] = fold
-            clonotype.clone_metadata[f"{metadata_prefix}_p_value"] = p_value
 
     if as_table:
         return AliceResult(table=alice_table(repertoire, metadata_prefix=metadata_prefix), params=params)
