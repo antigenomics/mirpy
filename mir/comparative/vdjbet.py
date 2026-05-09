@@ -508,6 +508,7 @@ def _compute_ref_bins(
     pool: PgenBinPool,
     *,
     pgen_adjustment=None,
+    n_jobs: int = 1,
 ) -> dict[int, int]:
     """Compute winsorized log2-Pgen bin counts for *reference*.
 
@@ -516,8 +517,16 @@ def _compute_ref_bins(
     """
     locus = _resolve_locus(reference)
     hist: dict[int, int] = defaultdict(int)
+    unique_aas = list(dict.fromkeys(clone.junction_aa for clone in reference.clonotypes))
+    pgen_by_aa: dict[str, float] = {}
+    if hasattr(model, "compute_pgen_junction_aa_bulk"):
+        pgen_vals = model.compute_pgen_junction_aa_bulk(unique_aas, max_mismatches=0, n_jobs=n_jobs)
+        pgen_by_aa = {junction_aa: float(pgen_val) for junction_aa, pgen_val in zip(unique_aas, pgen_vals)}
+
     for clone in reference.clonotypes:
-        pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
+        pgen_val = pgen_by_aa.get(clone.junction_aa)
+        if pgen_val is None:
+            pgen_val = model.compute_pgen_junction_aa(clone.junction_aa)
         if pgen_val is None or pgen_val <= 0:
             continue
         if pgen_adjustment is not None:
@@ -619,6 +628,7 @@ class VDJBetOverlapAnalysis:
         self._mock_key_sets: "list[frozenset] | None" = None
         self._mock_bin_samples: "list[list[int]] | None" = None
         self._mock_key_sets_by_match: dict[tuple[bool, bool], list[frozenset]] = {}
+        self._reference_keys_by_match: dict[tuple[bool, bool], frozenset[tuple[str, str, str]]] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -631,8 +641,30 @@ class VDJBetOverlapAnalysis:
                 self._model,
                 self._pool,
                 pgen_adjustment=self._pgen_adjustment,
+                n_jobs=self._n_jobs,
             )
         return self._ref_bin_counts
+
+    def _get_reference_keys_for_match(
+        self,
+        *,
+        match_v: bool,
+        match_j: bool,
+    ) -> frozenset[tuple[str, str, str]]:
+        key = (match_v, match_j)
+        ref_keys = self._reference_keys_by_match.get(key)
+        if ref_keys is None:
+            ref_keys = cast(
+                frozenset[tuple[str, str, str]],
+                make_reference_keys(
+                    self._reference,
+                    allow_1mm=False,
+                    match_v=match_v,
+                    match_j=match_j,
+                ),
+            )
+            self._reference_keys_by_match[key] = ref_keys
+        return ref_keys
 
     def _build_mock_key_sets(self) -> "tuple[list[frozenset], list[list[int]]]":
         """Build n_mocks mock key sets by sampling from the pool per bin."""
@@ -735,9 +767,7 @@ class VDJBetOverlapAnalysis:
         n_total  = len(qi)
         dc_total = sum(qi.values())
 
-        ref_keys = make_reference_keys(
-            self._reference, allow_1mm=False, match_v=match_v, match_j=match_j,
-        )
+        ref_keys = self._get_reference_keys_for_match(match_v=match_v, match_j=match_j)
         real = count_overlap(ref_keys, qi, allow_1mm=allow_1mm)
 
         norm_mocks = self._get_mock_key_sets_for_match(match_v=match_v, match_j=match_j)

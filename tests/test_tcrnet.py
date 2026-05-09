@@ -89,6 +89,7 @@ def test_compute_tcrnet_binomial_basic() -> None:
         "M_control_possible",
         "fold_enrichment",
         "p_value",
+        "q_value",
     }
     assert required.issubset(set(result.table.columns))
     assert (result.table["N_possible"] >= 1).all()
@@ -121,6 +122,7 @@ def test_add_tcrnet_metadata_inplace() -> None:
         assert "tcrnet_n" in c.clone_metadata
         assert "tcrnet_fold" in c.clone_metadata
         assert "tcrnet_p_value" in c.clone_metadata
+        assert "tcrnet_q_value" in c.clone_metadata
 
 
 def test_tcrnet_table_from_metadata() -> None:
@@ -192,6 +194,7 @@ def test_tcrnet_parallel_matches_single_worker() -> None:
 
 def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:
     from mir.biomarkers import tcrnet as tcrnet_mod
+    monkeypatch.setenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "thread")
 
     thread_names: set[str] = set()
     thread_names_lock = threading.Lock()

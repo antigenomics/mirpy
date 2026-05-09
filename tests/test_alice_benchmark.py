@@ -26,7 +26,7 @@ from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
 from mir.utils.stats import bh_fdr
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_repertoire_workers, benchmark_track_memory, skip_benchmarks
+from tests.conftest import benchmark_max_seconds, benchmark_repertoire_workers, benchmark_track_memory, skip_benchmarks
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 YF_DIR = REPO_ROOT / "airr_benchmark" / "alice" / "yf"
@@ -112,7 +112,6 @@ def _profile_alice_run(
         result = compute_alice(
             rep,
             species="human",
-            threshold=1,
             match_mode=match_mode,
             pgen_mode=pgen_mode,
             as_table=True,
@@ -221,3 +220,93 @@ def test_alice_yf_notebook_cell6_scaling(capsys) -> None:
 
     assert not df.empty
     assert (df["rows"] == df["clonotypes"]).all()
+    assert float(df["alice_total_s"].max()) < benchmark_max_seconds(default=900.0)
+    assert float(df["alice_total_s"].sum()) < benchmark_max_seconds(default=1800.0)
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+def test_alice_pgen_10k_single_vs_parallel(capsys) -> None:
+    yf_file = YF_DIR / os.getenv("MIRPY_ALICE_PGEN_BENCH_FILE", "Q1_d0.tsv.gz")
+    if not yf_file.exists():
+        pytest.skip(f"Missing YF benchmark file: {yf_file.name}")
+
+    n_sequences = _env_int_list("MIRPY_ALICE_PGEN_BENCH_N", "10000")[0]
+    workers = benchmark_repertoire_workers(default="8")
+    n_jobs_parallel = max(2, workers[-1])
+    pgen_mode = os.getenv("MIRPY_ALICE_PGEN_BENCH_MODE", "exact").strip() or "exact"
+
+    rep = _load_yf_repertoire(yf_file)
+    unique_aas = list(dict.fromkeys(c.junction_aa for c in rep.clonotypes if c.junction_aa))
+    if len(unique_aas) < n_sequences:
+        pytest.skip(
+            f"Need at least {n_sequences} unique CDR3aa for pgen benchmark; found {len(unique_aas)} in {yf_file.name}"
+        )
+
+    bench_aas = unique_aas[:n_sequences]
+    bench_rep = LocusRepertoire(
+        clonotypes=[
+            c
+            for c in rep.clonotypes
+            if c.junction_aa in set(bench_aas)
+        ],
+        locus="TRB",
+        repertoire_id=f"{rep.repertoire_id}_pgen10k",
+    )
+
+    # Warm model initialization outside timed block.
+    alice_mod._compute_pgen_raw_by_junction_aa(
+        bench_rep.clonotypes[:1],
+        locus="TRB",
+        species="human",
+        random_seed=None,
+        pgen_mode=pgen_mode,
+        n_jobs=1,
+    )
+
+    t0 = time.perf_counter()
+    p1 = alice_mod._compute_pgen_raw_by_junction_aa(
+        bench_rep.clonotypes,
+        locus="TRB",
+        species="human",
+        random_seed=None,
+        pgen_mode=pgen_mode,
+        n_jobs=1,
+    )
+    t1 = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    pn = alice_mod._compute_pgen_raw_by_junction_aa(
+        bench_rep.clonotypes,
+        locus="TRB",
+        species="human",
+        random_seed=None,
+        pgen_mode=pgen_mode,
+        n_jobs=n_jobs_parallel,
+    )
+    tn = time.perf_counter() - t0
+
+    speedup = t1 / tn if tn > 0 else float("inf")
+    min_speedup = float(os.getenv("MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP", "5.0"))
+    benchmark_log_line(
+        "ALICE_PGEN_10K "
+        f"file={yf_file.name} n_sequences={n_sequences} pgen_mode={pgen_mode} "
+        f"single_s={t1:.3f} parallel_s={tn:.3f} workers={n_jobs_parallel} speedup={speedup:.2f}"
+    )
+
+    with capsys.disabled():
+        print("\n" + "=" * 92)
+        print("ALICE pgen benchmark (10k sequences)")
+        print(f"source_file={yf_file.name} n_sequences={n_sequences} pgen_mode={pgen_mode}")
+        print(f"single_thread_s={t1:.3f}")
+        print(f"parallel_s={tn:.3f} workers={n_jobs_parallel}")
+        print(f"speedup={speedup:.2f}x")
+        print("=" * 92)
+
+    assert len(p1) == n_sequences
+    assert len(pn) == n_sequences
+    assert set(p1.keys()) == set(pn.keys())
+    assert speedup >= min_speedup, (
+        f"Expected ALICE pgen speedup >= {min_speedup:.2f}x for 10k benchmark, got {speedup:.2f}x "
+        f"(single={t1:.3f}s parallel={tn:.3f}s workers={n_jobs_parallel})"
+    )

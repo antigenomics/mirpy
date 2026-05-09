@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import warnings
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,8 +24,78 @@ from mir.common.control import ControlManager
 from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire, Repertoire, infer_locus
+from mir.comparative.overlap import compute_overlaps, count_overlap, make_query_index
 from mir.comparative.vdjbet import PgenBinPool, VDJBetOverlapAnalysis
 from mir.utils.stats import bh_fdr
+
+
+_WORKER_REF_KEYS: frozenset[tuple[str, str, str]] | None = None
+_WORKER_MOCK_KEYS: list[frozenset[tuple[str, str, str]]] | None = None
+
+
+def _init_score_worker(
+    ref_keys: frozenset[tuple[str, str, str]],
+    mock_key_sets: list[frozenset[tuple[str, str, str]]],
+) -> None:
+    """Initialize process worker state for per-sample VDJBet scoring."""
+    global _WORKER_REF_KEYS, _WORKER_MOCK_KEYS
+    _WORKER_REF_KEYS = ref_keys
+    _WORKER_MOCK_KEYS = mock_key_sets
+
+
+def _score_one_sample_row(sample: dict[str, Any]) -> dict[str, Any]:
+    """Worker-safe sample scoring using precomputed reference/mock key sets."""
+    if _WORKER_REF_KEYS is None or _WORKER_MOCK_KEYS is None:
+        raise RuntimeError("VDJBet workflow score worker not initialized")
+
+    qi = make_query_index(sample["repertoire"], match_v=True, match_j=True)
+    n_total = len(qi)
+    dc_total = sum(qi.values())
+
+    real = count_overlap(_WORKER_REF_KEYS, qi, allow_1mm=False)
+    mock_res = compute_overlaps(_WORKER_MOCK_KEYS, qi, allow_1mm=False, n_jobs=1)
+
+    mn = np.array([r.n for r in mock_res], dtype=float)
+    mdc = np.array([r.dc for r in mock_res], dtype=float)
+    mdc_log2 = np.log2(mdc + 1.0)
+    real_dc_log2 = math.log2(real.dc + 1.0)
+
+    mn_mean = float(np.mean(mn))
+    mn_sd = float(np.std(mn, ddof=1)) if len(mn) > 1 else 0.0
+    mdc_mean = float(np.mean(mdc_log2))
+    mdc_sd = float(np.std(mdc_log2, ddof=1)) if len(mdc_log2) > 1 else 0.0
+
+    z_n = (real.n - mn_mean) / mn_sd if mn_sd > 0 else 0.0
+    z_dc = (real_dc_log2 - mdc_mean) / mdc_sd if mdc_sd > 0 else 0.0
+
+    p_n_emp = (np.sum(mn >= real.n) + 1.0) / (len(mn) + 1.0)
+    p_dc_emp = (np.sum(mdc_log2 >= real_dc_log2) + 1.0) / (len(mdc_log2) + 1.0)
+
+    return {
+        "donor": sample["donor"],
+        "day": sample["day"],
+        "replica": sample["replica"],
+        "sample_label": f"{sample['donor']} {sample['replica']}",
+        "n_total": n_total,
+        "dc_total": dc_total,
+        "matched_n_real": float(real.n),
+        "matched_dc_real": float(real.dc),
+        "matched_n_fraction": float(real.n) / max(n_total, 1),
+        "matched_dc_fraction": float(real.dc) / max(dc_total, 1),
+        "matched_n_mock_mean": mn_mean,
+        "matched_n_mock_sd": mn_sd,
+        "matched_n_z": z_n,
+        "matched_n_p_emp": p_n_emp,
+        "matched_n_cohen_d": (real.n - mn_mean) / mn_sd if mn_sd > 0 else 0.0,
+        "matched_dc_log2_real": real_dc_log2,
+        "matched_dc_log2_mock_mean": mdc_mean,
+        "matched_dc_log2_mock_sd": mdc_sd,
+        "matched_dc_log2_z": z_dc,
+        "matched_dc_log2_p_emp": p_dc_emp,
+        "matched_dc_log2_cohen_d": (real_dc_log2 - mdc_mean) / mdc_sd if mdc_sd > 0 else 0.0,
+        "mock_n": list(mn),
+        "mock_dc_log2": list(mdc_log2),
+    }
 
 
 @dataclass
@@ -277,60 +348,31 @@ def score_samples_dataframe(
     samples_list: list[dict[str, Any]],
     *,
     progress_every: int = 10,
+    sample_n_jobs: int = 1,
 ) -> pd.DataFrame:
     """Score every sample and return a sorted DataFrame matching notebook schema."""
-    rows_local = []
-    for i, s in enumerate(samples_list, start=1):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            r = analysis_obj.score(s["repertoire"], allow_1mm=False, match_v=True, match_j=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        ref_keys = analysis_obj._get_reference_keys_for_match(match_v=True, match_j=True)
+        mock_key_sets = analysis_obj._get_mock_key_sets_for_match(match_v=True, match_j=True)
 
-        mn = np.array(r.mock_n, dtype=float)
-        mdc = np.array(r.mock_dc, dtype=float)
-        mdc_log2 = np.log2(mdc + 1.0)
-        real_dc_log2 = math.log2(r.dc + 1.0)
-
-        mn_mean = float(np.mean(mn))
-        mn_sd = float(np.std(mn, ddof=1)) if len(mn) > 1 else 0.0
-        mdc_mean = float(np.mean(mdc_log2))
-        mdc_sd = float(np.std(mdc_log2, ddof=1)) if len(mdc_log2) > 1 else 0.0
-
-        z_n = (r.n - mn_mean) / mn_sd if mn_sd > 0 else 0.0
-        z_dc = (real_dc_log2 - mdc_mean) / mdc_sd if mdc_sd > 0 else 0.0
-
-        p_n_emp = (np.sum(mn >= r.n) + 1.0) / (len(mn) + 1.0)
-        p_dc_emp = (np.sum(mdc_log2 >= real_dc_log2) + 1.0) / (len(mdc_log2) + 1.0)
-
-        rows_local.append(
-            {
-                "donor": s["donor"],
-                "day": s["day"],
-                "replica": s["replica"],
-                "sample_label": f"{s['donor']} {s['replica']}",
-                "n_total": r.n_total,
-                "dc_total": r.dc_total,
-                "matched_n_real": float(r.n),
-                "matched_dc_real": float(r.dc),
-                "matched_n_fraction": float(r.n) / max(r.n_total, 1),
-                "matched_dc_fraction": float(r.dc) / max(r.dc_total, 1),
-                "matched_n_mock_mean": mn_mean,
-                "matched_n_mock_sd": mn_sd,
-                "matched_n_z": z_n,
-                "matched_n_p_emp": p_n_emp,
-                "matched_n_cohen_d": (r.n - mn_mean) / mn_sd if mn_sd > 0 else 0.0,
-                "matched_dc_log2_real": real_dc_log2,
-                "matched_dc_log2_mock_mean": mdc_mean,
-                "matched_dc_log2_mock_sd": mdc_sd,
-                "matched_dc_log2_z": z_dc,
-                "matched_dc_log2_p_emp": p_dc_emp,
-                "matched_dc_log2_cohen_d": (real_dc_log2 - mdc_mean) / mdc_sd if mdc_sd > 0 else 0.0,
-                "mock_n": list(mn),
-                "mock_dc_log2": list(mdc_log2),
-            }
-        )
-
-        if progress_every and i % progress_every == 0:
-            print(f"Processed {i}/{len(samples_list)} samples")
+    rows_local: list[dict[str, Any]] = []
+    if sample_n_jobs <= 1:
+        _init_score_worker(ref_keys, mock_key_sets)
+        for i, s in enumerate(samples_list, start=1):
+            rows_local.append(_score_one_sample_row(s))
+            if progress_every and i % progress_every == 0:
+                print(f"Processed {i}/{len(samples_list)} samples")
+    else:
+        with ProcessPoolExecutor(
+            max_workers=sample_n_jobs,
+            initializer=_init_score_worker,
+            initargs=(ref_keys, mock_key_sets),
+        ) as pool:
+            for i, row in enumerate(pool.map(_score_one_sample_row, samples_list, chunksize=1), start=1):
+                rows_local.append(row)
+                if progress_every and i % progress_every == 0:
+                    print(f"Processed {i}/{len(samples_list)} samples")
 
     out = pd.DataFrame(rows_local).sort_values(["donor", "replica", "day"]).reset_index(drop=True)
     out["matched_n_p_adj"] = bh_fdr(out["matched_n_p_emp"].values)

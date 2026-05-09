@@ -9,15 +9,129 @@ brute-force fallback only when trie search fails.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from math import ceil
 import typing as t
 from typing import TYPE_CHECKING
+
+from tcrtrie import Trie
 
 from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+
+
+_NEIGHBOR_WORKER_STATE: dict[str, t.Any] = {}
+
+
+def _init_neighbor_worker(
+    query_sequences: list[str],
+    query_sequence_ids: list[str],
+    query_v_genes: list[str],
+    query_j_genes: list[str],
+    background_sequences: list[str],
+    background_v_genes: list[str],
+    background_j_genes: list[str],
+    metric: str,
+    threshold: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    background_size: int,
+    potential_counter: dict[t.Any, int] | None,
+    add_self_pseudocount: bool,
+) -> None:
+    """Initialize per-process state for neighborhood batch workers."""
+    _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
+    _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
+    _NEIGHBOR_WORKER_STATE["query_v_genes"] = query_v_genes
+    _NEIGHBOR_WORKER_STATE["query_j_genes"] = query_j_genes
+    _NEIGHBOR_WORKER_STATE["background_sequences"] = background_sequences
+    _NEIGHBOR_WORKER_STATE["background_v_genes"] = background_v_genes
+    _NEIGHBOR_WORKER_STATE["background_j_genes"] = background_j_genes
+    _NEIGHBOR_WORKER_STATE["metric"] = metric
+    _NEIGHBOR_WORKER_STATE["threshold"] = threshold
+    _NEIGHBOR_WORKER_STATE["match_v_gene"] = match_v_gene
+    _NEIGHBOR_WORKER_STATE["match_j_gene"] = match_j_gene
+    _NEIGHBOR_WORKER_STATE["background_size"] = background_size
+    _NEIGHBOR_WORKER_STATE["potential_counter"] = potential_counter
+    _NEIGHBOR_WORKER_STATE["add_self_pseudocount"] = add_self_pseudocount
+    _NEIGHBOR_WORKER_STATE["trie"] = Trie(
+        sequences=background_sequences,
+        vGenes=background_v_genes,
+        jGenes=background_j_genes,
+    )
+
+
+def _potential_neighbor_count_from_genes(
+    *,
+    v_gene: str,
+    j_gene: str,
+    background_size: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    counter: dict[t.Any, int] | None,
+) -> int:
+    if counter is None:
+        return background_size
+    if match_v_gene and match_j_gene:
+        key = (v_gene, j_gene)
+    elif match_v_gene:
+        key = v_gene
+    else:
+        key = j_gene
+    return int(counter.get(key, 0))
+
+
+def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
+    """Process-pool worker for neighborhood query ranges."""
+    start, stop = range_pair
+    query_sequences = _NEIGHBOR_WORKER_STATE["query_sequences"]
+    query_sequence_ids = _NEIGHBOR_WORKER_STATE["query_sequence_ids"]
+    query_v_genes = _NEIGHBOR_WORKER_STATE["query_v_genes"]
+    query_j_genes = _NEIGHBOR_WORKER_STATE["query_j_genes"]
+    background_sequences = _NEIGHBOR_WORKER_STATE["background_sequences"]
+    background_v_genes = _NEIGHBOR_WORKER_STATE["background_v_genes"]
+    background_j_genes = _NEIGHBOR_WORKER_STATE["background_j_genes"]
+    trie = _NEIGHBOR_WORKER_STATE["trie"]
+    metric = _NEIGHBOR_WORKER_STATE["metric"]
+    threshold = _NEIGHBOR_WORKER_STATE["threshold"]
+    match_v_gene = _NEIGHBOR_WORKER_STATE["match_v_gene"]
+    match_j_gene = _NEIGHBOR_WORKER_STATE["match_j_gene"]
+    background_size = _NEIGHBOR_WORKER_STATE["background_size"]
+    potential_counter = _NEIGHBOR_WORKER_STATE["potential_counter"]
+    add_self_pseudocount = _NEIGHBOR_WORKER_STATE["add_self_pseudocount"]
+
+    out: dict[str, dict[str, int]] = {}
+    for i in range(start, stop):
+        hits = search_indices_with_fallback(
+            trie,
+            query=query_sequences[i],
+            metric=metric,
+            threshold=threshold,
+            sequences=background_sequences,
+            v_gene_filter=query_v_genes[i] if match_v_gene else None,
+            j_gene_filter=query_j_genes[i] if match_j_gene else None,
+            v_genes=background_v_genes,
+            j_genes=background_j_genes,
+        )
+        potential_neighbors = _potential_neighbor_count_from_genes(
+            v_gene=query_v_genes[i],
+            j_gene=query_j_genes[i],
+            background_size=background_size,
+            match_v_gene=match_v_gene,
+            match_j_gene=match_j_gene,
+            counter=potential_counter,
+        )
+        neighbor_count = len(hits)
+        if add_self_pseudocount:
+            potential_neighbors += 1
+            neighbor_count += 1
+        out[query_sequence_ids[i]] = {
+            "neighbor_count": int(neighbor_count),
+            "potential_neighbors": int(potential_neighbors),
+        }
+    return out
 
 def _is_same_background(
     repertoire: "LocusRepertoire | SampleRepertoire",
@@ -172,6 +286,9 @@ def _compute_locus_stats(
     background_sequences = [c.junction_aa for c in background_clonotypes]
     background_v_genes = [c.v_gene for c in background_clonotypes]
     background_j_genes = [c.j_gene for c in background_clonotypes]
+    query_sequences = [c.junction_aa for c in query_clonotypes]
+    query_v_genes = [c.v_gene for c in query_clonotypes]
+    query_j_genes = [c.j_gene for c in query_clonotypes]
     potential_counter = _build_potential_counter(
         background_clonotypes,
         match_v_gene=match_v_gene,
@@ -200,30 +317,28 @@ def _compute_locus_stats(
     batch_size = max(1, ceil(n_query / n_jobs))
     ranges = [(start, min(start + batch_size, n_query)) for start in range(0, n_query, batch_size)]
     results: dict[str, dict[str, int]] = {}
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [
-            executor.submit(
-                _compute_query_batch,
-                query_clonotypes,
-                q_seq_ids,
-                background_sequences,
-                background_v_genes,
-                background_j_genes,
-                trie,
-                metric=metric,
-                threshold=threshold,
-                match_v_gene=match_v_gene,
-                match_j_gene=match_j_gene,
-                background_size=n_background,
-                potential_counter=potential_counter,
-                add_self_pseudocount=add_self_pseudocount,
-                start=start,
-                stop=stop,
-            )
-            for start, stop in ranges
-        ]
-        for future in futures:
-            results.update(future.result())
+    with ProcessPoolExecutor(
+        max_workers=n_jobs,
+        initializer=_init_neighbor_worker,
+        initargs=(
+            query_sequences,
+            q_seq_ids,
+            query_v_genes,
+            query_j_genes,
+            background_sequences,
+            background_v_genes,
+            background_j_genes,
+            metric,
+            threshold,
+            match_v_gene,
+            match_j_gene,
+            n_background,
+            potential_counter,
+            add_self_pseudocount,
+        ),
+    ) as executor:
+        for batch_result in executor.map(_compute_query_batch_worker, ranges):
+            results.update(batch_result)
     return results
 
 

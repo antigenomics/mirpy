@@ -76,7 +76,6 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
 
     result = compute_alice(
         rep,
-        threshold=1,
         match_mode="none",
         pgen_mode="exact",
         n_jobs=1,
@@ -85,12 +84,12 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
     assert not result.table.empty
     row0 = result.table[result.table["sequence_id"] == "0"].iloc[0]
 
-    assert int(row0["n_neighbors"]) == 2
+    assert int(row0["n_neighbors"]) == 1
     assert int(row0["N_possible"]) == 2
     assert float(row0["pgen"]) == pytest.approx(0.2)
     assert float(row0["expected_neighbors"]) == pytest.approx(0.4)
-    assert float(row0["fold_enrichment"]) == pytest.approx(5.0)
-    assert float(row0["p_value"]) == pytest.approx(float(poisson.sf(1, 0.4)))
+    assert float(row0["fold_enrichment"]) == pytest.approx(2.5)
+    assert float(row0["p_value"]) == pytest.approx(float(poisson.sf(0, 0.4)))
 
 
 def test_compute_alice_v_matching_uses_gene_usage_divisor(monkeypatch) -> None:
@@ -113,7 +112,6 @@ def test_compute_alice_v_matching_uses_gene_usage_divisor(monkeypatch) -> None:
 
     result = compute_alice(
         rep,
-        threshold=0,
         match_mode="v",
         pgen_mode="exact",
         control_manager=ControlManager(control_dir="/tmp/mirpy_alice_test_controls"),
@@ -132,7 +130,7 @@ def test_compute_alice_1mm_mode(monkeypatch) -> None:
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
-    result = compute_alice(rep, threshold=0, pgen_mode="1mm", n_jobs=1)
+    result = compute_alice(rep, pgen_mode="1mm", n_jobs=1)
     row = result.table.iloc[0]
     assert float(row["pgen_raw"]) == pytest.approx(0.5)
 
@@ -141,7 +139,7 @@ def test_add_alice_metadata_inplace(monkeypatch) -> None:
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
-    out = add_alice_metadata(rep, threshold=0, n_jobs=1)
+    out = add_alice_metadata(rep, n_jobs=1)
     assert out is rep
 
     md = rep.clonotypes[0].clone_metadata
@@ -150,14 +148,7 @@ def test_add_alice_metadata_inplace(monkeypatch) -> None:
     assert "alice_pgen" in md
     assert "alice_fold" in md
     assert "alice_p_value" in md
-
-
-def test_threshold_gt_one_is_rejected(monkeypatch) -> None:
-    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
-
-    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
-    with pytest.raises(ValueError):
-        compute_alice(rep, threshold=2)
+    assert "alice_q_value" in md
 
 
 def test_only_hamming_metric_is_supported(monkeypatch) -> None:
@@ -205,14 +196,15 @@ def test_compute_alice_uses_bulk_pgen_path(monkeypatch) -> None:
     clones = [_clone(str(i), seqs[i]) for i in range(len(seqs))]
     rep = LocusRepertoire(clones, locus="TRB")
 
-    compute_alice(rep, threshold=0, pgen_mode="exact", n_jobs=8)
+    compute_alice(rep, pgen_mode="exact", n_jobs=8)
 
-    # Pgen is intentionally computed in one thread; p-value stage is parallelized separately.
-    assert len(thread_names) == 1
+    # Bulk Pgen path should use multiple workers when n_jobs > 1.
+    assert len(thread_names) > 1
 
 
 def test_compute_alice_parallelizes_pvalue_calls(monkeypatch) -> None:
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+    monkeypatch.setenv("MIRPY_ALICE_PVALUE_EXECUTOR", "thread")
 
     from mir.biomarkers import alice as alice_mod
 
@@ -235,6 +227,59 @@ def test_compute_alice_parallelizes_pvalue_calls(monkeypatch) -> None:
     ]
     rep = LocusRepertoire([_clone(str(i), seqs[i]) for i in range(len(seqs))], locus="TRB")
 
-    compute_alice(rep, threshold=0, pgen_mode="exact", n_jobs=8)
+    compute_alice(rep, pgen_mode="exact", n_jobs=8)
 
     assert len(thread_names) > 1
+
+
+def test_compute_alice_pvalue_mode_negative_binomial(monkeypatch) -> None:
+    """NB mode produces a valid p-value and doesn't crash."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    rep = LocusRepertoire(
+        [
+            _clone("0", "CASSLGQETQYF"),
+            _clone("1", "CASSLGQETQFF"),
+        ],
+        locus="TRB",
+    )
+
+    result_poisson = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="poisson", n_jobs=1)
+    result_nb = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="negative-binomial", n_jobs=1)
+
+    row_p = result_poisson.table[result_poisson.table["sequence_id"] == "0"].iloc[0]
+    row_nb = result_nb.table[result_nb.table["sequence_id"] == "0"].iloc[0]
+
+    assert 0.0 <= float(row_nb["p_value"]) <= 1.0
+    assert 0.0 <= float(row_p["p_value"]) <= 1.0
+
+
+def test_compute_alice_invalid_pvalue_mode(monkeypatch) -> None:
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
+    with pytest.raises(ValueError):
+        compute_alice(rep, pvalue_mode="invalid-mode")  # type: ignore[arg-type]
+
+
+def test_compute_alice_pseudocount_shifts_expected(monkeypatch) -> None:
+    """Pseudocount > 0 increases expected neighbors and expected value."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    rep = LocusRepertoire(
+        [
+            _clone("0", "CASSLGQETQYF"),
+            _clone("1", "CASSLGQETQFF"),
+        ],
+        locus="TRB",
+    )
+
+    result_no_pc = compute_alice(rep, pgen_mode="exact", pseudocount=0.0, n_jobs=1)
+    result_pc = compute_alice(rep, pgen_mode="exact", pseudocount=1.0, n_jobs=1)
+
+    row_no = result_no_pc.table[result_no_pc.table["sequence_id"] == "0"].iloc[0]
+    row_pc = result_pc.table[result_pc.table["sequence_id"] == "0"].iloc[0]
+
+    # With pseudocount=1.0, expected_neighbors = (N+1)*pgen > N*pgen
+    assert float(row_pc["expected_neighbors"]) > float(row_no["expected_neighbors"])
+
