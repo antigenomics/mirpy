@@ -188,6 +188,25 @@ Operational notes:
 - Override with `MIRPY_CONTROL_DIR` for shared or scratch storage.
 - Synthetic caches are keyed by species, locus, and `n`.
 
+To precompute and cache OLGA-derived V/J/VJ probabilities for a single
+species+locus model (optionally in parallel), use
+`precompute_olga_gene_usage_probabilities`:
+
+```python
+from mir.basic.gene_usage import precompute_olga_gene_usage_probabilities
+
+probs = precompute_olga_gene_usage_probabilities(
+  species="human",
+  locus="TRB",
+  synthetic_n=5_000_000,
+  n_jobs=8,
+  progress=True,
+)
+```
+
+This stores/reuses the synthetic control artifact via `ControlManager` and
+returns a dict with `v`, `j`, and `vj` probability maps.
+
 ## 9. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
@@ -408,6 +427,7 @@ usage = compute_olga_usage_adjustment(
   yfv_gu,
   seed=42,
   olga_usage_n=1_000_000,
+  n_jobs=8,
   count_mode="count_rearrangement",
   pseudocount=1.0,
 )

@@ -46,6 +46,13 @@ _DEFAULT_LOCK_POLL_S = 0.25
 _DEFAULT_STALE_LOCK_S = 12 * 1200.0
 
 
+def _resolve_n_jobs(n_jobs: int | None) -> int:
+    """Resolve worker count, defaulting to all available CPUs."""
+    if n_jobs is None:
+        return max(1, int(os.cpu_count() or 1))
+    return max(1, int(n_jobs))
+
+
 def _compute_log2_pgen_chunk(
     args: tuple[list[str], str, str, int],
 ) -> dict[str, float]:
@@ -232,7 +239,7 @@ class ControlManager:
         locus: str,
         *,
         n: int = 10_000_000,
-        n_jobs: int = 1,
+        n_jobs: int | None = None,
         overwrite: bool = False,
         seed: int = 42,
         chunk_size: int = 100_000,
@@ -247,6 +254,8 @@ class ControlManager:
                 f"OLGA model not available for species={species_c!r}, locus={locus_c!r}. "
                 f"Available: {sorted(available)}"
             )
+
+        resolved_n_jobs = _resolve_n_jobs(n_jobs)
 
         path = self.synthetic_control_path(species_c, locus_c, n)
         lock_path = self._control_lock_path("synthetic", species_c, locus_c, n=n)
@@ -344,7 +353,7 @@ class ControlManager:
                         species=species_c,
                         locus=locus_c,
                         n=need,
-                        n_jobs=n_jobs,
+                        n_jobs=resolved_n_jobs,
                         seed=seed + len(base_df),
                         chunk_size=chunk_size,
                         progress=progress,
@@ -375,7 +384,7 @@ class ControlManager:
                     species=species_c,
                     locus=locus_c,
                     n=n,
-                    n_jobs=n_jobs,
+                    n_jobs=resolved_n_jobs,
                     seed=seed,
                     chunk_size=chunk_size,
                     progress=progress,
@@ -670,7 +679,7 @@ def generate_synthetic_olga_control(
     seed: int,
     chunk_size: int,
     progress: bool,
-    n_jobs: int = 1,
+    n_jobs: int | None = None,
     zipf_alpha: float = 2.0,
     max_duplicate_count: int = 10_000,
 ) -> pd.DataFrame:
@@ -684,8 +693,9 @@ def generate_synthetic_olga_control(
     - j_gene
     - log2_pgen
     """
+    jobs = _resolve_n_jobs(n_jobs)
     model = OlgaModel(species=species, locus=locus, seed=seed)
-    records = model.generate_pool(n, n_jobs=max(1, int(n_jobs)), seed=seed)
+    records = model.generate_pool(n, n_jobs=jobs, seed=seed)
 
     rng = np.random.default_rng(seed + 1_000_003)
     dup_counts = rng.zipf(a=zipf_alpha, size=len(records))
@@ -715,7 +725,7 @@ def compute_control_pgen_records(
     locus: str,
     species: str = "human",
     seed: int = 42,
-    n_jobs: int = 1,
+    n_jobs: int | None = None,
     pgen_adjustment=None,
 ) -> list[dict[str, str | float]]:
     """Compute log2-Pgen records from control tables for VDJBet bin pooling.
@@ -761,7 +771,7 @@ def compute_control_pgen_records(
     if not rows:
         return []
 
-    jobs = max(1, int(n_jobs))
+    jobs = _resolve_n_jobs(n_jobs)
 
     factor_cache: dict[tuple[str, str], float] = {}
     if pgen_adjustment is not None:
@@ -1037,6 +1047,7 @@ def control_setup_cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--hf-cache-dir", default=None)
     parser.add_argument("--chunk-size", type=int, default=100_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-jobs", type=int, default=None, help="Workers for synthetic generation (default: all CPUs)")
     parser.add_argument("--cleanup", action="store_true", help="Clean cache/manifest before setup")
     parser.add_argument("--refresh-real", action="store_true", help="Refresh existing real controls when HF snapshot changes")
     args = parser.parse_args(argv)
@@ -1072,6 +1083,7 @@ def control_setup_cli(argv: list[str] | None = None) -> int:
                     species,
                     locus,
                     n=args.n,
+                    n_jobs=args.n_jobs,
                     overwrite=args.overwrite,
                     seed=args.seed,
                     chunk_size=args.chunk_size,

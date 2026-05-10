@@ -203,6 +203,37 @@ def test_ensure_synthetic_control_rebuilds_unreadable_cache(tmp_path: Path, monk
     assert float(loaded.iloc[0]["log2_pgen"]) == -12.5
 
 
+def test_ensure_synthetic_control_defaults_to_auto_cpu_n_jobs(tmp_path: Path, monkeypatch) -> None:
+    mgr = ControlManager(control_dir=tmp_path / "controls")
+
+    monkeypatch.setattr(
+        ControlManager,
+        "list_available_olga_models",
+        staticmethod(lambda model_root=None: [("human", "TRB")]),
+    )
+    monkeypatch.setattr("os.cpu_count", lambda: 6)
+
+    seen: dict[str, int] = {}
+
+    def _fake_generator(**kwargs):
+        seen["n_jobs"] = int(kwargs["n_jobs"])
+        return pd.DataFrame(
+            {
+                "duplicate_count": [1],
+                "junction": ["ATG"],
+                "junction_aa": ["M"],
+                "v_gene": ["TRBV1*01"],
+                "j_gene": ["TRBJ1*01"],
+                "log2_pgen": [-12.5],
+            }
+        )
+
+    monkeypatch.setattr("mir.common.control.generate_synthetic_olga_control", _fake_generator)
+
+    _ = mgr.ensure_synthetic_control("human", "TRB", n=1, overwrite=True, progress=False)
+    assert seen["n_jobs"] == 6
+
+
 def test_compute_control_pgen_records_uses_precomputed_log2_pgen_with_adjustment(monkeypatch) -> None:
     df = pd.DataFrame(
         {

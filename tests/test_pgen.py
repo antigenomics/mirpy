@@ -55,6 +55,34 @@ def test_seed_reproducibility():
     assert par_a == par_b, "same seed must yield the same parallel sequences"
 
 
+def test_compute_usage_cache_parallel_branch(monkeypatch):
+    """compute_usage_cache uses generate_pool when n_jobs > 1."""
+    model = OlgaModel.__new__(OlgaModel)
+    model._init_kwargs = {"locus": "TRB"}
+
+    def _fail_if_called(*_args, **_kwargs):  # pragma: no cover
+        raise AssertionError("generate_sequences_with_meta should not be used for n_jobs > 1")
+
+    def _fake_generate_pool(*, n, n_jobs, seed):
+        assert n == 4
+        assert n_jobs == 3
+        assert seed == 11
+        return [
+            {"v_gene": "TRBV20-1*01", "j_gene": "TRBJ2-7*01"},
+            {"v_gene": "TRBV20-1*02", "j_gene": "TRBJ2-7*01"},
+            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
+            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
+        ]
+
+    monkeypatch.setattr(model, "generate_sequences_with_meta", _fail_if_called)
+    monkeypatch.setattr(model, "generate_pool", _fake_generate_pool)
+
+    gu = model.compute_usage_cache(n=4, seed=11, n_jobs=3)
+    vj = gu.vj_usage("TRB")
+    assert vj[("TRBV20-1", "TRBJ2-7")] == 2
+    assert vj[("TRBV5-1", "TRBJ1-2")] == 2
+
+
 def test_pgen_model(olga_model):
     locus, species, model = olga_model
 
