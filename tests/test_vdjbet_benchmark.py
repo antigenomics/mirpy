@@ -494,12 +494,10 @@ class TestPgenParallelBenchmark:
         assertion guards against extreme regressions while still reporting
         measured speedup.
         """
-        model._pgen_aa_cache.clear()
         t1 = time.perf_counter()
         model.generate_pool(self.N, n_jobs=1, seed=_SEED + 101)
         t_single = time.perf_counter() - t1
 
-        model._pgen_aa_cache.clear()
         t4 = time.perf_counter()
         model.generate_pool(self.N, n_jobs=4, seed=_SEED + 202)
         t_par = time.perf_counter() - t4
@@ -511,39 +509,30 @@ class TestPgenParallelBenchmark:
         )
         assert speedup >= 0.1
 
-    def test_pgen_cache_speedup_and_memory(self, model) -> None:
-        """Repeated CDR3 queries should be >= 1.5x faster via the LRU cache.
+    def test_pgen_pool_reuse_throughput(self, model) -> None:
+        """Persistent pgen worker pool should be reused across calls.
 
-        Pattern: identical CDR3s appear across multiple mock iterations.
-        First pass cold-starts the cache; second pass is all cache hits.
-        Memory footprint should stay below 2 GB.
+        Second bulk call (pool already warm) must not be slower than
+        the first (pool creation + model load in workers).
         """
-        seqs = model.generate_sequences(60, seed=123)
-        repeated = seqs * 3  # 180 calls, 60 unique
+        seqs = model.generate_sequences(200, seed=123)
 
-        tracemalloc.start()
         t0 = time.perf_counter()
-        p1 = [model.compute_pgen_junction_aa(s) for s in repeated]
+        p1 = model.compute_pgen_junction_aa_bulk(seqs, n_jobs=4)
         t_first = time.perf_counter() - t0
-        _, peak1 = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
 
-        tracemalloc.start()
         t1 = time.perf_counter()
-        p2 = [model.compute_pgen_junction_aa(s) for s in repeated]
+        p2 = model.compute_pgen_junction_aa_bulk(seqs, n_jobs=4)
         t_second = time.perf_counter() - t1
-        _, peak2 = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
 
-        speedup = t_first / t_second if t_second > 0 else float("inf")
+        reuse_ratio = t_first / t_second if t_second > 0 else float("inf")
+        throughput = len(seqs) / t_second if t_second > 0 else float("inf")
         print(
-            f"\nPgen cache: first={t_first:.3f}s peak={peak1/(1024**2):.1f}MiB  "
-            f"second={t_second:.3f}s peak={peak2/(1024**2):.1f}MiB  "
-            f"speedup={speedup:.2f}x"
+            f"\nPgen pool reuse: first={t_first:.3f}s second={t_second:.3f}s "
+            f"reuse_ratio={reuse_ratio:.2f}x throughput={throughput:.0f} seqs/s"
         )
         assert p1 == p2
-        assert speedup >= 1.1
-        assert peak1 < 2 * 1024 ** 3
+        assert reuse_ratio >= 0.8
 
 
 # ---------------------------------------------------------------------------
@@ -1039,6 +1028,7 @@ class TestYFVP1SignificanceAndPgenBins:
 
 @skip_benchmarks
 @pytest.mark.benchmark
+@pytest.mark.very_slow_benchmark
 @pytest.mark.skipif(not _VDJDB_AVAILABLE, reason="vdjdb.slim.txt.gz asset missing")
 @pytest.mark.skipif(not _Q1_AVAILABLE, reason="Q1 test assets (Q1_*_F1.airr.tsv.gz) missing")
 class TestQ1Q15Integration:

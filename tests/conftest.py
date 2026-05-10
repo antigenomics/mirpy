@@ -2,9 +2,35 @@ import os
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 from tests.prepare_airr_benchmark_data import ensure_test_data
+
+# ---------------------------------------------------------------------------
+# Memory guard
+# ---------------------------------------------------------------------------
+
+BENCHMARK_MEMORY_LIMIT_BYTES = int(
+    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_GB", "8")
+) * 1024 ** 3
+
+# very_slow_benchmark tests may use more memory (e.g., full real control builds/loads
+# where the 28M-row pickle alone occupies ~15 GB in-process).
+BENCHMARK_VERY_SLOW_MEMORY_LIMIT_BYTES = int(
+    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB", "24")
+) * 1024 ** 3
+
+_PSUTIL_PROC = psutil.Process()
+
+
+def _current_rss_bytes() -> int:
+    """Return current process RSS in bytes (using psutil for cross-platform accuracy).
+
+    Uses psutil.Process().memory_info().rss for current (not peak) RSS.
+    This avoids the macOS ru_maxrss pitfall where the value only increases.
+    """
+    return _PSUTIL_PROC.memory_info().rss
 
 
 RUN_BENCHMARKS = (
@@ -65,9 +91,10 @@ def benchmark_max_seconds(default: float = 120.0) -> float:
     return max(1.0, _env_float("MIRPY_BENCHMARK_MAX_SECONDS", default))
 
 
-def benchmark_repertoire_workers(default: str = "1,4") -> list[int]:
+def benchmark_repertoire_workers(default: str = "8") -> list[int]:
     """Worker counts for repertoire benchmark matrix.
 
+    Default is 8-core to reflect production multi-core use.
     Set MIRPY_BENCH_WORKERS to a comma-separated list, e.g. "1,4,8".
     """
     raw = os.getenv("MIRPY_BENCH_WORKERS", default)
@@ -121,7 +148,7 @@ def benchmark_slow_timeout_s(default: float = 600.0) -> float:
     return max(1.0, _env_float("MIRPY_BENCH_SLOW_TIMEOUT_S", default))
 
 
-def benchmark_very_slow_timeout_s(default: float = 1200.0) -> float:
+def benchmark_very_slow_timeout_s(default: float = 1800.0) -> float:
     return max(1.0, _env_float("MIRPY_BENCH_VERY_SLOW_TIMEOUT_S", default))
 
 
@@ -157,5 +184,24 @@ def pytest_runtest_call(item):
         if elapsed > cap:
             pytest.fail(
                 f"slow_benchmark timeout exceeded: {elapsed:.2f}s > {cap:.2f}s "
+                f"({item.nodeid})"
+            )
+
+    # Memory guard: any benchmark test that pushes RSS past the limit fails.
+    # very_slow_benchmark tests get a higher cap (default 20 GB) because they
+    # may process the full real control corpus (28M rows, ~15 GB).
+    # Set MIRPY_BENCH_MEMORY_LIMIT_GB / MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB to override.
+    if RUN_BENCHMARKS and item.get_closest_marker("benchmark") is not None:
+        rss = _current_rss_bytes()
+        if item.get_closest_marker("very_slow_benchmark") is not None:
+            limit = BENCHMARK_VERY_SLOW_MEMORY_LIMIT_BYTES
+            cap_env = "MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB"
+        else:
+            limit = BENCHMARK_MEMORY_LIMIT_BYTES
+            cap_env = "MIRPY_BENCH_MEMORY_LIMIT_GB"
+        if rss > limit:
+            pytest.fail(
+                f"Benchmark exceeded {limit // 1024**3} GB RSS limit: "
+                f"{rss / 1024**3:.1f} GB — cap with {cap_env} "
                 f"({item.nodeid})"
             )

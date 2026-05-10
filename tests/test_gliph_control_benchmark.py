@@ -72,8 +72,16 @@ def _maxrss_mb() -> float:
     return rss / 1024.0
 
 
+_REAL_CONTROL_CAP = int(os.getenv("MIRPY_BENCH_REAL_CONTROL_N", "2000000"))
+
+
 def _canonical_control_df() -> pd.DataFrame:
-    ctrl_raw = ControlManager().ensure_and_load_control_df("real", "human", "TRB")
+    ctrl_raw_full = ControlManager().ensure_and_load_control_df("real", "human", "TRB")
+    if _REAL_CONTROL_CAP < len(ctrl_raw_full):
+        ctrl_raw = ctrl_raw_full.sample(n=_REAL_CONTROL_CAP, random_state=42).reset_index(drop=True)
+    else:
+        ctrl_raw = ctrl_raw_full
+    del ctrl_raw_full
     df = pd.DataFrame(
         {
             "junction_aa": ctrl_raw["junction_aa"].astype(str).str.strip(),
@@ -82,6 +90,7 @@ def _canonical_control_df() -> pd.DataFrame:
             "duplicate_count": pd.to_numeric(ctrl_raw.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int),
         }
     )
+    del ctrl_raw
     min_len = _min_raw_len_for_tokenization()
     mask = df["junction_aa"].str.len().ge(min_len) & df["junction_aa"].str.match(AA_RE)
     return df.loc[mask].reset_index(drop=True)

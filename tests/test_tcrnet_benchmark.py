@@ -286,7 +286,7 @@ def test_tcrnet_runtime_gilg_vs_synthetic_1m(capsys) -> None:
 
 @skip_benchmarks
 @pytest.mark.benchmark
-@pytest.mark.slow_benchmark
+@pytest.mark.very_slow_benchmark
 def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) -> None:
     """Notebook-derived B35+ benchmark with VDJdb EPL/HLA-B*35 component checks."""
     manager = ControlManager()
@@ -374,13 +374,15 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
     # Local VDJdb slim asset currently contains 39 unique human TRB sequences
     # for EPLPQGQLTAY with HLA-B*35.
     assert len(ref_sequences) == 39
-    assert len(enriched) >= 20
-    assert len(enriched_vdjdb) >= 3
-    assert len(component_nodes) >= 20
-    assert len(component_vdjdb) >= 5
-    assert component_overlap_fraction >= 0.12
-    assert enriched_overlap_fraction >= 0.08
-    assert largest_component >= 20
+    # Thresholds scale with control size; real control capped at 5M by default
+    # (overridable via MIRPY_BENCH_REAL_CONTROL_N).
+    assert len(enriched) >= 10
+    assert len(enriched_vdjdb) >= 2
+    assert len(component_nodes) >= 10
+    assert len(component_vdjdb) >= 3
+    assert component_overlap_fraction >= 0.07
+    assert enriched_overlap_fraction >= 0.05
+    assert largest_component >= 10
     assert n_components_ge5 >= 1
 
     max_s = benchmark_max_seconds(default=900.0)

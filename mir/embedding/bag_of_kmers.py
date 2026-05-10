@@ -327,8 +327,11 @@ def _build_control_profile_in_memory(
     locus: str,
     params: BagOfKmersParams,
     control_kwargs: dict[str, Any],
+    max_rows: int | None = None,
 ) -> ControlKmerProfile:
     control_df = manager.ensure_and_load_control_df(control_type, species, locus, **control_kwargs)
+    if max_rows is not None and max_rows > 0 and max_rows < len(control_df):
+        control_df = control_df.sample(n=max_rows, random_state=42).reset_index(drop=True)
     token_df, pos_df = _build_tables_from_df(control_df, params)
     meta = _build_profile_metadata(
         control_type=control_type,
@@ -353,6 +356,7 @@ def build_control_kmer_profile(
     cache: bool = False,
     overwrite_cache: bool = False,
     wait_timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
+    max_rows: int | None = None,
 ) -> ControlKmerProfile:
     """Build a control k-mer profile.
 
@@ -378,6 +382,7 @@ def build_control_kmer_profile(
             locus=locus_c,
             params=params,
             control_kwargs=kwargs,
+            max_rows=max_rows,
         )
 
     profile_dir = _profile_dir(
@@ -416,6 +421,7 @@ def build_control_kmer_profile(
             locus=locus_c,
             params=params,
             control_kwargs=kwargs,
+            max_rows=max_rows,
         )
 
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -454,12 +460,14 @@ def ensure_control_kmer_profile(
     cache: bool = False,
     overwrite: bool = False,
     wait_timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
+    max_rows: int | None = None,
 ) -> ControlKmerProfile:
     """Build a control k-mer profile with in-memory default behavior.
 
     Args:
         cache: If ``True``, persist/reuse profile tables in control cache.
         overwrite: When ``cache=True``, force recompute and overwrite cache.
+        max_rows: Optional row cap applied when building from the control DataFrame.
     """
     return build_control_kmer_profile(
         manager,
@@ -471,6 +479,7 @@ def ensure_control_kmer_profile(
         cache=cache,
         overwrite_cache=overwrite,
         wait_timeout_s=wait_timeout_s,
+        max_rows=max_rows,
     )
 
 

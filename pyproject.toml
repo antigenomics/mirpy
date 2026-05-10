@@ -48,6 +48,7 @@ dev = [
   "pytest>=8",
   "pylint",
   "huggingface_hub",
+  "psutil>=5",
 ]
 docs = [
   "sphinx>=7.2,<9",

@@ -224,6 +224,15 @@ class PgenBinPool:
             kwargs.setdefault("n_jobs", n_jobs)
             kwargs.setdefault("progress", False)
         control_df = manager.ensure_and_load_control_df(control_type, species, locus, **kwargs)
+        # For real controls (which can be 20M+ rows), pre-sample to n*20 to
+        # avoid passing a huge DataFrame through from_control_df.  This is safe
+        # because from_control_df will sample again to the final n with weights.
+        if control_type.strip().lower() == "real" and n is not None and n > 0:
+            presample_cap = max(int(n) * 20, 200_000)
+            if presample_cap < len(control_df):
+                control_df = control_df.sample(
+                    n=presample_cap, replace=False, random_state=seed
+                ).reset_index(drop=True)
         return cls.from_control_df(
             control_df,
             locus=locus,
