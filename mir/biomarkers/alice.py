@@ -29,8 +29,11 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from math import ceil
 import math
+import multiprocessing
 import os
 import typing as t
+
+_MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import dataclass
 
 import pandas as pd
@@ -325,7 +328,7 @@ def compute_alice(
                 with ThreadPoolExecutor(max_workers=n_jobs) as executor:
                     metric_chunks = list(executor.map(_compute_alice_metrics_batch_from_args, batch_args))
             else:
-                with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+                with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX) as executor:
                     metric_chunks = list(executor.map(_compute_alice_metrics_batch_from_args, batch_args))
 
             for batch, metrics in zip(batches, metric_chunks):

@@ -9,9 +9,12 @@ brute-force fallback only when trie search fails.
 
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from math import ceil
 import typing as t
+
+_MP_CTX = multiprocessing.get_context("spawn")
 from typing import TYPE_CHECKING
 
 from tcrtrie import Trie
@@ -319,6 +322,7 @@ def _compute_locus_stats(
     results: dict[str, dict[str, int]] = {}
     with ProcessPoolExecutor(
         max_workers=n_jobs,
+        mp_context=_MP_CTX,
         initializer=_init_neighbor_worker,
         initargs=(
             query_sequences,

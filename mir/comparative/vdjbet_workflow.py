@@ -8,12 +8,15 @@ duplication.
 from __future__ import annotations
 
 import math
+import multiprocessing
 import warnings
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_MP_CTX = multiprocessing.get_context("spawn")
 
 import numpy as np
 import pandas as pd
@@ -378,6 +381,7 @@ def score_samples_dataframe(
     else:
         with ProcessPoolExecutor(
             max_workers=sample_n_jobs,
+            mp_context=_MP_CTX,
             initializer=_init_score_worker,
             initargs=(ref_keys, mock_key_sets),
         ) as pool:

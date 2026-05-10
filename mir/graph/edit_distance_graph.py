@@ -8,9 +8,12 @@ back to constrained brute-force only when trie search raises an error.
 
 from __future__ import annotations
 
+import multiprocessing
 import typing as t
 from concurrent.futures import ProcessPoolExecutor
 from math import ceil
+
+_MP_CTX = multiprocessing.get_context("spawn")
 
 import igraph as ig
 from tcrtrie import Trie
@@ -134,6 +137,7 @@ def _build_edges_parallel(
     edges: set[tuple[int, int]] = set()
     with ProcessPoolExecutor(
         max_workers=jobs,
+        mp_context=_MP_CTX,
         initializer=_init_edge_worker,
         initargs=(seqs, v_genes, j_genes, c_genes, metric, threshold, v_gene_match, c_gene_match),
     ) as executor:
