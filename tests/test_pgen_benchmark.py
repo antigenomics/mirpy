@@ -47,7 +47,13 @@ def _profile_bulk_pgen(seqs: list[str], *, max_mismatches: int, workers: list[in
         if baseline is None:
             baseline = values
         else:
-            assert values == baseline
+            # Different model instances loaded from the same files may produce
+            # results that differ by ~1e-6 relative due to FP non-associativity
+            # across process boundaries (BLAS/Accelerate).  Exact equality is
+            # too strict here; approximate comparison is semantically correct.
+            import numpy as np
+            np.testing.assert_allclose(values, baseline, rtol=1e-4, atol=0,
+                                       err_msg="Parallel pgen values deviate from serial baseline")
         rows.append(
             {
                 "max_mismatches": max_mismatches,

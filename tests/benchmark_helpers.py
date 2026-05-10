@@ -107,13 +107,29 @@ def synthetic_control_repertoire(
     return LocusRepertoire(clonotypes=clonotypes, locus=locus)
 
 
+def real_control_limit(default: int = 2_000_000) -> int:
+    """Max rows to load from the real control (env: MIRPY_BENCH_REAL_CONTROL_N)."""
+    raw = os.getenv("MIRPY_BENCH_REAL_CONTROL_N")
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(1_000, value)
+
+
 def real_control_repertoire(
     *,
     manager: ControlManager,
     species: str = "human",
     locus: str = "TRB",
+    limit: int | None = None,
 ) -> LocusRepertoire:
     df = manager.ensure_and_load_control_df("real", species, locus)
+    cap = limit if limit is not None else real_control_limit()
+    if cap < len(df):
+        df = df.sample(n=cap, random_state=42).reset_index(drop=True)
     clonotypes = [
         _mk_clonotype(
             f"r{i}",

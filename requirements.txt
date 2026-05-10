@@ -42,3 +42,4 @@ tqdm==4.66.2
 pytest>=8
 pylint
 huggingface_hub
+psutil>=5

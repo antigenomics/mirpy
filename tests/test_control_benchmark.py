@@ -144,7 +144,7 @@ def test_synthetic_control_generation_small_matrix(capsys, tmp_path: Path) -> No
 
 @skip_benchmarks
 @pytest.mark.benchmark
-@pytest.mark.slow_benchmark
+@pytest.mark.very_slow_benchmark
 def test_real_control_build_and_cache_hit(capsys, tmp_path: Path) -> None:
     """Benchmark real-control build/load and cache-hit behavior in one focused test."""
     control_dir = tmp_path / "controls_benchmark_real"
@@ -205,7 +205,7 @@ def test_real_control_build_and_cache_hit(capsys, tmp_path: Path) -> None:
 
 @skip_benchmarks
 @pytest.mark.benchmark
-@pytest.mark.slow_benchmark
+@pytest.mark.very_slow_benchmark
 def test_real_control_repeated_cache_loads_no_extra_overhead(capsys, tmp_path: Path) -> None:
     """Benchmark repeated real-control cache loads and ensure low wrapper overhead."""
     control_dir = tmp_path / "controls_real_cache_benchmark"

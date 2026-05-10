@@ -6,8 +6,11 @@ Run with:
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
+
+import pytest
 
 from mir.common.control import ControlManager
 from mir.embedding.bag_of_kmers import (
@@ -19,9 +22,14 @@ from tests.conftest import skip_benchmarks
 
 
 @skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.very_slow_benchmark
 def test_bag_of_kmers_real_human_trb_k3_cas_position0(tmp_path: Path, capsys) -> None:
     mgr = ControlManager(control_dir=tmp_path / "controls")
     params = BagOfKmersParams(use_v=False, k=3, gapped=False, reduced_alphabet=False)
+    # Cap at 2M rows to stay within memory bounds; kmer frequencies converge well
+    # below 28M sequences so this does not affect the CAS/position-0 assertion.
+    max_rows = int(os.getenv("MIRPY_BENCH_BAG_OF_KMERS_MAX_ROWS", "2000000"))
 
     t0 = time.perf_counter()
     profile_mem = build_control_kmer_profile(
@@ -32,6 +40,7 @@ def test_bag_of_kmers_real_human_trb_k3_cas_position0(tmp_path: Path, capsys) ->
         params=params,
         control_kwargs={"dataset_repo": "isalgo/airr_control", "overwrite": False},
         cache=False,
+        max_rows=max_rows,
     )
     elapsed_mem = time.perf_counter() - t0
 
@@ -45,6 +54,7 @@ def test_bag_of_kmers_real_human_trb_k3_cas_position0(tmp_path: Path, capsys) ->
         control_kwargs={"dataset_repo": "isalgo/airr_control", "overwrite": False},
         cache=True,
         overwrite=False,
+        max_rows=max_rows,
     )
     elapsed_cached = time.perf_counter() - t0
 

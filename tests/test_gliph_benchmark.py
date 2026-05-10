@@ -14,6 +14,7 @@ expanded workflow:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -196,7 +197,15 @@ def test_gliph_combined_graph_benchmark() -> None:
     raw = pd.read_csv(GLIPH_PATH, sep="\t")
     df = _normalize_gliph_df(raw)
 
-    ctrl_raw = ControlManager().ensure_and_load_control_df("real", "human", "TRB")
+    _ctrl_raw_full = ControlManager().ensure_and_load_control_df("real", "human", "TRB")
+    # Cap at 2× CONTROL_SAMPLE to keep memory under 8 GB while preserving
+    # enough diversity for V-usage stratified sampling.
+    _ctrl_cap = int(os.getenv("MIRPY_BENCH_REAL_CONTROL_N", str(CONTROL_SAMPLE * 2)))
+    if _ctrl_cap < len(_ctrl_raw_full):
+        ctrl_raw = _ctrl_raw_full.sample(n=_ctrl_cap, random_state=42).reset_index(drop=True)
+    else:
+        ctrl_raw = _ctrl_raw_full
+    del _ctrl_raw_full
     ctrl_all = pd.DataFrame(
         {
             "junction_aa": ctrl_raw["junction_aa"].astype(str).str.strip(),
@@ -209,6 +218,7 @@ def test_gliph_combined_graph_benchmark() -> None:
             "gliph_cluster_id": "",
         }
     )
+    del ctrl_raw
     ctrl_all = ctrl_all[ctrl_all["junction_aa"].str.match(AA_RE) & (ctrl_all["junction_aa"].str.len() >= 5)].copy()
 
     rows: list[dict[str, object]] = []
