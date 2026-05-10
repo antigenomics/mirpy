@@ -10,10 +10,12 @@ import gc
 import os
 from pathlib import Path
 import re
-import resource
 import sys
 import time
 import tracemalloc
+
+if sys.platform != "win32":
+    import resource
 
 import numpy as np
 import pandas as pd
@@ -65,6 +67,9 @@ def _to_mb(bytes_value: int) -> float:
 
 
 def _maxrss_mb() -> float:
+    if sys.platform == "win32":
+        import psutil
+        return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
     usage = resource.getrusage(resource.RUSAGE_SELF)
     rss = float(usage.ru_maxrss)
     if sys.platform == "darwin":
