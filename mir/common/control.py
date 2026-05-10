@@ -14,11 +14,14 @@ from __future__ import annotations
 import argparse
 import math
 import json
+import multiprocessing
 import os
 import pickle
 import time
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
+
+_MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -822,7 +825,7 @@ def compute_control_pgen_records(
             (chunk, species, locus, seed + i + 1)
             for i, chunk in enumerate(chunks)
         ]
-        with ProcessPoolExecutor(max_workers=jobs) as executor:
+        with ProcessPoolExecutor(max_workers=jobs, mp_context=_MP_CTX) as executor:
             for partial in executor.map(_compute_log2_pgen_chunk, args):
                 log2_by_jaa.update(partial)
 

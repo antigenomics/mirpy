@@ -38,11 +38,14 @@ Default Parallel/Fallback Policy
 
 from __future__ import annotations
 
+import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor
 from itertools import chain, repeat
 from pathlib import Path
 from typing import Callable, Iterable
+
+_MP_CTX = multiprocessing.get_context("spawn")
 
 import pandas as pd
 
@@ -109,7 +112,7 @@ def _is_parallel_worthwhile(
 def _parse_chunks_parallel(chunks: list[pd.DataFrame], *, locus: str, n_jobs: int) -> LocusRepertoire:
     """Parse pre-split chunks in parallel and merge into one repertoire."""
     map_chunksize = max(1, len(chunks) // max(1, n_jobs * 4))
-    with ProcessPoolExecutor(max_workers=n_jobs, initializer=_init_chunk_parser_worker) as executor:
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
         repertoires = list(
             executor.map(
                 _parse_chunk_worker,
@@ -219,7 +222,7 @@ def load_airr_parallel(
     if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
         return _parse_chunks_sequential(stream, locus=locus)
 
-    with ProcessPoolExecutor(max_workers=n_jobs, initializer=_init_chunk_parser_worker) as executor:
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
         reps = executor.map(_parse_chunk_worker, stream, repeat(locus), chunksize=4)
         all_clonotypes = [c for rep in reps for c in rep.clonotypes]
     return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
@@ -294,7 +297,7 @@ def load_airr_with_filter(
     if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
         return _parse_chunks_sequential(stream, locus=locus)
 
-    with ProcessPoolExecutor(max_workers=n_jobs, initializer=_init_chunk_parser_worker) as executor:
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
         reps = executor.map(_parse_chunk_worker, stream, repeat(locus), chunksize=4)
         all_clonotypes = [c for rep in reps for c in rep.clonotypes]
     return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
