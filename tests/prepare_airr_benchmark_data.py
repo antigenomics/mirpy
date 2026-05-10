@@ -2,25 +2,36 @@ from __future__ import annotations
 
 import csv
 import gzip
-import json
 import os
 import re
 import shutil
-import urllib.request
 from pathlib import Path
 
 csv.field_size_limit(10_000_000)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ID = "isalgo/airr_benchmark"
-HF_BASE = "https://huggingface.co/datasets/isalgo/airr_benchmark/resolve/main"
-HF_TREE_API = "https://huggingface.co/api/datasets/isalgo/airr_benchmark/tree/main?recursive=true"
 
 DATASET_ROOT = REPO_ROOT / "airr_benchmark"
 TESTS_DIR = REPO_ROOT / "tests"
 ASSETS_DIR = TESTS_DIR / "assets"
 REAL_REPS_DIR = ASSETS_DIR / "real_repertoires"
 SRX_DIR = ASSETS_DIR / "srx_repertoires"
+
+# Written after a successful bootstrap so we can skip on subsequent runs.
+_SENTINEL = DATASET_ROOT / ".test_data_ready"
+
+# Files to pull from the HuggingFace dataset.
+_REQUIRED_PATTERNS = [
+    "sra/meta.tsv",
+    "sra/samples.tar.gz",
+    "tcrnet/B35+.txt.gz",
+    "alice/yf/Q1_d0.tsv.gz",
+    "alice/yf/Q1_d15.tsv.gz",
+    "gliph/gliph_trb.tsv.gz",
+    "vdjdb/**",
+    "vdjtools_lite/**",
+]
 
 TOY_DATASET_METADATA_TSV = """sample_id\tfile_name\tbatch_id
 s1\tvdjtools_trb_d_dot.tsv\tbatch_A
@@ -79,32 +90,12 @@ def _verbose(msg: str, enabled: bool) -> None:
         print(msg)
 
 
-def _load_tree_paths() -> list[str]:
-    with urllib.request.urlopen(HF_TREE_API, timeout=60) as response:
-        payload = json.load(response)
-    return [item.get("path", "") for item in payload if item.get("path")]
-
-
-def _download(path: str, dst: Path, *, verbose: bool) -> None:
-    if dst.exists():
-        return
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    url = f"{HF_BASE}/{path}"
-    _verbose(f"download {path}", verbose)
-    part = dst.with_suffix(dst.suffix + ".part")
-    with urllib.request.urlopen(url, timeout=120) as src, open(part, "wb") as out:
-        shutil.copyfileobj(src, out)
-    part.replace(dst)
-
-
 def _is_valid_gzip(path: Path) -> bool:
     try:
         with gzip.open(path, "rt", encoding="utf-8") as fh:
             fh.read(1024)
         return True
-    except OSError:
-        return False
-    except EOFError:
+    except (OSError, EOFError):
         return False
 
 
@@ -214,7 +205,6 @@ def _write_olga_1000(vdjdb_slim: Path) -> int:
             j_gene = (row.get("j.segm") or "TRBJ2-1*01").strip() or "TRBJ2-1*01"
             if not cdr3:
                 continue
-            # OlgaParser only requires non-empty junction strings here.
             nt = "NNN" * len(cdr3)
             rows.append((nt, cdr3, v_gene, j_gene))
 
@@ -229,51 +219,12 @@ def _write_olga_1000(vdjdb_slim: Path) -> int:
     return len(out_rows)
 
 
-def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
-    tree_paths = _load_tree_paths()
-
-    vdjdb_candidates = [
-        p
-        for p in tree_paths
-        if re.match(r"^vdjdb/vdjdb-\d{4}-\d{2}-\d{2}/vdjdb\.slim\.txt\.gz$", p)
-    ]
-    if not vdjdb_candidates:
-        raise RuntimeError("Could not locate vdjdb.slim.txt.gz in airr_benchmark")
-    vdjdb_rel = sorted(vdjdb_candidates)[-1]
-
-    required_remote = [
-        "sra/meta.tsv",
-        "sra/samples.tar.gz",
-        "tcrnet/B35+.txt.gz",
-        "alice/yf/Q1_d0.tsv.gz",
-        "alice/yf/Q1_d15.tsv.gz",
-        "gliph/gliph_trb.tsv.gz",
-        vdjdb_rel,
-    ]
-    required_remote.extend(
-        p for p in tree_paths if p.startswith("vdjtools_lite/") and not p.endswith("/")
-    )
-
-    for rel in required_remote:
-        _download(rel, DATASET_ROOT / rel, verbose=verbose)
-
-    vdjdb_local = DATASET_ROOT / vdjdb_rel
-    if not _is_valid_gzip(vdjdb_local):
-        if vdjdb_local.exists():
-            vdjdb_local.unlink()
-        _download(vdjdb_rel, vdjdb_local, verbose=verbose)
-
+def _derive_assets(*, verbose: bool = False) -> None:
+    """Build derived test assets from downloaded raw files."""
     # Remove legacy pre-reorganization directories if they still exist.
-    legacy_real = TESTS_DIR / "real_repertoires"
-    legacy_srx = TESTS_DIR / "srx_repertoires"
-    for legacy in (legacy_real, legacy_srx):
+    for legacy in (TESTS_DIR / "real_repertoires", TESTS_DIR / "srx_repertoires"):
         if legacy.exists():
             shutil.rmtree(legacy)
-
-    if force:
-        for d in (ASSETS_DIR,):
-            if d.exists():
-                shutil.rmtree(d)
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     REAL_REPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -283,13 +234,23 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
     for src in vdjtools_dir.glob("*.txt.gz"):
         _copy(src, REAL_REPS_DIR / src.name)
     for name in ("metadata_aging.txt", "metadata_hsct.txt"):
-        _copy(vdjtools_dir / name, REAL_REPS_DIR / name)
+        src = vdjtools_dir / name
+        if src.exists():
+            _copy(src, REAL_REPS_DIR / name)
 
     _copy(vdjtools_dir / "old_mixcr.gz", ASSETS_DIR / "old_mixcr.gz")
     _copy(vdjtools_dir / "vdjtools_trb_d_dot.tsv", ASSETS_DIR / "vdjtools_trb_d_dot.tsv")
     _copy(vdjtools_dir / "vdjtools_trb_d_dot_2.tsv", ASSETS_DIR / "vdjtools_trb_d_dot_2.tsv")
 
-    _copy(DATASET_ROOT / vdjdb_rel, ASSETS_DIR / "vdjdb.slim.txt.gz")
+    vdjdb_candidates = sorted(DATASET_ROOT.glob("vdjdb/vdjdb-*/vdjdb.slim.txt.gz"))
+    if not vdjdb_candidates:
+        raise RuntimeError("Could not locate vdjdb.slim.txt.gz in downloaded dataset")
+    vdjdb_local = vdjdb_candidates[-1]
+
+    if not _is_valid_gzip(vdjdb_local):
+        raise RuntimeError(f"Downloaded VDJdb slim is corrupt: {vdjdb_local}")
+
+    _copy(vdjdb_local, ASSETS_DIR / "vdjdb.slim.txt.gz")
     _convert_yf_vdjtools_to_airr(
         DATASET_ROOT / "alice/yf/Q1_d0.tsv.gz",
         REAL_REPS_DIR / "Q1_0_F1.airr.tsv.gz",
@@ -312,10 +273,32 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
 
     if verbose:
         print(f"prepared test data under {TESTS_DIR}")
-        print(f"vdjdb source: {vdjdb_rel}")
+        print(f"vdjdb source: {vdjdb_local.relative_to(DATASET_ROOT)}")
         print(f"derived GILG cdr3 count: {gilg_n}")
         print(f"derived LLW rows: {llw_n}")
         print(f"derived OLGA rows: {olga_n}")
+
+
+def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
+    if not force and _SENTINEL.exists() and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists():
+        return
+
+    if force:
+        for d in (ASSETS_DIR,):
+            if d.exists():
+                shutil.rmtree(d)
+
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(
+        repo_id=DATASET_ID,
+        repo_type="dataset",
+        local_dir=str(DATASET_ROOT),
+        allow_patterns=_REQUIRED_PATTERNS,
+    )
+
+    _derive_assets(verbose=verbose)
+    _SENTINEL.touch()
 
 
 def main() -> None:
