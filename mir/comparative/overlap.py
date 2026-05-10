@@ -34,8 +34,11 @@ API
 
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+
+_MP_CTX = multiprocessing.get_context("spawn")
 
 from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
@@ -479,6 +482,7 @@ def compute_overlaps(
     chunksize = max(1, len(reference_key_sets) // (n_jobs * 4))
     with ProcessPoolExecutor(
         max_workers=n_jobs,
+        mp_context=_MP_CTX,
         initializer=_overlap_worker_init,
         initargs=(query_index, allow_1mm, target_n, target_dc),
     ) as pool:

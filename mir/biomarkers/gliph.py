@@ -48,8 +48,11 @@ PubMed: https://pubmed.ncbi.nlm.nih.gov/28636589/
 
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, defaultdict
+
+_MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import dataclass
 from typing import Callable, Literal
 import warnings
@@ -125,7 +128,10 @@ def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") ->
     if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
         tmp = tmp.rename(columns={"row_id": "sequence_id"})
     
-    pl_df = pl.from_pandas(tmp, include_index=False)
+    # Avoid pl.from_pandas: nullable pandas dtypes (Int64, etc.) require pyarrow.
+    # Build via Python lists to stay pyarrow-free on all platforms.
+    data = {col: [None if pd.isna(v) else v for v in tmp[col].tolist()] for col in tmp.columns}
+    pl_df = pl.DataFrame(data, strict=False)
     return LocusRepertoire.from_polars(pl_df, locus=locus)
 
 
@@ -517,7 +523,7 @@ def extract_gliph_token_artifacts(
         return _worker_extract(df, family=family, count_mode=count_mode, trim_first=trim_first, trim_last=trim_last)
 
     chunks = _split_dataframe(df.reset_index(drop=True), threads)
-    with ProcessPoolExecutor(max_workers=threads) as pool:
+    with ProcessPoolExecutor(max_workers=threads, mp_context=_MP_CTX) as pool:
         parts = list(
             pool.map(
                 _worker_extract,
