@@ -4,13 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 
-import pandas as pd
 import pytest
 from scipy.stats import poisson
 
 from mir.biomarkers.alice import add_alice_metadata, compute_alice
 from mir.common.clonotype import Clonotype
-from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire
 
 
@@ -92,21 +90,9 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
     assert float(row0["p_value"]) == pytest.approx(float(poisson.sf(0, 0.4)))
 
 
-def test_compute_alice_v_matching_uses_gene_usage_divisor(monkeypatch) -> None:
+def test_compute_alice_v_matching_raw_pgen(monkeypatch) -> None:
+    """match_mode='v' restricts neighborhood search but pgen is raw OLGA pgen (no conditioning)."""
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
-
-    control_df = pd.DataFrame(
-        {
-            "v_gene": ["TRBV5-1*01", "TRBV5-1*01", "TRBV5-1*01", "TRBV6-1*01"],
-            "j_gene": ["TRBJ2-7*01", "TRBJ2-1*01", "TRBJ2-7*01", "TRBJ2-7*01"],
-        }
-    )
-
-    monkeypatch.setattr(
-        ControlManager,
-        "ensure_and_load_control_df",
-        lambda self, control_type, species, locus, **kwargs: control_df,
-    )
 
     rep = LocusRepertoire([_clone("0", "CASSQGQETQYF")], locus="TRB")
 
@@ -114,16 +100,12 @@ def test_compute_alice_v_matching_uses_gene_usage_divisor(monkeypatch) -> None:
         rep,
         match_mode="v",
         pgen_mode="exact",
-        control_manager=ControlManager(control_dir="/tmp/mirpy_alice_test_controls"),
-        gene_usage_synthetic_n=1_000,
         n_jobs=1,
     )
 
     row = result.table.iloc[0]
-    p_v = 3.0 / 4.0
-    expected_pgen = 0.3 / (p_v + 1e-6)
     assert float(row["pgen_raw"]) == pytest.approx(0.3)
-    assert float(row["pgen"]) == pytest.approx(expected_pgen)
+    assert float(row["pgen"]) == pytest.approx(0.3)
 
 
 def test_compute_alice_1mm_mode(monkeypatch) -> None:

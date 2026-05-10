@@ -7,15 +7,10 @@ probability (Pgen):
 - Neighborhood fold enrichment: ``n / (N * pgen)``
 - P-value: ``P(X >= n)`` where ``X ~ Poisson(N * pgen)``
 
-For V/J-constrained analyses, Pgen can be conditioned by dividing by the
-estimated OLGA gene usage probability from a synthetic control repertoire:
-
-- ``pgen / (P(v) + 1e-6)``
-- ``pgen / (P(j) + 1e-6)``
-- ``pgen / (P(v,j) + 1e-6)``
-
-Synthetic control gene-usage estimates are cached in-process and loaded via
-:class:`mir.common.control.ControlManager`.
+``match_mode`` controls which sequences are eligible neighbors:
+``"v"`` restricts to the same V gene, ``"j"`` to the same J gene,
+``"vj"`` to both.  Raw OLGA Pgen is used directly without synthetic-control
+gene-usage conditioning.
 
 This module is a highly customized MIR implementation inspired by ideas
 described in the ALICE paper, not a literal line-by-line reimplementation of
@@ -41,10 +36,8 @@ from dataclasses import dataclass
 import pandas as pd
 from scipy.stats import nbinom, poisson
 
-from mir.basic.pgen import OlgaModel, get_olga_gene_usage_probabilities
-from mir.common.alleles import allele_to_major
+from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
-from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.biomarkers._shared import (
     MatchMode,
@@ -116,20 +109,13 @@ def _compute_pgen_raw_by_junction_aa(
     unique_aas = list(dict.fromkeys(c.junction_aa for c in clonotypes))
     model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
     mismatch_budget = 1 if pgen_mode == "1mm" else 0
-    if hasattr(model, "compute_pgen_junction_aa_bulk"):
-        pgen_jobs = 1
-        if n_jobs > 1 and len(unique_aas) >= _PGEN_PARALLEL_MIN_UNIQUE:
-            pgen_jobs = n_jobs
-        pgens = model.compute_pgen_junction_aa_bulk(
-            unique_aas,
-            max_mismatches=mismatch_budget,
-            n_jobs=pgen_jobs,
-        )
-    elif mismatch_budget == 1:
-        pgens = [float(model.compute_pgen_junction_aa_1mm(seq)) for seq in unique_aas]
-    else:
-        pgens = [float(model.compute_pgen_junction_aa(seq)) for seq in unique_aas]
-    return {junction_aa: float(pgen) for junction_aa, pgen in zip(unique_aas, pgens)}
+    pgen_jobs = n_jobs if (n_jobs > 1 and len(unique_aas) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
+    pgens = model.compute_pgen_junction_aa_bulk(
+        unique_aas,
+        max_mismatches=mismatch_budget,
+        n_jobs=pgen_jobs,
+    )
+    return {aa: float(p) for aa, p in zip(unique_aas, pgens)}
 
 
 def _fold_enrichment(n: int, N: int, pgen: float) -> float:
@@ -165,9 +151,6 @@ def _compute_alice_metrics_batch(
     *,
     locus_stats: dict[str, dict[str, int]],
     pgen_raw_by_aa: dict[str, float],
-    match_mode: MatchMode,
-    probs: dict[str, dict[t.Any, float]] | None,
-    gene_usage_epsilon: float,
     pvalue_mode: AlicePValueMode = "poisson",
     pseudocount: float = 0.0,
 ) -> list[tuple[int, int, float, float, float, float, float]]:
@@ -177,17 +160,8 @@ def _compute_alice_metrics_batch(
         stat = locus_stats.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         n = int(stat["neighbor_count"])
         N = int(stat["potential_neighbors"])
-        pgen_raw = float(pgen_raw_by_aa.get(clonotype.junction_aa, 0.0))
+        pgen = float(pgen_raw_by_aa.get(clonotype.junction_aa, 0.0))
 
-        divisor = _gene_usage_divisor(
-            clonotype,
-            match_mode=match_mode,
-            probs=probs,
-            epsilon=gene_usage_epsilon,
-        )
-        pgen = pgen_raw / divisor if divisor > 0 else 0.0
-
-        # Apply pseudocount to both n and N for p-value / fold / expected.
         n_eff = float(n) + pseudocount
         N_eff = float(N) + pseudocount
         expected = N_eff * pgen
@@ -196,7 +170,7 @@ def _compute_alice_metrics_batch(
         else:
             p_value = _poisson_pvalue(n_eff, N_eff, pgen)
         fold = _fold_enrichment(n, N, pgen)
-        out.append((n, N, pgen_raw, pgen, expected, fold, p_value))
+        out.append((n, N, pgen, pgen, expected, fold, p_value))
     return out
 
 
@@ -205,31 +179,16 @@ def _compute_alice_metrics_batch_from_args(
         list[Clonotype],
         dict[str, dict[str, int]],
         dict[str, float],
-        MatchMode,
-        dict[str, dict[t.Any, float]] | None,
-        float,
         AlicePValueMode,
         float,
     ],
 ) -> list[tuple[int, int, float, float, float, float, float]]:
     """Pickle-friendly wrapper for process-pool batch execution."""
-    (
-        clonotypes,
-        locus_stats,
-        pgen_raw_by_aa,
-        match_mode,
-        probs,
-        gene_usage_epsilon,
-        pvalue_mode,
-        pseudocount,
-    ) = args
+    clonotypes, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount = args
     return _compute_alice_metrics_batch(
         clonotypes,
         locus_stats=locus_stats,
         pgen_raw_by_aa=pgen_raw_by_aa,
-        match_mode=match_mode,
-        probs=probs,
-        gene_usage_epsilon=gene_usage_epsilon,
         pvalue_mode=pvalue_mode,
         pseudocount=pseudocount,
     )
@@ -250,25 +209,6 @@ def _apply_alice_metrics_batch(
         clonotype.clone_metadata[f"{metadata_prefix}_fold"] = fold
         clonotype.clone_metadata[f"{metadata_prefix}_p_value"] = p_value
 
-
-def _gene_usage_divisor(
-    clonotype: Clonotype,
-    *,
-    match_mode: MatchMode,
-    probs: dict[str, dict[t.Any, float]] | None,
-    epsilon: float,
-) -> float:
-    if match_mode == "none" or probs is None:
-        return 1.0
-
-    v_gene = allele_to_major(clonotype.v_gene or "")
-    j_gene = allele_to_major(clonotype.j_gene or "")
-
-    if match_mode == "v":
-        return float(probs["v"].get(v_gene, 0.0)) + epsilon
-    if match_mode == "j":
-        return float(probs["j"].get(j_gene, 0.0)) + epsilon
-    return float(probs["vj"].get((v_gene, j_gene), 0.0)) + epsilon
 
 
 def alice_table(
@@ -315,10 +255,6 @@ def compute_alice(
     match_mode: str = "none",
     pgen_mode: PgenMode = "exact",
     metric: t.Literal["hamming"] = "hamming",
-    gene_usage_synthetic_n: int = 1_000_000,
-    gene_usage_epsilon: float = 1e-6,
-    control_manager: ControlManager | None = None,
-    control_kwargs: dict | None = None,
     random_seed: int | None = None,
     metadata_prefix: str = "alice",
     as_table: bool = True,
@@ -328,9 +264,13 @@ def compute_alice(
 ) -> AliceResult | LocusRepertoire | SampleRepertoire:
     """Compute ALICE enrichment, write clonotype metadata, and optionally return a table.
 
-    Execution order per locus is two-phase to reduce thread contention:
+    Execution order per locus is two-phase:
     1. Compute neighborhood stats (trie search) with ``n_jobs``.
     2. Compute OLGA Pgen values with ``n_jobs``.
+
+    Raw OLGA Pgen is used directly; ``match_mode`` controls which sequences
+    are eligible neighbors (same V, same J, or both) but does not trigger
+    any synthetic-control gene-usage conditioning.
     """
     norm_match_mode = normalize_match_mode(match_mode)
     params = AliceParams(
@@ -349,17 +289,6 @@ def compute_alice(
     query_loci = iter_loci(repertoire)
 
     for locus, qrep in query_loci.items():
-        probs = None
-        if norm_match_mode != "none":
-            probs = get_olga_gene_usage_probabilities(
-                species=species,
-                locus=locus,
-                synthetic_n=gene_usage_synthetic_n,
-                n_jobs=n_jobs,
-                control_manager=control_manager,
-                control_kwargs=control_kwargs,
-            )
-
         # Run phases sequentially to avoid trie-search and Pgen thread contention.
         self_stats = compute_neighborhood_stats_by_locus(
             qrep,
@@ -388,16 +317,7 @@ def compute_alice(
                 for start in range(0, len(qrep.clonotypes), batch_size)
             ]
             batch_args = [
-                (
-                    batch,
-                    locus_stats,
-                    pgen_raw_by_aa,
-                    norm_match_mode,
-                    probs,
-                    gene_usage_epsilon,
-                    pvalue_mode,
-                    pseudocount,
-                )
+                (batch, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount)
                 for batch in batches
             ]
             executor_mode = os.getenv("MIRPY_ALICE_PVALUE_EXECUTOR", "process").strip().lower()
@@ -409,11 +329,7 @@ def compute_alice(
                     metric_chunks = list(executor.map(_compute_alice_metrics_batch_from_args, batch_args))
 
             for batch, metrics in zip(batches, metric_chunks):
-                    _apply_alice_metrics_batch(
-                        batch,
-                        metrics,
-                        metadata_prefix=metadata_prefix,
-                    )
+                _apply_alice_metrics_batch(batch, metrics, metadata_prefix=metadata_prefix)
         else:
             _apply_alice_metrics_batch(
                 qrep.clonotypes,
@@ -421,9 +337,6 @@ def compute_alice(
                     qrep.clonotypes,
                     locus_stats=locus_stats,
                     pgen_raw_by_aa=pgen_raw_by_aa,
-                    match_mode=norm_match_mode,
-                    probs=probs,
-                    gene_usage_epsilon=gene_usage_epsilon,
                     pvalue_mode=pvalue_mode,
                     pseudocount=pseudocount,
                 ),
@@ -446,10 +359,6 @@ def add_alice_metadata(
     pvalue_mode: AlicePValueMode = "poisson",
     pseudocount: float = 0.0,
     metric: t.Literal["hamming"] = "hamming",
-    gene_usage_synthetic_n: int = 1_000_000,
-    gene_usage_epsilon: float = 1e-6,
-    control_manager: ControlManager | None = None,
-    control_kwargs: dict | None = None,
     random_seed: int | None = None,
     metadata_prefix: str = "alice",
     n_jobs: int = 4,
@@ -465,10 +374,6 @@ def add_alice_metadata(
             pvalue_mode=pvalue_mode,
             pseudocount=pseudocount,
             metric=metric,
-            gene_usage_synthetic_n=gene_usage_synthetic_n,
-            gene_usage_epsilon=gene_usage_epsilon,
-            control_manager=control_manager,
-            control_kwargs=control_kwargs,
             random_seed=random_seed,
             metadata_prefix=metadata_prefix,
             as_table=False,

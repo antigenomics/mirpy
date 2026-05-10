@@ -186,6 +186,79 @@ def precompute_olga_gene_usage_probabilities(
     return probs
 
 
+def get_gene_usage_from_olga_model(
+    model,
+) -> dict[str, dict[object, float]]:
+    """Return V/J/VJ usage probabilities read directly from OLGA model marginals.
+
+    This is an analytical alternative to :func:`precompute_olga_gene_usage_probabilities`:
+    instead of generating millions of synthetic sequences, it reads the IGoR
+    probability parameters from the loaded model.  The result is instantaneous,
+    deterministic, and matches the asymptotic limit of the sampling approach.
+
+    Probabilities are aggregated at the major gene level (allele suffixes
+    stripped), e.g. ``"TRBV5-1*01"`` and ``"TRBV5-1*02"`` are summed under
+    ``"TRBV5-1"``.
+
+    Args:
+        model: A loaded :class:`~mir.basic.pgen.OlgaModel` instance.
+
+    Returns:
+        Dict with keys ``"v"``, ``"j"``, ``"vj"`` mapping to probability dicts.
+        ``"vj"`` keys are ``(v_gene, j_gene)`` tuples.
+
+    Example:
+        >>> from mir.basic.pgen import OlgaModel
+        >>> from mir.basic.gene_usage import get_gene_usage_from_olga_model
+        >>> m = OlgaModel(locus="TRB", species="human")
+        >>> gu = get_gene_usage_from_olga_model(m)
+        >>> round(sum(gu["v"].values()), 6)
+        1.0
+    """
+    from collections import defaultdict
+
+    import numpy as np
+
+    from mir.common.alleles import allele_to_major
+
+    gm = model.gen_model
+    v_alleles: list[str] = model.v_names
+    j_alleles: list[str] = model.j_names
+
+    if model.is_d_present:
+        # VDJ model: P(V) × P(D,J) are independent; P(J) = sum_D P(D,J)
+        pv_allele = np.asarray(gm.PV, dtype=float)
+        pj_allele = np.asarray(gm.PDJ, dtype=float).sum(axis=0)
+        pvj_allele = pv_allele[:, None] * pj_allele[None, :]
+    else:
+        # VJ model: P(V,J) stored directly as 2-D array
+        pvj_allele = np.asarray(gm.PVJ, dtype=float)
+        pv_allele = pvj_allele.sum(axis=1)
+        pj_allele = pvj_allele.sum(axis=0)
+
+    v_genes = [allele_to_major(a) for a in v_alleles]
+    j_genes = [allele_to_major(a) for a in j_alleles]
+
+    p_v: dict[str, float] = defaultdict(float)
+    for v, p in zip(v_genes, pv_allele):
+        p_v[v] += float(p)
+
+    p_j: dict[str, float] = defaultdict(float)
+    for j, p in zip(j_genes, pj_allele):
+        p_j[j] += float(p)
+
+    p_vj: dict[tuple, float] = defaultdict(float)
+    for vi, v in enumerate(v_genes):
+        for ji, j in enumerate(j_genes):
+            p_vj[(v, j)] += float(pvj_allele[vi, ji])
+
+    return {
+        "v": dict(p_v),
+        "j": dict(p_j),
+        "vj": dict(p_vj),
+    }
+
+
 class GeneUsage:
     """Joint and marginal V-J gene usage statistics.
 
