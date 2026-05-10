@@ -38,6 +38,8 @@ tcrtrie>=0.1.2
 tqdm==4.66.2
 
 # ── Dev / tooling ─────────────────────────────────────────────────────────────
+# Documentation-specific packages live in docs/requirements.txt.
 pytest>=8
 pylint
 huggingface_hub
+psutil>=5

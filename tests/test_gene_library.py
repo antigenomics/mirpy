@@ -1,6 +1,5 @@
 """Tests for mir.common.gene_library (GeneEntry / GeneLibrary)."""
 
-import tempfile
 import unittest
 from pathlib import Path
 

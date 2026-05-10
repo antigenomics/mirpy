@@ -28,11 +28,8 @@ import time
 import unittest
 from pathlib import Path
 
-import pytest
-
 from tests.conftest import skip_benchmarks
 from mir.basic.token_tables import (
-    Kmer,
     filter_token_table,
     tokenize_rearrangements,
 )
@@ -396,7 +393,7 @@ def _load_gilg():
 
 
 @unittest.skipUnless(GILG_FILE.exists(),
-                     "VDJdb asset missing — run tests/assets/fetch_vdjdb_gilgfvftl.sh")
+                     "VDJdb asset missing — run python tests/prepare_airr_benchmark_data.py")
 @skip_benchmarks
 class TestTokenGraphBenchmark(unittest.TestCase):
 

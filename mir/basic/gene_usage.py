@@ -20,6 +20,8 @@ used for frequency comparison.
 from __future__ import annotations
 
 from collections import defaultdict
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -111,6 +113,150 @@ def _safe_group_renormalize(
 def _strip_allele(gene: str) -> str:
     """Strip allele suffix: ``"TRBV1*01"`` → ``"TRBV1"``."""
     return gene.split("*")[0] if gene else ""
+
+
+def precompute_olga_gene_usage_probabilities(
+    *,
+    species: str,
+    locus: str,
+    synthetic_n: int = 10_000_000,
+    n_jobs: int | None = None,
+    seed: int = 42,
+    overwrite: bool = False,
+    progress: bool = True,
+    control_dir: str | Path | None = None,
+    control_manager=None,
+    control_kwargs: dict | None = None,
+    cache_in_memory: bool = True,
+) -> dict[str, dict[object, float]]:
+    """Precompute and persist OLGA V/J/VJ usage probabilities for one model.
+
+    This helper ensures a synthetic OLGA control exists on disk for the
+    requested ``(species, locus, synthetic_n)`` and returns marginal and joint
+    usage probabilities derived from that control. Generation can be parallelized
+    via ``n_jobs``.
+
+    Args:
+        species: Species alias accepted by :class:`~mir.common.control.ControlManager`.
+        locus: IMGT locus code (for example, ``"TRB"``).
+        synthetic_n: Number of synthetic clonotypes used to estimate usage.
+        n_jobs: Number of worker processes for synthetic generation.
+            When ``None``, uses all available CPUs.
+        seed: Random seed used when creating synthetic controls.
+        overwrite: Regenerate control even if a cached artifact exists.
+        progress: Whether to print progress during control generation.
+        control_dir: Optional control cache root. Defaults to manager default.
+        control_manager: Optional preconfigured :class:`~mir.common.control.ControlManager`.
+        control_kwargs: Extra kwargs forwarded to
+            ``ControlManager.ensure_and_load_control_df``.
+        cache_in_memory: Whether to populate in-process OLGA usage cache.
+
+    Returns:
+        Dict with keys ``"v"``, ``"j"``, ``"vj"`` containing probability maps.
+    """
+    from mir.basic.pgen import (
+        _GENE_USAGE_PROB_CACHE,
+        compute_gene_usage_probabilities_from_control_df,
+    )
+    from mir.common.control import ControlManager
+
+    species_key = str(species).lower().strip()
+    cache_key = (species_key, str(locus), int(synthetic_n))
+    if cache_in_memory and not overwrite and cache_key in _GENE_USAGE_PROB_CACHE:
+        return _GENE_USAGE_PROB_CACHE[cache_key]
+
+    manager = control_manager or ControlManager(control_dir=control_dir)
+    kwargs = dict(control_kwargs or {})
+    resolved_n_jobs = int(n_jobs) if n_jobs is not None else int(os.cpu_count() or 1)
+    kwargs.setdefault("n", int(synthetic_n))
+    kwargs.setdefault("n_jobs", max(1, resolved_n_jobs))
+    kwargs.setdefault("seed", int(seed))
+    kwargs.setdefault("overwrite", bool(overwrite))
+    kwargs.setdefault("progress", bool(progress))
+
+    control_df = manager.ensure_and_load_control_df(
+        "synthetic",
+        species,
+        locus,
+        **kwargs,
+    )
+    probs = compute_gene_usage_probabilities_from_control_df(control_df)
+    if cache_in_memory:
+        _GENE_USAGE_PROB_CACHE[cache_key] = probs
+    return probs
+
+
+def get_gene_usage_from_olga_model(
+    model,
+) -> dict[str, dict[object, float]]:
+    """Return V/J/VJ usage probabilities read directly from OLGA model marginals.
+
+    This is an analytical alternative to :func:`precompute_olga_gene_usage_probabilities`:
+    instead of generating millions of synthetic sequences, it reads the IGoR
+    probability parameters from the loaded model.  The result is instantaneous,
+    deterministic, and matches the asymptotic limit of the sampling approach.
+
+    Probabilities are aggregated at the major gene level (allele suffixes
+    stripped), e.g. ``"TRBV5-1*01"`` and ``"TRBV5-1*02"`` are summed under
+    ``"TRBV5-1"``.
+
+    Args:
+        model: A loaded :class:`~mir.basic.pgen.OlgaModel` instance.
+
+    Returns:
+        Dict with keys ``"v"``, ``"j"``, ``"vj"`` mapping to probability dicts.
+        ``"vj"`` keys are ``(v_gene, j_gene)`` tuples.
+
+    Example:
+        >>> from mir.basic.pgen import OlgaModel
+        >>> from mir.basic.gene_usage import get_gene_usage_from_olga_model
+        >>> m = OlgaModel(locus="TRB", species="human")
+        >>> gu = get_gene_usage_from_olga_model(m)
+        >>> round(sum(gu["v"].values()), 6)
+        1.0
+    """
+    from collections import defaultdict
+
+    import numpy as np
+
+    from mir.common.alleles import allele_to_major
+
+    gm = model.gen_model
+    v_alleles: list[str] = model.v_names
+    j_alleles: list[str] = model.j_names
+
+    if model.is_d_present:
+        # VDJ model: P(V) × P(D,J) are independent; P(J) = sum_D P(D,J)
+        pv_allele = np.asarray(gm.PV, dtype=float)
+        pj_allele = np.asarray(gm.PDJ, dtype=float).sum(axis=0)
+        pvj_allele = pv_allele[:, None] * pj_allele[None, :]
+    else:
+        # VJ model: P(V,J) stored directly as 2-D array
+        pvj_allele = np.asarray(gm.PVJ, dtype=float)
+        pv_allele = pvj_allele.sum(axis=1)
+        pj_allele = pvj_allele.sum(axis=0)
+
+    v_genes = [allele_to_major(a) for a in v_alleles]
+    j_genes = [allele_to_major(a) for a in j_alleles]
+
+    p_v: dict[str, float] = defaultdict(float)
+    for v, p in zip(v_genes, pv_allele):
+        p_v[v] += float(p)
+
+    p_j: dict[str, float] = defaultdict(float)
+    for j, p in zip(j_genes, pj_allele):
+        p_j[j] += float(p)
+
+    p_vj: dict[tuple, float] = defaultdict(float)
+    for vi, v in enumerate(v_genes):
+        for ji, j in enumerate(j_genes):
+            p_vj[(v, j)] += float(pvj_allele[vi, ji])
+
+    return {
+        "v": dict(p_v),
+        "j": dict(p_j),
+        "vj": dict(p_vj),
+    }
 
 
 class GeneUsage:
@@ -231,6 +377,77 @@ class GeneUsage:
                     obj._add_locus_repertoire(locus_rep, locus=loc)
             else:
                 obj._add_locus_repertoire(rep)
+        return obj
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        table: pd.DataFrame,
+        *,
+        locus: str,
+        v_col: str = "v_gene",
+        j_col: str = "j_gene",
+        duplicate_count_col: str = "duplicate_count",
+        strip_alleles: bool = True,
+    ) -> "GeneUsage":
+        """Build from a DataFrame with V/J columns.
+
+        Parameters
+        ----------
+        table
+            Input table containing V/J gene fields and optionally duplicate counts.
+        locus
+            IMGT locus code to assign to all rows.
+        v_col, j_col
+            Column names for V/J genes.
+        duplicate_count_col
+            Column name for duplicate count. If absent, duplicates default to 1.
+        strip_alleles
+            Whether to strip allele suffixes (default ``True``).
+        """
+        if v_col not in table.columns or j_col not in table.columns:
+            raise ValueError(
+                f"DataFrame must contain columns {v_col!r} and {j_col!r}"
+            )
+
+        obj = cls(strip_alleles=strip_alleles)
+        locus_data = obj._data.setdefault(locus, {})
+        locus_totals = obj._totals.setdefault(locus, [0, 0])
+
+        work = table[[v_col, j_col]].copy()
+        if duplicate_count_col in table.columns:
+            work[duplicate_count_col] = pd.to_numeric(
+                table[duplicate_count_col],
+                errors="coerce",
+            ).fillna(1).astype(int)
+        else:
+            work[duplicate_count_col] = 1
+
+        work[v_col] = work[v_col].fillna("").astype(str)
+        work[j_col] = work[j_col].fillna("").astype(str)
+        work = work[(work[v_col] != "") & (work[j_col] != "")]
+        if work.empty:
+            return obj
+
+        grouped = (
+            work.groupby([v_col, j_col], sort=False, dropna=False)
+            .agg(
+                n_clones=(v_col, "size"),
+                n_dc=(duplicate_count_col, "sum"),
+            )
+            .reset_index()
+        )
+
+        for row in grouped.itertuples(index=False):
+            v = obj._normalize_gene(getattr(row, v_col) or "")
+            j = obj._normalize_gene(getattr(row, j_col) or "")
+            n_clones = int(getattr(row, "n_clones"))
+            n_dc = int(getattr(row, "n_dc"))
+            entry = locus_data.setdefault((v, j), [0, 0])
+            entry[0] += n_clones
+            entry[1] += n_dc
+            locus_totals[0] += n_clones
+            locus_totals[1] += n_dc
         return obj
 
     def _add_locus_repertoire(self, repertoire, *, locus: str = "") -> None:

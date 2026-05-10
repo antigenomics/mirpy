@@ -38,6 +38,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install ".[dev]"
 
+      - name: Cache test benchmark data
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/airr_benchmark
+          key: airr-benchmark-${{ hashFiles('tests/prepare_airr_benchmark_data.py') }}
+          restore-keys: |
+            airr-benchmark-
+
       - name: Copy tests to temp directory
         run: >-
           python -c "import pathlib, shutil;
@@ -75,6 +83,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ".[dev]"
+
+      - name: Cache test benchmark data
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/airr_benchmark
+          key: airr-benchmark-${{ hashFiles('tests/prepare_airr_benchmark_data.py') }}
+          restore-keys: |
+            airr-benchmark-
 
       - name: Copy tests to temp directory
         run: >-

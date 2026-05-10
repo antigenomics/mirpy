@@ -17,8 +17,6 @@ from mir.basic import mirseq
 from mir.distances import seqdist_c
 from mir.basic.alphabets import (
     AA_MASK,
-    AA_TO_REDUCED_TABLE,
-    _to_bytes,
     aa_to_reduced as py_aa_to_reduced,
 )
 
