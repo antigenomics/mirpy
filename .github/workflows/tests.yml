@@ -38,6 +38,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install ".[dev]"
 
+      - name: Cache HuggingFace test datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-airr-benchmark-${{ hashFiles('tests/prepare_airr_benchmark_data.py') }}
+          restore-keys: |
+            hf-airr-benchmark-
+
       - name: Copy tests to temp directory
         run: >-
           python -c "import pathlib, shutil;
@@ -75,6 +83,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ".[dev]"
+
+      - name: Cache HuggingFace test datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-airr-benchmark-${{ hashFiles('tests/prepare_airr_benchmark_data.py') }}
+          restore-keys: |
+            hf-airr-benchmark-
 
       - name: Copy tests to temp directory
         run: >-

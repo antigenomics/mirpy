@@ -128,7 +128,7 @@ class TestTimeSeriesRepertoires(unittest.TestCase):
         cls.repertoires = []
         for _, row in meta.iterrows():
             # paths in metadata are ../samples/; files live in assets/real_repertoires/
-            fname = Path(row['file.name']).name
+            fname = Path(row['file_name']).name
             path = REAL_DIR / fname
             df = read_timeseries_df(path)
             rep = build_repertoire(df, dict(row), parser)
