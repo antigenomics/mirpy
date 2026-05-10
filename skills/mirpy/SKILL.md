@@ -188,8 +188,26 @@ Operational notes:
 - Override with `MIRPY_CONTROL_DIR` for shared or scratch storage.
 - Synthetic caches are keyed by species, locus, and `n`.
 
-To precompute and cache OLGA-derived V/J/VJ probabilities for a single
-species+locus model (optionally in parallel), use
+To get V/J/VJ usage probabilities analytically from an already-loaded OLGA
+model (instant, no sampling), use `get_gene_usage_from_olga_model`:
+
+```python
+from mir.basic.pgen import OlgaModel
+from mir.basic.gene_usage import get_gene_usage_from_olga_model
+
+m = OlgaModel(locus="TRB", species="human")
+probs = get_gene_usage_from_olga_model(m)
+# probs["v"]  — {gene_name: P(V)}  (aggregated at gene level, alleles as *01)
+# probs["j"]  — {gene_name: P(J)}
+# probs["vj"] — {(v_gene, j_gene): P(V,J)}
+```
+
+Reads IGoR model marginals directly: `PV`/`PDJ` for VDJ models (TRB/TRD/IGH),
+`PVJ` for VJ models (TRA/TRG/IGK/IGL).  Probabilities are aggregated under
+the major-allele key (e.g., all `TRBV5-1*02` mass folds into `TRBV5-1*01`).
+
+To precompute and cache OLGA-derived V/J/VJ probabilities via synthetic
+sampling (larger but sampling-based), use
 `precompute_olga_gene_usage_probabilities`:
 
 ```python
@@ -255,12 +273,10 @@ rep = add_alice_metadata(
 Key behavior notes:
 
 - ALICE computes neighborhood stats first, then OLGA Pgen values, then BH FDR; heavy parallel sections use multiprocess workers by default for true multi-core scaling.
-- Pgen bulk computation defaults to process workers (`MIRPY_OLGA_BULK_EXECUTOR=process`) and supports thread override for debugging (`thread`).
-- P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`) with optional thread mode override.
-- V/J gene usage conditioning (`match_mode != "none"`) divides raw Pgen by OLGA gene usage probability from a synthetic control (cached per locus/species/n).
+- Raw OLGA Pgen is used directly as the generation probability — no V/J gene-usage conditioning. `match_mode` restricts which sequences count as neighbors but does not modify Pgen.
+- P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`) with optional thread mode override via env var.
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
-- The 10k ALICE benchmark test includes an explicit speedup assertion (`MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP`, default 5.0x).
 
 ## 9.1 TCRNET Enrichment
 
@@ -400,12 +416,14 @@ analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
 
-`OlgaModel` caching notes:
+`OlgaModel` performance notes:
 
-- Each `OlgaModel(locus, species, seed)` instance caches per-sequence Pgen in a bounded dict (cap 2M entries). Warm cache is ~80,000× faster than cold.
-- `compute_pgen_junction_aa_bulk(seqs, max_mismatches=0)` uses process workers by default for true multicore scaling; set `MIRPY_OLGA_BULK_EXECUTOR=thread` for compatibility/debugging.
-- `compute_pgen_junction_aa_1mm(seq)` uses OLGA's vectorized 1-mismatch path (`compute_hamming_dist_1_pgen`), much faster than enumerating neighbors.
+- No per-sequence Pgen caching. Performance comes from a **persistent `multiprocessing.Pool`** that loads the OLGA model once per worker; the pool is reused across all `compute_pgen_junction_aa_bulk` calls on the same `OlgaModel` instance.
+- `compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=N)` spawns `N` workers at first call; subsequent calls reuse the same pool (zero spawn overhead for repeated calls on 12+ ALICE samples).
+- `compute_pgen_junction_aa_1mm(seq)` uses OLGA's vectorized 1-mismatch path (`compute_hamming_dist_1_pgen`); 1mm pgen is ~18× slower per sequence than exact — use downsampling for large repertoires.
+- `OlgaModel.gen_model` exposes the underlying `GenerativeModelVDJ/VJ` for direct access to model marginals (`PV`, `PDJ`, `PVJ`).
 - For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
+- Typical throughput (single-core exact): ~135 seqs/s for TRB; 1mm: ~8 seqs/s. True scaling with `n_jobs=8`: ~900 seqs/s exact.
 
 ## 10.1 VDJBet YF Shortcuts (new reusable workflow API)
 
