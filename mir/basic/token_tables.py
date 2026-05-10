@@ -6,7 +6,7 @@ summary statistics, and filtered views of token tables.
 
 Functions
 ---------
-* ``tokenize_rearrangements`` — ``dict[Kmer, list[KmerMatch]]`` with
+* ``tokenize_clonotypes`` — ``dict[Kmer, list[KmerMatch]]`` with
   position tracking.
 * ``filter_token_table``      — filter by regex pattern and/or minimum
   rearrangement count; both criteria may be combined.
@@ -22,12 +22,14 @@ No runtime type checks — relies on static typing.
 from __future__ import annotations
 
 import re
+import warnings
+from itertools import islice
 from typing import NamedTuple
 
-from mir.basic.alphabets import Seq, _to_bytes
-from mir.basic.mirseq import (
-    tokenize_bytes as _c_tokenize_bytes,
-    tokenize_gapped_bytes as _c_tokenize_gapped_bytes,
+from mir.basic.alphabets import _to_bytes
+from mir.basic.tokens import (
+    tokenize_with_positions,
+    tokenize_gapped_with_positions,
 )
 from mir.common.clonotype import Clonotype
 
@@ -35,12 +37,6 @@ from mir.common.clonotype import Clonotype
 # ---------------------------------------------------------------------------
 # Types
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
 class Kmer(NamedTuple):
     """Annotated k-mer: sequence plus the gene context it was drawn from.
 
@@ -95,8 +91,7 @@ def _plain_kmers(raw: bytes, k: int) -> list[tuple[bytes, int]]:
 
     Delegates to the C extension for the k-mer extraction.
     """
-    kmers = _c_tokenize_bytes(raw, k)
-    return [(kmer, i) for i, kmer in enumerate(kmers)]
+    return list(tokenize_with_positions(raw, k))
 
 
 def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]:
@@ -104,46 +99,38 @@ def _gapped_kmers(raw: bytes, k: int, mask_byte: int) -> list[tuple[bytes, int]]
 
     Delegates to the C extension for the gapped k-mer extraction.
     """
-    gapped = _c_tokenize_gapped_bytes(raw, k, mask_byte)
-    n_windows = len(raw) - k + 1
-    result: list[tuple[bytes, int]] = []
-    idx = 0
-    for i in range(n_windows):
-        for _ in range(k):
-            result.append((gapped[idx], i))
-            idx += 1
-    return result
+    return list(tokenize_gapped_with_positions(raw, k, mask_byte))
 
 
 # ---------------------------------------------------------------------------
 # Indexing
 # ---------------------------------------------------------------------------
 
-def tokenize_rearrangements(
-    rearrangements: list[Clonotype],
+def tokenize_clonotypes(
+    clonotypes: list[Clonotype],
     k: int,
     mask_byte: int | None = None,
 ) -> dict[Kmer, list[KmerMatch]]:
     """Build an inverted index from annotated k-mers to their source
-    rearrangements, tracking the position each k-mer was extracted from.
+    clonotypes, tracking the position each token was extracted from.
 
     When *mask_byte* is given, gapped k-mers are produced instead (each
     position masked once per window, as in :func:`tokens.tokenize_gapped`).
 
     Args:
-        rearrangements: Input rearrangements.
+        clonotypes: Input clonotypes.
         k: K-mer length.
         mask_byte: If not ``None``, replacement byte for gapped k-mers
             (e.g. ``ord('X')``).  ``None`` (default) produces plain k-mers.
 
     Returns:
         Dict mapping each :class:`Kmer` to a list of :class:`KmerMatch`
-        (rearrangement, position) pairs.
+        (clonotype, position) pairs.
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
     index: dict[Kmer, list[KmerMatch]] = {}
-    for r in rearrangements:
+    for r in clonotypes:
         raw = _to_bytes(r.junction_aa)
         if k > len(raw):
             continue
@@ -160,6 +147,20 @@ def tokenize_rearrangements(
             else:
                 lst.append(match)
     return index
+
+
+def tokenize_rearrangements(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+) -> dict[Kmer, list[KmerMatch]]:
+    """Deprecated alias for :func:`tokenize_clonotypes`."""
+    warnings.warn(
+        "tokenize_rearrangements is deprecated; use tokenize_clonotypes.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return tokenize_clonotypes(rearrangements, k=k, mask_byte=mask_byte)
 
 
 def summarize_rearrangements(
@@ -186,7 +187,7 @@ def summarize_rearrangements(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    ids: dict[Kmer, set[int]] = {}
+    counts: dict[Kmer, int] = {}
     dups: dict[Kmer, int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -195,19 +196,16 @@ def summarize_rearrangements(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
-        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
+        seen: set[Kmer] = set()
         for s, _pos in pairs:
             key = Kmer(locus, v_gene, c_gene, s)
-            id_set = ids.get(key)
-            if id_set is None:
-                ids[key] = {rid}
-                dups[key] = dc
-            elif rid not in id_set:
-                id_set.add(rid)
-                dups[key] += dc
-    return {k: KmerStats(len(ids[k]), dups[k]) for k in ids}
+            seen.add(key)
+        for key in seen:
+            counts[key] = counts.get(key, 0) + 1
+            dups[key] = dups.get(key, 0) + dc
+    return {kmer: KmerStats(counts[kmer], dups[kmer]) for kmer in counts}
 
 
 def summarize_annotations(
@@ -234,7 +232,7 @@ def summarize_annotations(
     """
     _kmers = _gapped_kmers if mask_byte is not None else _plain_kmers
     _mb = mask_byte
-    ids: dict[tuple[KmerSeq, KmerAnnotation], set[int]] = {}
+    counts: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
     dups: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
     for r in rearrangements:
         raw = _to_bytes(r.junction_aa)
@@ -243,28 +241,94 @@ def summarize_annotations(
         locus = r.locus
         v_gene = r.v_gene
         c_gene = r.c_gene
-        rid = r.id
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
+        seen: set[tuple[KmerSeq, KmerAnnotation]] = set()
         for s, pos in pairs:
             ks = KmerSeq(locus, s)
             ka = KmerAnnotation(v_gene, c_gene, pos)
             flat_key = (ks, ka)
-            id_set = ids.get(flat_key)
-            if id_set is None:
-                ids[flat_key] = {rid}
-                dups[flat_key] = dc
-            elif rid not in id_set:
-                id_set.add(rid)
-                dups[flat_key] += dc
+            seen.add(flat_key)
+        for flat_key in seen:
+            counts[flat_key] = counts.get(flat_key, 0) + 1
+            dups[flat_key] = dups.get(flat_key, 0) + dc
     # Pivot into nested dict
     result: dict[KmerSeq, dict[KmerAnnotation, KmerStats]] = {}
-    for (ks, ka), id_set in ids.items():
+    for (ks, ka), rc in counts.items():
         inner = result.get(ks)
         if inner is None:
             inner = {}
             result[ks] = inner
-        inner[ka] = KmerStats(len(id_set), dups[(ks, ka)])
+        inner[ka] = KmerStats(rc, dups[(ks, ka)])
+    return result
+
+
+def summarize_rearrangements_chunked(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+    *,
+    chunk_size: int = 100_000,
+) -> dict[Kmer, KmerStats]:
+    """Chunked variant of :func:`summarize_rearrangements`.
+
+    Useful for very large repertoires when the input can be iterated in
+    batches. Produces the same output as the non-chunked function.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+
+    counts: dict[Kmer, int] = {}
+    dups: dict[Kmer, int] = {}
+    it = iter(rearrangements)
+    while True:
+        chunk = list(islice(it, chunk_size))
+        if not chunk:
+            break
+        part = summarize_rearrangements(chunk, k=k, mask_byte=mask_byte)
+        for key, stats in part.items():
+            counts[key] = counts.get(key, 0) + stats.rearrangement_count
+            dups[key] = dups.get(key, 0) + stats.duplicate_count
+
+    return {kmer: KmerStats(counts[kmer], dups[kmer]) for kmer in counts}
+
+
+def summarize_annotations_chunked(
+    rearrangements: list[Clonotype],
+    k: int,
+    mask_byte: int | None = None,
+    *,
+    chunk_size: int = 100_000,
+) -> dict[KmerSeq, dict[KmerAnnotation, KmerStats]]:
+    """Chunked variant of :func:`summarize_annotations`.
+
+    Useful for very large repertoires when the input can be iterated in
+    batches. Produces the same output as the non-chunked function.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+
+    counts: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
+    dups: dict[tuple[KmerSeq, KmerAnnotation], int] = {}
+    it = iter(rearrangements)
+    while True:
+        chunk = list(islice(it, chunk_size))
+        if not chunk:
+            break
+        part = summarize_annotations(chunk, k=k, mask_byte=mask_byte)
+        for ks, inner in part.items():
+            for ka, stats in inner.items():
+                flat = (ks, ka)
+                counts[flat] = counts.get(flat, 0) + stats.rearrangement_count
+                dups[flat] = dups.get(flat, 0) + stats.duplicate_count
+
+    result: dict[KmerSeq, dict[KmerAnnotation, KmerStats]] = {}
+    for (ks, ka), rc in counts.items():
+        inner = result.get(ks)
+        if inner is None:
+            inner = {}
+            result[ks] = inner
+        inner[ka] = KmerStats(rc, dups[(ks, ka)])
     return result
 
 
@@ -279,7 +343,7 @@ def filter_token_table(
     to be retained.
 
     Args:
-        table: Output of :func:`tokenize_rearrangements`.
+        table: Output of :func:`tokenize_clonotypes`.
         kmer_pattern: Regular expression matched against each k-mer sequence
             decoded as ASCII.  Only k-mers whose sequence matches are kept.
             ``None`` (default) skips pattern filtering.
@@ -304,4 +368,67 @@ def filter_token_table(
             if n_distinct < min_rearrangement_count:
                 continue
         result[kmer] = matches
+    return result
+
+
+def compute_token_tables_batch(
+    rearrangements: list[Clonotype],
+    families: list[str] | None = None,
+) -> dict[str, dict[Kmer, list[KmerMatch]]]:
+    """Compute token tables for multiple k-mer families at once.
+    
+    This is a convenience function for batch extraction of all requested
+    token families from a single set of rearrangements, avoiding redundant
+    processing of the input data.
+    
+    Parameters
+    ----------
+    rearrangements : list[Clonotype]
+        Input rearrangements.
+    families : list[str] | None
+        Token families to compute. Supported values: 'v3', 'pos3', 'u3',
+        'u4', 'g4', 'g5'. If None, all six families are computed.
+    
+    Returns
+    -------
+    dict[str, dict[Kmer, list[KmerMatch]]]
+        Dictionary mapping family name to its token table.
+    
+    Notes
+    -----
+    Each family uses different k-mer parameters:
+    - 'v3': plain 3-mers
+    - 'pos3': plain 3-mers (position-annotated in token_graph)
+    - 'u3': ungapped 3-mers
+    - 'u4': ungapped 4-mers
+    - 'g4': gapped 4-mers (mask_byte=ord('X'))
+    - 'g5': gapped 5-mers (mask_byte=ord('X'))
+    """
+    if families is None:
+        families = ['v3', 'pos3', 'u3', 'u4', 'g4', 'g5']
+
+    normalized_families: list[str] = []
+    for family in families:
+        fam = 'pos3' if family == 'vpos3' else family
+        if fam not in {'v3', 'pos3', 'u3', 'u4', 'g4', 'g5'}:
+            raise ValueError(f"Unknown token family: {family}")
+        normalized_families.append(fam)
+
+    result: dict[str, dict[Kmer, list[KmerMatch]]] = {}
+
+    # Reuse the same plain 3-mer tokenization across v3/pos3/u3.
+    plain3: dict[Kmer, list[KmerMatch]] | None = None
+    if any(fam in {'v3', 'pos3', 'u3'} for fam in normalized_families):
+        plain3 = tokenize_clonotypes(rearrangements, k=3, mask_byte=None)
+
+    for family in normalized_families:
+        if family in {'v3', 'pos3', 'u3'}:
+            result[family] = plain3 if plain3 is not None else {}
+        elif family == 'u4':
+            result[family] = tokenize_clonotypes(rearrangements, k=4, mask_byte=None)
+        elif family == 'g4':
+            result[family] = tokenize_clonotypes(rearrangements, k=4, mask_byte=ord('X'))
+        elif family == 'g5':
+            result[family] = tokenize_clonotypes(rearrangements, k=5, mask_byte=ord('X'))
+
     return result

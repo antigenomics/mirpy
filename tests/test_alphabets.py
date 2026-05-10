@@ -9,7 +9,6 @@ Run with ``python -m pytest tests/test_alphabets.py -v``.
 import unittest
 
 from mir.basic.alphabets import (
-    Seq,
     _to_bytes,
     make_alphabet,
     NT_ALPHABET,
@@ -18,9 +17,7 @@ from mir.basic.alphabets import (
     NT_CHARS,
     AA_CHARS,
     REDUCED_AA_CHARS,
-    NT_MASK,
     AA_MASK,
-    REDUCED_AA_MASK,
     AA_TO_REDUCED,
     AA_TO_REDUCED_TABLE,
     _AA_TO_REDUCED_LUT,

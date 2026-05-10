@@ -2,8 +2,9 @@
 
 Wraps the OLGA library to provide:
 
-- Pgen computation (exact, amino-acid, and 1-mismatch) with an in-process
-  LRU cache to speed up repeated queries across mock-generation iterations.
+- Pgen computation (exact and 1-mismatch) with true multicore scaling via a
+  persistent process pool whose workers load the OLGA model once and handle
+  all subsequent batches without re-initialisation overhead.
 - Productive CDR3 sequence generation with full VDJ annotation.
 - Parallel pool generation via :meth:`OlgaModel.generate_pool` — the
   recommended entry-point for VDJbet analysis.  Each record stores
@@ -13,47 +14,42 @@ Wraps the OLGA library to provide:
 
 Parallel strategy
 -----------------
-Each worker process rebuilds a fresh :class:`OlgaModel` (OLGA models are not
-picklable) and seeds NumPy independently.  Pgen is computed inside the worker
-to avoid an IPC round-trip.  For n = 1 000 000 sequences on 8 cores this
-reduces wall-clock time from ~10 min (single-process) to ~80 s.
+``compute_pgen_junction_aa_bulk`` uses a ``multiprocessing.Pool`` whose workers
+are initialised once with the OLGA model via a pool initializer.  For repeated
+calls (e.g. across multiple ALICE samples), the pool is reused so the model is
+loaded only once per worker per :class:`OlgaModel` lifetime.  Sequence
+generation workers still rebuild a fresh model because the sequence-generation
+model is not needed in Pgen workers.
 """
 
 from __future__ import annotations
 
+import multiprocessing
+import os
+from math import ceil
 import math
-from multiprocessing import Pool
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
+
+# Use "spawn" on every platform to avoid fork-safety issues (urllib3/requests
+# connection-pool threads from huggingface_hub can leave locked mutexes in the
+# parent that get inherited by forked children, causing indefinite hangs).
+_MP_CTX = multiprocessing.get_context("spawn")
+Pool = _MP_CTX.Pool
 
 import numpy as np
 import olga.generation_probability as pgen
 import olga.load_model as load_model
 import olga.sequence_generation as seq_gen
+import pandas as pd
 
 from mir import get_resource_path
+from mir.basic.aliases import LOCUS_TO_OLGA_SUFFIX
 from mir.basic import mirseq as _mirseq
 
+if TYPE_CHECKING:
+    from mir.basic.gene_usage import GeneUsage
+
 translate_bidi = _mirseq.translate_bidi
-
-
-def _mask_positions_fallback(seq: str) -> list[str]:
-    """Return all single-position X-masked variants of an amino-acid sequence."""
-    return [seq[:i] + "X" + seq[i + 1:] for i in range(len(seq))]
-
-
-mask_positions = getattr(_mirseq, "mask_positions", _mask_positions_fallback)
-
-# Maps (locus, species) → OLGA model directory name fragment.
-# Available models: human TRA/TRB/TRG/TRD/IGH/IGK/IGL, mouse TRA/TRB.
-_LOCUS_TO_OLGA: dict[str, str] = {
-    "TRA": "T_alpha",
-    "TRB": "T_beta",
-    "TRG": "T_gamma",
-    "TRD": "T_delta",
-    "IGH": "B_heavy",
-    "IGK": "B_kappa",
-    "IGL": "B_lambda",
-}
 
 # Loci that have a D gene segment in their recombination model.
 _D_PRESENT: frozenset[str] = frozenset({"TRB", "TRD", "IGH"})
@@ -64,6 +60,54 @@ def _split_n(n: int, k: int) -> list[int]:
     q, r = divmod(n, k)
     return [q + (1 if i < r else 0) for i in range(k) if q + (1 if i < r else 0) > 0]
 
+
+# ---------------------------------------------------------------------------
+# Per-worker state (set by pool initializer, never shared between processes)
+# ---------------------------------------------------------------------------
+
+_WORKER_PGEN_MODEL = None  # set by _init_pgen_worker in each child process
+
+
+def _init_pgen_worker(model_dir: str, is_d_present: bool) -> None:
+    """Load the OLGA pgen model once in each pool worker process."""
+    global _WORKER_PGEN_MODEL
+
+    params_file = f"{model_dir}/model_params.txt"
+    marginals_file = f"{model_dir}/model_marginals.txt"
+    v_anchor = f"{model_dir}/V_gene_CDR3_anchors.csv"
+    j_anchor = f"{model_dir}/J_gene_CDR3_anchors.csv"
+
+    if is_d_present:
+        gd = load_model.GenomicDataVDJ()
+        gm = load_model.GenerativeModelVDJ()
+    else:
+        gd = load_model.GenomicDataVJ()
+        gm = load_model.GenerativeModelVJ()
+
+    gd.load_igor_genomic_data(params_file, v_anchor, j_anchor)
+    gm.load_and_process_igor_model(marginals_file)
+
+    if is_d_present:
+        _WORKER_PGEN_MODEL = pgen.GenerationProbabilityVDJ(gm, gd)
+    else:
+        _WORKER_PGEN_MODEL = pgen.GenerationProbabilityVJ(gm, gd)
+
+
+def _compute_exact_batch(seqs: list[str]) -> list[float]:
+    """Compute exact amino-acid Pgen for a batch in a pool worker."""
+    m = _WORKER_PGEN_MODEL
+    return [float(m.compute_aa_CDR3_pgen(s)) for s in seqs]
+
+
+def _compute_1mm_batch(seqs: list[str]) -> list[float]:
+    """Compute 1-mismatch Pgen for a batch in a pool worker."""
+    m = _WORKER_PGEN_MODEL
+    return [float(m.compute_hamming_dist_1_pgen(s, print_warnings=False)) for s in seqs]
+
+
+# ---------------------------------------------------------------------------
+# Workers for sequence generation (still reconstruct the full OlgaModel)
+# ---------------------------------------------------------------------------
 
 def _generate_chunk(args: tuple) -> list[str]:
     """Worker: generate CDR3 aa sequences (no Pgen) for generate_sequences_parallel."""
@@ -94,9 +138,9 @@ def _generate_pool_chunk(args: tuple) -> list[dict]:
     result: list[dict] = []
     for _ in range(n):
         rec = _gen_one()
-        p_raw = model.compute_pgen_junction_aa(rec["junction_aa"])
+        p_raw = float(model.pgen_model.compute_aa_CDR3_pgen(rec["junction_aa"]))
         rec["log2_pgen"] = (
-            math.log2(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
+            math.log2(p_raw) if p_raw > 0 else float("-inf")
         )
         result.append(rec)
     return result
@@ -138,10 +182,10 @@ class OlgaModel:
 
         if model is None:
             try:
-                olga_name = _LOCUS_TO_OLGA[locus_u]
+                olga_name = LOCUS_TO_OLGA_SUFFIX[locus_u]
             except KeyError:
                 raise ValueError(
-                    f"Unsupported locus={locus!r}. Supported: {sorted(_LOCUS_TO_OLGA)}"
+                    f"Unsupported locus={locus!r}. Supported: {sorted(LOCUS_TO_OLGA_SUFFIX)}"
                 )
             model = get_resource_path(f"olga/default_models/{species_l}_{olga_name}")
 
@@ -150,8 +194,6 @@ class OlgaModel:
 
         self.is_d_present: bool = is_d_present
 
-        # Stored for parallel workers, which must reconstruct the model in a
-        # fresh process.  seed is excluded — each worker seeds independently.
         self._init_kwargs: dict = {
             "model": model,
             "locus": locus,
@@ -178,6 +220,7 @@ class OlgaModel:
 
         self.v_names: list[str] = [x[0] for x in genomic_data.__dict__["genV"]]
         self.j_names: list[str] = [x[0] for x in genomic_data.__dict__["genJ"]]
+        self.gen_model = generative_model
 
         if self.is_d_present:
             self.pgen_model    = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
@@ -189,8 +232,36 @@ class OlgaModel:
         if seed is not None:
             np.random.seed(seed)
 
-        # Cache repeated CDR3aa Pgen queries (common in large cohort analyses).
-        self._pgen_aa_cache: dict[str, float] = {}
+        # Persistent pool: created on first bulk call, reused across calls.
+        self._pgen_pool: Pool | None = None
+        self._pgen_pool_n_jobs: int = 0
+
+    def __del__(self) -> None:
+        self._close_pool()
+
+    def _close_pool(self) -> None:
+        pool = getattr(self, "_pgen_pool", None)
+        if pool is not None:
+            try:
+                pool.terminate()
+                pool.join()
+            except Exception:
+                pass
+            self._pgen_pool = None
+            self._pgen_pool_n_jobs = 0
+
+    def _get_pgen_pool(self, n_jobs: int) -> Pool:
+        """Return a persistent pool of *n_jobs* workers, creating it if needed."""
+        if self._pgen_pool is None or self._pgen_pool_n_jobs != n_jobs:
+            self._close_pool()
+            model_dir = self._init_kwargs["model"]
+            self._pgen_pool = Pool(
+                n_jobs,
+                initializer=_init_pgen_worker,
+                initargs=(model_dir, self.is_d_present),
+            )
+            self._pgen_pool_n_jobs = n_jobs
+        return self._pgen_pool
 
     # ------------------------------------------------------------------
     # Pgen computation
@@ -210,40 +281,58 @@ class OlgaModel:
         Args:
             junction_aa: Amino-acid sequence (CDR3).
         """
-        cached = self._pgen_aa_cache.get(junction_aa)
-        if cached is not None:
-            return cached
-        val = self.pgen_model.compute_aa_CDR3_pgen(junction_aa)
-        # Cap cache growth in long-running notebook sessions.
-        if len(self._pgen_aa_cache) < 2_000_000:
-            self._pgen_aa_cache[junction_aa] = val
-        return val
+        return float(self.pgen_model.compute_aa_CDR3_pgen(junction_aa))
 
-    def compute_pgen_junction_aa_bulk(self, junction_aas: Iterable[str]) -> list[float]:
-        """Compute Pgen for many amino-acid junctions with cache reuse.
+    def compute_pgen_junction_aa_bulk(
+        self,
+        junction_aas: Iterable[str],
+        *,
+        max_mismatches: int = 0,
+        n_jobs: int = 1,
+    ) -> list[float]:
+        """Compute Pgen for many amino-acid junctions using a persistent process pool.
+
+        Workers are initialised with the OLGA model once per pool lifetime and
+        reused across subsequent calls on the same :class:`OlgaModel` instance,
+        eliminating per-call model-loading overhead.
 
         Args:
             junction_aas: Iterable of CDR3 amino-acid sequences.
+            max_mismatches: 0 for exact Pgen, 1 for Hamming-1 neighbourhood sum.
+            n_jobs: Number of parallel worker processes.
 
         Returns:
             List of Pgen values in input order.
         """
-        return [self.compute_pgen_junction_aa(s) for s in junction_aas]
+        seqs = list(junction_aas)
+        if not seqs:
+            return []
+        if max_mismatches not in {0, 1}:
+            raise ValueError("max_mismatches must be 0 or 1")
+
+        batch_fn = _compute_exact_batch if max_mismatches == 0 else _compute_1mm_batch
+
+        if n_jobs <= 1 or len(seqs) < 64:
+            # Use this instance's model directly in the main process.
+            m = self.pgen_model
+            if max_mismatches == 0:
+                return [float(m.compute_aa_CDR3_pgen(s)) for s in seqs]
+            return [float(m.compute_hamming_dist_1_pgen(s, print_warnings=False)) for s in seqs]
+
+        chunk_size = max(1, ceil(len(seqs) / n_jobs))
+        chunks = [seqs[i : i + chunk_size] for i in range(0, len(seqs), chunk_size)]
+
+        pool = self._get_pgen_pool(n_jobs)
+        results = pool.map(batch_fn, chunks)
+        return [p for chunk in results for p in chunk]
 
     def compute_pgen_junction_aa_1mm(self, junction_aa: str) -> float:
         """Return the cumulative generation probability allowing one amino-acid mismatch.
 
-        Each position is masked to 'X' in turn using :func:`~mir.basic.mirseq.mask_positions`,
-        the regex Pgen is summed, and the exact Pgen is subtracted once per
-        non-masked position to correct for the overlap.
-
         Args:
             junction_aa: Amino-acid sequence (CDR3).
         """
-        pgen_exact = self.compute_pgen_junction_aa(junction_aa)
-        masked_seqs = mask_positions(junction_aa)
-        sum_pgen_1mm = sum(map(self.pgen_model.compute_regex_CDR3_template_pgen, masked_seqs))
-        return sum_pgen_1mm - pgen_exact * (len(junction_aa) - 1)
+        return float(self.pgen_model.compute_hamming_dist_1_pgen(junction_aa, print_warnings=False))
 
     # ------------------------------------------------------------------
     # Sequence generation
@@ -251,7 +340,6 @@ class OlgaModel:
 
     def _sample_cdr3_aa(self) -> str:
         """Draw one productive CDR3 amino-acid sequence from the model."""
-        # gen_rnd_prod_CDR3 returns (ntseq, aaseq, v_idx, j_idx); index 1 is aa.
         result = self.seq_gen_model.gen_rnd_prod_CDR3()
         assert result is not None
         return result[1]
@@ -262,8 +350,7 @@ class OlgaModel:
         Args:
             n: Number of sequences to generate.
             seed: Seed for ``numpy.random`` before sampling.  Pass ``None``
-                to continue from the current RNG state (e.g. for chained
-                calls that should each return a different batch).
+                to continue from the current RNG state.
 
         Returns:
             List of CDR3 amino-acid strings.
@@ -279,10 +366,6 @@ class OlgaModel:
         seed: int = 42,
     ) -> list[str]:
         """Generate *n* productive CDR3 sequences using *n_jobs* worker processes.
-
-        Each worker creates a fresh :class:`OlgaModel` and seeds numpy with
-        ``seed + worker_index`` to ensure diverse but reproducible output.
-        Falls back to single-process generation when *n_jobs* ≤ 1.
 
         Args:
             n: Total number of sequences to generate.
@@ -313,23 +396,17 @@ class OlgaModel:
         """Generate *n* annotated sequences with log₂ Pgen, optionally in parallel.
 
         This is the primary entry-point for building a
-        :class:`~mir.biomarkers.vdjbet.PgenBinPool`.  For large *n* (≥ 100 k)
-        parallel execution provides near-linear speedup over the number of
-        cores because each worker computes both recombination events and Pgen.
+        :class:`~mir.comparative.vdjbet.PgenBinPool`.
 
         Args:
             n: Total number of sequences to generate.
-            n_jobs: Number of parallel worker processes.  Use 1 for
-                reproducible single-process execution (identical output for a
-                given *seed*).  Use ≥ 4 for large pools.
+            n_jobs: Number of parallel worker processes.
             seed: Base RNG seed; worker *i* uses ``seed + i``.
 
         Returns:
             List of dicts with keys:
             ``junction_aa``, ``junction``, ``v_gene``, ``j_gene``,
             ``v_end``, ``j_start``, ``log2_pgen``.
-            Records where Pgen is zero or undefined have
-            ``log2_pgen = float("-inf")`` and should be filtered by callers.
         """
         if n_jobs <= 1:
             np.random.seed(seed)
@@ -341,11 +418,9 @@ class OlgaModel:
             )
             for _ in range(n):
                 rec = _gen_one()
-                p_raw = self.compute_pgen_junction_aa(rec["junction_aa"])
+                p_raw = float(self.pgen_model.compute_aa_CDR3_pgen(rec["junction_aa"]))
                 rec["log2_pgen"] = (
-                    math.log2(p_raw)
-                    if (p_raw is not None and p_raw > 0)
-                    else float("-inf")
+                    math.log2(p_raw) if p_raw > 0 else float("-inf")
                 )
                 result.append(rec)
             return result
@@ -472,19 +547,11 @@ class OlgaModel:
     ) -> list[dict]:
         """Generate *n* productive sequences with full annotation.
 
-        Each record contains: junction_aa, junction, v_gene, j_gene, v_end,
-        j_start, and (when *pgens* is ``True``) pgen_raw and pgen (log10).
-        When *pgen_adjustment* is provided, ``pgen`` stores the adjusted
-        log₁₀ Pgen (raw × V-J factor); ``pgen_raw`` is always the raw value.
-
         Args:
             n: Number of sequences to generate.
             pgens: Whether to compute and attach generation probabilities.
-            seed: Seed for ``numpy.random`` before sampling.  Pass ``None``
-                to continue from the current RNG state.
+            seed: Seed for ``numpy.random`` before sampling.
             pgen_adjustment: Optional :class:`PgenGeneUsageAdjustment`.
-                When supplied, ``rec["pgen"]`` is multiplied by the V-J factor
-                from the adjustment object.
 
         Returns:
             List of annotation dicts, one per generated sequence.
@@ -497,13 +564,13 @@ class OlgaModel:
         for _ in range(n):
             rec = _gen_one()
             if pgens:
-                p_raw = self.compute_pgen_junction_aa(rec["junction_aa"])
+                p_raw = float(self.pgen_model.compute_aa_CDR3_pgen(rec["junction_aa"]))
                 rec["pgen_raw"] = p_raw
-                if pgen_adjustment is not None and p_raw is not None and p_raw > 0:
+                if pgen_adjustment is not None and p_raw > 0:
                     p_adj = pgen_adjustment.adjust_pgen(locus, rec["v_gene"], rec["j_gene"], p_raw)
                     rec["pgen"] = math.log10(p_adj) if p_adj > 0 else float("-inf")
                 else:
-                    rec["pgen"] = math.log10(p_raw) if (p_raw is not None and p_raw > 0) else float("-inf")
+                    rec["pgen"] = math.log10(p_raw) if p_raw > 0 else float("-inf")
             res.append(rec)
         return res
 
@@ -512,35 +579,27 @@ class OlgaModel:
         n: int = 100_000,
         *,
         seed: int = 42,
+        n_jobs: int = 1,
     ) -> "GeneUsage":
         """Estimate V-J gene usage by a cold run of *n* OLGA samples.
 
-        Returns a :class:`~mir.basic.gene_usage.GeneUsage` that covers all
-        V-J pairs generated at frequency ≥ 1/*n*.  Intended for building a
-        :class:`PgenGeneUsageAdjustment` for importance-sampling-based mock
-        generation.
-
         Args:
-            n: Number of sequences to sample (higher → more accurate).
+            n: Number of sequences to sample.
             seed: numpy RNG seed.
+            n_jobs: Number of worker processes for synthetic generation.
 
         Returns:
             GeneUsage with clonotype counts per V-J pair for this locus.
         """
         from mir.basic.gene_usage import GeneUsage
 
-        records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
+        if int(n_jobs) > 1:
+            records = self.generate_pool(n=n, n_jobs=int(n_jobs), seed=seed)
+        else:
+            records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
         locus = self._init_kwargs.get("locus", "")
-        gu = GeneUsage()
-        locus_data = gu._data.setdefault(locus, {})
-        locus_totals = gu._totals.setdefault(locus, [0, 0])
-        for rec in records:
-            v = rec["v_gene"].split("*")[0]
-            j = rec["j_gene"].split("*")[0]
-            entry = locus_data.setdefault((v, j), [0, 0])
-            entry[0] += 1
-            locus_totals[0] += 1
-        return gu
+        usage_df = pd.DataFrame.from_records(records, columns=["v_gene", "j_gene"])
+        return GeneUsage.from_dataframe(usage_df, locus=locus)
 
 
 # ---------------------------------------------------------------------------
@@ -555,13 +614,6 @@ class PgenGeneUsageAdjustment:
 
         target_vj_fraction(v, j) / olga_vj_fraction(v, j)
 
-    where both fractions use Laplace smoothing (pseudocount = 1 over observed
-    pairs).  This re-weights the OLGA distribution so that Pgen-matched mock
-    sequences reflect the target V-J gene usage without requiring explicit V/J
-    stratification.
-
-    The OLGA gene usage cache is computed lazily per locus on first access.
-
     Parameters
     ----------
     target:
@@ -569,16 +621,9 @@ class PgenGeneUsageAdjustment:
         usage (e.g. computed from a real sample).
     cache_size:
         Number of OLGA sequences used to estimate the model's native gene
-        usage.  Higher values give more accurate factors for rare V-J pairs.
+        usage.
     seed:
         RNG seed for the OLGA cache run.
-
-    Examples
-    --------
-    >>> from mir.basic.gene_usage import GeneUsage
-    >>> gu = GeneUsage.from_repertoire(my_sample)
-    >>> adj = PgenGeneUsageAdjustment(gu, cache_size=100_000)
-    >>> pool = build_olga_pool("TRB", 50_000, pgen_adjustment=adj)
     """
 
     def __init__(
@@ -587,15 +632,17 @@ class PgenGeneUsageAdjustment:
         *,
         cache_size: int = 100_000,
         seed: int = 42,
+        olga_n_jobs: int = 1,
         count: str = "count_rearrangement",
         pseudocount: float = 1.0,
         reference: "GeneUsage | None" = None,
     ) -> None:
-        from mir.basic.gene_usage import GeneUsage as _GeneUsage  # local for TYPE_CHECKING compat
+        from mir.basic.gene_usage import GeneUsage as _GeneUsage
 
         self._target = target
         self._cache_size = cache_size
         self._seed = seed
+        self._olga_n_jobs = max(1, int(olga_n_jobs))
         self._count = count
         self._pseudocount = pseudocount
         self._olga_cache: dict[str, _GeneUsage] = {}
@@ -608,7 +655,9 @@ class PgenGeneUsageAdjustment:
         if locus not in self._olga_cache:
             model = OlgaModel(locus=locus, seed=self._seed)
             self._olga_cache[locus] = model.compute_usage_cache(
-                self._cache_size, seed=self._seed
+                self._cache_size,
+                seed=self._seed,
+                n_jobs=self._olga_n_jobs,
             )
         return self._olga_cache[locus]
 
@@ -632,13 +681,10 @@ class PgenGeneUsageAdjustment:
     def factor(self, locus: str, v: str, j: str) -> float:
         """Pgen adjustment factor for (locus, v, j).
 
-        Returns ``target_vj_fraction / olga_vj_fraction`` with Laplace
-        pseudocount = 1 over observed pairs.
-
         Args:
             locus: IMGT locus code (e.g. ``"TRB"``).
-            v: V-gene name (allele stripped internally).
-            j: J-gene name (allele stripped internally).
+            v: V-gene name.
+            j: J-gene name.
         """
         v_base = v.split("*")[0]
         j_base = j.split("*")[0]
@@ -655,3 +701,63 @@ class PgenGeneUsageAdjustment:
             pgen: Raw generation probability (linear, not log).
         """
         return pgen * self.factor(locus, v, j)
+
+
+_GENE_USAGE_PROB_CACHE: dict[tuple[str, str, int], dict[str, dict[object, float]]] = {}
+
+
+def compute_gene_usage_probabilities_from_control_df(
+    control_df: pd.DataFrame,
+) -> dict[str, dict[object, float]]:
+    """Estimate OLGA V/J/VJ probabilities from a synthetic control table."""
+    from mir.common.alleles import allele_to_major
+
+    required = {"v_gene", "j_gene"}
+    missing = required.difference(control_df.columns)
+    if missing:
+        raise ValueError(f"control_df missing required columns: {sorted(missing)}")
+
+    df = control_df.loc[:, ["v_gene", "j_gene"]].copy()
+    df["v_gene"] = df["v_gene"].map(lambda x: allele_to_major(str(x or "")))
+    df["j_gene"] = df["j_gene"].map(lambda x: allele_to_major(str(x or "")))
+    df = df[(df["v_gene"] != "") & (df["j_gene"] != "")]
+    total = len(df)
+    if total == 0:
+        return {"v": {}, "j": {}, "vj": {}}
+
+    p_v = (df["v_gene"].value_counts(sort=False) / total).to_dict()
+    p_j = (df["j_gene"].value_counts(sort=False) / total).to_dict()
+    p_vj = (df.groupby(["v_gene", "j_gene"], sort=False).size() / total).to_dict()
+
+    return {
+        "v": {k: float(v) for k, v in p_v.items()},
+        "j": {k: float(v) for k, v in p_j.items()},
+        "vj": {k: float(v) for k, v in p_vj.items()},
+    }
+
+
+def get_olga_gene_usage_probabilities(
+    *,
+    species: str,
+    locus: str,
+    synthetic_n: int,
+    n_jobs: int | None = None,
+    control_manager=None,
+    control_kwargs: dict | None = None,
+) -> dict[str, dict[object, float]]:
+    """Load or compute cached OLGA V/J/VJ probabilities for a locus."""
+    from mir.common.control import ControlManager
+
+    manager = control_manager or ControlManager()
+    kwargs = dict(control_kwargs or {})
+    kwargs.setdefault("n", int(synthetic_n))
+    if n_jobs is not None:
+        kwargs.setdefault("n_jobs", max(1, int(n_jobs)))
+    kwargs.setdefault("progress", False)
+    control_df = manager.ensure_and_load_control_df(
+        "synthetic",
+        species,
+        locus,
+        **kwargs,
+    )
+    return compute_gene_usage_probabilities_from_control_df(control_df)

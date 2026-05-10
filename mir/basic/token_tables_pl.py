@@ -74,11 +74,59 @@ def expand_kmers(df: pl.DataFrame, k: int) -> pl.DataFrame:
 
 def _summarize(expanded: pl.DataFrame, group_cols: list[str]) -> pl.DataFrame:
     """Group *expanded* by *group_cols* and compute summary stats."""
+    unique = expanded.select(group_cols + ["id", "duplicate_count"]).unique()
     return (
-        expanded
+        unique
         .group_by(group_cols)
         .agg(
             pl.col("id").n_unique().alias("rearrangement_count"),
+            pl.col("duplicate_count").sum().alias("duplicate_count"),
+        )
+    )
+
+
+def _summarize_chunked(
+    df: pl.DataFrame,
+    k: int,
+    *,
+    group_cols: list[str],
+    chunk_size: int,
+) -> pl.DataFrame:
+    """Chunked summary helper to avoid full expanded-table materialization."""
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+    if df.height == 0:
+        return pl.DataFrame(
+            {
+                **{col: [] for col in group_cols},
+                "rearrangement_count": [],
+                "duplicate_count": [],
+            }
+        )
+
+    parts: list[pl.DataFrame] = []
+    for start in range(0, df.height, chunk_size):
+        chunk = df.slice(start, chunk_size)
+        expanded = expand_kmers(chunk, k)
+        if expanded.height == 0:
+            continue
+        parts.append(_summarize(expanded, group_cols))
+
+    if not parts:
+        return pl.DataFrame(
+            {
+                **{col: [] for col in group_cols},
+                "rearrangement_count": [],
+                "duplicate_count": [],
+            }
+        )
+
+    merged = pl.concat(parts, how="vertical")
+    return (
+        merged
+        .group_by(group_cols)
+        .agg(
+            pl.col("rearrangement_count").sum().alias("rearrangement_count"),
             pl.col("duplicate_count").sum().alias("duplicate_count"),
         )
     )
@@ -93,6 +141,16 @@ def summarize_by_gene(expanded: pl.DataFrame) -> pl.DataFrame:
     return _summarize(expanded, ["locus", "v_gene", "c_gene", "kmer_seq"])
 
 
+def summarize_by_gene_chunked(df: pl.DataFrame, k: int, *, chunk_size: int = 100_000) -> pl.DataFrame:
+    """Chunked summary by (locus, v_gene, c_gene, kmer_seq)."""
+    return _summarize_chunked(
+        df,
+        k,
+        group_cols=["locus", "v_gene", "c_gene", "kmer_seq"],
+        chunk_size=chunk_size,
+    )
+
+
 def summarize_by_pos(expanded: pl.DataFrame) -> pl.DataFrame:
     """Group by (locus, kmer_seq, kmer_pos).
 
@@ -100,6 +158,16 @@ def summarize_by_pos(expanded: pl.DataFrame) -> pl.DataFrame:
     rearrangement_count, duplicate_count.
     """
     return _summarize(expanded, ["locus", "kmer_seq", "kmer_pos"])
+
+
+def summarize_by_pos_chunked(df: pl.DataFrame, k: int, *, chunk_size: int = 100_000) -> pl.DataFrame:
+    """Chunked summary by (locus, kmer_seq, kmer_pos)."""
+    return _summarize_chunked(
+        df,
+        k,
+        group_cols=["locus", "kmer_seq", "kmer_pos"],
+        chunk_size=chunk_size,
+    )
 
 
 def summarize_by_v(expanded: pl.DataFrame) -> pl.DataFrame:
@@ -111,6 +179,16 @@ def summarize_by_v(expanded: pl.DataFrame) -> pl.DataFrame:
     return _summarize(expanded, ["locus", "kmer_seq", "v_gene"])
 
 
+def summarize_by_v_chunked(df: pl.DataFrame, k: int, *, chunk_size: int = 100_000) -> pl.DataFrame:
+    """Chunked summary by (locus, kmer_seq, v_gene)."""
+    return _summarize_chunked(
+        df,
+        k,
+        group_cols=["locus", "kmer_seq", "v_gene"],
+        chunk_size=chunk_size,
+    )
+
+
 def summarize_by_c(expanded: pl.DataFrame) -> pl.DataFrame:
     """Group by (locus, kmer_seq, c_gene).
 
@@ -118,6 +196,16 @@ def summarize_by_c(expanded: pl.DataFrame) -> pl.DataFrame:
     rearrangement_count, duplicate_count.
     """
     return _summarize(expanded, ["locus", "kmer_seq", "c_gene"])
+
+
+def summarize_by_c_chunked(df: pl.DataFrame, k: int, *, chunk_size: int = 100_000) -> pl.DataFrame:
+    """Chunked summary by (locus, kmer_seq, c_gene)."""
+    return _summarize_chunked(
+        df,
+        k,
+        group_cols=["locus", "kmer_seq", "c_gene"],
+        chunk_size=chunk_size,
+    )
 
 
 # ---------------------------------------------------------------------------

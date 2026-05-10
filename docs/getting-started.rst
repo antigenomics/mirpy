@@ -10,13 +10,38 @@ source.
 
 .. code-block:: bash
 
+   pip install mirpy-lib
+
+For source installs from GitHub:
+
+.. code-block:: bash
+
+   git clone https://github.com/antigenomics/mirpy.git
+   cd mirpy
    pip install .
 
 For editable development installs:
 
 .. code-block:: bash
 
+   git clone https://github.com/antigenomics/mirpy.git
+   cd mirpy
+   ./setup.sh
    pip install -e .
+
+To install the documentation toolchain as well:
+
+.. code-block:: bash
+
+   ./setup.sh --docs
+
+Useful links
+============
+
+* API/module reference: https://antigenomics.github.io/mirpy/modules.html
+* Notebook gallery page: https://antigenomics.github.io/mirpy/examples.html
+* Notebook source directory: https://github.com/antigenomics/mirpy/tree/main/notebooks
+* LLM agent skill guide: https://github.com/antigenomics/mirpy/blob/main/skills/mirpy/SKILL.md
 
 Core Concepts
 =============
@@ -58,7 +83,7 @@ Typical Workflow
 ================
 
 1. Parse a file with one of the supported repertoire parsers.
-2. Wrap clonotypes into a ``Repertoire`` or ``RepertoireDataset``.
+2. Wrap clonotypes into a ``LocusRepertoire``, ``SampleRepertoire``, or ``RepertoireDataset``.
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
 
@@ -69,6 +94,353 @@ probability output (already normalized per sample/locus).
 If you compute only ``scope='vj'`` and need V- or J-marginal views for plots,
 reuse ``marginalize_batch_corrected_gene_usage(..., scope='v'|'j')`` from the
 same module instead of ad-hoc notebook ``groupby`` code.
+
+Pooling Repertoires Across Samples
+==================================
+
+Use ``pool_samples`` to combine clonotypes across samples with explicit
+identity rules.
+
+.. code-block:: python
+
+   from mir.common.pool import pool_samples
+
+   # Pool two samples by nucleotide CDR3 + V/J genes.
+   pooled = pool_samples([sample_rep_1, sample_rep_2], rule="ntvj", weighted=True)
+
+   # Pool a dataset by amino-acid CDR3 + V/J genes and keep sample ids per pooled clone.
+   pooled_ds = pool_samples(dataset, rule="aavj", include_sample_ids=True)
+
+Supported pooling rules:
+
+* ``ntvj``: key ``(junction, v_gene, j_gene)``
+* ``nt``: key ``(junction,)``
+* ``aavj``: key ``(junction_aa, v_gene, j_gene)``
+* ``aa``: key ``(junction_aa,)``
+
+Each pooled clonotype stores:
+
+* ``duplicate_count`` as the sum over grouped clonotypes,
+* ``incidence`` in clonotype metadata (number of unique samples containing the key),
+* ``occurrences`` in clonotype metadata (number of grouped rows).
+
+Neighborhood Enrichment and Clonotype Similarity
+=================================================
+
+Use ``compute_neighborhood_stats`` to find clonotypes similar to each other
+based on edit distance in the CDR3 junction region. This is useful for
+TCRnet and ALICE algorithms.
+
+.. code-block:: python
+
+   from mir.graph import compute_neighborhood_stats
+
+   # Count neighbors for each clonotype within edit distance 1
+   stats = compute_neighborhood_stats(
+       repertoire,
+       metric="hamming",
+       threshold=1,
+       match_v_gene=True,
+   )
+
+   # stats["clonotype_id"] = {
+   #     "neighbor_count": 15,
+   #     "potential_neighbors": 200,
+   # }
+
+Supported options:
+
+* ``metric``: ``"hamming"`` or ``"levenshtein"`` for junction_aa comparison
+* ``threshold``: Maximum edit distance to consider a clonotype a neighbor
+* ``match_v_gene``: If True, only count neighbors with matching V gene
+* ``match_j_gene``: If True, only count neighbors with matching J gene
+
+For larger repertoires, neighborhood and edit-distance graph builders run with
+multiprocess workers when ``n_jobs > 1`` to leverage true multi-core execution.
+
+You can compute neighborhood stats against an explicit background repertoire:
+
+.. code-block:: python
+
+   # Query against background (adds +1 pseudocount in background mode)
+   bg_stats = compute_neighborhood_stats(
+      repertoire,
+      background=background_repertoire,
+      metric="hamming",
+      threshold=1,
+   )
+
+To attach parent-vs-background neighborhood enrichment metadata in one call:
+
+.. code-block:: python
+
+   from mir.graph import add_neighborhood_enrichment_metadata
+
+   add_neighborhood_enrichment_metadata(
+      repertoire,
+      background=background_repertoire,
+      metric="hamming",
+      threshold=1,
+      metadata_prefix="neighborhood",
+   )
+
+This writes parent/background counts, potentials, densities, and
+``neighborhood_enrichment`` for each clonotype.
+
+Control Data Setup (Synthetic / Real)
+=====================================
+
+Background controls are expensive to build/download and are managed explicitly
+through ``mir.common.control``.
+
+.. code-block:: python
+
+   from mir.common.control import ControlManager
+
+   mgr = ControlManager()  # default: ~/.cache/mirpy/controls (or MIRPY_CONTROL_DIR)
+
+   # Build synthetic OLGA control (default n=10_000_000)
+   mgr.ensure_synthetic_control("human", "TRB", n=1_000_000)
+
+   # Download real control from HuggingFace dataset and convert to pickle
+   mgr.ensure_real_control("hsa", "Tbeta")
+
+   # Load normalized ntvj table (duplicate_count, junction, junction_aa, v_gene, j_gene)
+   df_control = mgr.load_control_df("synthetic", "human", "TRB")
+
+   # Or build/fetch on demand when a workflow needs a control immediately
+   df_real = mgr.ensure_and_load_control_df("real", "human", "TRB")
+
+You can also prebuild controls via CLI:
+
+.. code-block:: bash
+
+   mirpy-control-setup --type synthetic --species human,mouse --loci TRA,TRB --n 1000000
+
+Benchmark coverage includes both synthetic generation and real-control
+download/build paths (HuggingFace), with cache-hit timing diagnostics in
+``tests/test_control_benchmark.py``.
+
+Slow TCRNET benchmark coverage also includes a notebook-derived B35+ donor
+scenario against real control, with connected-component enrichment checked
+against HLA-B*35 ``EPLPQGQLTAY`` TRB sequences from the bundled VDJdb slim
+asset in ``tests/test_tcrnet_benchmark.py``.
+
+.. code-block:: bash
+
+    # run only TCRNET benchmarks
+    RUN_BENCHMARK=1 pytest -s tests/test_tcrnet_benchmark.py -m benchmark
+
+    # run the slow B35 real-control benchmark only
+    RUN_BENCHMARK=1 pytest -s \
+       tests/test_tcrnet_benchmark.py::test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control
+
+Benchmark timing details are appended to ``tests/benchmarks.log``.
+Timeouts for long benchmarks can be configured via
+``MIRPY_BENCH_SLOW_TIMEOUT_S`` and ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``.
+Defaults are 600 s and 1200 s, respectively.
+
+For a larger ALICE/TCRNET benchmark profile (higher than the fast CI defaults):
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 \
+   MIRPY_BENCH_FAST_MAX_CLONOTYPES=600 \
+   MIRPY_BENCH_FAST_SYNTHETIC_N=200000 \
+   MIRPY_BENCH_REAL_MAX_CLONOTYPES=200 \
+   MIRPY_BENCH_REAL_CONTROL_LIMIT=100000 \
+   MIRPY_BENCH_REAL_SYNTHETIC_N=200000 \
+   pytest -s tests/test_alice_tcrnet_benchmark.py
+
+To include the full 1e6 neighborhood scaling benchmark:
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 \
+   MIRPY_BENCH_WORKERS=1,4,8 \
+   pytest -s tests/test_neighborhood_enrichment_scaling_benchmark.py
+
+To benchmark control cache behavior and synthetic-control scaling to 1e6:
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 \
+   MIRPY_BENCH_REAL_CACHE_REPEATS=25 \
+   MIRPY_BENCH_1M_COLD_BUILD=1 \
+   pytest -s tests/test_control_benchmark.py::test_real_control_repeated_cache_loads_no_extra_overhead \
+          tests/test_control_benchmark.py::test_synthetic_control_1e6_cache_hit_and_optional_cold_build
+
+For routine runs under 5-10 minutes, use the split subtests and keep 1e6 in
+cache-hit mode (no cold build):
+
+.. code-block:: bash
+
+   RUN_BENCHMARK=1 pytest -s \
+      tests/test_control_benchmark.py::test_synthetic_control_generation_small_matrix \
+      tests/test_control_benchmark.py::test_real_control_build_and_cache_hit \
+      tests/test_control_benchmark.py::test_real_control_repeated_cache_loads_no_extra_overhead
+
+Typical runtime expectations on a modern laptop/workstation (hardware dependent):
+
+* ``tests/test_alice_tcrnet_benchmark.py`` with larger profile: usually a few minutes.
+* ``test_neighborhood_self_scaling_1e6``: usually minutes, scaling with ``MIRPY_BENCH_WORKERS`` and CPU count.
+* ``test_synthetic_control_generation_small_matrix``: validates 1e4 and 1e5 generation with per-test caps.
+* ``test_synthetic_control_1e6_cache_hit_and_optional_cold_build``: cache-first by default; cold build is opt-in via ``MIRPY_BENCH_1M_COLD_BUILD=1``.
+
+Available aliases include species ``human/hsa/HomoSapiens`` and
+``mouse/mmu/MusMusculus``; loci aliases include IMGT names and forms such as
+``Talpha``/``Tbeta``.
+
+Control setup is concurrency-safe: when multiple workers (for example GNU
+Parallel or Slurm jobs) request the same control simultaneously, one process
+builds while others wait on a per-control lock and then reuse the produced
+artifact.
+
+Bag-of-K-mers Control Profiles
+==============================
+
+Use ``mir.embedding.bag_of_kmers`` to compute background k-mer statistics for
+enrichment workflows.
+
+By default, control k-mer profiles are built in memory (no profile-table write
+to cache). This is convenient for one-off analyses.
+
+.. code-block:: python
+
+   from mir.common.control import ControlManager
+   from mir.embedding.bag_of_kmers import BagOfKmersParams, build_control_kmer_profile
+
+   mgr = ControlManager()
+   params = BagOfKmersParams(use_v=False, k=3, gapped=False, reduced_alphabet=False)
+
+   profile = build_control_kmer_profile(
+      mgr,
+      control_type="real",
+      species="human",
+      locus="TRB",
+      params=params,
+   )
+
+   token_stats = profile.token_stats        # columns: token, n, T, p, idf
+   position_stats = profile.position_stats  # columns: token, count, pos, junction_len
+
+To enable profile-table caching for repeated runs, pass ``cache=True``:
+
+.. code-block:: python
+
+   profile_cached = build_control_kmer_profile(
+      mgr,
+      control_type="real",
+      species="human",
+      locus="TRB",
+      params=params,
+      cache=True,
+   )
+
+Cached profile writes are lock-protected to avoid race conditions under
+concurrent workers.
+
+ALICE-Style Neighborhood Enrichment
+====================================
+
+Use ``mir.biomarkers.alice`` to compute per-clonotype neighborhood enrichment
+using OLGA generation probabilities as null model. ALICE estimates how many
+neighbors each clonotype would accumulate by chance given its sequence's Pgen.
+
+ALICE is metadata-first: neighbor counts, expected neighbors, fold enrichment,
+p-values, and BH-adjusted q-values are written directly into clonotype
+metadata. A tabular result is also returned by default.
+
+.. code-block:: python
+
+   from mir.biomarkers.alice import compute_alice, add_alice_metadata
+
+   # Compute enrichment; result.table has pre-computed q_value column.
+   result = compute_alice(
+      repertoire,
+      metric="hamming",
+      match_mode="vj",         # one of: none, v, j, vj
+      pgen_mode="1mm",         # "exact" (Hamming-0) or "1mm" (Hamming-1)
+      pvalue_mode="poisson",   # or "negative-binomial" for overdispersed data
+      pseudocount=0.0,         # added to n and N before expected/p-value
+      n_jobs=4,
+   )
+   df = result.table   # columns: sequence_id, locus, junction_aa, ..., q_value
+
+   # Or annotate clonotypes in-place.
+   add_alice_metadata(
+      repertoire,
+      metric="hamming",
+      match_mode="vj",
+      pgen_mode="1mm",
+      pvalue_mode="poisson",
+      pseudocount=0.0,
+   )
+
+Output columns: ``alice_n``, ``alice_N``, ``alice_pgen_raw``, ``alice_pgen``,
+``alice_expected``, ``alice_fold``, ``alice_p_value``, ``alice_q_value``.
+
+OLGA models are cached per ``(species, locus, seed, model_class)`` — repeated
+calls within a session reuse the loaded model without re-reading from disk.
+Bulk Pgen and per-batch metric stages use multiprocess workers by default to
+achieve true CPU parallelism; set ``MIRPY_..._EXECUTOR=thread`` only when
+debugging thread-local behavior.
+
+TCRNET-Style Neighborhood Enrichment
+====================================
+
+Use ``mir.biomarkers.tcrnet`` to compute per-clonotype neighborhood
+enrichment against either user-provided controls or built-in real/synthetic
+controls managed by ``ControlManager``.
+
+TCRNET is metadata-first: neighbor counts, p-values, and BH-adjusted
+q-values are written directly into clonotype metadata. A tabular result is
+optional.
+
+.. code-block:: python
+
+   from mir.biomarkers.tcrnet import add_tcrnet_metadata, compute_tcrnet, tcrnet_table
+
+   # User-provided control repertoire, annotate clonotypes in-place.
+   annotated = add_tcrnet_metadata(
+      target_repertoire,
+      control=control_repertoire,
+      metric="hamming",
+      threshold=1,
+      n_jobs=4,
+      match_mode="none",       # one of: none, v, j, vj
+      pvalue_mode="binomial",  # or "beta-binomial"
+      pseudocount=1.0,         # added to control m and M before density calculation
+   )
+
+   # Optional table view from clonotype metadata.
+   df = tcrnet_table(annotated)
+
+   # compute_tcrnet can also return a table directly (as_table=True by default).
+   result = compute_tcrnet(target_repertoire, control=control_repertoire)
+   df2 = result.table
+
+You can also use managed controls directly:
+
+.. code-block:: python
+
+   result = compute_tcrnet(
+      target_repertoire,
+      control_type="real",   # or "synthetic"
+      species="human",
+      n_jobs=4,
+      normalize_control_vj_usage=True,
+      pvalue_mode="beta-binomial",
+   )
+
+You can also add neighborhood stats directly to clonotype metadata:
+
+.. code-block:: python
+
+   from mir.graph import add_neighborhood_metadata
+
+   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=4)
+   # Adds neighborhood_count and neighborhood_potential to each clonotype's metadata
 
 Next Steps
 ==========

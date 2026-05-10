@@ -45,7 +45,6 @@ For ungapped equal-length alignment the CDRAligner C scores match
 BioPython exactly (same BLOSUM62 matrix, verified in test suite).
 """
 
-import time
 from abc import abstractmethod
 from itertools import starmap
 from multiprocessing import Pool
@@ -54,7 +53,6 @@ from Bio.Align import substitution_matrices
 
 import typing as t
 import numpy as np
-from functools import lru_cache
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary

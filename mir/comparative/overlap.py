@@ -34,11 +34,21 @@ API
 
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
+_MP_CTX = multiprocessing.get_context("spawn")
+
+from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
+from mir.graph._trie_utils import hit_index, search_limits
+
+try:
+    from tcrtrie import Trie
+except Exception:  # pragma: no cover - optional runtime dependency guard
+    Trie = None
 
 # Standard 20 amino acids used for 1-mismatch expansion.
 _AA20 = "ACDEFGHIKLMNPQRSTVWY"
@@ -115,8 +125,8 @@ def _overlap_worker_call(ref_keys: frozenset[_Key]) -> OverlapCounts:
 # ---------------------------------------------------------------------------
 
 def _gene_base(gene: str) -> str:
-    """Strip allele suffix: ``"TRBV6-2*01"`` → ``"TRBV6-2"``."""
-    return gene.split("*")[0] if gene else ""
+    """Map allele naming to stable major allele form ``*01``."""
+    return allele_to_major(gene)
 
 
 def _clonotype_key(
@@ -135,6 +145,69 @@ def _clonotype_key(
         _gene_base(clone.v_gene) if match_v else "",
         _gene_base(clone.j_gene) if match_j else "",
     )
+
+
+def _count_overlap_1mm_trie(
+    reference_keys: frozenset[_Key],
+    query_index: dict[_Key, int],
+) -> tuple[int, int]:
+    if not reference_keys or not query_index or Trie is None:
+        return _count_overlap_1mm_expansion(reference_keys, query_index)
+
+    q_keys = list(query_index.keys())
+    q_jaa = [k[0] for k in q_keys]
+    q_v = [k[1] for k in q_keys]
+    q_j = [k[2] for k in q_keys]
+    q_dc = [query_index[k] for k in q_keys]
+
+    try:
+        trie = Trie(
+            sequences=q_jaa,
+            vGenes=q_v,
+            jGenes=q_j,
+            with_counts=False,
+            with_indices=True,
+        )
+        max_sub, max_ins, max_del, max_edits = search_limits("hamming", 1)
+    except Exception:
+        return _count_overlap_1mm_expansion(reference_keys, query_index)
+
+    matched_idx: set[int] = set()
+    for jaa, v, j in reference_keys:
+        if not jaa:
+            continue
+        try:
+            hits = trie.SearchIndices(
+                cdr3=jaa,
+                maxSub=max_sub,
+                maxIns=max_ins,
+                maxDel=max_del,
+                maxEdits=max_edits,
+            )
+        except Exception:
+            return _count_overlap_1mm_expansion(reference_keys, query_index)
+        for hit in hits:
+            idx = hit_index(hit)
+            if idx in matched_idx:
+                continue
+            # Preserve exact V/J key semantics used by dict-based matching.
+            if q_v[idx] == v and q_j[idx] == j:
+                matched_idx.add(idx)
+
+    return len(matched_idx), sum(q_dc[i] for i in matched_idx)
+
+
+def _count_overlap_1mm_expansion(
+    reference_keys: frozenset[_Key],
+    query_index: dict[_Key, int],
+) -> tuple[int, int]:
+    matched: set[_Key] = set()
+    for jaa, v, j in reference_keys:
+        for variant in expand_1mm(jaa):
+            cand = (variant, v, j)
+            if cand not in matched and cand in query_index:
+                matched.add(cand)
+    return len(matched), sum(query_index[k] for k in matched)
 
 
 # ---------------------------------------------------------------------------
@@ -295,8 +368,8 @@ def count_overlap(
     ----------
     reference_keys:
         Set of clonotype keys (from :func:`make_reference_keys` or mock key
-        sets built by :class:`mir.biomarkers.vdjbet.VDJBetOverlapAnalysis`
-        / :class:`mir.biomarkers.vdjbet.PgenBinPool`).
+        sets built by :class:`mir.comparative.vdjbet.VDJBetOverlapAnalysis`
+        / :class:`mir.comparative.vdjbet.PgenBinPool`).
         Gene fields should already be ``""`` when the corresponding match
         requirement is disabled (controlled by ``match_v/match_j`` when
         building keys).
@@ -334,14 +407,7 @@ def count_overlap(
                 n += 1
                 total_dc += dc
     else:
-        matched: set[_Key] = set()
-        for jaa, v, j in reference_keys:
-            for variant in expand_1mm(jaa):
-                cand = (variant, v, j)
-                if cand not in matched and cand in query_index:
-                    matched.add(cand)
-        n = len(matched)
-        total_dc = sum(query_index[k] for k in matched)
+        n, total_dc = _count_overlap_1mm_trie(reference_keys, query_index)
 
     n_normalized = (n / target_n) if target_n is not None and target_n > 0 else None
     dc_normalized = (
@@ -371,8 +437,8 @@ def compute_overlaps(
     ----------
     reference_key_sets:
         List of reference key sets — typically the mock null distribution from
-        :class:`mir.biomarkers.vdjbet.VDJBetOverlapAnalysis` /
-        :class:`mir.biomarkers.vdjbet.PgenBinPool`.
+        :class:`mir.comparative.vdjbet.VDJBetOverlapAnalysis` /
+        :class:`mir.comparative.vdjbet.PgenBinPool`.
     query_index:
         Query clonotype index from :func:`make_query_index`.
     allow_1mm:
@@ -394,7 +460,14 @@ def compute_overlaps(
     list[OverlapCounts]
         One :class:`OverlapCounts` per key set, in the same order.
     """
-    if n_jobs == 1 or len(reference_key_sets) <= 1:
+    # Process startup on macOS can dominate runtime for small exact-match batches.
+    estimated_keys = sum(len(keys) for keys in reference_key_sets)
+    should_run_serial = (
+        n_jobs == 1
+        or len(reference_key_sets) <= 1
+        or (not allow_1mm and estimated_keys <= 2_000_000)
+    )
+    if should_run_serial:
         return [
             count_overlap(
                 k,
@@ -409,6 +482,7 @@ def compute_overlaps(
     chunksize = max(1, len(reference_key_sets) // (n_jobs * 4))
     with ProcessPoolExecutor(
         max_workers=n_jobs,
+        mp_context=_MP_CTX,
         initializer=_overlap_worker_init,
         initargs=(query_index, allow_1mm, target_n, target_dc),
     ) as pool:

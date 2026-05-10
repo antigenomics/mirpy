@@ -1,4 +1,4 @@
-"""Benchmark: parallel loading of real repertoires from real_repertoires/.
+"""Benchmark: parallel loading of real repertoires from assets/real_repertoires/.
 
 Run with:  RUN_BENCHMARK=1 pytest tests/test_repertoire_benchmark.py -s
 
@@ -13,8 +13,6 @@ import time
 import tracemalloc
 from pathlib import Path
 
-import pytest
-
 from mir.common.parser import VDJtoolsParser
 from mir.common.repertoire_dataset import RepertoireDataset
 from tests.conftest import (
@@ -24,7 +22,7 @@ from tests.conftest import (
     skip_benchmarks,
 )
 
-REAL_REPS = Path(__file__).parent / "real_repertoires"
+REAL_REPS = Path(__file__).parent / "assets" / "real_repertoires"
 METADATA  = REAL_REPS / "metadata_aging.txt"
 
 

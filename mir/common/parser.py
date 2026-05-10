@@ -6,6 +6,7 @@ Parsers
   (returns ``list[Clonotype]``).
 * :class:`VDJtoolsParser` — VDJtools-format tables.
 * :class:`AIRRParser` — AIRR-format tables.
+* :class:`AdaptiveParser` — Adaptive immunoSEQ / MLR tables.
 * :class:`OldMiXCRParser` — legacy MiXCR clone tables → :class:`SampleRepertoire`.
 * :class:`VDJdbSlimParser` — VDJdb slim export → :class:`SampleRepertoire`.
 * :class:`OlgaParser` — OLGA sequence generation output → :class:`SampleRepertoire`.
@@ -21,12 +22,10 @@ import csv
 import gzip
 import io
 import json
-import logging
 import re
 import sys
 import tempfile
 import urllib.request
-import warnings
 import zipfile
 from collections import namedtuple
 from pathlib import Path
@@ -43,7 +42,9 @@ import pandas as pd
 import polars as pl
 
 from mir.basic.alphabets import back_translate
-from mir.common.clonotype import Clonotype, ClonotypeAA, ClonotypeNT, JunctionMarkup
+from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
+from mir.common.alleles import allele_to_major
+from mir.common.clonotype import Clonotype
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 
 # GeneLibrary is only imported lazily when needed (functional checks, germline sequences).
@@ -63,26 +64,14 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'DStart':   'd_sequence_start',
     'DEnd':     'd_sequence_end',
     'JStart':   'j_sequence_start',
-}
-
-_AIRR_LOCUS_ALIASES: dict[str, set[str]] = {
-    'alpha':  {'alpha', 'tra'},
-    'beta':   {'beta',  'trb'},
-    'gamma':  {'gamma', 'trg'},
-    'delta':  {'delta', 'trd'},
-    'heavy':  {'heavy', 'igh'},
-    'kappa':  {'kappa', 'igk'},
-    'lambda': {'lambda','igl'},
-}
-
-_AIRR_ALIAS_TO_IMGT: dict[str, str] = {
-    'alpha': 'TRA', 'tra': 'TRA',
-    'beta': 'TRB', 'trb': 'TRB',
-    'gamma': 'TRG', 'trg': 'TRG',
-    'delta': 'TRD', 'trd': 'TRD',
-    'heavy': 'IGH', 'igh': 'IGH',
-    'kappa': 'IGK', 'igk': 'IGK',
-    'lambda': 'IGL', 'igl': 'IGL',
+    # Alternative locus column names used in some tools / AIRR variants.
+    'chain':                      'locus',
+    # MiXCR v2/v3 export format (e.g. alice benchmark files).
+    'Read.count':                 'duplicate_count',
+    'CDR3.amino.acid.sequence':   'junction_aa',
+    'CDR3.nucleotide.sequence':   'junction',
+    'bestVGene':                  'v_gene',
+    'bestJGene':                  'j_gene',
 }
 
 # Backward-compat namedtuple kept as a public export.
@@ -94,7 +83,9 @@ def _gene_str(val) -> str:
     if val is None or (not isinstance(val, str) and pd.isna(val)):
         return ""
     s = str(val).strip().split(',')[0].split(';')[0]
-    return s if s not in ('.', '') else ""
+    if s in ('.', ''):
+        return ""
+    return allele_to_major(s)
 
 
 # ---------------------------------------------------------------------------
@@ -144,8 +135,8 @@ class ClonotypeTableParser:
 
     @staticmethod
     def _norm_gene_col(s: pl.Series) -> list[str]:
-        """Vectorised gene normalisation: first comma/semicolon token, strip, '.' → ''."""
-        return (
+        """Vectorised gene normalisation with major-allele harmonization."""
+        values = (
             s.cast(pl.Utf8).fill_null("")
             .str.split_exact(",", 1).struct.field("field_0")
             .str.split_exact(";", 1).struct.field("field_0")
@@ -153,12 +144,13 @@ class ClonotypeTableParser:
             .str.replace("^\\.$", "")
             .to_list()
         )
+        return [allele_to_major(v) for v in values]
 
     @staticmethod
     def _normalize_locus_col(s: pl.Series) -> list[str]:
         """Normalize AIRR locus aliases to canonical IMGT codes."""
         raw = s.cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase().to_list()
-        return [_AIRR_ALIAS_TO_IMGT.get(v, v.upper()[:3] if v else "") for v in raw]
+        return [normalize_airr_locus_value(v) for v in raw]
 
     # ------------------------------------------------------------------
     # File reading
@@ -402,13 +394,7 @@ class AIRRParser(ClonotypeTableParser):
         self.mandatory_columns = ['locus', 'v_call', 'j_call', 'junction_aa']
 
     def get_locus_aliases(self) -> set[str]:
-        locus_normalized = str(self.locus).strip().lower()
-        if locus_normalized in _AIRR_LOCUS_ALIASES:
-            return _AIRR_LOCUS_ALIASES[locus_normalized]
-        for aliases in _AIRR_LOCUS_ALIASES.values():
-            if locus_normalized in aliases:
-                return aliases
-        return {locus_normalized}
+        return airr_aliases_for_locus(str(self.locus))
 
     def validate_columns(self, df: pd.DataFrame) -> None:
         for col in self.mandatory_columns:
@@ -426,6 +412,141 @@ class AIRRParser(ClonotypeTableParser):
         if 'clone_id' in df.columns:
             df.index = df['clone_id'].astype(str)
         return super().parse_inner(df)
+
+
+# ---------------------------------------------------------------------------
+# AdaptiveParser — Adaptive immunoSEQ / MLR tables → LocusRepertoire
+# ---------------------------------------------------------------------------
+
+class AdaptiveParser(ClonotypeTableParser):
+    """Parse Adaptive immunoSEQ / MLR tables into a single-locus repertoire.
+
+    The MLR benchmark files expose Adaptive-style annotations.  This parser
+    maps the relevant columns to AIRR names, normalizes gene naming, and then
+    returns a :class:`~mir.common.repertoire.LocusRepertoire` for a chosen
+    locus (default: ``TRB``).
+
+    Field mapping
+    -------------
+    ``nucleotide``     → ``junction``
+    ``aminoAcid``      → ``junction_aa``
+    ``count``          → ``duplicate_count``
+    ``vMaxResolved``   → ``v_gene``
+    ``jMaxResolved``   → ``j_gene``
+    ``dMaxResolved``   → ``d_gene``
+
+    Gene-name normalization keeps the file names usable as IMGT-style gene
+    strings:
+
+    * ``TCRBV01`` → ``TRBV1``
+    * ``TCR`` → ``TR``
+    * zero-padded allele suffixes like ``*01`` are normalized to ``*1``
+
+    Boundary reconstruction from insertion/deletion annotations is deferred to
+    a later pass that uses the reference library.
+    """
+
+    _ADAPTIVE_TO_AIRR: dict[str, str] = {
+        "nucleotide": "junction",
+        "aminoAcid": "junction_aa",
+        "count": "duplicate_count",
+        "vMaxResolved": "v_gene",
+        "jMaxResolved": "j_gene",
+        "dMaxResolved": "d_gene",
+    }
+
+    def __init__(self, sep: str = '\t', locus: str = 'TRB') -> None:
+        super().__init__(sep=sep)
+        self.locus = locus
+
+    @staticmethod
+    def _normalize_gene_value(value) -> str:
+        """Return a cleaned Adaptive gene string.
+        
+        Normalizations:
+        - TCRBV → TRBV (TCR → TR)
+        - TRBV05-01 → TRBV5-1 (remove leading zeros from gene number and subtype)
+        - *01 → *1 (remove leading zeros from allele)
+        """
+        if value is None or (not isinstance(value, str) and pd.isna(value)):
+            return ""
+        gene = str(value).strip().split(',')[0].split(';')[0]
+        if not gene or gene == '.':
+            return ""
+        gene = gene.replace('TCR', 'TR')
+        # Remove leading zeros from gene number (e.g., TRBV05 → TRBV5)
+        gene = re.sub(r'^(TR[ABDG][VDJ])0+(\d+)', r'\1\2', gene)
+        # Remove leading zeros from subtype after dash (e.g., V5-01 → V5-1)
+        gene = re.sub(r'-0+(\d+)', r'-\1', gene)
+        # Remove leading zeros from allele suffix (e.g., *01 → *1)
+        gene = re.sub(r'\*0+(\d+)', r'*\1', gene)
+        return gene
+
+    @classmethod
+    def _normalize_pl(cls, df: pl.DataFrame) -> pl.DataFrame:
+        """Normalise Adaptive table columns to AIRR-style names in polars."""
+        df = df.rename({str(col).strip().lstrip('#'): str(col).strip().lstrip('#') for col in df.columns})
+        rename = {src: dst for src, dst in cls._ADAPTIVE_TO_AIRR.items() if src in df.columns}
+        if rename:
+            df = df.rename(rename)
+        for col in ('v_gene', 'd_gene', 'j_gene'):
+            if col in df.columns:
+                df = df.with_columns(
+                    pl.col(col)
+                    .cast(pl.Utf8)
+                    .fill_null('')
+                    .map_elements(cls._normalize_gene_value, return_dtype=pl.Utf8)
+                    .alias(col)
+                )
+        if 'duplicate_count' in df.columns:
+            df = df.with_columns(
+                pl.col('duplicate_count').cast(pl.Int64, strict=False).fill_null(1).alias('duplicate_count')
+            )
+        if 'junction_aa' in df.columns:
+            df = df.with_columns(pl.col('junction_aa').cast(pl.Utf8).fill_null('').alias('junction_aa'))
+        if 'junction' in df.columns:
+            df = df.with_columns(pl.col('junction').cast(pl.Utf8).fill_null('').alias('junction'))
+        return df
+
+    @classmethod
+    def normalize_df(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalise Adaptive table columns to AIRR-style names."""
+        return cls._normalize_pl(pl.from_pandas(df, include_index=False, strict=False)).to_pandas()
+
+    def parse_file(
+        self,
+        path: str | Path,
+        sample_id: str = '',
+        locus: str = '',
+    ) -> LocusRepertoire:
+        """Parse *path* and return a single-locus repertoire."""
+        path = Path(path)
+        if not sample_id:
+            sample_id = path.stem
+
+        df = pl.read_csv(
+            path,
+            separator=self.sep,
+            infer_schema_length=0,
+            null_values=['', 'NA'],
+            truncate_ragged_lines=True,
+        )
+        df = self._normalize_pl(df)
+
+        target_locus = locus or self.locus or ''
+        clonotypes = self._polars_to_clonotypes(df)
+        if target_locus:
+            clonotypes = [clonotype for clonotype in clonotypes if clonotype.locus == target_locus]
+        return LocusRepertoire(clonotypes=clonotypes, locus=target_locus, repertoire_id=sample_id)
+
+    def parse_inner(self, df: pd.DataFrame) -> LocusRepertoire:
+        """Parse an already-loaded Adaptive table into a locus repertoire."""
+        normalized = self.normalize_df(df)
+        target_locus = self.locus or ''
+        clonotypes = self._polars_to_clonotypes(pl.from_pandas(normalized, include_index=False, strict=False))
+        if target_locus:
+            clonotypes = [clonotype for clonotype in clonotypes if clonotype.locus == target_locus]
+        return LocusRepertoire(clonotypes=clonotypes, locus=target_locus)
 
 
 # ---------------------------------------------------------------------------

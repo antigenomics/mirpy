@@ -26,17 +26,25 @@ Install from PyPI:
 pip install mirpy-lib
 ```
 
-Install from the repository root:
+Install from source (one-shot):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
 pip install .
 ```
 
-For development:
+Install from source (editable development mode):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
+./setup.sh
 pip install -e .
 ```
+
+If you only need the package for project usage, prefer `pip install mirpy-lib`.
+If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 
 ## Main modules
 
@@ -70,16 +78,16 @@ the default resource file automatically.
 ```python
 from mir.common.parser import VDJtoolsParser
 
-parser = VDJtoolsParser(lib=lib, sep="\t")
+parser = VDJtoolsParser(sep="\t")
 clonotypes = parser.parse("example.tsv")
 ```
 
 ### Work with repertoires
 
 ```python
-from mir.common.repertoire import Repertoire
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
+repertoire = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
 print(repertoire.duplicate_count)
 print(repertoire.clonotype_count)
 
@@ -95,15 +103,49 @@ canonical_rep = filter_canonical(repertoire, gene_library=imgt_lib)
 You can also load a repertoire directly from a file:
 
 ```python
-from mir.common.repertoire import Repertoire
 from mir.common.parser import VDJtoolsParser
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire.load(
-    parser=VDJtoolsParser(lib=lib, sep="\t"),
-    path="example.tsv",
-    gene="TRB",
+repertoire = LocusRepertoire(
+    clonotypes=VDJtoolsParser(sep="\t").parse("example.tsv"),
+    locus="TRB",
 )
 ```
+
+### Pool repertoires across samples
+
+`mirpy` provides pooled repertoires with configurable identity rules.
+
+```python
+from mir.common.pool import pool_samples
+
+# Pool by nucleotide CDR3 + V/J calls.
+pooled_ntvj = pool_samples(
+    [sample_rep_1, sample_rep_2],
+    rule="ntvj",
+    weighted=True,
+)
+
+# Pool an entire dataset by amino-acid CDR3 + V/J and keep contributing sample ids.
+pooled_aavj = pool_samples(
+    dataset,
+    rule="aavj",
+    include_sample_ids=True,
+)
+```
+
+Supported pooling rules:
+
+- `ntvj`: key is `(junction, v_gene, j_gene)`
+- `nt`: key is `(junction,)`
+- `aavj`: key is `(junction_aa, v_gene, j_gene)`
+- `aa`: key is `(junction_aa,)`
+
+For each pooled key, the representative clonotype is selected by frequency
+(`duplicate_count` when `weighted=True`, otherwise row occurrences), while
+`duplicate_count` is reassigned to the total sum over grouped rows. The pooled
+clonotype metadata contains `incidence` (unique samples) and `occurrences`
+(independent rearrangement rows).
 
 ### Repertoire internals and lazy tabular backend
 
@@ -145,8 +187,10 @@ assert matches_aa_reduced(aa, mask(reduced, 3, AA_MASK))
 ## Resources
 
 - Example notebooks are available in [notebooks/](https://github.com/antigenomics/mirpy/tree/main/notebooks).
-- Source files for the API documentation are stored in [docs/](docs/).
-- After GitHub Pages is enabled for the repository, the documentation site will be rebuilt automatically on each push to `main`.
+- API and module/function documentation: [https://antigenomics.github.io/mirpy/modules.html](https://antigenomics.github.io/mirpy/modules.html)
+- Notebook gallery in docs: [https://antigenomics.github.io/mirpy/examples.html](https://antigenomics.github.io/mirpy/examples.html)
+- Docs source tree: [docs/](docs/)
+- Agent skill guide for LLM-assisted workflows (Claude, GitHub Copilot, similar agents): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 
 ## Project status
 

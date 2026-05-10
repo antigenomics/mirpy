@@ -31,19 +31,21 @@ Default Parallel/Fallback Policy
     1. ``n_jobs == 1`` (explicitly requested)
     2. row count after read is below ``parallel_min_rows`` (default 10,000)
     3. file fits in one chunk (``n_rows <= chunk_size``)
-- For AIRR tables similar to ``tests/assets/yfv_s1_d0_f1.airr.tsv.gz`` and
-    ``tests/assets/yfv_s1_d15_f1.airr.tsv.gz`` (both ~3,000 rows at ~0.07 MB gz),
-    this is about ~43,000 rows per MB gz. Under that approximation,
-    10,000 rows is about 0.23 MB gz.
+- For typical AIRR tables (~3,000 rows at ~0.07 MB gz), this yields about
+    ~43,000 rows per MB gz. Under that approximation, 10,000 rows is about
+    0.23 MB gz.
 """
 
 from __future__ import annotations
 
+import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor
 from itertools import chain, repeat
 from pathlib import Path
 from typing import Callable, Iterable
+
+_MP_CTX = multiprocessing.get_context("spawn")
 
 import pandas as pd
 
@@ -53,6 +55,13 @@ from mir.common.repertoire import LocusRepertoire
 
 DEFAULT_PARALLEL_MIN_ROWS = 10_000
 SAMPLE_ROWS_PER_GZIP_MB = 43_000.0
+_CHUNK_PARSER: ClonotypeTableParser | None = None
+
+
+def _init_chunk_parser_worker() -> None:
+    """Initialize one parser instance per worker process."""
+    global _CHUNK_PARSER
+    _CHUNK_PARSER = ClonotypeTableParser()
 
 
 def estimate_rows_from_gzip_size(path: str | Path, rows_per_mb: float = SAMPLE_ROWS_PER_GZIP_MB) -> int | None:
@@ -83,7 +92,7 @@ def _parse_chunk_worker(chunk_df: pd.DataFrame, locus: str = "") -> LocusReperto
     LocusRepertoire
         Repertoire containing parsed clonotypes from this chunk.
     """
-    parser = ClonotypeTableParser()
+    parser = _CHUNK_PARSER or ClonotypeTableParser()
     chunk_df = parser.normalize_df(chunk_df)
     clonotypes = parser.parse_inner(chunk_df)
     return LocusRepertoire(clonotypes=clonotypes, locus=locus or "")
@@ -102,8 +111,16 @@ def _is_parallel_worthwhile(
 
 def _parse_chunks_parallel(chunks: list[pd.DataFrame], *, locus: str, n_jobs: int) -> LocusRepertoire:
     """Parse pre-split chunks in parallel and merge into one repertoire."""
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
-        repertoires = list(executor.map(_parse_chunk_worker, chunks, [locus] * len(chunks)))
+    map_chunksize = max(1, len(chunks) // max(1, n_jobs * 4))
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
+        repertoires = list(
+            executor.map(
+                _parse_chunk_worker,
+                chunks,
+                [locus] * len(chunks),
+                chunksize=map_chunksize,
+            )
+        )
 
     all_clonotypes = [c for rep in repertoires for c in rep.clonotypes]
     rep_locus = locus or (repertoires[0].locus if repertoires else "")
@@ -205,8 +222,8 @@ def load_airr_parallel(
     if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
         return _parse_chunks_sequential(stream, locus=locus)
 
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
-        reps = executor.map(_parse_chunk_worker, stream, repeat(locus))
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
+        reps = executor.map(_parse_chunk_worker, stream, repeat(locus), chunksize=4)
         all_clonotypes = [c for rep in reps for c in rep.clonotypes]
     return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
 
@@ -280,8 +297,8 @@ def load_airr_with_filter(
     if n_jobs <= 1 or prefetched_rows < parallel_min_rows:
         return _parse_chunks_sequential(stream, locus=locus)
 
-    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
-        reps = executor.map(_parse_chunk_worker, stream, repeat(locus))
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX, initializer=_init_chunk_parser_worker) as executor:
+        reps = executor.map(_parse_chunk_worker, stream, repeat(locus), chunksize=4)
         all_clonotypes = [c for rep in reps for c in rep.clonotypes]
     return LocusRepertoire(clonotypes=all_clonotypes, locus=locus or "")
 
