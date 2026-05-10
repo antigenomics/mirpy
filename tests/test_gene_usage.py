@@ -5,9 +5,11 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
+import pandas as pd
 import pytest
 
-from mir.basic.gene_usage import GeneUsage
+from mir.basic import pgen as pgen_module
+from mir.basic.gene_usage import GeneUsage, precompute_olga_gene_usage_probabilities
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
@@ -276,6 +278,85 @@ class TestGeneUsage:
         ref_gu = GeneUsage.from_repertoire(ref)
         factors = tgt_gu.correction_factors(ref_gu, "TRB", scope="vj", count="count_rearrangement", pseudocount=1.0)
         assert ("TRBV1", "TRBJ1-1") in factors
+
+
+class TestPrecomputeOlgaGeneUsage:
+    """Unit tests for OLGA gene-usage precompute helper."""
+
+    @staticmethod
+    def _mock_control_df() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "v_gene": ["TRBV20-1*01", "TRBV20-1*01", "TRBV5-1*01"],
+                "j_gene": ["TRBJ2-7*01", "TRBJ1-2*01", "TRBJ2-7*01"],
+            }
+        )
+
+    def test_precompute_forwards_parallel_kwargs_and_populates_cache(self) -> None:
+        class DummyManager:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def ensure_and_load_control_df(self, control_type, species, locus, **kwargs):
+                self.calls.append((control_type, species, locus, kwargs))
+                return TestPrecomputeOlgaGeneUsage._mock_control_df()
+
+        manager = DummyManager()
+        cache_key = ("human", "TRB", 123)
+        pgen_module._GENE_USAGE_PROB_CACHE.pop(cache_key, None)
+
+        probs = precompute_olga_gene_usage_probabilities(
+            species="human",
+            locus="TRB",
+            synthetic_n=123,
+            n_jobs=8,
+            seed=777,
+            progress=False,
+            control_manager=manager,
+        )
+
+        assert len(manager.calls) == 1
+        control_type, species, locus, kwargs = manager.calls[0]
+        assert control_type == "synthetic"
+        assert species == "human"
+        assert locus == "TRB"
+        assert kwargs["n"] == 123
+        assert kwargs["n_jobs"] == 8
+        assert kwargs["seed"] == 777
+        assert kwargs["progress"] is False
+
+        assert probs["v"]["TRBV20-1*01"] == pytest.approx(2.0 / 3.0)
+        assert probs["v"]["TRBV5-1*01"] == pytest.approx(1.0 / 3.0)
+        assert probs["j"]["TRBJ2-7*01"] == pytest.approx(2.0 / 3.0)
+        assert probs["j"]["TRBJ1-2*01"] == pytest.approx(1.0 / 3.0)
+        assert probs["vj"][("TRBV20-1*01", "TRBJ2-7*01")] == pytest.approx(1.0 / 3.0)
+
+        assert pgen_module._GENE_USAGE_PROB_CACHE[cache_key] == probs
+        pgen_module._GENE_USAGE_PROB_CACHE.pop(cache_key, None)
+
+    def test_precompute_uses_in_memory_cache_when_available(self) -> None:
+        class ShouldNotBeCalledManager:
+            def ensure_and_load_control_df(self, *_args, **_kwargs):  # pragma: no cover
+                raise AssertionError("manager should not be called when cache is hot")
+
+        cache_key = ("human", "TRB", 321)
+        cached = {
+            "v": {"TRBV20-1*01": 1.0},
+            "j": {"TRBJ2-7*01": 1.0},
+            "vj": {("TRBV20-1*01", "TRBJ2-7*01"): 1.0},
+        }
+        pgen_module._GENE_USAGE_PROB_CACHE[cache_key] = cached
+
+        out = precompute_olga_gene_usage_probabilities(
+            species="human",
+            locus="TRB",
+            synthetic_n=321,
+            control_manager=ShouldNotBeCalledManager(),
+            progress=False,
+        )
+
+        assert out == cached
+        pgen_module._GENE_USAGE_PROB_CACHE.pop(cache_key, None)
 
 
 # ---------------------------------------------------------------------------

@@ -355,6 +355,7 @@ def compute_alice(
                 species=species,
                 locus=locus,
                 synthetic_n=gene_usage_synthetic_n,
+                n_jobs=n_jobs,
                 control_manager=control_manager,
                 control_kwargs=control_kwargs,
             )

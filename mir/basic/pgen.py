@@ -573,6 +573,7 @@ class OlgaModel:
         n: int = 100_000,
         *,
         seed: int = 42,
+        n_jobs: int = 1,
     ) -> "GeneUsage":
         """Estimate V-J gene usage by a cold run of *n* OLGA samples.
 
@@ -584,24 +585,20 @@ class OlgaModel:
         Args:
             n: Number of sequences to sample (higher → more accurate).
             seed: numpy RNG seed.
+            n_jobs: Number of worker processes used for synthetic generation.
 
         Returns:
             GeneUsage with clonotype counts per V-J pair for this locus.
         """
         from mir.basic.gene_usage import GeneUsage
 
-        records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
+        if int(n_jobs) > 1:
+            records = self.generate_pool(n=n, n_jobs=int(n_jobs), seed=seed)
+        else:
+            records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
         locus = self._init_kwargs.get("locus", "")
-        gu = GeneUsage()
-        locus_data = gu._data.setdefault(locus, {})
-        locus_totals = gu._totals.setdefault(locus, [0, 0])
-        for rec in records:
-            v = rec["v_gene"].split("*")[0]
-            j = rec["j_gene"].split("*")[0]
-            entry = locus_data.setdefault((v, j), [0, 0])
-            entry[0] += 1
-            locus_totals[0] += 1
-        return gu
+        usage_df = pd.DataFrame.from_records(records, columns=["v_gene", "j_gene"])
+        return GeneUsage.from_dataframe(usage_df, locus=locus)
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +645,7 @@ class PgenGeneUsageAdjustment:
         *,
         cache_size: int = 100_000,
         seed: int = 42,
+        olga_n_jobs: int = 1,
         count: str = "count_rearrangement",
         pseudocount: float = 1.0,
         reference: "GeneUsage | None" = None,
@@ -657,6 +655,7 @@ class PgenGeneUsageAdjustment:
         self._target = target
         self._cache_size = cache_size
         self._seed = seed
+        self._olga_n_jobs = max(1, int(olga_n_jobs))
         self._count = count
         self._pseudocount = pseudocount
         self._olga_cache: dict[str, _GeneUsage] = {}
@@ -669,7 +668,9 @@ class PgenGeneUsageAdjustment:
         if locus not in self._olga_cache:
             model = OlgaModel(locus=locus, seed=self._seed)
             self._olga_cache[locus] = model.compute_usage_cache(
-                self._cache_size, seed=self._seed
+                self._cache_size,
+                seed=self._seed,
+                n_jobs=self._olga_n_jobs,
             )
         return self._olga_cache[locus]
 
@@ -753,6 +754,7 @@ def get_olga_gene_usage_probabilities(
     species: str,
     locus: str,
     synthetic_n: int,
+    n_jobs: int | None = None,
     control_manager=None,
     control_kwargs: dict | None = None,
 ) -> dict[str, dict[object, float]]:
@@ -766,6 +768,8 @@ def get_olga_gene_usage_probabilities(
     manager = control_manager or ControlManager()
     kwargs = dict(control_kwargs or {})
     kwargs.setdefault("n", int(synthetic_n))
+    if n_jobs is not None:
+        kwargs.setdefault("n_jobs", max(1, int(n_jobs)))
     kwargs.setdefault("progress", False)
     control_df = manager.ensure_and_load_control_df(
         "synthetic",

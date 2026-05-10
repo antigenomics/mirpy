@@ -43,11 +43,11 @@ def test_edit_distance_graph_convergent_rearrangements() -> None:
     assert g.vcount() == 3
     # All three should be connected to each other: c0-c1, c0-c2, c1-c2
     assert g.ecount() == 3  # complete triangle
-    
-    # Verify edges exist
-    assert g.are_adjacent(0, 1)
-    assert g.are_adjacent(0, 2)
-    assert g.are_adjacent(1, 2)
+
+    # Verify edges exist (portable across igraph versions)
+    assert g.get_eid(0, 1, directed=False, error=False) != -1
+    assert g.get_eid(0, 2, directed=False, error=False) != -1
+    assert g.get_eid(1, 2, directed=False, error=False) != -1
 
 
 def test_edit_distance_graph_convergent_with_v_gene_match() -> None:

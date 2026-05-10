@@ -180,12 +180,23 @@ def compute_olga_usage_adjustment(
     *,
     seed: int,
     olga_usage_n: int,
+    n_jobs: int = 1,
     count_mode: str,
     pseudocount: float,
 ) -> UsageAdjustmentResult:
     """Build OLGA usage cache, comparison tables, and OLGA adjustment."""
     olga_model = OlgaModel(locus="TRB", seed=seed)
-    olga_usage = olga_model.compute_usage_cache(n=olga_usage_n, seed=seed)
+    control_mgr = ControlManager()
+    olga_control_df = control_mgr.ensure_and_load_control_df(
+        "synthetic",
+        "human",
+        "TRB",
+        n=int(olga_usage_n),
+        n_jobs=max(1, int(n_jobs)),
+        seed=int(seed),
+        progress=False,
+    )
+    olga_usage = GeneUsage.from_dataframe(olga_control_df, locus="TRB")
 
     v_cmp = yfv_usage.usage_comparison(
         olga_usage,
@@ -233,6 +244,7 @@ def compute_olga_usage_adjustment(
         yfv_usage,
         cache_size=olga_usage_n,
         seed=seed,
+        olga_n_jobs=n_jobs,
         count=count_mode,
         pseudocount=pseudocount,
         reference=olga_usage,

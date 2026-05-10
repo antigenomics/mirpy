@@ -20,6 +20,8 @@ used for frequency comparison.
 from __future__ import annotations
 
 from collections import defaultdict
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -111,6 +113,77 @@ def _safe_group_renormalize(
 def _strip_allele(gene: str) -> str:
     """Strip allele suffix: ``"TRBV1*01"`` → ``"TRBV1"``."""
     return gene.split("*")[0] if gene else ""
+
+
+def precompute_olga_gene_usage_probabilities(
+    *,
+    species: str,
+    locus: str,
+    synthetic_n: int = 10_000_000,
+    n_jobs: int | None = None,
+    seed: int = 42,
+    overwrite: bool = False,
+    progress: bool = True,
+    control_dir: str | Path | None = None,
+    control_manager=None,
+    control_kwargs: dict | None = None,
+    cache_in_memory: bool = True,
+) -> dict[str, dict[object, float]]:
+    """Precompute and persist OLGA V/J/VJ usage probabilities for one model.
+
+    This helper ensures a synthetic OLGA control exists on disk for the
+    requested ``(species, locus, synthetic_n)`` and returns marginal and joint
+    usage probabilities derived from that control. Generation can be parallelized
+    via ``n_jobs``.
+
+    Args:
+        species: Species alias accepted by :class:`~mir.common.control.ControlManager`.
+        locus: IMGT locus code (for example, ``"TRB"``).
+        synthetic_n: Number of synthetic clonotypes used to estimate usage.
+        n_jobs: Number of worker processes for synthetic generation.
+            When ``None``, uses all available CPUs.
+        seed: Random seed used when creating synthetic controls.
+        overwrite: Regenerate control even if a cached artifact exists.
+        progress: Whether to print progress during control generation.
+        control_dir: Optional control cache root. Defaults to manager default.
+        control_manager: Optional preconfigured :class:`~mir.common.control.ControlManager`.
+        control_kwargs: Extra kwargs forwarded to
+            ``ControlManager.ensure_and_load_control_df``.
+        cache_in_memory: Whether to populate in-process OLGA usage cache.
+
+    Returns:
+        Dict with keys ``"v"``, ``"j"``, ``"vj"`` containing probability maps.
+    """
+    from mir.basic.pgen import (
+        _GENE_USAGE_PROB_CACHE,
+        compute_gene_usage_probabilities_from_control_df,
+    )
+    from mir.common.control import ControlManager
+
+    species_key = str(species).lower().strip()
+    cache_key = (species_key, str(locus), int(synthetic_n))
+    if cache_in_memory and not overwrite and cache_key in _GENE_USAGE_PROB_CACHE:
+        return _GENE_USAGE_PROB_CACHE[cache_key]
+
+    manager = control_manager or ControlManager(control_dir=control_dir)
+    kwargs = dict(control_kwargs or {})
+    resolved_n_jobs = int(n_jobs) if n_jobs is not None else int(os.cpu_count() or 1)
+    kwargs.setdefault("n", int(synthetic_n))
+    kwargs.setdefault("n_jobs", max(1, resolved_n_jobs))
+    kwargs.setdefault("seed", int(seed))
+    kwargs.setdefault("overwrite", bool(overwrite))
+    kwargs.setdefault("progress", bool(progress))
+
+    control_df = manager.ensure_and_load_control_df(
+        "synthetic",
+        species,
+        locus,
+        **kwargs,
+    )
+    probs = compute_gene_usage_probabilities_from_control_df(control_df)
+    if cache_in_memory:
+        _GENE_USAGE_PROB_CACHE[cache_key] = probs
+    return probs
 
 
 class GeneUsage:
