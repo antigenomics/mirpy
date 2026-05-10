@@ -24,11 +24,17 @@ model is not needed in Pgen workers.
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 from math import ceil
 import math
-from multiprocessing import Pool
 from typing import TYPE_CHECKING, Iterable
+
+# Use "spawn" on every platform to avoid fork-safety issues (urllib3/requests
+# connection-pool threads from huggingface_hub can leave locked mutexes in the
+# parent that get inherited by forked children, causing indefinite hangs).
+_MP_CTX = multiprocessing.get_context("spawn")
+Pool = _MP_CTX.Pool
 
 import numpy as np
 import olga.generation_probability as pgen
