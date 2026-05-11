@@ -12,3 +12,11 @@ mir.embedding.bag\_of\_kmers module
    :undoc-members:
    :show-inheritance:
 
+mir.embedding.prototypes module
+--------------------------------
+
+.. automodule:: mir.embedding.prototypes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
