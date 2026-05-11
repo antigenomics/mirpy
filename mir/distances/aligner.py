@@ -45,7 +45,7 @@ For ungapped equal-length alignment the CDRAligner C scores match
 BioPython exactly (same BLOSUM62 matrix, verified in test suite).
 """
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from itertools import starmap
 from multiprocessing import Pool
 from Bio import Align
@@ -56,10 +56,6 @@ import numpy as np
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary
-
-# Legacy aliases
-Segment = GeneEntry
-SegmentLibrary = GeneLibrary
 
 # ---------------------------------------------------------------------------
 # Lazy-load C acceleration from seqdist_c (score_max, selfscore)
@@ -79,7 +75,7 @@ def _get_seqdist():
             pass
     return _seqdist_mod
 
-class Scoring:
+class Scoring(ABC):
     """Abstract base for pairwise sequence scoring."""
 
     @abstractmethod
@@ -90,12 +86,29 @@ class Scoring:
         """Normalised score: ``score(s1,s2) - max(score(s1,s1), score(s2,s2))``."""
         return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
 
+    def score_dist(self, s1: str, s2: str) -> float:
+        """Distance: ``score(s1,s1) + score(s2,s2) - 2*score(s1,s2)``."""
+        return self.score(s1, s1) + self.score(s2, s2) - 2 * self.score(s1, s2)
+
 
 class BioAlignerWrapper(Scoring):
-    """Wrapper around :class:`Bio.Align.PairwiseAligner`."""
+    """Wrapper around :class:`Bio.Align.PairwiseAligner`.
+
+    Safe to use with :mod:`multiprocessing` — the underlying BioPython
+    aligner object is reconstructed on unpickling via ``__getstate__`` /
+    ``__setstate__``.
+    """
 
     def __init__(self, scoring: str = "blastp"):
+        self._scoring_name = scoring
         self.aligner = Align.PairwiseAligner(scoring)
+
+    def __getstate__(self):
+        return {"_scoring_name": self._scoring_name}
+
+    def __setstate__(self, state):
+        self._scoring_name = state["_scoring_name"]
+        self.aligner = Align.PairwiseAligner(self._scoring_name)
 
     def score(self, s1, s2) -> float:
         return self.aligner.align(s1, s2).score
@@ -425,11 +438,28 @@ class _Scoring_Wrapper:
 
 
 class GermlineAligner:
-    """Dict-based gene-level aligner built from pre-computed pairwise scores."""
+    """Gene-level aligner built from pre-computed pairwise scores.
+
+    Two construction paths are available:
+
+    * :meth:`from_seqs` — single-locus, backward-compatible; builds from a
+      dict or list of ``(allele, sequence_aa)`` pairs.  Scores are accessed
+      via :meth:`score` / :meth:`score_norm` / :meth:`score_dist`.
+    * :meth:`from_library` — multi-locus; builds from a :class:`GeneLibrary`
+      and computes all pairwise V/J distances per locus.  Distances are
+      accessed via :meth:`dist`.
+
+    Both paths store raw pairwise *scores* (higher = more similar).  The
+    distance formula ``d(a,b) = s(a,a) + s(b,b) − 2·s(a,b)`` converts
+    scores to non-negative distances where ``d(a,a) = 0``.
+    """
 
     def __init__(self, dist: dict[tuple[str, str], float]):
         self.dist = dist
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
+        self._locus_dist: dict[tuple[str, str, str], float] = {}
+        self._fallback_dist: dict[tuple[str, str], float] = {}
+        self._locus_gene_sets: dict[tuple[str, str], frozenset[str]] = {}
 
     def score(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         if isinstance(g1, GeneEntry):
@@ -446,9 +476,117 @@ class GermlineAligner:
     def score_dist(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         return self.score(g1, g1) + self.score(g2, g2) - 2 * self.score(g1, g2)
 
+    def gene_dist(self, locus: str, g1: str, g2: str) -> float:
+        """Pre-computed distance between *g1* and *g2* for *locus*.
+
+        Only available when the aligner was built via :meth:`from_library`.
+        Returns ``d(g1,g2) = s(g1,g1) + s(g2,g2) − 2·s(g1,g2)`` where
+        scores were computed at construction time.
+
+        Args:
+            locus: Receptor locus, e.g. ``'TRB'``.
+            g1: First gene allele, e.g. ``'TRBV10-1*01'``.
+            g2: Second gene allele, e.g. ``'TRBV10-2*01'``.
+
+        Returns:
+            Non-negative distance value (0 when ``g1 == g2``).
+
+        Raises:
+            KeyError: If ``(locus, g1, g2)`` was not in the library used
+                during construction.
+        """
+        key = (locus, g1, g2)
+        val = self._locus_dist.get(key)
+        if val is not None:
+            return val
+        # One or both genes are absent from the library (e.g., pseudogenes or
+        # missing alleles in prototype files).  Return the worst-case distance
+        # for the appropriate gene type so unknown genes are treated as
+        # maximally distant.
+        for gene_type in ('V', 'J', 'D'):
+            gs = self._locus_gene_sets.get((locus, gene_type), frozenset())
+            if g1 in gs or g2 in gs:
+                return self._fallback_dist.get((locus, gene_type), 0.0)
+        # Last resort: infer gene type from allele name prefix
+        allele = g1
+        gene_type_char = allele[len(locus)] if allele.startswith(locus) and len(allele) > len(locus) else 'V'
+        return self._fallback_dist.get((locus, gene_type_char), 0.0)
+
+    @classmethod
+    def from_library(
+        cls,
+        lib: GeneLibrary,
+        loci: list[str] | None = None,
+        scoring: Scoring | None = None,
+    ) -> 'GermlineAligner':
+        """Build a multi-locus GermlineAligner from a :class:`GeneLibrary`.
+
+        Computes all pairwise V-gene and J-gene distances for each locus in
+        *lib* (or the requested subset) at construction time.  Distances are
+        stored internally and retrieved in O(1) via :meth:`dist`.
+
+        Args:
+            lib: Gene library to extract sequences from.
+            loci: Loci to include (e.g. ``['TRB', 'TRA']``).
+                Defaults to all loci present in *lib*.
+            scoring: Scoring function for sequence comparison.
+                Defaults to :class:`BioAlignerWrapper` (full DP alignment).
+
+        Returns:
+            GermlineAligner populated with pre-computed pairwise distances.
+
+        Example:
+            >>> lib = GeneLibrary.load_default(loci={'TRB'}, species={'human'})
+            >>> ga = GermlineAligner.from_library(lib, loci=['TRB'])
+            >>> ga.dist('TRB', 'TRBV10-1*01', 'TRBV10-1*01')
+            0.0
+        """
+        if scoring is None:
+            scoring = BioAlignerWrapper()
+        if loci is None:
+            loci = sorted(lib.get_loci())
+
+        locus_dist: dict[tuple[str, str, str], float] = {}
+        fallback_dist: dict[tuple[str, str], float] = {}
+        locus_gene_sets: dict[tuple[str, str], frozenset[str]] = {}
+
+        for locus in loci:
+            for gene_type in ('V', 'J'):
+                seqs = lib.get_sequences_aa(locus=locus, gene=gene_type)
+                if not seqs:
+                    continue
+
+                locus_gene_sets[(locus, gene_type)] = frozenset(a for a, _ in seqs)
+
+                # Compute pairwise raw scores (half-matrix, then mirror).
+                pair_scores: dict[tuple[str, str], float] = {}
+                for i, (a1, s1) in enumerate(seqs):
+                    for j, (a2, s2) in enumerate(seqs):
+                        if (a2, a1) in pair_scores:
+                            pair_scores[(a1, a2)] = pair_scores[(a2, a1)]
+                        else:
+                            pair_scores[(a1, a2)] = scoring.score(s1, s2)
+
+                # Convert scores to distances and store with locus key.
+                max_d = 0.0
+                for a1, _ in seqs:
+                    for a2, _ in seqs:
+                        d = pair_scores[(a1, a1)] + pair_scores[(a2, a2)] - 2 * pair_scores[(a1, a2)]
+                        locus_dist[(locus, a1, a2)] = float(d)
+                        if d > max_d:
+                            max_d = d
+                fallback_dist[(locus, gene_type)] = max_d
+
+        inst = cls.__new__(cls)
+        inst.dist = {}  # single-locus path not used
+        inst._locus_dist = locus_dist
+        inst._fallback_dist = fallback_dist
+        inst._locus_gene_sets = locus_gene_sets
+        return inst
+
     @classmethod
     def from_seqs(cls,
-                  seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[Segment],
+                  seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[GeneEntry],
                   scoring: Scoring = BioAlignerWrapper(),
                   nproc=1, chunk_sz=4096):
         scoring_wrapper = _Scoring_Wrapper(scoring)

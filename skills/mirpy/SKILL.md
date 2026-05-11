@@ -568,7 +568,76 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 12. Practical Defaults
+## 13. TCREMP Embeddings
+
+Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
+against a fixed set of prototype clonotypes.  Each clonotype is represented as
+`[v_1, j_1, cdr3_1, ..., v_K, j_K, cdr3_K]` where triplets correspond to the K
+prototypes and distances use BLOSUM62: `d(a,b) = s(a,a) + s(b,b) − 2·s(a,b)`.
+
+```python
+from mir.embedding.tcremp import TCREmp
+from mir.common.clonotype import Clonotype
+
+# Build from library defaults (computes all pairwise germline distances once)
+model = TCREmp.from_defaults(
+    species="human",
+    locus="TRB",
+    n_prototypes=1000,       # first 1 000 of 10 000 bundled prototypes
+    cdr3_method="fixed_gap", # or "biopython" for full DP alignment
+)
+
+# Embed a list of Clonotype objects
+clonotypes = [
+    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+]
+X = model.embed(clonotypes, n_jobs=4)  # shape: (2, 3000), dtype: float32
+```
+
+Useful properties:
+
+- `model.n_prototypes` — number of prototypes (K)
+- `model.embedding_dim` — total vector length (3·K)
+- `model.locus`, `model.species` — canonical identifiers
+- `model.prototypes` — Polars DataFrame with columns `v_gene`, `j_gene`, `junction_aa`
+
+Germline-only aligner (multi-locus, used internally by TCREmp):
+
+```python
+from mir.common.gene_library import GeneLibrary
+from mir.distances.aligner import GermlineAligner
+
+lib = GeneLibrary.load_default(loci={"TRB", "TRA"}, species={"human"})
+ga = GermlineAligner.from_library(lib, loci=["TRB", "TRA"])
+
+# O(1) lookup: pre-computed distance (0 for identical genes)
+d = ga.gene_dist("TRB", "TRBV10-1*01", "TRBV10-2*01")
+```
+
+All supported species/loci:
+
+| Species | Loci |
+|---------|------|
+| human   | TRA, TRB, TRG, TRD, IGH, IGK, IGL |
+| mouse   | TRA, TRB |
+
+Key implementation notes:
+
+- Germline distances are pre-computed at construction (O(n²) BioAlignerWrapper calls);
+  embed time uses numpy matrix row lookups (O(1) per gene).
+- Proto CDR3 self-scores are cached at construction; each clonotype requires K+1 CDR3 aligner
+  calls instead of 3K.
+- CDR3 distances use `CDRAligner.score_dist` (C-accelerated, ~1 M pairs/s).
+- Parallelisation via `ProcessPoolExecutor` with spawn context; pass `n_jobs=1` to
+  disable for small batches or debugging.
+- Output is `float32` and TensorFlow/Keras-compatible.
+- Genes absent from the library (pseudogenes, missing alleles) silently receive the
+  maximum observed distance for that locus/gene-type via `gene_dist` fallback.
+- Prototype files live in `mir/resources/prototypes/`; regenerate with
+  `python mir/resources/prototypes/generate_prototypes.py`.
+
+## 13. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

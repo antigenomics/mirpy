@@ -20,3 +20,11 @@ mir.embedding.prototypes module
    :undoc-members:
    :show-inheritance:
 
+mir.embedding.tcremp module
+----------------------------
+
+.. automodule:: mir.embedding.tcremp
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
