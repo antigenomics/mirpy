@@ -9,6 +9,7 @@ This module provides:
 
 from __future__ import annotations
 
+import gzip
 import json
 import math
 import os
@@ -18,7 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
+import polars as pl
 
 from mir.basic.alphabets import aa_to_reduced
 from mir.basic.tokens import tokenize_gapped_str, tokenize_str
@@ -62,8 +63,8 @@ class BagOfKmersParams:
 class ControlKmerProfile:
     """In-memory representation of a control k-mer profile."""
 
-    token_stats: pd.DataFrame
-    position_stats: pd.DataFrame
+    token_stats: pl.DataFrame
+    position_stats: pl.DataFrame
     metadata: dict[str, Any]
 
 
@@ -119,17 +120,19 @@ def _iter_tokens_for_clonotype(
         yield key, pos, n, w
 
 
-def _build_tables_from_df(df: pd.DataFrame, params: BagOfKmersParams) -> tuple[pd.DataFrame, pd.DataFrame]:
+_STATS_SCHEMA = {"token": pl.Utf8, "n": pl.Int64, "T": pl.Int64, "p": pl.Float64, "idf": pl.Float64}
+_POS_SCHEMA = {"token": pl.Utf8, "count": pl.Int64, "pos": pl.Int64, "junction_len": pl.Int64}
+
+
+def _build_tables_from_df(df: pl.DataFrame, params: BagOfKmersParams) -> tuple[pl.DataFrame, pl.DataFrame]:
     token_counts: Counter[str] = Counter()
     pos_counts: Counter[tuple[str, int, int]] = Counter()
 
-    if df.empty:
-        stats_empty = pd.DataFrame(columns=["token", "n", "T", "p", "idf"])
-        pos_empty = pd.DataFrame(columns=["token", "count", "pos", "junction_len"])
-        return stats_empty, pos_empty
+    if df.is_empty():
+        return pl.DataFrame(schema=_STATS_SCHEMA), pl.DataFrame(schema=_POS_SCHEMA)
 
     has_v = "v_gene" in df.columns
-    for rec in df.to_dict(orient="records"):
+    for rec in df.to_dicts():
         for token, pos, junction_len, weight in _iter_tokens_for_clonotype(
             junction_aa=str(rec.get("junction_aa", "")),
             v_gene=str(rec.get("v_gene", "") if has_v else ""),
@@ -140,9 +143,7 @@ def _build_tables_from_df(df: pd.DataFrame, params: BagOfKmersParams) -> tuple[p
             pos_counts[(token, pos, junction_len)] += weight
 
     if not token_counts:
-        stats_empty = pd.DataFrame(columns=["token", "n", "T", "p", "idf"])
-        pos_empty = pd.DataFrame(columns=["token", "count", "pos", "junction_len"])
-        return stats_empty, pos_empty
+        return pl.DataFrame(schema=_STATS_SCHEMA), pl.DataFrame(schema=_POS_SCHEMA)
 
     total_kmers = int(sum(token_counts.values()))
     stats_rows = []
@@ -168,12 +169,8 @@ def _build_tables_from_df(df: pd.DataFrame, params: BagOfKmersParams) -> tuple[p
         for (token, pos, jlen), count in pos_counts.items()
     ]
 
-    token_df = pd.DataFrame.from_records(stats_rows).sort_values(
-        ["n", "token"], ascending=[False, True]
-    ).reset_index(drop=True)
-    pos_df = pd.DataFrame.from_records(pos_rows).sort_values(
-        ["token", "junction_len", "pos"], ascending=[True, True, True]
-    ).reset_index(drop=True)
+    token_df = pl.from_dicts(stats_rows).sort(["n", "token"], descending=[True, False])
+    pos_df = pl.from_dicts(pos_rows).sort(["token", "junction_len", "pos"])
     return token_df, pos_df
 
 
@@ -181,7 +178,7 @@ def tokenize_locus_repertoire_to_table(
     repertoire: LocusRepertoire,
     *,
     params: BagOfKmersParams,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Build a bag-of-k-mers table for one locus repertoire."""
     params.validate()
     rows = [
@@ -192,10 +189,12 @@ def tokenize_locus_repertoire_to_table(
         }
         for c in repertoire.clonotypes
     ]
-    df = pd.DataFrame.from_records(rows)
+    if not rows:
+        return pl.DataFrame(schema={**_STATS_SCHEMA, "locus": pl.Utf8})
+    df = pl.from_dicts(rows)
     token_df, _ = _build_tables_from_df(df, params)
-    if not token_df.empty:
-        token_df["locus"] = repertoire.locus
+    if not token_df.is_empty():
+        token_df = token_df.with_columns(pl.lit(repertoire.locus).alias("locus"))
     return token_df
 
 
@@ -203,9 +202,9 @@ def tokenize_sample_repertoire_by_locus(
     repertoire: SampleRepertoire,
     *,
     params: BagOfKmersParams,
-) -> dict[str, pd.DataFrame]:
+) -> dict[str, pl.DataFrame]:
     """Build per-locus bag-of-k-mers tables for a sample repertoire."""
-    out: dict[str, pd.DataFrame] = {}
+    out: dict[str, pl.DataFrame] = {}
     for locus, locus_rep in repertoire.loci.items():
         out[locus] = tokenize_locus_repertoire_to_table(locus_rep, params=params)
     return out
@@ -215,9 +214,9 @@ def tokenize_dataset_by_sample_and_locus(
     dataset: RepertoireDataset,
     *,
     params: BagOfKmersParams,
-) -> dict[str, dict[str, pd.DataFrame]]:
+) -> dict[str, dict[str, pl.DataFrame]]:
     """Build per-sample, per-locus bag-of-k-mers tables for a dataset."""
-    out: dict[str, dict[str, pd.DataFrame]] = {}
+    out: dict[str, dict[str, pl.DataFrame]] = {}
     for sample_id, sample in dataset.samples.items():
         out[sample_id] = tokenize_sample_repertoire_by_locus(sample, params=params)
     return out
@@ -277,16 +276,17 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def _write_df_tsv_gz_atomic(df: pd.DataFrame, path: Path) -> None:
+def _write_df_tsv_gz_atomic(df: pl.DataFrame, path: Path) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(tmp, sep="\t", index=False, compression="gzip")
+    with gzip.open(tmp, "wb") as fh:
+        fh.write(df.write_csv(separator="\t").encode())
     os.replace(tmp, path)
 
 
-def _load_profile_tables(profile_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    token_stats = pd.read_csv(profile_dir / "token_stats.tsv.gz", sep="\t")
-    pos_stats = pd.read_csv(profile_dir / "position_stats.tsv.gz", sep="\t")
+def _load_profile_tables(profile_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, dict[str, Any]]:
+    token_stats = pl.read_csv(profile_dir / "token_stats.tsv.gz", separator="\t")
+    pos_stats = pl.read_csv(profile_dir / "position_stats.tsv.gz", separator="\t")
     with (profile_dir / "profile.json").open("r", encoding="utf-8") as fh:
         meta = json.load(fh)
     return token_stats, pos_stats, meta
@@ -298,12 +298,12 @@ def _build_profile_metadata(
     species: str,
     locus: str,
     params: BagOfKmersParams,
-    token_df: pd.DataFrame,
-    pos_df: pd.DataFrame,
+    token_df: pl.DataFrame,
+    pos_df: pl.DataFrame,
     cache_enabled: bool,
     paths: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    total_kmers = int(token_df["T"].iloc[0]) if not token_df.empty else 0
+    total_kmers = int(token_df["T"][0]) if not token_df.is_empty() else 0
     return {
         "profile_name": control_kmer_profile_name(control_type, species, locus, params=params),
         "control_type": control_type,
@@ -311,8 +311,8 @@ def _build_profile_metadata(
         "locus": locus,
         "params": asdict(params),
         "total_kmers": total_kmers,
-        "n_tokens": int(len(token_df)),
-        "n_position_rows": int(len(pos_df)),
+        "n_tokens": int(token_df.height),
+        "n_position_rows": int(pos_df.height),
         "created_at_epoch_s": time.time(),
         "cache_enabled": cache_enabled,
         "paths": dict(paths or {}),
@@ -331,7 +331,7 @@ def _build_control_profile_in_memory(
 ) -> ControlKmerProfile:
     control_df = manager.ensure_and_load_control_df(control_type, species, locus, **control_kwargs)
     if max_rows is not None and max_rows > 0 and max_rows < len(control_df):
-        control_df = control_df.sample(n=max_rows, random_state=42).reset_index(drop=True)
+        control_df = control_df.sample(n=max_rows, seed=42)
     token_df, pos_df = _build_tables_from_df(control_df, params)
     meta = _build_profile_metadata(
         control_type=control_type,

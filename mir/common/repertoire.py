@@ -609,17 +609,24 @@ class LocusRepertoire:
                 chunks.append(chunk)
         return chunks
 
-    def serialize(self) -> pd.DataFrame:
-        """Serialise to a pandas DataFrame (legacy helper).
+    def serialize(self) -> pl.DataFrame:
+        """Serialise to a Polars DataFrame (legacy helper; prefer :meth:`to_polars`).
 
-        Returns a DataFrame indexed by ``sequence_id`` with one row per
-        clonotype and one column per :meth:`Clonotype.serialize` key.
+        Returns a DataFrame with one row per clonotype and one column per
+        :meth:`Clonotype.serialize` key, plus a ``sequence_id`` column.
         """
         data: dict[str, list] = defaultdict(list)
+        ids = []
         for c in self.clonotypes:
+            ids.append(c.id)
             for k, v in c.serialize().items():
                 data[k].append(v)
-        return pd.DataFrame(data, index=[c.id for c in self.clonotypes])
+        if not data:
+            return pl.DataFrame()
+        df = pl.from_dict(dict(data))
+        if ids:
+            df = df.with_columns(pl.Series("sequence_id", ids))
+        return df
 
     def to_pickle(self, path: str | Path) -> Path:
         """Serialize this repertoire to a pickle file and return the path."""

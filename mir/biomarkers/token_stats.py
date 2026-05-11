@@ -30,7 +30,7 @@ from typing import Literal
 from typing import Callable
 
 import numpy as np
-import pandas as pd
+import polars as pl
 from scipy.stats import binom, chi2_contingency, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
@@ -86,8 +86,8 @@ class KmerCounter:
             )
         return dict(self._counts)
 
-    def counts_dataframe(self, column: str = "count") -> pd.DataFrame:
-        """Return counts as a single-column :class:`~pandas.DataFrame`.
+    def counts_dataframe(self, column: str = "count") -> pl.DataFrame:
+        """Return counts as a two-column :class:`~polars.DataFrame`.
 
         Parameters
         ----------
@@ -96,10 +96,11 @@ class KmerCounter:
 
         Returns
         -------
-        pandas.DataFrame
-            Indexed by k-mer string.
+        polars.DataFrame
+            Columns: ``kmer``, *column*.
         """
-        return pd.DataFrame.from_dict(self.counts(), orient="index", columns=[column])
+        d = self.counts()
+        return pl.DataFrame({"kmer": list(d.keys()), column: list(d.values())})
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ def compare_kmer_counts(
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
     pseudocount: int = 0,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Statistical comparison of two k-mer count dictionaries.
 
     For every k-mer observed in either repertoire a per-k-mer test is
@@ -147,65 +148,64 @@ def compare_kmer_counts(
 
     Returns
     -------
-    pandas.DataFrame
-        Columns: ``count_1``, ``count_2``, ``freq_1``, ``freq_2``,
+    polars.DataFrame
+        Columns: ``kmer``, ``count_1``, ``count_2``, ``freq_1``, ``freq_2``,
         ``freq_fc``, ``odds_ratio``, ``p_background``, ``p_val``, ``p_val_adj``.
-        Indexed by k-mer.
     """
-    df1 = pd.DataFrame.from_dict(counts_1, orient="index", columns=["count_1"])
-    df2 = pd.DataFrame.from_dict(counts_2, orient="index", columns=["count_2"])
-    df = df1.join(df2, how="outer").fillna(0).astype({"count_1": int, "count_2": int})
-
     if pseudocount < 0:
         raise ValueError(f"pseudocount must be >= 0, got {pseudocount}")
-    if pseudocount > 0:
-        df["count_1"] += pseudocount
-        df["count_2"] += pseudocount
 
-    n1 = df["count_1"].sum()
-    n2 = df["count_2"].sum()
+    all_kmers = sorted(set(counts_1) | set(counts_2))
+    c1_arr = np.array([counts_1.get(k, 0) + pseudocount for k in all_kmers], dtype=int)
+    c2_arr = np.array([counts_2.get(k, 0) + pseudocount for k in all_kmers], dtype=int)
+
+    n1 = int(c1_arr.sum())
+    n2 = int(c2_arr.sum())
     if n1 == 0 or n2 == 0:
         raise ValueError("Both count tables must be non-empty")
 
-    df["freq_1"] = df["count_1"] / n1
-    df["freq_2"] = df["count_2"] / n2
+    freq_1 = c1_arr / n1
+    freq_2 = c2_arr / n2
 
     if test not in {"chi2", "fisher", "binom"}:
         raise ValueError(f"Unknown test {test!r}; use 'chi2', 'fisher', or 'binom'")
 
-    # Contingency tables -> per-kmer p-values and odds ratios
-    pvals = np.empty(len(df))
-    odds = np.empty(len(df))
-    c1 = df["count_1"].values
-    c2 = df["count_2"].values
-    for i in range(len(df)):
-        table = [[int(c1[i]), int(n1 - c1[i])], [int(c2[i]), int(n2 - c2[i])]]
+    pvals = np.empty(len(all_kmers))
+    odds = np.empty(len(all_kmers))
+    for i in range(len(all_kmers)):
+        table = [[int(c1_arr[i]), int(n1 - c1_arr[i])], [int(c2_arr[i]), int(n2 - c2_arr[i])]]
         if test == "fisher":
             odds_i, p_i = fisher_exact(table, alternative="two-sided")
         elif test == "binom":
-            p_background = float(c2[i] / n2)
-            odds_i = np.inf if p_background == 0 else float((c1[i] / n1) / p_background)
-            p_i = binom.sf(int(c1[i]) - 1, int(n1), p_background)
+            p_background = float(c2_arr[i] / n2)
+            odds_i = np.inf if p_background == 0 else float((c1_arr[i] / n1) / p_background)
+            p_i = binom.sf(int(c1_arr[i]) - 1, int(n1), p_background)
         else:
-            odds_i = np.inf if c2[i] == 0 else (c1[i] / c2[i])
+            odds_i = np.inf if c2_arr[i] == 0 else float(c1_arr[i] / c2_arr[i])
             p_i = chi2_contingency(table)[1]
         odds[i] = float(odds_i)
         pvals[i] = float(p_i)
-    df["odds_ratio"] = odds
-    df["p_background"] = df["freq_2"]
-    df["p_val"] = pvals
 
-    # Fold change (freq_1 / freq_2); 0-frequency guarded by fillna above
     with np.errstate(divide="ignore", invalid="ignore"):
-        df["freq_fc"] = df["freq_1"] / df["freq_2"]
+        freq_fc = freq_1 / freq_2
 
-    # Multiple testing correction
     if p_adj_func is not None:
-        df["p_val_adj"] = p_adj_func(df["p_val"].values)
+        p_adj = p_adj_func(pvals)
     else:
-        df["p_val_adj"] = multipletests(df["p_val"].values, method=p_adj_method)[1]
+        p_adj = multipletests(pvals, method=p_adj_method)[1]
 
-    return df
+    return pl.DataFrame({
+        "kmer": all_kmers,
+        "count_1": c1_arr.tolist(),
+        "count_2": c2_arr.tolist(),
+        "freq_1": freq_1.tolist(),
+        "freq_2": freq_2.tolist(),
+        "freq_fc": freq_fc.tolist(),
+        "odds_ratio": odds.tolist(),
+        "p_background": freq_2.tolist(),
+        "p_val": pvals.tolist(),
+        "p_val_adj": p_adj.tolist(),
+    })
 
 
 def compare_repertoire_kmers(
@@ -215,7 +215,7 @@ def compare_repertoire_kmers(
     test: Literal["chi2", "fisher", "binom"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Compare two repertoires by k-mer frequency using 2 x 2 tests.
 
     Convenience wrapper that builds :class:`KmerCounter` instances,
@@ -236,7 +236,7 @@ def compare_repertoire_kmers(
 
     Returns
     -------
-    pandas.DataFrame
+    polars.DataFrame
         Same format as :func:`compare_kmer_counts`.
     """
     c1 = KmerCounter(k, repertoire_1).counts()
@@ -261,7 +261,7 @@ def compare_repertoire_tokens(
     test: Literal["chi2", "fisher", "binom"] = "chi2",
     p_adj_method: str = "holm",
     p_adj_func: Callable[[np.ndarray], np.ndarray] | None = None,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Token-oriented alias for :func:`compare_repertoire_kmers`."""
     return compare_repertoire_kmers(
         repertoire_1,
@@ -278,7 +278,7 @@ def compare_repertoire_tokens(
 # ---------------------------------------------------------------------------
 
 def plot_comparison(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     kind: str = "volcano",
     ax=None,
     top_n: int = 10,
@@ -287,7 +287,7 @@ def plot_comparison(
 
     Parameters
     ----------
-    df : pandas.DataFrame
+    df : polars.DataFrame
         Output of :func:`compare_kmer_counts` or
         :func:`compare_repertoire_kmers`.
     kind : ``"volcano"`` | ``"scatter"``
@@ -308,33 +308,35 @@ def plot_comparison(
         _, ax = plt.subplots(figsize=(10, 6) if kind == "volcano" else (10, 10))
 
     if kind == "scatter":
-        # Guard against log2(0)
-        nonzero = df[(df["freq_1"] > 0) & (df["freq_2"] > 0)]
-        ax.scatter(np.log2(nonzero["freq_1"]), np.log2(nonzero["freq_2"]), s=1)
-        lo = np.log2(nonzero[["freq_1", "freq_2"]].min().min())
-        hi = np.log2(nonzero[["freq_1", "freq_2"]].max().max())
+        nonzero = df.filter((pl.col("freq_1") > 0) & (pl.col("freq_2") > 0))
+        f1 = nonzero["freq_1"].to_numpy()
+        f2 = nonzero["freq_2"].to_numpy()
+        ax.scatter(np.log2(f1), np.log2(f2), s=1)
+        lo = min(np.log2(f1).min(), np.log2(f2).min())
+        hi = max(np.log2(f1).max(), np.log2(f2).max())
         ax.plot([lo, hi], [lo, hi], "--", c="red")
         ax.set_xlabel("log₂(freq_1)")
         ax.set_ylabel("log₂(freq_2)")
 
     elif kind == "volcano":
         floor = 2.0 ** -100
-        pv = df["p_val"].clip(lower=floor)
-        fc = df["freq_fc"].replace([np.inf, -np.inf], np.nan).dropna()
-        log_fc = np.log2(fc)
-        neg_log_p = -np.log2(pv.loc[log_fc.index])
+        finite_fc = df.filter(
+            pl.col("freq_fc").is_finite() & pl.col("freq_fc").is_not_null()
+        )
+        log_fc = np.log2(finite_fc["freq_fc"].to_numpy())
+        pv = np.maximum(finite_fc["p_val"].to_numpy(), floor)
+        neg_log_p = -np.log2(pv)
 
         ax.scatter(log_fc, neg_log_p, s=1)
         ax.set_xlabel("log₂ FC")
         ax.set_ylabel("−log₂(p)")
 
-        # Label top hits
-        top = df.loc[log_fc.index].sort_values("p_val").head(top_n)
-        for kmer, row in top.iterrows():
+        top = finite_fc.sort("p_val").head(top_n)
+        for row in top.iter_rows(named=True):
             x = np.log2(row["freq_fc"]) if np.isfinite(np.log2(row["freq_fc"])) else 0
             y = -np.log2(max(row["p_val"], floor))
             ax.annotate(
-                kmer, (x, y),
+                row["kmer"], (x, y),
                 textcoords="offset points", ha="center",
                 xytext=(0, 10), arrowprops=dict(arrowstyle="-", lw=0.5),
             )

@@ -18,8 +18,10 @@ from typing import Any
 
 _MP_CTX = multiprocessing.get_context("spawn")
 
+import datetime
+
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from mir.basic.gene_usage import GeneUsage
 from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
@@ -109,8 +111,8 @@ class UsageAdjustmentResult:
     olga_usage: GeneUsage
     v_cmp: dict
     vj_cmp: dict
-    v_df: pd.DataFrame
-    vj_df: pd.DataFrame
+    v_df: pl.DataFrame
+    vj_df: pl.DataFrame
     pgen_adj_olga: PgenGeneUsageAdjustment
 
 
@@ -118,7 +120,7 @@ class UsageAdjustmentResult:
 class RealControlAnalysisResult:
     """Artifacts produced when building the real-control null analysis."""
 
-    control_df: pd.DataFrame
+    control_df: pl.DataFrame
     control_usage: GeneUsage
     pgen_adj_real: PgenGeneUsageAdjustment
     pool: PgenBinPool
@@ -216,32 +218,27 @@ def compute_olga_usage_adjustment(
         pseudocount=pseudocount,
     )
 
-    v_df = pd.DataFrame(
-        [
-            {
-                "v_gene": k,
-                "p_yf": vals["p_self"],
-                "p_olga": vals["p_reference"],
-                "factor_v": vals["factor"],
-            }
-            for k, vals in v_cmp.items()
-        ]
+    v_rows = [
+        {"v_gene": k, "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_v": vals["factor"]}
+        for k, vals in v_cmp.items()
+    ]
+    v_df = pl.from_dicts(v_rows) if v_rows else pl.DataFrame(
+        schema={"v_gene": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_v": pl.Float64}
     )
-    v_df["log2_factor_v"] = np.log2(np.clip(v_df["factor_v"].values, 1e-300, None))
+    v_df = v_df.with_columns(
+        pl.col("factor_v").clip(lower_bound=1e-300).log(base=2).alias("log2_factor_v")
+    )
 
-    vj_df = pd.DataFrame(
-        [
-            {
-                "v_gene": k[0],
-                "j_gene": k[1],
-                "p_yf": vals["p_self"],
-                "p_olga": vals["p_reference"],
-                "factor_vj": vals["factor"],
-            }
-            for k, vals in vj_cmp.items()
-        ]
+    vj_rows = [
+        {"v_gene": k[0], "j_gene": k[1], "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_vj": vals["factor"]}
+        for k, vals in vj_cmp.items()
+    ]
+    vj_df = pl.from_dicts(vj_rows) if vj_rows else pl.DataFrame(
+        schema={"v_gene": pl.Utf8, "j_gene": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_vj": pl.Float64}
     )
-    vj_df["log2_factor_vj"] = np.log2(np.clip(vj_df["factor_vj"].values, 1e-300, None))
+    vj_df = vj_df.with_columns(
+        pl.col("factor_vj").clip(lower_bound=1e-300).log(base=2).alias("log2_factor_vj")
+    )
 
     pgen_adj_olga = PgenGeneUsageAdjustment(
         yfv_usage,
@@ -277,7 +274,7 @@ def build_real_control_analysis(
     control_manager: ControlManager | None = None,
 ) -> RealControlAnalysisResult:
     """Construct real-control adjustment, pool, and VDJBet analysis object."""
-    t0 = pd.Timestamp.now()
+    t0 = datetime.datetime.now()
     control_mgr = control_manager or ControlManager()
     real_control_df = control_mgr.ensure_and_load_control_df("real", "human", "TRB")
     real_control_usage = GeneUsage.from_dataframe(real_control_df, locus="TRB")
@@ -306,7 +303,7 @@ def build_real_control_analysis(
         n_jobs=n_jobs,
         seed=seed,
     )
-    elapsed_s = float((pd.Timestamp.now() - t0).total_seconds())
+    elapsed_s = float((datetime.datetime.now() - t0).total_seconds())
 
     return RealControlAnalysisResult(
         control_df=real_control_df,
@@ -364,7 +361,7 @@ def score_samples_dataframe(
     *,
     progress_every: int = 10,
     sample_n_jobs: int = 1,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Score every sample and return a sorted DataFrame matching notebook schema."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -390,9 +387,11 @@ def score_samples_dataframe(
                 if progress_every and i % progress_every == 0:
                     print(f"Processed {i}/{len(samples_list)} samples")
 
-    out = pd.DataFrame(rows_local).sort_values(["donor", "replica", "day"]).reset_index(drop=True)
-    out["matched_n_p_adj"] = bh_fdr(out["matched_n_p_emp"].values)
-    out["matched_dc_log2_p_adj"] = bh_fdr(out["matched_dc_log2_p_emp"].values)
+    out = pl.from_dicts(rows_local).sort(["donor", "replica", "day"])
+    out = out.with_columns([
+        pl.Series("matched_n_p_adj", bh_fdr(out["matched_n_p_emp"].to_numpy())),
+        pl.Series("matched_dc_log2_p_adj", bh_fdr(out["matched_dc_log2_p_emp"].to_numpy())),
+    ])
     return out
 
 
@@ -405,8 +404,8 @@ def build_synthetic_comparison(
     n_mocks: int,
     n_jobs: int,
     seed: int,
-    df_res_real: pd.DataFrame,
-) -> tuple[PgenBinPool, VDJBetOverlapAnalysis, pd.DataFrame, float, pd.DataFrame]:
+    df_res_real: pl.DataFrame,
+) -> tuple[PgenBinPool, VDJBetOverlapAnalysis, pl.DataFrame, float, pl.DataFrame]:
     """Build synthetic null, score all samples, and compute scale-factor X."""
     pool_synth = PgenBinPool(
         "TRB",
@@ -429,11 +428,10 @@ def build_synthetic_comparison(
         / max(df_res_synth["matched_n_mock_mean"].mean(), 1e-12)
     )
 
-    df_res_synth_scaled = df_res_synth.copy()
-    df_res_synth_scaled["matched_n_mock_mean"] = df_res_synth_scaled["matched_n_mock_mean"] * x_scale
-    df_res_synth_scaled["matched_n_mock_sd"] = df_res_synth_scaled["matched_n_mock_sd"] * x_scale
-    df_res_synth_scaled["mock_n"] = df_res_synth_scaled["mock_n"].apply(
-        lambda xs: [float(x) * x_scale for x in xs]
-    )
+    df_res_synth_scaled = df_res_synth.with_columns([
+        (pl.col("matched_n_mock_mean") * x_scale),
+        (pl.col("matched_n_mock_sd") * x_scale),
+        pl.col("mock_n").list.eval(pl.element() * x_scale),
+    ])
 
     return pool_synth, analysis_synth, df_res_synth, x_scale, df_res_synth_scaled

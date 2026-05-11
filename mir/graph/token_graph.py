@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import igraph as ig
-import pandas as pd
+import polars as pl
 
 from mir.basic.token_tables import Kmer, KmerMatch, Clonotype
 from mir.common.clonotype import Clonotype as CommonClonotype
@@ -34,16 +34,11 @@ from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 
-def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
-    """Build a LocusRepertoire from a pandas DataFrame using polars backend."""
-    import polars as pl
-    
-    tmp = df.copy()
-    if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
-        tmp = tmp.rename(columns={"row_id": "sequence_id"})
-    
-    pl_df = pl.from_pandas(tmp, include_index=False)
-    return LocusRepertoire.from_polars(pl_df, locus=locus)
+def _locus_repertoire_from_dataframe(df: pl.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
+    """Build a LocusRepertoire from a Polars DataFrame."""
+    if "sequence_id" not in df.columns and "row_id" in df.columns:
+        df = df.rename({"row_id": "sequence_id"})
+    return LocusRepertoire.from_polars(df, locus=locus)
 
 
 def build_token_graph(
@@ -165,7 +160,7 @@ def combine_enriched_token_maps(
 
 
 def build_full_gliph_clonotype_graph(
-    study_df: pd.DataFrame,
+    study_df: pl.DataFrame,
     token_to_clones: dict[str, set[str]],
     *,
     hamming_threshold: int = 1,
@@ -185,8 +180,8 @@ def build_full_gliph_clonotype_graph(
 
     Parameters
     ----------
-    study_df : pd.DataFrame
-        Clonotype table with columns ``row_id``, ``junction_aa``, ``v_gene``, ``duplicate_count``.
+    study_df : polars.DataFrame
+        Clonotype table with columns ``row_id`` (or ``sequence_id``), ``junction_aa``, ``v_gene``, ``duplicate_count``.
     token_to_clones : dict[str, set[str]]
         Token → clonotype-ID mapping (from :func:`combine_enriched_token_maps`).
     hamming_threshold : int, optional

@@ -3,33 +3,15 @@ from __future__ import annotations
 import threading
 import time
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from mir.biomarkers.tcrnet import add_tcrnet_metadata, compute_tcrnet, tcrnet_table
-from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire
+from tests.factories import make_trb_clone
 
-
-def _clone(
-    sid: str,
-    aa: str,
-    *,
-    v: str = "TRBV5-1*01",
-    j: str = "TRBJ2-7*01",
-    dup: int = 1,
-) -> Clonotype:
-    return Clonotype(
-        sequence_id=sid,
-        locus="TRB",
-        junction_aa=aa,
-        v_gene=v,
-        j_gene=j,
-        duplicate_count=dup,
-        _validate=False,
-    )
-
+_clone = make_trb_clone
 
 def _toy_target() -> LocusRepertoire:
     return LocusRepertoire(
@@ -80,7 +62,7 @@ def test_compute_tcrnet_binomial_basic() -> None:
         pvalue_mode="binomial",
     )
 
-    assert not result.table.empty
+    assert not result.table.is_empty()
     required = {
         "sequence_id",
         "n_neighbors",
@@ -129,7 +111,7 @@ def test_tcrnet_table_from_metadata() -> None:
     rep = _toy_target()
     add_tcrnet_metadata(rep, control=_toy_control(), match_mode="none")
     table = tcrnet_table(rep)
-    assert not table.empty
+    assert not table.is_empty()
     assert len(table) == len(rep.clonotypes)
     assert ((table["p_value"] >= 0.0) & (table["p_value"] <= 1.0)).all()
 
@@ -144,7 +126,7 @@ def test_threshold_gt_one_is_rejected() -> None:
 
 
 def test_control_type_loading_via_manager(monkeypatch) -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "duplicate_count": [1, 1],
             "junction": ["ATG", "GCT"],
@@ -166,7 +148,7 @@ def test_control_type_loading_via_manager(monkeypatch) -> None:
         species="human",
         control_manager=ControlManager(control_dir="/tmp/mirpy_tcrnet_test_controls"),
     )
-    assert not result.table.empty
+    assert not result.table.is_empty()
 
 
 def test_tcrnet_parallel_matches_single_worker() -> None:
@@ -189,7 +171,7 @@ def test_tcrnet_parallel_matches_single_worker() -> None:
         n_jobs=4,
     )
 
-    pd.testing.assert_frame_equal(serial.table, parallel.table)
+    assert serial.table.sort("sequence_id").equals(parallel.table.sort("sequence_id"))
 
 
 def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:

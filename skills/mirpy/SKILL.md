@@ -237,7 +237,7 @@ result = compute_alice(
     rep,
     species="human",
     match_mode="vj",      # "none" | "v" | "j" | "vj"
-  pgen_mode="1mm",      # "exact" (Hamming-0) | "1mm" (Hamming-1)
+    pgen_mode="1mm",      # "exact" (Hamming-0) | "1mm" (Hamming-1)
     pvalue_mode="poisson",         # "poisson" | "negative-binomial"
     pseudocount=0.0,               # added to n and N before p-value computation
     n_jobs=8,
@@ -261,7 +261,7 @@ rep = add_alice_metadata(
     rep,
     species="human",
     match_mode="vj",
-  pgen_mode="1mm",
+    pgen_mode="1mm",
     pvalue_mode="poisson",
     pseudocount=0.0,
     n_jobs=8,
@@ -356,32 +356,32 @@ families = ["v3", "pos3", "u3", "u4", "g4", "g5"]
 
 # Compute control artifacts once (counts only, memory-safe chunking)
 ctrl_artifacts = extract_gliph_artifacts_batch_from_repertoire(
-  control_repertoire,
-  families,
-  count_mode="clonotype",
-  build_mappings=False,
-  trim_first=3,
-  trim_last=4,
-  chunk_size=200_000,
+    control_repertoire,
+    families,
+    count_mode="clonotype",
+    build_mappings=False,
+    trim_first=3,
+    trim_last=4,
+    chunk_size=200_000,
 )
 
 # Reuse for each study with identical trim settings
 study_artifacts = extract_gliph_artifacts_batch_from_repertoire(
-  study_repertoire,
-  families,
-  count_mode="clonotype",
-  build_mappings=False,
-  trim_first=3,
-  trim_last=4,
-  chunk_size=200_000,
+    study_repertoire,
+    families,
+    count_mode="clonotype",
+    build_mappings=False,
+    trim_first=3,
+    trim_last=4,
+    chunk_size=200_000,
 )
 
 comp = compare_gliph_token_incidence(
-  study_artifacts["u3"],
-  ctrl_artifacts["u3"],
-  test="binom",
-  p_adj_method="fdr_bh",
-  pseudocount=1,
+    study_artifacts["u3"],
+    ctrl_artifacts["u3"],
+    test="binom",
+    p_adj_method="fdr_bh",
+    pseudocount=1,
 )
 
 sig = (
@@ -432,33 +432,33 @@ copying large notebook blocks:
 
 ```python
 from mir.comparative.vdjbet_workflow import (
-  build_real_control_analysis,
-  build_synthetic_comparison,
-  compute_bin_alignment_diagnostics,
-  compute_olga_usage_adjustment,
-  load_yfv_trb_samples,
-  score_samples_dataframe,
+    build_real_control_analysis,
+    build_synthetic_comparison,
+    compute_bin_alignment_diagnostics,
+    compute_olga_usage_adjustment,
+    load_yfv_trb_samples,
+    score_samples_dataframe,
 )
 
 samples, yfv_gu = load_yfv_trb_samples(yfv_dir)
 usage = compute_olga_usage_adjustment(
-  yfv_gu,
-  seed=42,
-  olga_usage_n=1_000_000,
-  n_jobs=8,
-  count_mode="count_rearrangement",
-  pseudocount=1.0,
+    yfv_gu,
+    seed=42,
+    olga_usage_n=1_000_000,
+    n_jobs=8,
+    count_mode="count_rearrangement",
+    pseudocount=1.0,
 )
 
 real = build_real_control_analysis(
-  reference_rep,
-  yfv_gu,
-  seed=42,
-  count_mode="count_rearrangement",
-  pseudocount=1.0,
-  pool_size=100_000,
-  n_mocks=100,
-  n_jobs=8,
+    reference_rep,
+    yfv_gu,
+    seed=42,
+    count_mode="count_rearrangement",
+    pseudocount=1.0,
+    pool_size=100_000,
+    n_mocks=100,
+    n_jobs=8,
 )
 
 diag = compute_bin_alignment_diagnostics(real.analysis)
@@ -542,7 +542,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 11. SampleRepertoire Construction
+## 12. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever

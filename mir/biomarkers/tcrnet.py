@@ -29,7 +29,7 @@ import typing as t
 _MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import dataclass
 
-import pandas as pd
+import polars as pl
 from scipy.stats import betabinom, binom
 
 from mir.basic.gene_usage import GeneUsage
@@ -75,16 +75,16 @@ class TcrnetParams:
 class TcrnetResult:
     """In-memory TCRNET output."""
 
-    table: pd.DataFrame
+    table: pl.DataFrame
     params: TcrnetParams
 
 def _empty_locus(locus: str) -> LocusRepertoire:
     return LocusRepertoire(clonotypes=[], locus=locus)
 
 
-def _df_to_locus_repertoire(df: pd.DataFrame, locus: str) -> LocusRepertoire:
+def _df_to_locus_repertoire(df: pl.DataFrame, locus: str) -> LocusRepertoire:
     rows: list[Clonotype] = []
-    for idx, rec in enumerate(df.to_dict(orient="records")):
+    for idx, rec in enumerate(df.to_dicts()):
         rows.append(
             Clonotype(
                 sequence_id=str(idx),
@@ -224,12 +224,30 @@ def _compute_tcrnet_metrics_batch_from_args(
     )
 
 
+_TCRNET_TABLE_SCHEMA: dict[str, type] = {
+    "sequence_id": pl.Utf8,
+    "locus": pl.Utf8,
+    "junction_aa": pl.Utf8,
+    "v_gene": pl.Utf8,
+    "j_gene": pl.Utf8,
+    "n_neighbors": pl.Int64,
+    "N_possible": pl.Int64,
+    "m_control_neighbors": pl.Float64,
+    "M_control_possible": pl.Float64,
+    "sample_density": pl.Float64,
+    "control_density": pl.Float64,
+    "fold_enrichment": pl.Float64,
+    "p_value": pl.Float64,
+    "q_value": pl.Float64,
+}
+
+
 def tcrnet_table(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
     metadata_prefix: str = "tcrnet",
     sort: bool = True,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Build a TCRNET result table from clonotype metadata."""
     rows: list[dict[str, t.Any]] = []
     for locus, lrep in iter_loci(repertoire).items():
@@ -248,8 +266,8 @@ def tcrnet_table(
                     "j_gene": clonotype.j_gene,
                     "n_neighbors": n,
                     "N_possible": N,
-                    "m_control_neighbors": m,
-                    "M_control_possible": M,
+                    "m_control_neighbors": float(m),
+                    "M_control_possible": float(M),
                     "sample_density": float(n / N) if N > 0 else 0.0,
                     "control_density": float(m / M) if M > 0 else 0.0,
                     "fold_enrichment": float(md.get(f"{metadata_prefix}_fold", 0.0)),
@@ -257,9 +275,11 @@ def tcrnet_table(
                     "q_value": float(md.get(f"{metadata_prefix}_q_value", 1.0)),
                 }
             )
-    table = pd.DataFrame.from_records(rows)
-    if sort and not table.empty:
-        table = table.sort_values(["p_value", "fold_enrichment"], ascending=[True, False]).reset_index(drop=True)
+    if not rows:
+        return pl.DataFrame(schema=_TCRNET_TABLE_SCHEMA)
+    table = pl.from_dicts(rows)
+    if sort:
+        table = table.sort(["p_value", "fold_enrichment"], descending=[False, True])
     return table
 
 

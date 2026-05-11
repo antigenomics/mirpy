@@ -4,12 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 
+import polars as pl
 import pytest
 from scipy.stats import poisson
 
 from mir.biomarkers.alice import add_alice_metadata, compute_alice
-from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
+from tests.factories import make_trb_clone
 
 
 class _FakeOlgaModel:
@@ -43,23 +44,8 @@ class _FakeOlgaModel:
         return [float(compute_one(seq)) for seq in junction_aas]
 
 
-def _clone(
-    sid: str,
-    aa: str,
-    *,
-    v: str = "TRBV5-1*01",
-    j: str = "TRBJ2-7*01",
-) -> Clonotype:
-    return Clonotype(
-        sequence_id=sid,
-        locus="TRB",
-        junction_aa=aa,
-        v_gene=v,
-        j_gene=j,
-        duplicate_count=1,
-        _validate=False,
-    )
 
+_clone = make_trb_clone
 
 def test_compute_alice_basic_formulae(monkeypatch) -> None:
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
@@ -79,8 +65,8 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
         n_jobs=1,
     )
 
-    assert not result.table.empty
-    row0 = result.table[result.table["sequence_id"] == "0"].iloc[0]
+    assert not result.table.is_empty()
+    row0 = result.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
 
     assert int(row0["n_neighbors"]) == 1
     assert int(row0["N_possible"]) == 2
@@ -103,7 +89,7 @@ def test_compute_alice_v_matching_raw_pgen(monkeypatch) -> None:
         n_jobs=1,
     )
 
-    row = result.table.iloc[0]
+    row = result.table.row(0, named=True)
     assert float(row["pgen_raw"]) == pytest.approx(0.3)
     assert float(row["pgen"]) == pytest.approx(0.3)
 
@@ -113,7 +99,7 @@ def test_compute_alice_1mm_mode(monkeypatch) -> None:
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
     result = compute_alice(rep, pgen_mode="1mm", n_jobs=1)
-    row = result.table.iloc[0]
+    row = result.table.row(0, named=True)
     assert float(row["pgen_raw"]) == pytest.approx(0.5)
 
 
@@ -229,8 +215,8 @@ def test_compute_alice_pvalue_mode_negative_binomial(monkeypatch) -> None:
     result_poisson = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="poisson", n_jobs=1)
     result_nb = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="negative-binomial", n_jobs=1)
 
-    row_p = result_poisson.table[result_poisson.table["sequence_id"] == "0"].iloc[0]
-    row_nb = result_nb.table[result_nb.table["sequence_id"] == "0"].iloc[0]
+    row_p = result_poisson.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
+    row_nb = result_nb.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
 
     assert 0.0 <= float(row_nb["p_value"]) <= 1.0
     assert 0.0 <= float(row_p["p_value"]) <= 1.0
@@ -259,8 +245,8 @@ def test_compute_alice_pseudocount_shifts_expected(monkeypatch) -> None:
     result_no_pc = compute_alice(rep, pgen_mode="exact", pseudocount=0.0, n_jobs=1)
     result_pc = compute_alice(rep, pgen_mode="exact", pseudocount=1.0, n_jobs=1)
 
-    row_no = result_no_pc.table[result_no_pc.table["sequence_id"] == "0"].iloc[0]
-    row_pc = result_pc.table[result_pc.table["sequence_id"] == "0"].iloc[0]
+    row_no = result_no_pc.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
+    row_pc = result_pc.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
 
     # With pseudocount=1.0, expected_neighbors = (N+1)*pgen > N*pgen
     assert float(row_pc["expected_neighbors"]) > float(row_no["expected_neighbors"])

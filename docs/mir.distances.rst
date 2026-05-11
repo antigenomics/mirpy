@@ -12,14 +12,6 @@ mir.distances.aligner module
    :undoc-members:
    :show-inheritance:
 
-mir.distances.graph module
---------------------------
-
-.. automodule:: mir.distances.graph
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.distances.seqdist module
 ----------------------------
 
@@ -28,10 +20,3 @@ mir.distances.seqdist module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
-
-.. automodule:: mir.distances
-   :members:
-   :undoc-members:
-   :show-inheritance:
