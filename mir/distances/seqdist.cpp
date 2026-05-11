@@ -10,6 +10,8 @@
  * CDR3 alignment scoring:
  *   score_max(s1, s2, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat) → double
  *   selfscore(s, mat256, factor, use_mat) → double
+ *   score_batch_max(query, refs, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
+ *       → np.ndarray(float64, len(refs))   [one query vs many refs in one C call]
  *   best_alignment(s1, s2, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
  *       → (s1_gapped, midline, s2_gapped, score)
  */
@@ -312,6 +314,49 @@ static py::tuple c_best_alignment(
 }
 
 /* ================================================================
+ * Batch CDR3 scoring: one query vs many references
+ *
+ * score_batch_max(query, refs, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
+ *   -> np.ndarray(float64, shape=(len(refs),))
+ *
+ * Eliminates K Python→C transitions for the common tcremp hot loop where
+ * one clonotype CDR3 is scored against all K prototype CDR3 sequences.
+ * ================================================================ */
+
+static py::array_t<double> c_score_batch_max(
+        const std::string& query,
+        const std::vector<std::string>& refs,
+        py::array_t<double, py::array::c_style | py::array::forcecast> mat256,
+        py::array_t<int,    py::array::c_style | py::array::forcecast> gaps,
+        double gap_pen, int v_off, int j_off, double factor, bool use_mat) {
+
+    const double* mat = extract_mat(mat256, use_mat);
+    auto gb = gaps.request();
+    const int* gp = static_cast<int*>(gb.ptr);
+    int ng = (int)gb.shape[0];
+
+    int nq = (int)query.size();
+    const char* q = query.data();
+    int n_refs = (int)refs.size();
+
+    py::array_t<double> result(n_refs);
+    double* rdata = static_cast<double*>(result.request().ptr);
+
+    { py::gil_scoped_release release;
+      for (int i = 0; i < n_refs; ++i) {
+          const char* r = refs[i].data();
+          int nr = (int)refs[i].size();
+          int L = nq > nr ? nq : nr;
+          int start = v_off, end = L - j_off;
+          if (end <= start) { rdata[i] = 0.0; continue; }
+          GapResult gr = find_best_gap(q, nq, r, nr, gp, ng, start, end, gap_pen, mat, use_mat);
+          rdata[i] = factor * gr.score;
+      }
+    }
+    return result;
+}
+
+/* ================================================================
  * Module definition
  * ================================================================ */
 
@@ -328,6 +373,9 @@ PYBIND11_MODULE(seqdist_c, m) {
           "Best CDR3 alignment score over a set of gap positions");
     m.def("selfscore", &c_selfscore,
           "Self-alignment score (diagonal of substitution matrix)");
+    m.def("score_batch_max", &c_score_batch_max,
+          "Score one query CDR3 against all refs in a single C call.\n"
+          "Returns float64 array of length len(refs).");
     m.def("best_alignment", &c_best_alignment,
           "Best alignment with gapped strings and midline visualization.\n"
           "Returns (s1_gapped, midline, s2_gapped, score).\n"

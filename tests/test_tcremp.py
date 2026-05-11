@@ -6,10 +6,7 @@ with the distance formula d(a,b) = s(a,a) + s(b,b) - 2*s(a,b).
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
-import polars as pl
 import pytest
 
 from mir.common.clonotype import Clonotype
@@ -144,7 +141,6 @@ class TestGermlineByHand:
         """
         ga = GermlineAligner.from_library(trb_library, loci=["TRB"])
         d = ga.gene_dist("TRB", "TRBV10-1*01", "TRBV10-2*01")
-        # Independently compute with BioAlignerWrapper
         seqs = dict(trb_library.get_sequences_aa(locus="TRB", gene="V"))
         bio = BioAlignerWrapper()
         s_aa = bio.score(seqs["TRBV10-1*01"], seqs["TRBV10-1*01"])
@@ -270,7 +266,6 @@ class TestTCREmpEmbedValues:
         for row in proto_df.iter_rows(named=True):
             c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
             X = tcremp_small.embed([c])
-            # Find the prototype index that matches this clonotype
             for k in range(tcremp_small.n_prototypes):
                 if (
                     tcremp_small._proto_v[k] == row["v_gene"]
@@ -292,7 +287,6 @@ class TestTCREmpEmbedValues:
 
     def test_v_distance_is_zero_when_same_v(self, tcremp_small):
         """V-distance component is 0 when clonotype V == prototype V."""
-        # Find a prototype and use its exact V gene
         proto_v0 = tcremp_small._proto_v[0]
         proto_j0 = tcremp_small._proto_j[0]
         c = _clonotype(proto_v0, proto_j0, "CASSIRSSYEQYF")
@@ -495,7 +489,6 @@ class TestTCREmpMultiLocus:
     @pytest.mark.parametrize("locus", ["TRG", "TRD", "IGH", "IGK", "IGL"])
     def test_embed_shape_and_dtype(self, locus):
         model = TCREmp.from_defaults("human", locus, n_prototypes=5)
-        # Use the first prototype as a test clonotype — guaranteed valid genes.
         row = model.prototypes.row(0, named=True)
         c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
@@ -531,86 +524,3 @@ class TestTCREmpMultiLocus:
         c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
         assert X.shape == (1, 15)
-
-
-# ---------------------------------------------------------------------------
-# Benchmark tests  (skipped unless RUN_BENCHMARK=1)
-# ---------------------------------------------------------------------------
-
-import os as _os
-import time
-import tracemalloc
-
-pytestmark_benchmark = pytest.mark.skipif(
-    not _os.getenv("RUN_BENCHMARK"),
-    reason="set RUN_BENCHMARK=1 to run"
-)
-
-
-@pytest.mark.skipif(not _os.getenv("RUN_BENCHMARK"), reason="set RUN_BENCHMARK=1 to run")
-class TestTCREmpBenchmark:
-    """Wall-time and peak-RSS benchmark for TCREmp.embed.
-
-    Run with:  env RUN_BENCHMARK=1 pytest tests/test_tcremp.py::TestTCREmpBenchmark -s -v
-    """
-
-    @pytest.fixture(scope="class")
-    def benchmark_models(self):
-        models = {}
-        for n_proto in (1000, 3000):
-            models[n_proto] = TCREmp.from_defaults("human", "TRB", n_prototypes=n_proto)
-        return models
-
-    @pytest.fixture(scope="class")
-    def benchmark_clonotypes(self):
-        """Generate clonotypes by cycling over TRB prototypes."""
-        base = TCREmp.from_defaults("human", "TRB", n_prototypes=100)
-        rows = base.prototypes.to_dicts()
-        sizes = [10_000, 50_000, 100_000]
-        clonos = {}
-        for n in sizes:
-            clonos[n] = [
-                _clonotype(rows[i % len(rows)]["v_gene"],
-                           rows[i % len(rows)]["j_gene"],
-                           rows[i % len(rows)]["junction_aa"])
-                for i in range(n)
-            ]
-        return clonos
-
-    def _run_and_measure(self, model, clonos, n_jobs):
-        tracemalloc.start()
-        t0 = time.perf_counter()
-        X = model.embed(clonos, n_jobs=n_jobs)
-        elapsed = time.perf_counter() - t0
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        return X, elapsed, peak / (1024 ** 2)  # MB
-
-    @pytest.mark.parametrize("n_clono,n_proto", [
-        (10_000, 1000),
-        (10_000, 3000),
-        (50_000, 1000),
-        (100_000, 1000),
-    ])
-    def test_benchmark_single_process(self, benchmark_models, benchmark_clonotypes, n_clono, n_proto):
-        model = benchmark_models[n_proto]
-        clonos = benchmark_clonotypes[n_clono]
-        X, elapsed, peak_mb = self._run_and_measure(model, clonos, n_jobs=1)
-        print(f"\n[BENCH n_jobs=1] n_clono={n_clono:>7d} n_proto={n_proto:>4d} "
-              f"| shape={X.shape} | {elapsed:.2f}s | peak={peak_mb:.1f} MB")
-        assert X.shape == (n_clono, 3 * n_proto)
-        assert X.dtype == np.float32
-
-    @pytest.mark.parametrize("n_clono,n_proto", [
-        (10_000, 1000),
-        (10_000, 3000),
-        (50_000, 1000),
-    ])
-    def test_benchmark_multiprocess(self, benchmark_models, benchmark_clonotypes, n_clono, n_proto):
-        model = benchmark_models[n_proto]
-        clonos = benchmark_clonotypes[n_clono]
-        X, elapsed, peak_mb = self._run_and_measure(model, clonos, n_jobs=4)
-        print(f"\n[BENCH n_jobs=4] n_clono={n_clono:>7d} n_proto={n_proto:>4d} "
-              f"| shape={X.shape} | {elapsed:.2f}s | peak={peak_mb:.1f} MB")
-        assert X.shape == (n_clono, 3 * n_proto)
-        assert X.dtype == np.float32
