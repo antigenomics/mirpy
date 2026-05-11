@@ -333,12 +333,10 @@ class GeneLibrary:
     def get_or_create_noallele(self, allele_id: str) -> GeneEntry:
         """Resolve an allele-less identifier to a concrete entry.
 
-        Tries, in order:
-        1. If *allele_id* already contains ``*``, delegates to
-           :meth:`get_or_create`.
-        2. The lexicographically minimum allele with the same base name
-           present in this library.
-        3. Falls back to ``allele_id + "*01"`` via :meth:`get_or_create`.
+        Tries, in order: (1) if ``allele_id`` already contains ``*``,
+        delegates to :meth:`get_or_create`; (2) the lexicographically
+        minimum allele with the same base name present in this library;
+        (3) falls back to ``allele_id + "*01"`` via :meth:`get_or_create`.
         """
         if '*' in allele_id:
             return self.get_or_create(allele_id)

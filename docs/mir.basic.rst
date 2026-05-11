@@ -4,34 +4,10 @@ mir.basic package
 Submodules
 ----------
 
-mir.basic.gene_usage module
----------------------------
+mir.basic.gene\_usage module
+----------------------------
 
 .. automodule:: mir.basic.gene_usage
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.clonotype_usage module
---------------------------------
-
-.. automodule:: mir.basic.clonotype_usage
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.diversity module
---------------------------
-
-.. automodule:: mir.basic.diversity
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.fast_clust module
----------------------------
-
-.. automodule:: mir.basic.fast_clust
    :members:
    :undoc-members:
    :show-inheritance:
@@ -40,30 +16,6 @@ mir.basic.pgen module
 ---------------------
 
 .. automodule:: mir.basic.pgen
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.mirseq_compat module
-------------------------------
-
-.. automodule:: mir.basic.mirseq_compat
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.alphabets module
---------------------------
-
-.. automodule:: mir.basic.alphabets
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.basic.mirseq module
------------------------
-
-.. automodule:: mir.basic.mirseq
    :members:
    :undoc-members:
    :show-inheritance:
@@ -77,7 +29,7 @@ mir.basic.token\_tables module
    :show-inheritance:
 
 mir.basic.token\_tables\_pl module
------------------------------------
+----------------------------------
 
 .. automodule:: mir.basic.token_tables_pl
    :members:
@@ -92,11 +44,26 @@ mir.basic.tokens module
    :undoc-members:
    :show-inheritance:
 
-mir.basic.vdjstat module
-------------------------
+mir.basic.alphabets module
+--------------------------
 
-.. automodule:: mir.basic.vdjstat
+.. automodule:: mir.basic.alphabets
    :members:
    :undoc-members:
    :show-inheritance:
 
+mir.basic.aliases module
+------------------------
+
+.. automodule:: mir.basic.aliases
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.basic.mirseq\_compat module
+--------------------------------
+
+.. automodule:: mir.basic.mirseq_compat
+   :members:
+   :undoc-members:
+   :show-inheritance:

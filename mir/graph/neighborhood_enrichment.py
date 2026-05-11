@@ -468,10 +468,10 @@ def compute_neighborhood_stats(
     Returns
     -------
     dict[str, dict]
-        Mapping from clonotype sequence_id to neighbor statistics dictionary with keys:
-        - ``"neighbor_count"``: Number of neighbors (including self)
-        - ``"potential_neighbors"``: Total number of clonotypes considered as potential neighbors
-          (based on gene matching constraints)
+        Mapping from ``sequence_id`` to a stats dict. Keys are
+        ``"neighbor_count"`` (neighbors within threshold, including self)
+        and ``"potential_neighbors"`` (total clonotypes satisfying gene
+        matching constraints).
 
     Notes
     -----

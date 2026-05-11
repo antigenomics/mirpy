@@ -16,7 +16,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterator
 
-import pandas as pd
 import polars as pl
 
 from mir.common.parser import ClonotypeTableParser
@@ -130,11 +129,11 @@ class RepertoireDataset:
             sample.sample_metadata = record
 
     @property
-    def metadata_df(self) -> pd.DataFrame:
-        """Return metadata as a DataFrame indexed by ``sample_id``."""
+    def metadata_df(self) -> pl.DataFrame:
+        """Return metadata as a Polars DataFrame with a ``sample_id`` column."""
         if not self.metadata:
-            return pd.DataFrame(columns=["sample_id"]).set_index("sample_id")
-        return pd.DataFrame(self.metadata.values()).set_index("sample_id", drop=False)
+            return pl.DataFrame(schema={"sample_id": pl.Utf8})
+        return pl.from_dicts(list(self.metadata.values()))
 
     @classmethod
     def from_folder(
@@ -148,21 +147,20 @@ class RepertoireDataset:
     ) -> "RepertoireDataset":
         """Load a dataset from a folder containing sample files and metadata.
 
-        The metadata table must contain a ``sample_id`` column and either:
-        - a ``file_name`` column with relative paths to sample files, or
-        - a ``file_name_to_sample_id`` callback that maps ``sample_id`` to a
-          relative file path.
+        The metadata table must contain a ``sample_id`` column and a
+        ``file_name`` column with relative paths, or the caller supplies
+        a ``file_name_to_sample_id`` callback mapping sample IDs to paths.
         """
         base = Path(folder)
         meta_path = base / metadata_file
         if not meta_path.exists():
             raise FileNotFoundError(f"metadata file not found: {meta_path}")
 
-        metadata_df = pd.read_csv(meta_path, sep=metadata_sep)
-        if "sample_id" not in metadata_df.columns:
+        meta_df = pl.read_csv(meta_path, separator=metadata_sep, infer_schema_length=10_000)
+        if "sample_id" not in meta_df.columns:
             raise ValueError("metadata must contain a 'sample_id' column")
 
-        has_file_name = "file_name" in metadata_df.columns
+        has_file_name = "file_name" in meta_df.columns
         if not has_file_name and file_name_to_sample_id is None:
             raise ValueError(
                 "metadata must contain 'file_name' column or file_name_to_sample_id must be provided"
@@ -172,7 +170,7 @@ class RepertoireDataset:
         samples: dict[str, SampleRepertoire] = {}
         metadata: dict[str, dict] = {}
 
-        for _, row in metadata_df.iterrows():
+        for row in meta_df.iter_rows(named=True):
             sample_id = str(row["sample_id"])
             rel_path = str(row["file_name"]) if has_file_name else str(file_name_to_sample_id(sample_id))
             sample_path = base / rel_path
@@ -186,18 +184,19 @@ class RepertoireDataset:
                 if not c.locus:
                     c.locus = infer_locus(c.j_gene or c.v_gene or "")
 
+            rec = dict(row)
+            rec["sample_id"] = sample_id
+            if not has_file_name:
+                rec["file_name"] = rel_path
+
             sample_rep = SampleRepertoire.from_clonotypes(
                 clonotypes,
                 sample_id=sample_id,
-                sample_metadata=row.to_dict(),
+                sample_metadata=rec,
             )
             sample_rep.sample_id = sample_id
 
             samples[sample_id] = sample_rep
-            rec = row.to_dict()
-            rec["sample_id"] = sample_id
-            if not has_file_name:
-                rec["file_name"] = rel_path
             metadata[sample_id] = rec
 
         return cls(samples=samples, metadata=metadata)
@@ -452,9 +451,8 @@ class RepertoireDataset:
             else:
                 raise ValueError(f"Unsupported format: {format!r}")
 
-            meta_df = pd.DataFrame(metadata_rows)
             meta_path = out_dir / metadata_file
-            meta_df.to_csv(meta_path, sep="\t", index=False)
+            pl.from_dicts(metadata_rows).write_csv(meta_path, separator="\t")
             return meta_path
 
         for sample_id, sample in self.samples.items():
@@ -483,9 +481,8 @@ class RepertoireDataset:
                 row["file_name"] = rel_name
                 metadata_rows.append(row)
 
-        meta_df = pd.DataFrame(metadata_rows)
         meta_path = out_dir / metadata_file
-        meta_df.to_csv(meta_path, sep="\t", index=False)
+        pl.from_dicts(metadata_rows).write_csv(meta_path, separator="\t")
         return meta_path
 
     def to_tsv(

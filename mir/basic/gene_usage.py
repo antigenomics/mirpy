@@ -22,14 +22,17 @@ from __future__ import annotations
 from collections import defaultdict
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Union
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
     from mir.common.repertoire_dataset import RepertoireDataset
+
+_AnyDataFrame = Union["pd.DataFrame", "pl.DataFrame"]
 
 _VJPair = tuple[str, str]
 GeneScope = Literal["v", "j", "vj"]
@@ -382,7 +385,7 @@ class GeneUsage:
     @classmethod
     def from_dataframe(
         cls,
-        table: pd.DataFrame,
+        table: "_AnyDataFrame",
         *,
         locus: str,
         v_col: str = "v_gene",
@@ -395,7 +398,8 @@ class GeneUsage:
         Parameters
         ----------
         table
-            Input table containing V/J gene fields and optionally duplicate counts.
+            Input table (pandas or polars) containing V/J gene fields and
+            optionally duplicate counts.
         locus
             IMGT locus code to assign to all rows.
         v_col, j_col
@@ -405,7 +409,13 @@ class GeneUsage:
         strip_alleles
             Whether to strip allele suffixes (default ``True``).
         """
-        if v_col not in table.columns or j_col not in table.columns:
+        # Normalise to polars for uniform processing.
+        if not isinstance(table, pl.DataFrame):
+            tbl = pl.from_pandas(table)
+        else:
+            tbl = table
+
+        if v_col not in tbl.columns or j_col not in tbl.columns:
             raise ValueError(
                 f"DataFrame must contain columns {v_col!r} and {j_col!r}"
             )
@@ -414,35 +424,38 @@ class GeneUsage:
         locus_data = obj._data.setdefault(locus, {})
         locus_totals = obj._totals.setdefault(locus, [0, 0])
 
-        work = table[[v_col, j_col]].copy()
-        if duplicate_count_col in table.columns:
-            work[duplicate_count_col] = pd.to_numeric(
-                table[duplicate_count_col],
-                errors="coerce",
-            ).fillna(1).astype(int)
+        cols = [v_col, j_col]
+        if duplicate_count_col in tbl.columns:
+            tbl = tbl.select(cols + [duplicate_count_col]).with_columns(
+                pl.col(duplicate_count_col).cast(pl.Int64, strict=False).fill_null(1)
+            )
         else:
-            work[duplicate_count_col] = 1
+            tbl = tbl.select(cols).with_columns(pl.lit(1).alias(duplicate_count_col))
 
-        work[v_col] = work[v_col].fillna("").astype(str)
-        work[j_col] = work[j_col].fillna("").astype(str)
-        work = work[(work[v_col] != "") & (work[j_col] != "")]
-        if work.empty:
+        tbl = (
+            tbl
+            .with_columns([
+                pl.col(v_col).cast(pl.Utf8).fill_null(""),
+                pl.col(j_col).cast(pl.Utf8).fill_null(""),
+            ])
+            .filter((pl.col(v_col) != "") & (pl.col(j_col) != ""))
+        )
+        if tbl.is_empty():
             return obj
 
         grouped = (
-            work.groupby([v_col, j_col], sort=False, dropna=False)
-            .agg(
-                n_clones=(v_col, "size"),
-                n_dc=(duplicate_count_col, "sum"),
-            )
-            .reset_index()
+            tbl.group_by([v_col, j_col])
+            .agg([
+                pl.len().alias("n_clones"),
+                pl.col(duplicate_count_col).sum().alias("n_dc"),
+            ])
         )
 
-        for row in grouped.itertuples(index=False):
-            v = obj._normalize_gene(getattr(row, v_col) or "")
-            j = obj._normalize_gene(getattr(row, j_col) or "")
-            n_clones = int(getattr(row, "n_clones"))
-            n_dc = int(getattr(row, "n_dc"))
+        for row in grouped.iter_rows(named=True):
+            v = obj._normalize_gene(str(row[v_col] or ""))
+            j = obj._normalize_gene(str(row[j_col] or ""))
+            n_clones = int(row["n_clones"])
+            n_dc = int(row["n_dc"])
             entry = locus_data.setdefault((v, j), [0, 0])
             entry[0] += n_clones
             entry[1] += n_dc
@@ -772,9 +785,9 @@ def zscore_to_sigmoid(z: "np.ndarray | float") -> "np.ndarray | float":
     return float(result) if arr.ndim == 0 else result
 
 
-def _winsorized_mean_std(values: pd.Series, *, lower_q: float = 0.025, upper_q: float = 0.975) -> tuple[float, float]:
+def _winsorized_mean_std(values, *, lower_q: float = 0.025, upper_q: float = 0.975) -> tuple[float, float]:
     """Return mean and SD after clipping to the winsorized interval."""
-    arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    arr = np.asarray(values, dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
         return 0.0, 0.0
