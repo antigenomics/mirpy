@@ -622,20 +622,39 @@ All supported species/loci:
 | human   | TRA, TRB, TRG, TRD, IGH, IGK, IGL |
 | mouse   | TRA, TRB |
 
+Performance (Apple M3, human TRB, K=1000 prototypes):
+
+| Config             | Throughput          | Notes |
+|--------------------|---------------------|-------|
+| `n_jobs=1` (C)     | ~25 000 clono/s     | default, optimal on macOS |
+| `n_jobs=8` (spawn) | ~10 000 clono/s     | spawn overhead dominates |
+
+Use `n_jobs=1` (the default) on macOS/ARM. Multiprocessing with `spawn` is slower
+at all practical batch sizes due to process startup cost (~3 s per batch).
+On Linux with `fork`, multi-process may help for very large batches.
+
 Key implementation notes:
 
 - Germline distances are pre-computed at construction (O(n²) BioAlignerWrapper calls);
   embed time uses numpy matrix row lookups (O(1) per gene).
-- Proto CDR3 self-scores are cached at construction; each clonotype requires K+1 CDR3 aligner
-  calls instead of 3K.
-- CDR3 distances use `CDRAligner.score_dist` (C-accelerated, ~1 M pairs/s).
-- Parallelisation via `ProcessPoolExecutor` with spawn context; pass `n_jobs=1` to
-  disable for small batches or debugging.
-- Output is `float32` and TensorFlow/Keras-compatible.
+- Proto CDR3 self-scores are cached at construction; CDR3 distances per clonotype are
+  computed by `CDRAligner.score_batch` — a single C call that loops over all K refs
+  in C (~25× faster than K separate Python→C calls).
 - Genes absent from the library (pseudogenes, missing alleles) silently receive the
   maximum observed distance for that locus/gene-type via `gene_dist` fallback.
+- Output is `float32` and TensorFlow/Keras-compatible.
 - Prototype files live in `mir/resources/prototypes/`; regenerate with
   `python mir/resources/prototypes/generate_prototypes.py`.
+
+Embedding quality (R² between sequence-space and latent-space distances, 1000×1000):
+
+| Correlation metric | Value |
+|--------------------|-------|
+| Pearson R²         | 0.57  |
+| Spearman ρ         | 0.73  |
+
+Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
+variability is the strongest single predictor of embedding distance.
 
 ## 13. Practical Defaults
 

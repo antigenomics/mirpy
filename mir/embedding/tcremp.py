@@ -73,11 +73,7 @@ def _embed_chunk_worker(
         j_dists = j_dist_mat[ji] if ji is not None else j_fallback
 
         cdr3_ss = cdr3_aligner.score(cdr3, cdr3)
-        cross = np.fromiter(
-            (cdr3_aligner.score(cdr3, s) for s in proto_cdr3),
-            dtype=np.float64,
-            count=n_protos,
-        )
+        cross = cdr3_aligner.score_batch(cdr3, proto_cdr3)
         cdr3_dists = (cdr3_ss + proto_cdr3_selfscores - 2.0 * cross).astype(np.float32)
 
         result[i, 0::3] = v_dists
@@ -268,11 +264,7 @@ class TCREmp:
         j_dists = self._j_dist_mat[ji] if ji is not None else self._j_fallback
 
         cdr3_ss = self.cdr3_aligner.score(cdr3, cdr3)
-        cross = np.fromiter(
-            (self.cdr3_aligner.score(cdr3, s) for s in self._proto_cdr3),
-            dtype=np.float64,
-            count=self._n_prototypes,
-        )
+        cross = self.cdr3_aligner.score_batch(cdr3, self._proto_cdr3)
         cdr3_dists = (cdr3_ss + self._proto_cdr3_selfscores - 2.0 * cross).astype(np.float32)
 
         vec = np.empty(3 * self._n_prototypes, dtype=np.float32)
@@ -284,7 +276,7 @@ class TCREmp:
     def embed(
         self,
         clonotypes: list[Clonotype],
-        n_jobs: int | None = None,
+        n_jobs: int = 1,
     ) -> np.ndarray:
         """Embed clonotypes as distance vectors against all prototypes.
 
@@ -292,9 +284,13 @@ class TCREmp:
             clonotypes: List of clonotypes to embed.  Each must have
                 ``v_gene``, ``j_gene``, and ``junction_aa`` attributes that
                 are present in the gene library used at construction.
-            n_jobs: Number of parallel worker processes.  Uses
-                ``os.cpu_count()`` when ``None``.  Pass ``1`` to disable
-                multiprocessing.
+            n_jobs: Number of parallel worker processes.  Defaults to ``1``
+                (single process), which is optimal for most workloads because
+                the C-accelerated :func:`score_batch_max` inner loop is fast
+                enough that ``spawn``-based process overhead dominates at
+                typical scales.  Set to a value ``> 1`` only for very large
+                batches (> 500 k clonotypes) where compute time exceeds
+                spawn cost.
 
         Returns:
             Float32 array of shape ``(n_clonotypes, 3 * n_prototypes)``.
@@ -320,9 +316,6 @@ class TCREmp:
         n = len(clonotypes)
         if n == 0:
             return np.empty((0, self.embedding_dim), dtype=np.float32)
-
-        if n_jobs is None:
-            n_jobs = os.cpu_count() or 1
 
         result = np.empty((n, self.embedding_dim), dtype=np.float32)
 

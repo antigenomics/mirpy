@@ -26,21 +26,26 @@ This module provides scoring classes for comparing TCR/BCR sequences:
 
 Performance
 -----------
-Benchmarked on 200 pairs of OLGA-generated human TRB CDR3 sequences
-(lengths 10–24 aa), measured on Apple M-series, single thread:
+Benchmarked on OLGA-generated human TRB CDR3 sequences (lengths 10–24 aa),
+measured on Apple M3, single thread:
 
-+-----------------------+-----------+--------------+
-| Method                | Time (ms) | Throughput   |
-+=======================+===========+==============+
-| CDRAligner (C)        |      0.2  | ~1 M pairs/s |
-+-----------------------+-----------+--------------+
-| BioPython PairwiseAl. |      0.7  | ~270 k p/s   |
-+-----------------------+-----------+--------------+
-| CDRAligner (Python)   |      3.9  | ~50 k p/s    |
-+-----------------------+-----------+--------------+
++--------------------------+------------------+---------------------+
+| Method                   | Rate (pairs/s)   | Notes               |
++==========================+==================+=====================+
+| CDRAligner.score_batch   | ~25 M pairs/s    | one C call per      |
+|                          | effective        | clonotype vs K refs |
++--------------------------+------------------+---------------------+
+| CDRAligner.score (C)     | ~1 M pairs/s     | per-pair            |
++--------------------------+------------------+---------------------+
+| BioAlignerWrapper        | ~270 k pairs/s   | full DP alignment   |
++--------------------------+------------------+---------------------+
+| CDRAligner (Python fb.)  | ~50 k pairs/s    | no C extension      |
++--------------------------+------------------+---------------------+
 
-The C extension is **~20× faster** than the pure-Python fallback and
-**~4× faster** than BioPython for the simplified CDR3 gap model.
+:meth:`CDRAligner.score_batch` calls ``seqdist_c.score_batch_max`` once per
+query, looping over K references entirely in C.  This eliminates K Python→C
+transitions and gives **~25× throughput** over K separate :meth:`score` calls.
+
 For ungapped equal-length alignment the CDRAligner C scores match
 BioPython exactly (same BLOSUM62 matrix, verified in test suite).
 """
@@ -81,6 +86,17 @@ class Scoring(ABC):
     @abstractmethod
     def score(self, s1: str, s2: str) -> float:
         """Raw alignment score between *s1* and *s2*."""
+
+    def score_batch(self, query: str, refs: list[str]) -> np.ndarray:
+        """Score *query* against every string in *refs*.
+
+        Default implementation falls back to a Python loop over
+        :meth:`score`.  Subclasses should override for better performance.
+
+        Returns:
+            Float64 numpy array of length ``len(refs)``.
+        """
+        return np.array([self.score(query, r) for r in refs], dtype=np.float64)
 
     def score_norm(self, s1: str, s2: str) -> float:
         """Normalised score: ``score(s1,s2) - max(score(s1,s1), score(s2,s2))``."""
@@ -300,6 +316,32 @@ class CDRAligner(Scoring):
             if sc > best:
                 best = sc
         return best
+
+    def score_batch(self, query: str, refs: list[str]) -> np.ndarray:
+        """Score *query* against every string in *refs* in a single C call.
+
+        Equivalent to ``np.array([score(query, r) for r in refs])`` but
+        executes the inner loop entirely in C, eliminating K Python→C
+        transitions.  Returns a ``float64`` numpy array of length
+        ``len(refs)``.
+
+        Args:
+            query: Query CDR3 amino-acid sequence.
+            refs: List of reference CDR3 sequences to score against.
+
+        Returns:
+            Float64 numpy array of alignment scores, one per reference.
+        """
+        cdr = _get_seqdist()
+        if cdr is not None and hasattr(cdr, "score_batch_max"):
+            return cdr.score_batch_max(
+                query, refs,
+                self._mat256,
+                self.gap_positions,
+                self.gap_penalty, self.v_offset, self.j_offset,
+                self._factor, self._use_mat,
+            )
+        return np.array([self.score(query, r) for r in refs], dtype=np.float64)
 
     def score_norm(self, s1, s2) -> float:
         return self.score(s1, s2) - max(self._selfscore_cached(s1), self._selfscore_cached(s2))
