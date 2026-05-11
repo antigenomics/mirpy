@@ -11,6 +11,11 @@ from mir.embedding.bag_of_kmers import (
 	tokenize_locus_repertoire_to_table,
 	tokenize_sample_repertoire_by_locus,
 )
+from mir.embedding.prototypes import (
+	N_PROTOTYPES,
+	list_available_prototypes,
+	load_prototypes,
+)
 
 __all__ = [
 	"BagOfKmersParams",
@@ -22,4 +27,7 @@ __all__ = [
 	"control_kmer_profile_name",
 	"ensure_control_kmer_profile",
 	"load_control_kmer_profile",
+	"N_PROTOTYPES",
+	"list_available_prototypes",
+	"load_prototypes",
 ]
