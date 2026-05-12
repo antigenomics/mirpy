@@ -213,13 +213,13 @@ class TestTCREmpConstruction:
         assert tcremp_medium.n_prototypes == 100
         assert tcremp_medium.embedding_dim == 300
 
-    def test_invalid_cdr3_method_raises(self):
-        with pytest.raises(ValueError, match="cdr3_method"):
-            TCREmp.from_defaults("human", "TRB", n_prototypes=5, cdr3_method="invalid")
+    def test_invalid_junction_method_raises(self):
+        with pytest.raises(ValueError, match="junction_method"):
+            TCREmp.from_defaults("human", "TRB", n_prototypes=5, junction_method="invalid")
 
     def test_biopython_method(self):
-        model = TCREmp.from_defaults("human", "TRB", n_prototypes=5, cdr3_method="biopython")
-        assert isinstance(model.cdr3_aligner, BioAlignerWrapper)
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=5, junction_method="biopython")
+        assert isinstance(model.junction_aligner, BioAlignerWrapper)
 
     def test_prototypes_dataframe_shape(self, tcremp_small):
         assert tcremp_small.prototypes.shape == (10, 3)
@@ -434,7 +434,7 @@ class TestTCREmpConsistencyWithClonotypeAligner:
 
     @pytest.fixture(scope="class")
     def model(self):
-        return TCREmp.from_defaults("human", "TRB", n_prototypes=10, cdr3_method="fixed_gap")
+        return TCREmp.from_defaults("human", "TRB", n_prototypes=10, junction_method="fixed_gap")
 
     def test_v_component_matches(self, model, clono_aligner):
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")

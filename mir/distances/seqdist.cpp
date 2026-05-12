@@ -7,11 +7,14 @@
  *   hamming(a, b)      → int     Hamming distance (equal-length sequences)
  *   levenshtein(a, b)  → int     Levenshtein (edit) distance
  *
- * CDR3 alignment scoring:
+ * Junction alignment scoring:
  *   score_max(s1, s2, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat) → double
  *   selfscore(s, mat256, factor, use_mat) → double
+ *   selfscore_batch(seqs, mat256, factor, use_mat) → np.ndarray(float64, N)
  *   score_batch_max(query, refs, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
  *       → np.ndarray(float64, len(refs))   [one query vs many refs in one C call]
+ *   score_matrix(queries, refs, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
+ *       → np.ndarray(float64, (N, K))      [N queries vs K refs, GIL released]
  *   best_alignment(s1, s2, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
  *       → (s1_gapped, midline, s2_gapped, score)
  */
@@ -357,6 +360,83 @@ static py::array_t<double> c_score_batch_max(
 }
 
 /* ================================================================
+ * Batch self-scores: N sequences → N self-scores, GIL released
+ *
+ * selfscore_batch(seqs, mat256, factor, use_mat)
+ *   -> np.ndarray(float64, shape=(N,))
+ * ================================================================ */
+
+static py::array_t<double> c_selfscore_batch(
+        const std::vector<std::string>& seqs,
+        py::array_t<double, py::array::c_style | py::array::forcecast> mat256,
+        double factor, bool use_mat) {
+    int N = (int)seqs.size();
+    py::array_t<double> result(N);
+    double* rdata = static_cast<double*>(result.request().ptr);
+    if (!use_mat) {
+        std::fill(rdata, rdata + N, 0.0);
+        return result;
+    }
+    const double* mat = extract_mat(mat256, use_mat);
+    { py::gil_scoped_release release;
+      for (int i = 0; i < N; ++i) {
+          double x = 0.0;
+          for (unsigned char c : seqs[i]) x += mat[(size_t)c * 256 + c];
+          rdata[i] = factor * x;
+      }
+    }
+    return result;
+}
+
+/* ================================================================
+ * Score matrix: N queries × K refs → (N, K) float64, GIL released
+ *
+ * score_matrix(queries, refs, mat256, gaps, gap_pen, v_off, j_off, factor, use_mat)
+ *   -> np.ndarray(float64, shape=(N, K))
+ *
+ * All N*K scoring calls execute in C with the GIL released for the
+ * entire double loop, enabling true thread-level parallelism when
+ * called from multiple Python threads concurrently.
+ * ================================================================ */
+
+static py::array_t<double> c_score_matrix(
+        const std::vector<std::string>& queries,
+        const std::vector<std::string>& refs,
+        py::array_t<double, py::array::c_style | py::array::forcecast> mat256,
+        py::array_t<int,    py::array::c_style | py::array::forcecast> gaps,
+        double gap_pen, int v_off, int j_off, double factor, bool use_mat) {
+
+    const double* mat = extract_mat(mat256, use_mat);
+    auto gb = gaps.request();
+    const int* gp = static_cast<int*>(gb.ptr);
+    int ng = (int)gb.shape[0];
+
+    int N = (int)queries.size();
+    int K = (int)refs.size();
+
+    std::vector<ssize_t> shape = {N, K};
+    py::array_t<double> result(shape);
+    double* rdata = static_cast<double*>(result.request().ptr);
+
+    { py::gil_scoped_release release;
+      for (int i = 0; i < N; ++i) {
+          const char* q  = queries[i].data();
+          int nq = (int)queries[i].size();
+          for (int k = 0; k < K; ++k) {
+              const char* r  = refs[k].data();
+              int nr = (int)refs[k].size();
+              int L = nq > nr ? nq : nr;
+              int start = v_off, end = L - j_off;
+              if (end <= start) { rdata[i * K + k] = 0.0; continue; }
+              GapResult gr = find_best_gap(q, nq, r, nr, gp, ng, start, end, gap_pen, mat, use_mat);
+              rdata[i * K + k] = factor * gr.score;
+          }
+      }
+    }
+    return result;
+}
+
+/* ================================================================
  * Module definition
  * ================================================================ */
 
@@ -374,8 +454,15 @@ PYBIND11_MODULE(seqdist_c, m) {
     m.def("selfscore", &c_selfscore,
           "Self-alignment score (diagonal of substitution matrix)");
     m.def("score_batch_max", &c_score_batch_max,
-          "Score one query CDR3 against all refs in a single C call.\n"
+          "Score one query junction against all refs in a single C call.\n"
           "Returns float64 array of length len(refs).");
+    m.def("selfscore_batch", &c_selfscore_batch,
+          "Self-alignment scores for N sequences.\n"
+          "Returns float64 array of shape (N,). GIL released.");
+    m.def("score_matrix", &c_score_matrix,
+          "Score N query junctions against K refs in a single C call.\n"
+          "Returns float64 array of shape (N, K). GIL released for entire N*K loop,\n"
+          "enabling true thread-level parallelism from concurrent Python threads.");
     m.def("best_alignment", &c_best_alignment,
           "Best alignment with gapped strings and midline visualization.\n"
           "Returns (s1_gapped, midline, s2_gapped, score).\n"
