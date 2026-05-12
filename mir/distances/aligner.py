@@ -77,7 +77,7 @@ def _get_seqdist():
     if _seqdist_mod is None:
         try:
             from mir.distances import seqdist_c as _mod
-            # Verify the CDR3 scoring functions are present
+            # Verify the junction scoring functions are present
             if hasattr(_mod, 'score_max') and hasattr(_mod, 'selfscore'):
                 _seqdist_mod = _mod
         except ImportError:
@@ -152,6 +152,7 @@ class BioAlignerWrapper(Scoring):
 class JunctionAligner(Scoring):
     """Junction amino-acid aligner with a simplified gap model.
 
+    Aligns TCR/BCR junction (CDR3) sequences using fixed gap positions.
     Scores are computed over the interior of the junction (skipping
     *v_offset* positions from the start and *j_offset* from the end)
     using a substitution matrix (BLOSUM62 by default).  When sequences
@@ -303,9 +304,9 @@ class JunctionAligner(Scoring):
         val = self._self_cache.get(s)
         if val is not None:
             return val
-        cdr = _get_seqdist()
-        if cdr is not None:
-            val = cdr.selfscore(s, self._mat256, self._factor, self._use_mat)
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None:
+            val = junction_scorer.selfscore(s, self._mat256, self._factor, self._use_mat)
         else:
             if self.mat is None:
                 val = 0.0
@@ -321,9 +322,9 @@ class JunctionAligner(Scoring):
         return val
 
     def score(self, s1, s2) -> float:
-        cdr = _get_seqdist()
-        if cdr is not None:
-            return cdr.score_max(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None:
+            return junction_scorer.score_max(
                 s1, s2,
                 self._mat256,
                 np.asarray(self.gap_positions, dtype=np.int32),
@@ -349,9 +350,9 @@ class JunctionAligner(Scoring):
         Returns:
             Float64 numpy array of alignment scores, one per reference.
         """
-        cdr = _get_seqdist()
-        if cdr is not None and hasattr(cdr, "score_batch_max"):
-            return cdr.score_batch_max(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "score_batch_max"):
+            return junction_scorer.score_batch_max(
                 query, refs,
                 self._mat256,
                 self.gap_positions,
@@ -374,9 +375,9 @@ class JunctionAligner(Scoring):
         Returns:
             Float64 numpy array of shape ``(N, K)``.
         """
-        cdr = _get_seqdist()
-        if cdr is not None and hasattr(cdr, "score_matrix"):
-            return cdr.score_matrix(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "score_matrix"):
+            return junction_scorer.score_matrix(
                 queries, refs,
                 self._mat256,
                 self.gap_positions,
@@ -398,9 +399,9 @@ class JunctionAligner(Scoring):
         Returns:
             Float64 numpy array of shape ``(N,)`` with ``score(s, s)`` for each.
         """
-        cdr = _get_seqdist()
-        if cdr is not None and hasattr(cdr, "selfscore_batch"):
-            return cdr.selfscore_batch(seqs, self._mat256, self._factor, self._use_mat)
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "selfscore_batch"):
+            return junction_scorer.selfscore_batch(seqs, self._mat256, self._factor, self._use_mat)
         return np.array([self._selfscore_cached(s) for s in seqs], dtype=np.float64)
 
     def score_norm(self, s1, s2) -> float:
@@ -431,10 +432,10 @@ class JunctionAligner(Scoring):
             return tuple(res)
 
     def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
-        cdr = _get_seqdist()
+        junction_scorer = _get_seqdist()
         if len(s1) == len(s2):
-            if cdr is not None:
-                sc = cdr.score_max(
+            if junction_scorer is not None:
+                sc = junction_scorer.score_max(
                     s1, s2, self._mat256, np.array([0], dtype=np.int32),
                     self.gap_penalty, self.v_offset, self.j_offset,
                     self._factor, self._use_mat
@@ -442,9 +443,9 @@ class JunctionAligner(Scoring):
             else:
                 sc = self._score_equal_len_py(s1, s2)
             return ((s1, s2, sc),)
-        if cdr is not None:
+        if junction_scorer is not None:
             scores = tuple(
-                cdr.score_max(
+                junction_scorer.score_max(
                     s1, s2, self._mat256, np.array([int(p)], dtype=np.int32),
                     self.gap_penalty, self.v_offset, self.j_offset,
                     self._factor, self._use_mat
@@ -475,9 +476,9 @@ class JunctionAligner(Scoring):
         tuple[str, str, str, float]
             ``(s1_gapped, midline, s2_gapped, score)``
         """
-        cdr = _get_seqdist()
-        if cdr is not None and hasattr(cdr, 'best_alignment'):
-            return cdr.best_alignment(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, 'best_alignment'):
+            return junction_scorer.best_alignment(
                 s1, s2,
                 self._mat256,
                 np.asarray(self.gap_positions, dtype=np.int32),
