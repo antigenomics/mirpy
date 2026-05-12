@@ -414,6 +414,34 @@ class TestTCREmpPublicAPI:
         assert model.locus == "TRB"
 
 
+class TestTCREmpAutoNJobsPolicy:
+
+    def test_auto_uses_serial_for_small_workload(self, tcremp_small):
+        # 100 * 10 = 1,000 < threshold => serial
+        resolved = tcremp_small._resolve_n_jobs(n_queries=100, n_jobs=None)
+        assert resolved == 1
+
+    def test_auto_uses_cpu_count_for_large_workload(self, tcremp_small, monkeypatch):
+        import mir.embedding.tcremp as tcremp_module
+
+        monkeypatch.setattr(tcremp_module.os, "cpu_count", lambda: 8)
+        # 2,000,000 * 10 = 20,000,000 >= threshold => cpu_count
+        resolved = tcremp_small._resolve_n_jobs(n_queries=2_000_000, n_jobs=None)
+        assert resolved == 8
+
+    def test_auto_keeps_serial_for_biopython_backend(self, monkeypatch):
+        import mir.embedding.tcremp as tcremp_module
+
+        monkeypatch.setattr(tcremp_module.os, "cpu_count", lambda: 8)
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=10, junction_method="biopython")
+        resolved = model._resolve_n_jobs(n_queries=2_000_000, n_jobs=None)
+        assert resolved == 1
+
+    def test_explicit_n_jobs_always_wins(self, tcremp_small):
+        resolved = tcremp_small._resolve_n_jobs(n_queries=10, n_jobs=3)
+        assert resolved == 3
+
+
 # ---------------------------------------------------------------------------
 # Consistency test: TCREmp distances vs ClonotypeAligner.score_dist
 # ---------------------------------------------------------------------------

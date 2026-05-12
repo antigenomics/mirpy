@@ -225,7 +225,88 @@ probs = precompute_olga_gene_usage_probabilities(
 This stores/reuses the synthetic control artifact via `ControlManager` and
 returns a dict with `v`, `j`, and `vj` probability maps.
 
-## 9. ALICE Enrichment
+## 9. Prototype-Based Embeddings With TCREMP
+
+Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
+to a fixed set of prototypes, enabling rapid downstream analysis and ML.
+
+```python
+from mir.embedding.tcremp import TCREmp
+from mir.common.clonotype import Clonotype
+
+# Build from defaults: fast fixed-gap junction alignment (C-accelerated, ~25M pairs/s)
+model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, junction_method="fixed_gap")
+
+# Embed clonotypes
+clonotypes = [
+    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+]
+X = model.embed(clonotypes, n_jobs=4)  # shape: (2, 3000), dtype: float32
+
+# For full DP semantics (slower, ~270k pairs/s):
+model_bio = TCREmp.from_defaults("human", "TRB", n_prototypes=100, junction_method="biopython")
+
+# For custom prototypes (with incomparability warning):
+model_custom = TCREmp.from_file("my_prototypes.tsv", species="human", locus="TRB")
+```
+
+**Embedding structure**: Each clonotype is embedded as `[v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]`
+where `K` is the number of prototypes. All distances use the formula:
+
+$$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
+
+This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
+
+**Parallelization**: TCREmp supports workload-aware `n_jobs` auto selection:
+- `n_jobs=None` (default): auto-switch based on `len(clonotypes) * n_prototypes`
+  between serial (`1`) and `os.cpu_count()`
+- `n_jobs=1`: force serial processing
+- `n_jobs>1`: force explicit worker count
+- In auto mode, the BioPython backend stays serial by default (thread overhead usually dominates)
+
+Why workload uses both clonotypes and prototypes:
+- Work is split on the clonotype/query side for threading.
+- Each query still scores against all prototypes, so per-query work scales with
+  prototype count.
+- Practical complexity is therefore proportional to `N_queries * N_prototypes`.
+
+Backend choice guidance:
+- Use `junction_method="fixed_gap"` for production embedding speed and stable behavior.
+- Use `junction_method="biopython"` when full DP alignment semantics are needed.
+- Current repository benchmarks do not demonstrate a consistent downstream
+  quality improvement from BioPython that would justify changing the default.
+
+**Performance**:
+- Fixed-gap: ~25 M pairs/s (C-accelerated via seqdist C extension)
+- BioPython: ~270 k pairs/s (full DP)
+- Speedup: ~90× for fixed-gap
+
+**Example: epitope analysis**
+
+```python
+# Embed clonotypes from two epitopes
+epi1_clonos = [...]  # ~200 clonotypes with epitope 1
+epi2_clonos = [...]  # ~200 clonotypes with epitope 2
+
+X_epi1 = model.embed(epi1_clonos)
+X_epi2 = model.embed(epi2_clonos)
+
+# Compute within-epitope vs between-epitope distances
+from scipy.spatial.distance import cdist
+within_dist = cdist(X_epi1, X_epi1)  # within epitope 1
+between_dist = cdist(X_epi1, X_epi2)  # across epitopes
+
+print(f"Mean within-dist: {within_dist[~np.eye(len(epi1_clonos), dtype=bool)].mean():.3f}")
+print(f"Mean between-dist: {between_dist.mean():.3f}")
+```
+
+**Backward compatibility**:
+
+- `cdr3_aligner` property and `_proto_cdr3` attribute remain available (aliases to `junction_aligner` and `_proto_junction`).
+- Existing pickled models with `CDRAligner` unpickle without modification.
+
+## 10. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 

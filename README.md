@@ -147,6 +147,77 @@ For each pooled key, the representative clonotype is selected by frequency
 clonotype metadata contains `incidence` (unique samples) and `occurrences`
 (independent rearrangement rows).
 
+### Prototype-based embeddings with TCREMP
+
+`TCREmp` (T-Cell Receptor EMbedding with Prototypes) embeds immune receptor clonotypes
+as distance vectors to a fixed set of prototype clonotypes, enabling rapid downstream
+analysis, dimensionality reduction, and machine learning.
+
+```python
+from mir.embedding.tcremp import TCREmp
+from mir.common.clonotype import Clonotype
+
+# Build a TCREMP model with default prototypes (fast, fixed-gap junction alignment)
+model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, junction_method="fixed_gap")
+
+# Embed clonotypes as distance vectors to all prototypes
+clonotypes = [
+    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+]
+X = model.embed(clonotypes)  # shape: (2, 3000) — float32 array
+
+# Embeddings combine three distance types per prototype: V-germline, J-germline, and junction
+# Column layout: [v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]
+print(X.shape)  # (2, 3000)
+```
+
+For full DP alignment semantics, use `junction_method="biopython"` (slower, ~90x):
+
+```python
+model_bio = TCREmp.from_defaults("human", "TRB", n_prototypes=100, junction_method="biopython")
+```
+
+For custom prototypes:
+
+```python
+model_custom = TCREmp.from_file("prototypes.tsv", species="human", locus="TRB")
+```
+
+Key features:
+
+- **Distance formula**: `d(a, b) = s(a,a) + s(b,b) − 2·s(a,b)` ensures metric properties.
+- **Smart `n_jobs` auto-switch**: with `n_jobs=None` (default), TCREmp chooses `1` or
+    `os.cpu_count()` based on workload `len(clonotypes) * n_prototypes`.
+- **Pre-computed germline distances**: V/J distances are cached for O(1) lookup.
+- **Biologically interpretable**: Each embedding dimension corresponds to distance to a specific prototype.
+
+`n_jobs` behavior:
+
+- `n_jobs=None` (default): auto policy based on workload threshold.
+- `n_jobs=1`: force serial execution.
+- `n_jobs>1`: force explicit worker count.
+
+In auto mode, BioPython junction alignment stays serial because thread overhead
+usually dominates for that backend.
+
+Why threshold is not based on clonotypes alone:
+
+- Parallel splitting is done on the input clonotype list (query axis).
+- However, each query is scored against all prototypes in the C backend.
+- So total work is still proportional to `n_clonotypes * n_prototypes`, and both
+    terms matter for the auto-switch decision.
+
+Default method guidance:
+
+- `fixed_gap` remains the default because it is substantially faster and is the
+    intended production embedding backend.
+- `biopython` can be used when full dynamic-programming semantics are required,
+    but no repository benchmark currently shows a consistent downstream quality
+    gain that justifies making it the default.
+- End-to-end embedding pipelines may show smaller speedups (for example 3-4x)
+    than raw pairwise core-kernel comparisons due to non-alignment overhead.
+
 ### Repertoire internals and lazy tabular backend
 
 `LocusRepertoire` supports three internal representations:

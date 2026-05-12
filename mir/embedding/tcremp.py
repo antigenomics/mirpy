@@ -155,6 +155,12 @@ class TCREmp:
             germline_aligner, locus, "J", self._proto_j
         )
 
+    # Auto-parallelization threshold for default n_jobs=None behavior.
+    # Work is chunked by queries (input clonotypes), but each query is scored
+    # against all prototypes, so total work still scales with N_queries * N_prototypes.
+    # If that workload exceeds this threshold, use all available CPUs.
+    AUTO_PARALLEL_WORKLOAD_THRESHOLD = 10_000_000
+
     @classmethod
     def from_defaults(
         cls,
@@ -317,6 +323,27 @@ class TCREmp:
         """Backward-compatibility alias for :attr:`_proto_junction`."""
         return self._proto_junction
 
+    def _resolve_n_jobs(self, n_queries: int, n_jobs: int | None) -> int:
+        """Resolve effective worker count for embedding.
+
+        Policy:
+        - Explicit ``n_jobs`` always wins (clamped to at least 1).
+        - ``n_jobs=None`` uses workload-aware auto selection.
+                - BioPython backend defaults to serial because the Python-level
+                    PairwiseAligner calls are relatively fine-grained and thread overhead
+                    typically dominates.
+        """
+        if n_jobs is not None:
+            return max(1, int(n_jobs))
+
+        if isinstance(self.junction_aligner, BioAlignerWrapper):
+            return 1
+
+        workload = n_queries * self._n_prototypes
+        if workload >= self.AUTO_PARALLEL_WORKLOAD_THRESHOLD:
+            return os.cpu_count() or 1
+        return 1
+
     def embed(
         self,
         clonotypes: list[Clonotype],
@@ -333,8 +360,22 @@ class TCREmp:
 
         Args:
             clonotypes: List of clonotypes to embed.
-            n_jobs: Number of parallel worker threads.  ``None`` (default)
-                uses :func:`os.cpu_count`.  ``1`` disables threading.
+            n_jobs: Number of parallel worker threads:
+
+                                * ``None`` (default) — auto-select based on workload
+                                    ``len(clonotypes) * n_prototypes``:
+
+                                    * uses ``1`` for small workloads.
+                                    * uses ``os.cpu_count()`` when workload is at least
+                                        ``AUTO_PARALLEL_WORKLOAD_THRESHOLD``.
+
+                                * ``1`` — force serial execution.
+                                * ``> 1`` — force explicit worker count.
+
+                                Note: chunking is by clonotypes, but each chunk computes scores
+                                against all prototypes, so prototype count still contributes
+                                linearly to total cost. For BioPython junction alignment,
+                                auto mode always uses serial execution.
 
         Returns:
             Float32 array of shape ``(n_clonotypes, 3 * n_prototypes)``.
@@ -357,8 +398,7 @@ class TCREmp:
         if n == 0:
             return np.empty((0, self.embedding_dim), dtype=np.float32)
 
-        if n_jobs is None:
-            n_jobs = os.cpu_count() or 1
+        n_jobs = self._resolve_n_jobs(n_queries=n, n_jobs=n_jobs)
 
         v_genes = [c.v_gene for c in clonotypes]
         j_genes = [c.j_gene for c in clonotypes]
