@@ -414,7 +414,7 @@ static py::array_t<double> c_score_matrix(
     int N = (int)queries.size();
     int K = (int)refs.size();
 
-    std::vector<ssize_t> shape = {N, K};
+    std::vector<Py_ssize_t> shape = {N, K};
     py::array_t<double> result(shape);
     double* rdata = static_cast<double*>(result.request().ptr);
 
