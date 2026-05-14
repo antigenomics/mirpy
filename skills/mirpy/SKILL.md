@@ -359,6 +359,51 @@ Key behavior notes:
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
 
+## 11. Single-Cell 10x Paired Chains
+
+Use `load_10x_vdj_v1_donor` to assemble paired-chain objects from 10x v1 donor
+files where consensus annotations define clonotypes and all-contig annotations
+define cell barcode linkage.
+
+```python
+from mir.common.single_cell import load_10x_vdj_v1_donor
+
+donor = load_10x_vdj_v1_donor(
+    consensus_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
+    all_contig_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
+    donor_id="vdj_v1_hs_aggregated_donor1",
+)
+
+print(donor.loaded_cell_count)
+print(donor.loaded_clonotype_count)
+print(donor.paired_locus_repertoires["TRA_TRB"].clonotype_count)
+print(donor.chain_multiplicity)
+```
+
+Key behavior:
+
+- Supported locus-pair families: `TRA_TRB`, `TRG_TRD`, `IGH_IGK`, `IGH_IGL`.
+- Multi-chain cells are expanded deterministically by cartesian product per
+  locus pair (e.g., `2x1` yields two paired clonotypes).
+- `SingleCellRepertoire` keeps barcode -> pair_id links separate for future
+  multimodal integration.
+
+## 12. 10x Benchmark And scirpy Concordance
+
+Use the dedicated benchmark test module for speed, memory, and parity checks on
+AIRR benchmark donors:
+
+```bash
+env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
+```
+
+This suite validates:
+
+- bounded runtime and RSS deltas for mirpy 10x loading,
+- non-empty loaded cells/clonotypes/pairing summaries,
+- mirpy vs scirpy TRA/TRB quadrant concordance on dominant patterns,
+- speed/memory competitiveness relative to scirpy on the same donor.
+
 ## 9.1 TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.

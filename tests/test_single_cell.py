@@ -137,12 +137,12 @@ def test_load_10x_vdj_v1_from_airr_benchmark_donor1_like() -> None:
     ensure_test_data(force=False, verbose=False)
     dcode_root = Path(__file__).resolve().parents[1] / "airr_benchmark" / "dcode"
     if not dcode_root.exists():
-        pytest.skip("dcode/10x_vdj_v1 assets not found in local airr_benchmark")
+        pytest.skip("dcode assets not found in local airr_benchmark")
 
     all_contig_files = sorted(dcode_root.glob("*_all_contig_annotations.csv.gz"))
     consensus_files = sorted(dcode_root.glob("*_consensus_annotations.csv.gz"))
     if not all_contig_files or not consensus_files:
-        pytest.skip("No 10x_vdj_v1 donor files found under dcode/10x_vdj_v1")
+        pytest.skip("No donor all_contig/consensus files found under dcode")
 
     # Prefer donor 1 naming variants when present; otherwise fallback to first donor.
     donor1_all = next((p for p in all_contig_files if "donor1" in p.name or "_1_" in p.name), all_contig_files[0])
