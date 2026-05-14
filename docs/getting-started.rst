@@ -216,7 +216,14 @@ Each synthetic barcode stores VDJdb metadata such as ``mhc.a``, ``mhc.b``,
 Notebook examples:
 
 * ``notebooks/tcremp_vdjdb_analysis.ipynb``: single-chain TRA/TRB TCRemp analysis on VDJdb slim.
-* ``notebooks/tcremp_vdjdb_analysis_paired.ipynb``: paired TRA/TRB embeddings on VDJdb full with strict and imputed workflows.
+* ``notebooks/tcremp_vdjdb_analysis_paired.ipynb``: paired TRA/TRB embeddings on VDJdb full with strict and imputed workflows,
+  including polars-only PCA variance explained, bounded-kneedle DBSCAN diagnostics,
+  purity/retention/consistency summaries, and SLL epitope outlier checks across paired,
+  TRA-only, and TRB-only embeddings.
+
+In the paired notebook, VDJdb epitope metadata is demonstrated both as direct
+``barcode_metadata`` lookups and as a tabular ``metadata_to_polars()`` view for
+filtering and joins without pandas.
 
 Benchmarking 10x Loading
 ------------------------
@@ -228,6 +235,7 @@ and concordance with scirpy loading behavior.
 
    env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
    env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_repair_benchmark.py -s -x
+   env RUN_BENCHMARK=1 python -m pytest tests/test_tcremp_vdjdb_benchmark.py -s -x
 
 The benchmark suite asserts:
 

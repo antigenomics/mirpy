@@ -1,0 +1,363 @@
+"""VDJdb-backed TCREmp benchmark tests with clustering-quality assertions.
+
+Run with:
+    env RUN_BENCHMARK=1 python -m pytest -s tests/test_tcremp_vdjdb_benchmark.py
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import pytest
+from sklearn.cluster import DBSCAN
+from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler, normalize as l2normalize
+
+from mir.common.clonotype import Clonotype
+from mir.common.parser import VDJdbFullPairedParser, VDJdbSlimParser
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
+from mir.common.single_cell_repair import impute_missing_chains
+from mir.embedding.tcremp import PairedTCREmp, TCREmp
+
+try:
+    from kneed import KneeLocator
+except Exception:  # pragma: no cover - fallback path only
+    KneeLocator = None
+
+skip_benchmarks = pytest.mark.skipif(
+    not os.getenv("RUN_BENCHMARK"), reason="set RUN_BENCHMARK=1 to run"
+)
+
+ASSETS = Path(__file__).parent / "assets"
+_VDJDB_SLIM_FILE = ASSETS / "vdjdb.slim.txt.gz"
+_VDJDB_FULL_FILE = ASSETS / "vdjdb_full.txt.gz"
+
+SEED = 42
+
+
+def _seeded_sample(df: pl.DataFrame, n: int) -> pl.DataFrame:
+    if df.height <= n:
+        return df
+    return df.sample(n=n, with_replacement=False, shuffle=True, seed=SEED)
+
+
+def _categorize_epitopes(df: pl.DataFrame, focal_epitopes: list[str]) -> pl.DataFrame:
+    return df.with_columns(
+        pl.when(pl.col("epitope").is_in(focal_epitopes))
+        .then(pl.col("epitope"))
+        .otherwise(pl.lit("other"))
+        .alias("epitope_cat")
+    )
+
+
+def _balanced_subset(
+    df: pl.DataFrame,
+    *,
+    label_col: str,
+    focal_epitopes: list[str],
+    sample_per_epitope: int,
+    other_sample: int,
+) -> pl.DataFrame:
+    selected_parts: list[pl.DataFrame] = []
+    for ep in focal_epitopes:
+        selected_parts.append(
+            _seeded_sample(df.filter(pl.col(label_col) == ep), sample_per_epitope)
+        )
+    selected_parts.append(
+        _seeded_sample(df.filter(pl.col(label_col) == "other"), other_sample)
+    )
+    return pl.concat([x for x in selected_parts if x.height > 0], how="vertical")
+
+
+def _kneedle_eps(X_pca: np.ndarray, k: int = 4) -> tuple[np.ndarray, float]:
+    nn = NearestNeighbors(n_neighbors=k, metric="euclidean")
+    nn.fit(X_pca)
+    dists, _ = nn.kneighbors(X_pca)
+    kth = np.sort(dists[:, -1])
+    eps_floor = float(np.quantile(kth, 0.10))
+    eps_cap = float(np.quantile(kth, 0.40))
+    if KneeLocator is None:
+        return kth, eps_floor
+    knee = KneeLocator(
+        np.arange(len(kth)),
+        kth,
+        curve="convex",
+        direction="increasing",
+        interp_method="polynomial",
+    )
+    if knee.knee is None:
+        return kth, eps_floor
+    eps = min(float(kth[knee.knee]), eps_cap)
+    return kth, max(eps, eps_floor)
+
+
+def _cluster_metrics(X_raw: np.ndarray, labels: np.ndarray) -> dict[str, float | int]:
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_raw)
+    pca_full = PCA(random_state=SEED).fit(X_scaled)
+    cum = np.cumsum(pca_full.explained_variance_ratio_)
+    n_comp = int(np.searchsorted(cum, 0.90)) + 1
+    X_pca = l2normalize(PCA(n_components=n_comp, random_state=SEED).fit_transform(X_scaled))
+    kth, eps = _kneedle_eps(X_pca)
+    clusters = DBSCAN(eps=eps, min_samples=3, metric="euclidean", n_jobs=-1).fit_predict(X_pca)
+
+    mask = clusters != -1
+    retained_labels = labels[mask]
+    cluster_ids = np.unique(clusters[mask])
+
+    if len(cluster_ids) == 0:
+        purity = 0.0
+        consistency = 0.0
+    else:
+        per_cluster_purity = []
+        for cid in cluster_ids:
+            cl_labels = retained_labels[clusters[mask] == cid]
+            uniq, counts = np.unique(cl_labels, return_counts=True)
+            dominant = float(counts.max() / counts.sum())
+            per_cluster_purity.append(dominant)
+        purity = float(np.mean(per_cluster_purity))
+        consistency = float(np.mean(np.array(per_cluster_purity) >= 0.70))
+
+    return {
+        "n_comp": n_comp,
+        "eps": float(eps),
+        "n_clusters": int(len(cluster_ids)),
+        "retention": float(mask.mean()),
+        "purity": purity,
+        "consistency": consistency,
+        "median_4nn": float(np.median(kth)),
+    }
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestSingleChainVDJdbTCREmpQuality:
+    """Single-chain VDJdb slim benchmark with quality and speed assertions."""
+
+    N_PROTOTYPES = 500
+
+    def test_single_chain_metrics_and_speed(self):
+        sample = VDJdbSlimParser().parse_file(_VDJDB_SLIM_FILE, species="HomoSapiens")
+        trb = sample["TRB"].clonotypes
+        rows = []
+        for c in trb:
+            ep = c.clone_metadata.get("antigen.epitope", "")
+            if ep:
+                rows.append(
+                    {
+                        "sequence_id": c.sequence_id,
+                        "epitope": ep,
+                        "v_gene": c.v_gene,
+                        "j_gene": c.j_gene,
+                        "junction_aa": c.junction_aa,
+                    }
+                )
+        df = pl.DataFrame(rows)
+        focal = (
+            df.group_by("epitope")
+            .len()
+            .sort("len", descending=True)
+            .head(10)
+            .get_column("epitope")
+            .to_list()
+        )
+        df = _categorize_epitopes(df, focal)
+        subset = _balanced_subset(
+            df,
+            label_col="epitope_cat",
+            focal_epitopes=focal,
+            sample_per_epitope=250,
+            other_sample=500,
+        )
+
+        clonos = [
+            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            for r in subset.iter_rows(named=True)
+        ]
+        labels = subset.get_column("epitope_cat").to_numpy()
+
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=self.N_PROTOTYPES)
+        t0 = time.perf_counter()
+        X = model.embed(clonos)
+        elapsed = time.perf_counter() - t0
+        metrics = _cluster_metrics(X, labels)
+
+        print("\nSingle-chain VDJdb TRB benchmark")
+        print(f"records={len(clonos)} prototypes={self.N_PROTOTYPES} time={elapsed:.3f}s")
+        print(
+            f"n_comp={metrics['n_comp']} eps={metrics['eps']:.4f} "
+            f"clusters={metrics['n_clusters']} retention={metrics['retention']:.3f} "
+            f"purity={metrics['purity']:.3f} consistency={metrics['consistency']:.3f}"
+        )
+
+        assert X.shape == (len(clonos), 3 * self.N_PROTOTYPES)
+        assert elapsed / max(len(clonos), 1) < 0.0006
+        assert metrics["n_clusters"] >= 1
+        # Bounded-kneedle DBSCAN keeps this benchmark in a moderate-retention regime.
+        assert metrics["retention"] >= 0.55
+        assert metrics["purity"] >= 0.35
+        assert metrics["consistency"] >= 0.10
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestPairedVDJdbTCREmpQuality:
+    """Paired VDJdb full benchmark with strict vs imputed quality assertions."""
+
+    N_PROTOTYPES = 500
+
+    def _paired_table(self, sample) -> pl.DataFrame:
+        rows = []
+        for pair in sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes:
+            chains = {
+                pair.clonotype1.locus: pair.clonotype1,
+                pair.clonotype2.locus: pair.clonotype2,
+            }
+            barcode = pair.pair_id.split("_", 1)[0]
+            meta = sample.single_cell_repertoire.barcode_metadata.get(barcode, {})
+            rows.append(
+                {
+                    "pair_id": pair.pair_id,
+                    "epitope": meta.get("antigen.epitope", ""),
+                    "tra_v": chains["TRA"].v_gene,
+                    "tra_j": chains["TRA"].j_gene,
+                    "tra_cdr3": chains["TRA"].junction_aa,
+                    "trb_v": chains["TRB"].v_gene,
+                    "trb_j": chains["TRB"].j_gene,
+                    "trb_cdr3": chains["TRB"].junction_aa,
+                }
+            )
+        return pl.DataFrame(rows)
+
+    def _pairs_from_subset(self, subset: pl.DataFrame, pair_map: dict):
+        return [pair_map[pair_id] for pair_id in subset.get_column("pair_id").to_list()]
+
+    def test_paired_metrics_and_performance(self):
+        parser = VDJdbFullPairedParser()
+        strict_cell_df, strict_meta = parser.parse_cell_clonotypes_file(
+            _VDJDB_FULL_FILE,
+            sample_id="vdjdb_full_human_strict",
+            species="HomoSapiens",
+            include_incomplete=False,
+        )
+        strict_sample = build_tenx_sample_from_cell_clonotypes(
+            strict_cell_df,
+            sample_id="vdjdb_full_human_strict",
+            barcode_metadata=strict_meta,
+        )
+
+        impute_input_df, impute_meta = parser.parse_cell_clonotypes_file(
+            _VDJDB_FULL_FILE,
+            sample_id="vdjdb_full_human_impute",
+            species="HomoSapiens",
+            include_incomplete=True,
+        )
+        imputed_cell_df = impute_missing_chains(impute_input_df)
+        imputed_sample = build_tenx_sample_from_cell_clonotypes(
+            imputed_cell_df,
+            sample_id="vdjdb_full_human_impute",
+            barcode_metadata=impute_meta,
+        )
+
+        strict_df = self._paired_table(strict_sample)
+        imputed_df = self._paired_table(imputed_sample)
+
+        focal = (
+            strict_df.group_by("epitope")
+            .len()
+            .sort("len", descending=True)
+            .head(10)
+            .get_column("epitope")
+            .to_list()
+        )
+        strict_df = _categorize_epitopes(strict_df, focal)
+        imputed_df = _categorize_epitopes(imputed_df, focal)
+
+        strict_subset = _balanced_subset(
+            strict_df,
+            label_col="epitope_cat",
+            focal_epitopes=focal,
+            sample_per_epitope=250,
+            other_sample=500,
+        )
+        imputed_subset = _balanced_subset(
+            imputed_df,
+            label_col="epitope_cat",
+            focal_epitopes=focal,
+            sample_per_epitope=250,
+            other_sample=500,
+        )
+
+        strict_map = {
+            p.pair_id: p
+            for p in strict_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+        }
+        imputed_map = {
+            p.pair_id: p
+            for p in imputed_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+        }
+
+        strict_pairs = self._pairs_from_subset(strict_subset, strict_map)
+        imputed_pairs = self._pairs_from_subset(imputed_subset, imputed_map)
+        strict_labels = strict_subset.get_column("epitope_cat").to_numpy()
+        imputed_labels = imputed_subset.get_column("epitope_cat").to_numpy()
+
+        model = PairedTCREmp.from_defaults(
+            species="human",
+            locus_pair="TRA_TRB",
+            n_prototypes=self.N_PROTOTYPES,
+        )
+
+        t0 = time.perf_counter()
+        X_strict = model.embed(strict_pairs)
+        t_strict = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        X_imputed = model.embed(imputed_pairs)
+        t_imputed = time.perf_counter() - t0
+
+        tra_only = [p.clonotype1 if p.clonotype1.locus == "TRA" else p.clonotype2 for p in strict_pairs]
+        trb_only = [p.clonotype1 if p.clonotype1.locus == "TRB" else p.clonotype2 for p in strict_pairs]
+        t0 = time.perf_counter()
+        _ = model.chain1_model.embed(tra_only)
+        t_tra = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        _ = model.chain2_model.embed(trb_only)
+        t_trb = time.perf_counter() - t0
+
+        strict_metrics = _cluster_metrics(X_strict, strict_labels)
+        imputed_metrics = _cluster_metrics(X_imputed, imputed_labels)
+
+        print("\nPaired VDJdb benchmark")
+        print(
+            f"strict: n={len(strict_pairs)} t={t_strict:.3f}s "
+            f"purity={strict_metrics['purity']:.3f} retention={strict_metrics['retention']:.3f}"
+        )
+        print(
+            f"imputed: n={len(imputed_pairs)} t={t_imputed:.3f}s "
+            f"purity={imputed_metrics['purity']:.3f} retention={imputed_metrics['retention']:.3f}"
+        )
+        print(f"paired/(TRA+TRB)={t_strict / max(t_tra + t_trb, 1e-9):.3f}x")
+
+        assert X_strict.shape == (len(strict_pairs), model.embedding_dim)
+        assert X_imputed.shape == (len(imputed_pairs), model.embedding_dim)
+        assert t_strict / max(len(strict_pairs), 1) < 0.0008
+        assert t_imputed / max(len(imputed_pairs), 1) < 0.0008
+        assert t_strict / max(t_tra + t_trb, 1e-9) < 1.6
+
+        assert strict_metrics["n_clusters"] >= 1
+        assert imputed_metrics["n_clusters"] >= 1
+        assert strict_metrics["retention"] >= 0.50
+        assert imputed_metrics["retention"] >= 0.60
+        assert strict_metrics["purity"] >= 0.50
+        assert imputed_metrics["purity"] >= 0.40
+        assert strict_metrics["consistency"] >= 0.20
+        assert imputed_metrics["consistency"] >= 0.08
+
+        # Imputation should not catastrophically degrade cluster purity.
+        assert imputed_metrics["purity"] + 0.15 >= strict_metrics["purity"]

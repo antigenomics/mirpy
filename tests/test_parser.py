@@ -291,6 +291,17 @@ def test_vdjdb_full_manual_record_1007_metadata(vdjdb_full_paired):
     assert metadata["antigen.species"] == "InfluenzaB"
 
 
+def test_vdjdb_full_metadata_to_polars_contains_expected_columns(vdjdb_full_paired):
+    meta_df = vdjdb_full_paired.single_cell_repertoire.metadata_to_polars()
+    assert meta_df.height > 0
+    assert "barcode" in meta_df.columns
+    assert "vdjdb_record_id" in meta_df.columns
+    assert "antigen.epitope" in meta_df.columns
+    row = meta_df.filter(pl.col("barcode") == "1007")
+    assert row.height == 1
+    assert row[0, "antigen.epitope"] == "RPIIRPATL"
+
+
 def test_vdjdb_full_clone_metadata_propagates(vdjdb_full_paired):
     pair = next(
         pair
