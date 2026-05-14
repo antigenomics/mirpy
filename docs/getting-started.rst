@@ -95,18 +95,18 @@ cell barcode linkage separate from paired-clonotype objects.
 
 .. code-block:: python
 
-      from mir.common.single_cell import (
-         build_tenx_sample_from_cell_clonotypes,
-         load_10x_vdj_v1_sample,
-      )
+   from mir.common.single_cell import (
+       build_tenx_sample_from_cell_clonotypes,
+       load_10x_vdj_v1_sample,
+   )
    from mir.common.single_cell_parser import load_10x_vdj_v1_cell_clonotypes
    from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
 
-      sample = load_10x_vdj_v1_sample(
+   sample = load_10x_vdj_v1_sample(
        consensus_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
        all_contig_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
-         sample_id="sample1",
-      check_is_cell=True,
+       sample_id="sample1",
+       check_is_cell=True,
    )
 
    # Number of barcoded cells with matched consensus linkage
@@ -126,19 +126,24 @@ For parser-first workflows:
 
 .. code-block:: python
 
-      cell_table = load_10x_vdj_v1_cell_clonotypes(
-      "..._consensus_annotations.csv.gz",
-      "..._all_contig_annotations.csv.gz",
-         sample_id="sample1",
-      check_is_cell=True,
+   cell_table = load_10x_vdj_v1_cell_clonotypes(
+       "..._consensus_annotations.csv.gz",
+       "..._all_contig_annotations.csv.gz",
+       sample_id="sample1",
+       check_is_cell=True,
    )
-   imputed = impute_missing_chains(cell_table)
-   cleaned = cleanup_cell_clonotypes(imputed)
-      sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
+   imputed = impute_missing_chains(cell_table, reuse_slave_per_master=True)
+   cleaned = cleanup_cell_clonotypes(
+       imputed,
+       enforce_consistent_slave_per_master=True,
+       consistency_only_on_synthetic_slave=True,
+       max_slave_edges_per_master=10,
+   )
+   sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
 
 Notebook examples:
 
-* ``notebooks/single_cell_load.ipynb``: 10x donor loading and concordance checks.
+* ``notebooks/single_cell_load.ipynb``: 10x sample loading and concordance checks.
 * ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs.
 
 Benchmarking 10x Loading
@@ -150,10 +155,11 @@ and concordance with scirpy loading behavior.
 .. code-block:: bash
 
    env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
+   env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_repair_benchmark.py -s -x
 
 The benchmark suite asserts:
 
-* 10x donor objects load with non-empty cell/clonotype/pairing outputs,
+* 10x sample objects load with non-empty cell/clonotype/pairing outputs,
 * per-donor runtime and RSS deltas remain within bounded limits,
 * mirpy vs scirpy TRA/TRB quadrant patterns are concordant on dominant bins,
 * mirpy speed and memory are competitive relative to scirpy on the same donor.

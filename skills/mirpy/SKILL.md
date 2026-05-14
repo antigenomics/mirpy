@@ -428,6 +428,9 @@ cleaned = cleanup_cell_clonotypes(
     secondary_ratio_threshold=0.1,
     secondary_min_umi_count=2,
     secondary_min_duplicate_count=5,
+  enforce_consistent_slave_per_master=True,
+  consistency_only_on_synthetic_slave=True,
+  max_slave_edges_per_master=10,
 )
 
 sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
@@ -440,10 +443,15 @@ print(pairing_graph.edges)
 Repair behavior summary:
 
 - Missing chain families are imputed per `(barcode, raw_pair_id)` group.
+- Optional `reuse_slave_per_master=True` reuses one synthetic slave clonotype
+  per master clonotype during imputation.
 - Synthetic rows are OLGA-based where possible and always use
   `duplicate_count=1`, `umi_count=1`.
 - Cleanup keeps top-1 for `TRB`, `TRD`, `IGH` and conditionally keeps top-2
   for `TRA`/`TRG` and `IGK`/`IGL` using ratio and minimum support thresholds.
+- Cleanup can enforce one synthetic slave chain per master clonotype and can
+  prune master/slave families where one master is connected to too many slave
+  clonotypes (`max_slave_edges_per_master`).
 
 ## 9.1 TCRNET Enrichment
 
