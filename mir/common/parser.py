@@ -46,6 +46,7 @@ from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
 from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
+from mir.common.single_cell import PairedRepertoire, build_tenx_sample_from_cell_clonotypes
 
 # GeneLibrary is only imported lazily when needed (functional checks, germline sequences).
 # Do NOT instantiate it inside parsers — load it explicitly via GeneLibrary.load_default().
@@ -754,6 +755,199 @@ class VDJdbSlimParser:
                 clonotypes.append(clone)
 
         return SampleRepertoire.from_clonotypes(clonotypes, sample_id=sample_id)
+
+
+class VDJdbFullPairedParser:
+    """Parse VDJdb full export rows into paired-cell style structures.
+
+    Each source row corresponds to one VDJdb record. TRA and TRB chains are
+    extracted from the alpha/beta columns on that row and represented as a
+    synthetic single-cell barcode keyed by the VDJdb row index.
+
+    The resulting table is compatible with
+    :func:`mir.common.single_cell_repair.impute_missing_chains` and
+    :func:`mir.common.single_cell.build_tenx_sample_from_cell_clonotypes`.
+    """
+
+    _BARCODE_METADATA_COLS = (
+        "vdjdb_record_id",
+        "species",
+        "mhc.a",
+        "mhc.b",
+        "mhc.class",
+        "antigen.epitope",
+        "antigen.gene",
+        "antigen.species",
+    )
+    _CELL_SCHEMA = {
+        "sample_id": pl.Utf8,
+        "barcode": pl.Utf8,
+        "raw_pair_id": pl.Utf8,
+        "sequence_id": pl.Utf8,
+        "duplicate_count": pl.Int64,
+        "umi_count": pl.Int64,
+        "locus": pl.Utf8,
+        "junction": pl.Utf8,
+        "junction_aa": pl.Utf8,
+        "v_gene": pl.Utf8,
+        "d_gene": pl.Utf8,
+        "j_gene": pl.Utf8,
+        "c_gene": pl.Utf8,
+        "vdjdb_record_id": pl.Utf8,
+        "species": pl.Utf8,
+        "mhc.a": pl.Utf8,
+        "mhc.b": pl.Utf8,
+        "mhc.class": pl.Utf8,
+        "antigen.epitope": pl.Utf8,
+        "antigen.gene": pl.Utf8,
+        "antigen.species": pl.Utf8,
+    }
+
+    @staticmethod
+    def _clean_field(row: dict[str, str], key: str) -> str:
+        value = row.get(key, "")
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    def _metadata_for_row(self, row: dict[str, str], record_id: int) -> dict[str, str]:
+        return {
+            "vdjdb_record_id": str(record_id),
+            "species": self._clean_field(row, "species"),
+            "mhc.a": self._clean_field(row, "mhc.a"),
+            "mhc.b": self._clean_field(row, "mhc.b"),
+            "mhc.class": self._clean_field(row, "mhc.class"),
+            "antigen.epitope": self._clean_field(row, "antigen.epitope"),
+            "antigen.gene": self._clean_field(row, "antigen.gene"),
+            "antigen.species": self._clean_field(row, "antigen.species"),
+        }
+
+    def _build_chain_row(
+        self,
+        *,
+        row: dict[str, str],
+        record_id: int,
+        sample_id: str,
+        locus: str,
+        suffix: str,
+        metadata: dict[str, str],
+    ) -> dict[str, object] | None:
+        junction_aa = self._clean_field(row, f"cdr3.{suffix}")
+        if not junction_aa:
+            return None
+
+        cell_row: dict[str, object] = {
+            "sample_id": sample_id,
+            "barcode": str(record_id),
+            "raw_pair_id": str(record_id),
+            "sequence_id": f"{record_id}_{locus}",
+            "duplicate_count": 1,
+            "umi_count": 1,
+            "locus": locus,
+            "junction": back_translate(junction_aa),
+            "junction_aa": junction_aa,
+            "v_gene": _gene_str(row.get(f"v.{suffix}")),
+            "d_gene": _gene_str(row.get(f"d.{suffix}")) if suffix == "beta" else "",
+            "j_gene": _gene_str(row.get(f"j.{suffix}")),
+            "c_gene": "",
+        }
+        cell_row.update(metadata)
+        return cell_row
+
+    def parse_cell_clonotypes_file(
+        self,
+        path: str | Path,
+        *,
+        sample_id: str = "",
+        species: str = "HomoSapiens",
+        include_incomplete: bool = False,
+    ) -> tuple[pl.DataFrame, dict[str, dict[str, str]]]:
+        """Return a single-cell style table plus per-barcode metadata.
+
+        Parameters
+        ----------
+        path:
+            Path to ``vdjdb_full.txt.gz`` or its uncompressed TSV equivalent.
+        sample_id:
+            Identifier for the resulting synthetic sample.
+        species:
+            Host species filter. Use an empty string to disable filtering.
+        include_incomplete:
+            When ``False`` (default), keep only rows with both TRA and TRB.
+            When ``True``, keep single-chain rows as well so they can be passed
+            through single-cell imputation before paired repertoire assembly.
+        """
+        path = Path(path)
+        if not sample_id:
+            stem = path.stem
+            if stem.endswith(".txt") or stem.endswith(".tsv"):
+                stem = Path(stem).stem
+            sample_id = stem
+
+        opener = gzip.open if path.suffix == ".gz" else open
+        rows: list[dict[str, object]] = []
+        barcode_metadata: dict[str, dict[str, str]] = {}
+
+        with opener(path, "rt", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for record_id, row in enumerate(reader):
+                row_species = self._clean_field(row, "species")
+                if species and row_species != species:
+                    continue
+
+                metadata = self._metadata_for_row(row, record_id)
+                alpha_row = self._build_chain_row(
+                    row=row,
+                    record_id=record_id,
+                    sample_id=sample_id,
+                    locus="TRA",
+                    suffix="alpha",
+                    metadata=metadata,
+                )
+                beta_row = self._build_chain_row(
+                    row=row,
+                    record_id=record_id,
+                    sample_id=sample_id,
+                    locus="TRB",
+                    suffix="beta",
+                    metadata=metadata,
+                )
+                if alpha_row is None and beta_row is None:
+                    continue
+                if not include_incomplete and (alpha_row is None or beta_row is None):
+                    continue
+
+                barcode = str(record_id)
+                barcode_metadata[barcode] = metadata
+                if alpha_row is not None:
+                    rows.append(alpha_row)
+                if beta_row is not None:
+                    rows.append(beta_row)
+
+        if not rows:
+            return pl.DataFrame(schema=self._CELL_SCHEMA), barcode_metadata
+        return pl.DataFrame(rows, schema=self._CELL_SCHEMA), barcode_metadata
+
+    def parse_file(
+        self,
+        path: str | Path,
+        *,
+        sample_id: str = "",
+        species: str = "HomoSapiens",
+        include_incomplete: bool = False,
+    ) -> PairedRepertoire:
+        """Parse VDJdb full rows into a :class:`PairedRepertoire`."""
+        cell_df, barcode_metadata = self.parse_cell_clonotypes_file(
+            path,
+            sample_id=sample_id,
+            species=species,
+            include_incomplete=include_incomplete,
+        )
+        return build_tenx_sample_from_cell_clonotypes(
+            cell_df,
+            sample_id=sample_id or Path(path).stem,
+            barcode_metadata=barcode_metadata,
+        )
 
 
 # ---------------------------------------------------------------------------

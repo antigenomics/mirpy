@@ -16,7 +16,7 @@ from mir.embedding.prototypes import (
 	list_available_prototypes,
 	load_prototypes,
 )
-from mir.embedding.tcremp import TCREmp
+from mir.embedding.tcremp import TCREmp, PairedTCREmp
 
 __all__ = [
 	"BagOfKmersParams",
@@ -32,4 +32,5 @@ __all__ = [
 	"list_available_prototypes",
 	"load_prototypes",
 	"TCREmp",
+	"PairedTCREmp",
 ]

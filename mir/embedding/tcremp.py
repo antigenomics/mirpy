@@ -42,6 +42,7 @@ import numpy as np
 import polars as pl
 
 from mir.common.clonotype import Clonotype
+from mir.common.single_cell import LOCUS_PAIR_TO_LOCI, PairedClonotype
 from mir.common.gene_library import GeneLibrary
 from mir.distances.aligner import BioAlignerWrapper, JunctionAligner, GermlineAligner, Scoring
 from mir.embedding.prototypes import N_PROTOTYPES, load_prototypes
@@ -445,3 +446,110 @@ class TCREmp:
         result[:, 1::3] = j_mat
         result[:, 2::3] = junc_mat
         return result
+
+
+class PairedTCREmp:
+    """TCREmp embedding for paired clonotypes.
+
+    A paired embedding is the concatenation of per-chain TCREmp embeddings in
+    canonical locus order for the configured ``locus_pair``.
+    """
+
+    def __init__(
+        self,
+        chain1_model: TCREmp,
+        chain2_model: TCREmp,
+        locus_pair: str = "TRA_TRB",
+    ) -> None:
+        if locus_pair not in LOCUS_PAIR_TO_LOCI:
+            raise ValueError(
+                f"Unsupported locus_pair {locus_pair!r}; "
+                f"expected one of {sorted(LOCUS_PAIR_TO_LOCI)}"
+            )
+        expected_chain1, expected_chain2 = LOCUS_PAIR_TO_LOCI[locus_pair]
+        if chain1_model.locus != expected_chain1 or chain2_model.locus != expected_chain2:
+            raise ValueError(
+                "Chain embedder loci must match locus_pair order: "
+                f"expected {(expected_chain1, expected_chain2)}, got "
+                f"{(chain1_model.locus, chain2_model.locus)}"
+            )
+
+        self.chain1_model = chain1_model
+        self.chain2_model = chain2_model
+        self.locus_pair = locus_pair
+        self.species = chain1_model.species
+
+    @property
+    def n_prototypes(self) -> tuple[int, int]:
+        return self.chain1_model.n_prototypes, self.chain2_model.n_prototypes
+
+    @property
+    def embedding_dim(self) -> int:
+        return self.chain1_model.embedding_dim + self.chain2_model.embedding_dim
+
+    @classmethod
+    def from_defaults(
+        cls,
+        species: str = "human",
+        locus_pair: str = "TRA_TRB",
+        n_prototypes: int | None = None,
+        junction_method: str = "fixed_gap",
+        germline_scoring: Scoring | None = None,
+    ) -> PairedTCREmp:
+        """Build a paired embedder by composing two default chain embedders."""
+        if locus_pair not in LOCUS_PAIR_TO_LOCI:
+            raise ValueError(
+                f"Unsupported locus_pair {locus_pair!r}; "
+                f"expected one of {sorted(LOCUS_PAIR_TO_LOCI)}"
+            )
+        locus1, locus2 = LOCUS_PAIR_TO_LOCI[locus_pair]
+        return cls(
+            chain1_model=TCREmp.from_defaults(
+                species=species,
+                locus=locus1,
+                n_prototypes=n_prototypes,
+                junction_method=junction_method,
+                germline_scoring=germline_scoring,
+            ),
+            chain2_model=TCREmp.from_defaults(
+                species=species,
+                locus=locus2,
+                n_prototypes=n_prototypes,
+                junction_method=junction_method,
+                germline_scoring=germline_scoring,
+            ),
+            locus_pair=locus_pair,
+        )
+
+    def _ordered_pair(self, paired_clonotype: PairedClonotype) -> tuple[Clonotype, Clonotype]:
+        locus1, locus2 = LOCUS_PAIR_TO_LOCI[self.locus_pair]
+        by_locus = {
+            paired_clonotype.clonotype1.locus: paired_clonotype.clonotype1,
+            paired_clonotype.clonotype2.locus: paired_clonotype.clonotype2,
+        }
+        if locus1 not in by_locus or locus2 not in by_locus:
+            raise ValueError(
+                f"Paired clonotype {paired_clonotype.pair_id!r} does not contain "
+                f"required loci {(locus1, locus2)}"
+            )
+        return by_locus[locus1], by_locus[locus2]
+
+    def embed(
+        self,
+        paired_clonotypes: list[PairedClonotype],
+        n_jobs: int | None = None,
+    ) -> np.ndarray:
+        """Embed paired clonotypes as concatenated chain embeddings."""
+        if not paired_clonotypes:
+            return np.empty((0, self.embedding_dim), dtype=np.float32)
+
+        chain1_clonotypes: list[Clonotype] = []
+        chain2_clonotypes: list[Clonotype] = []
+        for paired_clonotype in paired_clonotypes:
+            chain1, chain2 = self._ordered_pair(paired_clonotype)
+            chain1_clonotypes.append(chain1)
+            chain2_clonotypes.append(chain2)
+
+        chain1_emb = self.chain1_model.embed(chain1_clonotypes, n_jobs=n_jobs)
+        chain2_emb = self.chain2_model.embed(chain2_clonotypes, n_jobs=n_jobs)
+        return np.concatenate([chain1_emb, chain2_emb], axis=1, dtype=np.float32)

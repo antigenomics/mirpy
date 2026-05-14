@@ -96,6 +96,16 @@ def find_airr_benchmark_vdjdb_slim(dataset_root: Path) -> Path:
     return candidates[-1]
 
 
+def find_airr_benchmark_vdjdb_full(dataset_root: Path) -> Path:
+    """Return the latest ``vdjdb_full.txt.gz`` file inside AIRR benchmark."""
+    candidates = sorted(dataset_root.glob("vdjdb/vdjdb-*/vdjdb_full.txt.gz"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find vdjdb_full.txt.gz under {dataset_root / 'vdjdb'}"
+        )
+    return candidates[-1]
+
+
 def find_airr_benchmark_sra_meta(dataset_root: Path) -> tuple[Path, Path]:
     """Return ``(samples.tar.gz, meta.tsv)`` for the AIRR benchmark SRA bundle."""
     tarball = dataset_root / "sra" / "samples.tar.gz"

@@ -46,6 +46,7 @@ class SingleCellRepertoire:
     """Cell barcode to paired-clonotype links for multimodal integration."""
 
     barcode_pair_ids: list[tuple[str, str]]
+    barcode_metadata: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def to_polars(self) -> pl.DataFrame:
         return pl.DataFrame(
@@ -55,6 +56,19 @@ class SingleCellRepertoire:
             },
             schema={"barcode": pl.Utf8, "pair_id": pl.Utf8},
         )
+
+    def metadata_to_polars(self) -> pl.DataFrame:
+        """Return per-barcode metadata as a tabular view."""
+        if not self.barcode_metadata:
+            return pl.DataFrame(schema={"barcode": pl.Utf8})
+
+        keys = sorted({key for meta in self.barcode_metadata.values() for key in meta})
+        rows = []
+        for barcode, meta in sorted(self.barcode_metadata.items()):
+            row = {"barcode": barcode}
+            row.update({key: meta.get(key, "") for key in keys})
+            rows.append(row)
+        return pl.DataFrame(rows)
 
 
 class _LazyClonotypeIndex:
@@ -130,6 +144,7 @@ class PairedRepertoire:
         *,
         sample_id: str = "",
         barcode_pair_ids: list[tuple[str, str]] | None = None,
+        barcode_metadata: dict[str, dict[str, str]] | None = None,
     ) -> "PairedRepertoire":
         """Build paired repertoire from sample repertoire and explicit pairing rows.
 
@@ -179,7 +194,10 @@ class PairedRepertoire:
 
         return cls(
             sample_id=sample_id,
-            single_cell_repertoire=SingleCellRepertoire(barcode_pair_ids=barcode_pair_ids),
+            single_cell_repertoire=SingleCellRepertoire(
+                barcode_pair_ids=barcode_pair_ids,
+                barcode_metadata=dict(barcode_metadata or {}),
+            ),
             paired_locus_repertoires={
                 name: PairedLocusRepertoire(locus_pair=name, paired_clonotypes=pairs)
                 for name, pairs in paired_by_family.items()
@@ -191,7 +209,7 @@ class PairedRepertoire:
 
 
 def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
-    return Clonotype(
+    clonotype = Clonotype(
         _validate=False,
         sequence_id=str(row.get("sequence_id") or ""),
         duplicate_count=int(row.get("duplicate_count") or 0),
@@ -204,12 +222,26 @@ def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
         j_gene=str(row.get("j_gene") or ""),
         c_gene=str(row.get("c_gene") or ""),
     )
+    for key in (
+        "vdjdb_record_id",
+        "mhc.a",
+        "mhc.b",
+        "mhc.class",
+        "antigen.epitope",
+        "antigen.gene",
+        "antigen.species",
+    ):
+        value = str(row.get(key) or "").strip()
+        if value:
+            clonotype.clone_metadata[key] = value
+    return clonotype
 
 
 def build_tenx_sample_from_cell_clonotypes(
     cell_clonotypes_df: pl.DataFrame,
     *,
     sample_id: str,
+    barcode_metadata: dict[str, dict[str, str]] | None = None,
 ) -> PairedRepertoire:
     """Assemble sample-level paired structures from matched per-cell clonotype rows."""
     grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
@@ -292,7 +324,10 @@ def build_tenx_sample_from_cell_clonotypes(
 
     return PairedRepertoire(
         sample_id=sample_id,
-        single_cell_repertoire=SingleCellRepertoire(barcode_pair_ids=barcode_pair_ids),
+        single_cell_repertoire=SingleCellRepertoire(
+            barcode_pair_ids=barcode_pair_ids,
+            barcode_metadata=dict(barcode_metadata or {}),
+        ),
         paired_locus_repertoires=paired_locus_repertoires,
         chain_multiplicity=chain_multiplicity,
         loaded_cell_count=len(grouped),
