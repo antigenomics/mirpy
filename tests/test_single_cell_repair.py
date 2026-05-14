@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
 from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
 from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
@@ -11,7 +12,7 @@ from mir.graph.single_cell_pairing import build_pairing_graph
 
 def _cell_table(rows: list[dict[str, object]]) -> pl.DataFrame:
     schema = {
-            "sample_id": pl.Utf8,
+    "sample_id": pl.Utf8,
         "barcode": pl.Utf8,
         "raw_pair_id": pl.Utf8,
         "sequence_id": pl.Utf8,
@@ -491,3 +492,103 @@ def test_impute_reuses_synthetic_slave_per_master_when_enabled() -> None:
     imputed = impute_missing_chains(rows, seed=7, reuse_slave_per_master=True)
     tra_ids = sorted(imputed.filter(pl.col("locus") == "TRA")["sequence_id"].to_list())
     assert len(set(tra_ids)) == 1
+
+
+def test_cleanup_consistency_can_apply_to_non_synthetic_slaves() -> None:
+    rows = _cell_table(
+        [
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 40,
+                "umi_count": 14,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "tra_real_a",
+                "locus": "TRA",
+                "duplicate_count": 12,
+                "umi_count": 6,
+                "junction": "",
+                "junction_aa": "CAVRNNNARLMF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc2",
+                "raw_pair_id": "p2",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 35,
+                "umi_count": 12,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc2",
+                "raw_pair_id": "p2",
+                "sequence_id": "tra_real_b",
+                "locus": "TRA",
+                "duplicate_count": 11,
+                "umi_count": 5,
+                "junction": "",
+                "junction_aa": "CAVRNNNARLMF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+        ]
+    )
+
+    cleaned = cleanup_cell_clonotypes(
+        rows,
+        enforce_consistent_slave_per_master=True,
+        consistency_only_on_synthetic_slave=False,
+    )
+    tra_ids = cleaned.filter(pl.col("locus") == "TRA")["sequence_id"].to_list()
+    assert len(set(tra_ids)) == 1
+
+
+def test_cleanup_rejects_non_positive_max_slave_edges() -> None:
+    rows = _cell_table(
+        [
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 20,
+                "umi_count": 8,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="must be positive"):
+        cleanup_cell_clonotypes(rows, max_slave_edges_per_master=0)

@@ -29,6 +29,10 @@ _MASTER_TO_SLAVE_LOCI: dict[str, tuple[str, ...]] = {
     "IGH": ("IGK", "IGL"),
 }
 
+_HEAVY_LOCI: tuple[str, ...] = ("TRB", "TRD", "IGH")
+_LIGHT_LOCI: tuple[str, ...] = ("TRA", "TRG")
+_B_LIGHT_LOCI: tuple[str, ...] = ("IGK", "IGL")
+
 
 @dataclass(slots=True)
 class _SyntheticRecord:
@@ -94,6 +98,28 @@ def _sort_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     )
 
 
+def _group_cell_rows(cell_clonotypes: pl.DataFrame) -> dict[tuple[str, str], list[dict[str, object]]]:
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in cell_clonotypes.iter_rows(named=True):
+        key = (str(row["barcode"]), str(row["raw_pair_id"]))
+        grouped.setdefault(key, []).append(dict(row))
+    return grouped
+
+
+def _rows_by_locus(rows: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    by_locus: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_locus.setdefault(str(row.get("locus") or "").upper(), []).append(row)
+    return by_locus
+
+
+def _primary_sequence_id(by_locus: dict[str, list[dict[str, object]]], locus: str) -> str | None:
+    rows = by_locus.get(locus, [])
+    if not rows:
+        return None
+    return str(_sort_rows(rows)[0].get("sequence_id") or "")
+
+
 def _keep_primary_or_secondary(
     rows: list[dict[str, object]],
     *,
@@ -143,11 +169,7 @@ def impute_missing_chains(
 
     synth = _SyntheticGenerator(species=species, seed=seed)
     per_master_slave: dict[tuple[str, str, str], dict[str, object]] = {}
-
-    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
-    for row in cell_clonotypes.iter_rows(named=True):
-        key = (str(row["barcode"]), str(row["raw_pair_id"]))
-        grouped.setdefault(key, []).append(dict(row))
+    grouped = _group_cell_rows(cell_clonotypes)
 
     next_id = cell_clonotypes.height
     augmented: list[dict[str, object]] = []
@@ -197,46 +219,41 @@ def impute_missing_chains(
 
     for rows in grouped.values():
         augmented.extend(rows)
-        loci = {str(r.get("locus") or "").upper() for r in rows}
+        by_locus = _rows_by_locus(rows)
+        loci = set(by_locus)
         base = rows[0]
-
-        trb_rows = [r for r in rows if str(r.get("locus") or "").upper() == "TRB"]
-        tra_rows = [r for r in rows if str(r.get("locus") or "").upper() == "TRA"]
-        trg_rows = [r for r in rows if str(r.get("locus") or "").upper() == "TRG"]
-        trd_rows = [r for r in rows if str(r.get("locus") or "").upper() == "TRD"]
-        igh_rows = [r for r in rows if str(r.get("locus") or "").upper() == "IGH"]
 
         if "TRA" in loci and "TRB" not in loci:
             _add_synth_row(base, "TRB")
         if "TRB" in loci and "TRA" not in loci:
-            trb_master = _sort_rows(trb_rows)[0] if trb_rows else None
+            trb_master_seq = _primary_sequence_id(by_locus, "TRB")
             _add_synth_row(
                 base,
                 "TRA",
-                master_locus="TRB" if trb_master is not None else None,
-                master_sequence_id=str(trb_master.get("sequence_id") or "") if trb_master is not None else None,
+                master_locus="TRB" if trb_master_seq else None,
+                master_sequence_id=trb_master_seq,
             )
 
         if "TRG" in loci and "TRD" not in loci:
             _add_synth_row(base, "TRD")
         if "TRD" in loci and "TRG" not in loci:
-            trd_master = _sort_rows(trd_rows)[0] if trd_rows else None
+            trd_master_seq = _primary_sequence_id(by_locus, "TRD")
             _add_synth_row(
                 base,
                 "TRG",
-                master_locus="TRD" if trd_master is not None else None,
-                master_sequence_id=str(trd_master.get("sequence_id") or "") if trd_master is not None else None,
+                master_locus="TRD" if trd_master_seq else None,
+                master_sequence_id=trd_master_seq,
             )
 
         has_igh = "IGH" in loci
         has_light = "IGK" in loci or "IGL" in loci
         if has_igh and not has_light:
-            igh_master = _sort_rows(igh_rows)[0] if igh_rows else None
+            igh_master_seq = _primary_sequence_id(by_locus, "IGH")
             _add_synth_row(
                 base,
                 default_b_light_locus,
-                master_locus="IGH" if igh_master is not None else None,
-                master_sequence_id=str(igh_master.get("sequence_id") or "") if igh_master is not None else None,
+                master_locus="IGH" if igh_master_seq else None,
+                master_sequence_id=igh_master_seq,
             )
         if has_light and not has_igh:
             _add_synth_row(base, "IGH")
@@ -262,49 +279,8 @@ def cleanup_cell_clonotypes(
     - For IGK/IGL jointly keep one or two by the same secondary criteria.
     """
     _ensure_columns(cell_clonotypes)
-
-    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
-    for row in cell_clonotypes.iter_rows(named=True):
-        key = (str(row["barcode"]), str(row["raw_pair_id"]))
-        grouped.setdefault(key, []).append(dict(row))
-
-    kept_by_group: dict[tuple[str, str], list[dict[str, object]]] = {}
-
-    for rows in grouped.values():
-        by_locus: dict[str, list[dict[str, object]]] = {}
-        for r in rows:
-            locus = str(r.get("locus") or "").upper()
-            by_locus.setdefault(locus, []).append(r)
-
-        for heavy in ("TRB", "TRD", "IGH"):
-            heavy_rows = by_locus.get(heavy, [])
-            if heavy_rows:
-                kept_by_group.setdefault((str(rows[0]["barcode"]), str(rows[0]["raw_pair_id"])), []).extend(
-                    _sort_rows(heavy_rows)[:1]
-                )
-
-        for light in ("TRA", "TRG"):
-            light_rows = by_locus.get(light, [])
-            if light_rows:
-                kept_by_group.setdefault((str(rows[0]["barcode"]), str(rows[0]["raw_pair_id"])), []).extend(
-                    _keep_primary_or_secondary(
-                        light_rows,
-                        secondary_ratio_threshold=secondary_ratio_threshold,
-                        secondary_min_umi_count=secondary_min_umi_count,
-                        secondary_min_duplicate_count=secondary_min_duplicate_count,
-                    )
-                )
-
-        b_light_rows = by_locus.get("IGK", []) + by_locus.get("IGL", [])
-        if b_light_rows:
-            kept_by_group.setdefault((str(rows[0]["barcode"]), str(rows[0]["raw_pair_id"])), []).extend(
-                _keep_primary_or_secondary(
-                    b_light_rows,
-                    secondary_ratio_threshold=secondary_ratio_threshold,
-                    secondary_min_umi_count=secondary_min_umi_count,
-                    secondary_min_duplicate_count=secondary_min_duplicate_count,
-                )
-            )
+    if max_slave_edges_per_master is not None and int(max_slave_edges_per_master) <= 0:
+        raise ValueError("max_slave_edges_per_master must be positive when provided")
 
     def _master_edges(
         grouped_rows: dict[tuple[str, str], list[dict[str, object]]],
@@ -316,9 +292,7 @@ def cleanup_cell_clonotypes(
         master_to_slave_support: dict[tuple[str, str], dict[tuple[str, str], int]] = {}
 
         for rows_local in grouped_rows.values():
-            by_locus: dict[str, list[dict[str, object]]] = {}
-            for r in rows_local:
-                by_locus.setdefault(str(r.get("locus") or "").upper(), []).append(r)
+            by_locus = _rows_by_locus(rows_local)
 
             for master_locus, slave_loci in _MASTER_TO_SLAVE_LOCI.items():
                 masters = by_locus.get(master_locus, [])
@@ -326,40 +300,40 @@ def cleanup_cell_clonotypes(
                 if not masters or not slaves:
                     continue
 
-                for m in masters:
-                    mkey = (master_locus, str(m.get("sequence_id") or ""))
-                    for s in slaves:
-                        if consistency_only_on_synthetic_slave and not str(s.get("sequence_id") or "").startswith("synthetic_"):
+                for master_row in masters:
+                    mkey = (master_locus, str(master_row.get("sequence_id") or ""))
+                    for slave_row in slaves:
+                        seq_id = str(slave_row.get("sequence_id") or "")
+                        if consistency_only_on_synthetic_slave and not seq_id.startswith("synthetic_"):
                             continue
-                        skey = (str(s.get("locus") or "").upper(), str(s.get("sequence_id") or ""))
+                        skey = (str(slave_row.get("locus") or "").upper(), seq_id)
                         master_to_slave_counts.setdefault(mkey, {})[skey] = master_to_slave_counts.setdefault(mkey, {}).get(skey, 0) + 1
-                        support = int(s.get("duplicate_count") or 0) + int(s.get("umi_count") or 0)
+                        support = int(slave_row.get("duplicate_count") or 0) + int(slave_row.get("umi_count") or 0)
                         master_to_slave_support.setdefault(mkey, {})[skey] = master_to_slave_support.setdefault(mkey, {}).get(skey, 0) + support
 
         return master_to_slave_counts, master_to_slave_support
 
-    if enforce_consistent_slave_per_master:
-        edge_counts, edge_support = _master_edges(kept_by_group)
+    def _enforce_consistent_slaves(
+        grouped_rows: dict[tuple[str, str], list[dict[str, object]]],
+    ) -> dict[tuple[str, str], list[dict[str, object]]]:
+        edge_counts, edge_support = _master_edges(grouped_rows)
         canonical_slave: dict[tuple[str, str], tuple[str, str]] = {}
         for master_key, slaves in edge_counts.items():
-            best = max(
+            canonical_slave[master_key] = max(
                 slaves,
-                key=lambda sk: (
-                    slaves[sk],
-                    edge_support.get(master_key, {}).get(sk, 0),
-                    sk[0],
-                    sk[1],
+                key=lambda slave_key: (
+                    slaves[slave_key],
+                    edge_support.get(master_key, {}).get(slave_key, 0),
+                    slave_key[0],
+                    slave_key[1],
                 ),
             )
-            canonical_slave[master_key] = best
 
         updated: dict[tuple[str, str], list[dict[str, object]]] = {}
-        for key, rows_local in kept_by_group.items():
-            by_locus: dict[str, list[dict[str, object]]] = {}
-            for r in rows_local:
-                by_locus.setdefault(str(r.get("locus") or "").upper(), []).append(r)
-
+        for group_key, rows_local in grouped_rows.items():
+            by_locus = _rows_by_locus(rows_local)
             keep_rows: list[dict[str, object]] = list(rows_local)
+
             for master_locus, slave_loci in _MASTER_TO_SLAVE_LOCI.items():
                 masters = by_locus.get(master_locus, [])
                 if not masters:
@@ -372,47 +346,96 @@ def cleanup_cell_clonotypes(
                 target_locus, target_id = target
 
                 filtered_rows: list[dict[str, object]] = []
-                for r in keep_rows:
-                    locus = str(r.get("locus") or "").upper()
-                    seq_id = str(r.get("sequence_id") or "")
+                for row in keep_rows:
+                    locus = str(row.get("locus") or "").upper()
+                    seq_id = str(row.get("sequence_id") or "")
                     if locus not in slave_loci:
-                        filtered_rows.append(r)
+                        filtered_rows.append(row)
                         continue
                     if consistency_only_on_synthetic_slave and not seq_id.startswith("synthetic_"):
-                        filtered_rows.append(r)
+                        filtered_rows.append(row)
                         continue
                     if locus == target_locus and seq_id == target_id:
-                        filtered_rows.append(r)
+                        filtered_rows.append(row)
                 keep_rows = filtered_rows
 
-            updated[key] = keep_rows
-        kept_by_group = updated
+            updated[group_key] = keep_rows
+        return updated
 
-    if max_slave_edges_per_master is not None:
-        edge_counts, _ = _master_edges(kept_by_group)
+    def _prune_high_degree_masters(
+        grouped_rows: dict[tuple[str, str], list[dict[str, object]]],
+    ) -> dict[tuple[str, str], list[dict[str, object]]]:
+        edge_counts, _ = _master_edges(grouped_rows)
         flagged = {
             master_key
             for master_key, slaves in edge_counts.items()
             if len(slaves) > int(max_slave_edges_per_master)
         }
-        if flagged:
-            pruned: dict[tuple[str, str], list[dict[str, object]]] = {}
-            for key, rows_local in kept_by_group.items():
-                rows_out = list(rows_local)
-                for master_locus, slave_loci in _MASTER_TO_SLAVE_LOCI.items():
-                    masters = [r for r in rows_out if str(r.get("locus") or "").upper() == master_locus]
-                    if not masters:
-                        continue
-                    master = _sort_rows(masters)[0]
-                    mkey = (master_locus, str(master.get("sequence_id") or ""))
-                    if mkey in flagged:
-                        rows_out = [
-                            r
-                            for r in rows_out
-                            if str(r.get("locus") or "").upper() not in (master_locus, *slave_loci)
-                        ]
-                pruned[key] = rows_out
-            kept_by_group = pruned
+        if not flagged:
+            return grouped_rows
+
+        pruned: dict[tuple[str, str], list[dict[str, object]]] = {}
+        for group_key, rows_local in grouped_rows.items():
+            rows_out = list(rows_local)
+            by_locus = _rows_by_locus(rows_out)
+            for master_locus, slave_loci in _MASTER_TO_SLAVE_LOCI.items():
+                masters = by_locus.get(master_locus, [])
+                if not masters:
+                    continue
+                master = _sort_rows(masters)[0]
+                mkey = (master_locus, str(master.get("sequence_id") or ""))
+                if mkey in flagged:
+                    blocked_loci = set((master_locus, *slave_loci))
+                    rows_out = [row for row in rows_out if str(row.get("locus") or "").upper() not in blocked_loci]
+                    by_locus = _rows_by_locus(rows_out)
+            pruned[group_key] = rows_out
+        return pruned
+
+    grouped = _group_cell_rows(cell_clonotypes)
+
+    kept_by_group: dict[tuple[str, str], list[dict[str, object]]] = {}
+
+    for key, rows in grouped.items():
+        by_locus = _rows_by_locus(rows)
+        kept_rows: list[dict[str, object]] = []
+
+        for heavy in _HEAVY_LOCI:
+            heavy_rows = by_locus.get(heavy, [])
+            if heavy_rows:
+                kept_rows.extend(_sort_rows(heavy_rows)[:1])
+
+        for light in _LIGHT_LOCI:
+            light_rows = by_locus.get(light, [])
+            if light_rows:
+                kept_rows.extend(
+                    _keep_primary_or_secondary(
+                        light_rows,
+                        secondary_ratio_threshold=secondary_ratio_threshold,
+                        secondary_min_umi_count=secondary_min_umi_count,
+                        secondary_min_duplicate_count=secondary_min_duplicate_count,
+                    )
+                )
+
+        b_light_rows = []
+        for locus in _B_LIGHT_LOCI:
+            b_light_rows.extend(by_locus.get(locus, []))
+        if b_light_rows:
+            kept_rows.extend(
+                _keep_primary_or_secondary(
+                    b_light_rows,
+                    secondary_ratio_threshold=secondary_ratio_threshold,
+                    secondary_min_umi_count=secondary_min_umi_count,
+                    secondary_min_duplicate_count=secondary_min_duplicate_count,
+                )
+            )
+
+        kept_by_group[key] = kept_rows
+
+    if enforce_consistent_slave_per_master:
+        kept_by_group = _enforce_consistent_slaves(kept_by_group)
+
+    if max_slave_edges_per_master is not None:
+        kept_by_group = _prune_high_degree_masters(kept_by_group)
 
     kept = [r for rows_local in kept_by_group.values() for r in rows_local]
     return pl.from_dicts(kept, schema=cell_clonotypes.schema)
