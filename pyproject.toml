@@ -36,6 +36,7 @@ dependencies = [
   "scipy",
   "seaborn",
   "scikit-learn",
+  "scanpy",
   "statsmodels",
   "textdistance",
   "tcrtrie",
@@ -49,6 +50,7 @@ dev = [
   "pylint",
   "huggingface_hub",
   "psutil>=5",
+  "scirpy",
 ]
 docs = [
   "sphinx>=7.2,<9",
