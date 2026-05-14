@@ -167,13 +167,13 @@ class LocusRepertoire:
             self._clonotypes_cache = [
                 _Clonotype(_validate=False,
                     sequence_id=sid, locus=c['locus'],
-                    duplicate_count=dup, junction=jnt, junction_aa=jaa,
+                    duplicate_count=dup, umi_count=umi, junction=jnt, junction_aa=jaa,
                     v_gene=vg, d_gene=dg, j_gene=jg,
                     v_sequence_end=ve, d_sequence_start=ds,
                     d_sequence_end=de, j_sequence_start=js,
                 )
-                for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
-                    c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
+                for sid, dup, umi, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                    c['seq_ids'], c['dup_counts'], c.get('umi_counts', [0] * len(c['seq_ids'])), c['junctions'], c['junction_aas'],
                     c['v_genes'], c['d_genes'], c['j_genes'],
                     c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
                 )

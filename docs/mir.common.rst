@@ -52,6 +52,14 @@ mir.common.repertoire module
    :undoc-members:
    :show-inheritance:
 
+mir.common.single\_cell module
+------------------------------
+
+.. automodule:: mir.common.single_cell
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.sampling module
 --------------------------
 
