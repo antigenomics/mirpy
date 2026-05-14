@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import polars as pl
 
-from mir.common.single_cell import build_tenx_donor_from_cell_clonotypes
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
 from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
-from mir.common.single_cell_util import build_pairing_graph
+from mir.graph.single_cell_pairing import build_pairing_graph
 
 
 def _cell_table(rows: list[dict[str, object]]) -> pl.DataFrame:
     schema = {
-        "donor_id": pl.Utf8,
+            "sample_id": pl.Utf8,
         "barcode": pl.Utf8,
         "raw_pair_id": pl.Utf8,
         "sequence_id": pl.Utf8,
@@ -32,7 +32,7 @@ def test_impute_missing_chains_adds_synthetic_rows() -> None:
     raw = _cell_table(
         [
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "tra1",
@@ -47,7 +47,7 @@ def test_impute_missing_chains_adds_synthetic_rows() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc2",
                 "raw_pair_id": "p2",
                 "sequence_id": "trb1",
@@ -62,7 +62,7 @@ def test_impute_missing_chains_adds_synthetic_rows() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc3",
                 "raw_pair_id": "p3",
                 "sequence_id": "igh1",
@@ -77,7 +77,7 @@ def test_impute_missing_chains_adds_synthetic_rows() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc4",
                 "raw_pair_id": "p4",
                 "sequence_id": "igk1",
@@ -108,7 +108,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
     raw = _cell_table(
         [
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "trb_top",
@@ -123,7 +123,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "trb_low",
@@ -138,7 +138,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "tra_top",
@@ -153,7 +153,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "tra_second",
@@ -168,7 +168,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "igh_top",
@@ -183,7 +183,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "igk_top",
@@ -198,7 +198,7 @@ def test_cleanup_cell_clonotypes_keeps_expected_chain_counts() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "igl_low",
@@ -226,7 +226,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
     cell_df = _cell_table(
         [
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "tra1",
@@ -241,7 +241,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc1",
                 "raw_pair_id": "p1",
                 "sequence_id": "trb1",
@@ -256,7 +256,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc2",
                 "raw_pair_id": "p1",
                 "sequence_id": "tra1",
@@ -271,7 +271,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc2",
                 "raw_pair_id": "p1",
                 "sequence_id": "trb1",
@@ -286,7 +286,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc3",
                 "raw_pair_id": "p2",
                 "sequence_id": "tra2",
@@ -301,7 +301,7 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
                 "c_gene": "",
             },
             {
-                "donor_id": "d1",
+                "sample_id": "s1",
                 "barcode": "bc3",
                 "raw_pair_id": "p2",
                 "sequence_id": "trb2",
@@ -318,8 +318,8 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
         ]
     )
 
-    donor = build_tenx_donor_from_cell_clonotypes(cell_df, donor_id="d1")
-    graph = build_pairing_graph(donor)
+    sample = build_tenx_sample_from_cell_clonotypes(cell_df, sample_id="s1")
+    graph = build_pairing_graph(sample)
 
     assert graph.nodes.height == 4
     assert graph.edges.height == 2
@@ -330,5 +330,5 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
     assert dominant.height == 1
     assert dominant["cell_count"][0] == 2
 
-    filtered = build_pairing_graph(donor, min_shared_cells=2)
+    filtered = build_pairing_graph(sample, min_shared_cells=2)
     assert filtered.edges.height == 1

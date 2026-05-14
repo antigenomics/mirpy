@@ -361,23 +361,23 @@ Key behavior notes:
 
 ## 11. Single-Cell 10x Paired Chains
 
-Use `load_10x_vdj_v1_donor` to assemble paired-chain objects from 10x v1 donor
+Use `load_10x_vdj_v1_sample` to assemble paired-chain objects from 10x v1 sample
 files where consensus annotations define clonotypes and all-contig annotations
 define cell barcode linkage.
 
 ```python
-from mir.common.single_cell import load_10x_vdj_v1_donor
+from mir.common.single_cell import load_10x_vdj_v1_sample
 
-donor = load_10x_vdj_v1_donor(
+sample = load_10x_vdj_v1_sample(
     consensus_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
     all_contig_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
-    donor_id="vdj_v1_hs_aggregated_donor1",
+  sample_id="vdj_v1_hs_aggregated_donor1",
 )
 
-print(donor.loaded_cell_count)
-print(donor.loaded_clonotype_count)
-print(donor.paired_locus_repertoires["TRA_TRB"].clonotype_count)
-print(donor.chain_multiplicity)
+print(sample.loaded_cell_count)
+print(sample.loaded_clonotype_count)
+print(sample.paired_locus_repertoires["TRA_TRB"].clonotype_count)
+print(sample.chain_multiplicity)
 ```
 
 Key behavior:
@@ -410,15 +410,15 @@ Use the parser-first API when you need to apply cleanup or imputation before
 assembling donor paired-clonotype objects.
 
 ```python
-from mir.common.single_cell import build_tenx_donor_from_cell_clonotypes
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
 from mir.common.single_cell_parser import load_10x_vdj_v1_cell_clonotypes
 from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
-from mir.common.single_cell_util import build_pairing_graph
+from mir.graph.single_cell_pairing import build_pairing_graph
 
 raw = load_10x_vdj_v1_cell_clonotypes(
     "..._consensus_annotations.csv.gz",
     "..._all_contig_annotations.csv.gz",
-    donor_id="donor1",
+  sample_id="sample1",
     check_is_cell=True,  # default
 )
 
@@ -430,8 +430,8 @@ cleaned = cleanup_cell_clonotypes(
     secondary_min_duplicate_count=5,
 )
 
-donor = build_tenx_donor_from_cell_clonotypes(cleaned, donor_id="donor1")
-pairing_graph = build_pairing_graph(donor, min_shared_cells=1)
+sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
+pairing_graph = build_pairing_graph(sample, min_shared_cells=1)
 
 print(pairing_graph.nodes)
 print(pairing_graph.edges)

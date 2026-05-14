@@ -10,16 +10,18 @@ from .repertoire_dataset import RepertoireDataset
 from .alleles import allele_to_major
 from .single_cell import (
 	LOCUS_PAIR_TO_LOCI,
+	PairedRepertoire,
 	PairedClonotype,
 	PairedLocusRepertoire,
 	SingleCellRepertoire,
-	TenXVdjV1DonorData,
+	build_tenx_sample_from_cell_clonotypes,
 	build_tenx_donor_from_cell_clonotypes,
+	load_10x_vdj_v1_sample,
 	load_10x_vdj_v1_donor,
 )
-from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes
+from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes, load_10x_vdj_v1_cell_clonotypes_donor
 from .single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
-from .single_cell_util import PairingGraph, build_pairing_graph
+from mir.graph.single_cell_pairing import PairingGraph, build_pairing_graph
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
 
 __all__ = [
@@ -41,13 +43,16 @@ __all__ = [
 	'RepertoireDataset',
 	'allele_to_major',
 	'LOCUS_PAIR_TO_LOCI',
+	'PairedRepertoire',
 	'PairedClonotype',
 	'PairedLocusRepertoire',
 	'SingleCellRepertoire',
-	'TenXVdjV1DonorData',
+	'build_tenx_sample_from_cell_clonotypes',
 	'build_tenx_donor_from_cell_clonotypes',
+	'load_10x_vdj_v1_sample',
 	'load_10x_vdj_v1_donor',
 	'load_10x_vdj_v1_cell_clonotypes',
+	'load_10x_vdj_v1_cell_clonotypes_donor',
 	'cleanup_cell_clonotypes',
 	'impute_missing_chains',
 	'PairingGraph',

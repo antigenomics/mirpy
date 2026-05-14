@@ -1,18 +1,16 @@
-"""Single-cell paired-chain repertoire structures and 10x VDJ v1 loader."""
+"""Single-cell paired-chain repertoire structures and 10x VDJ v1 loaders."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
 
 import polars as pl
 
 from mir.common.clonotype import Clonotype
-from mir.common.single_cell_parser import (
-    LOCUS_PAIR_TO_LOCI,
-    load_10x_vdj_v1_cell_clonotypes,
-)
+from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+from mir.common.single_cell_parser import LOCUS_PAIR_TO_LOCI, load_10x_vdj_v1_cell_clonotypes
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,16 +57,137 @@ class SingleCellRepertoire:
         )
 
 
-@dataclass(slots=True)
-class TenXVdjV1DonorData:
-    """Assembled 10x VDJ v1 donor-level paired-chain data."""
+class _LazyClonotypeIndex:
+    """Lazy clonotype lookup keyed by (locus, sequence_id)."""
 
-    donor_id: str
+    def __init__(self, sample_repertoire: SampleRepertoire) -> None:
+        self._sample_repertoire = sample_repertoire
+        self._index: dict[str, dict[str, Clonotype]] | None = None
+
+    def _materialize(self) -> dict[str, dict[str, Clonotype]]:
+        if self._index is not None:
+            return self._index
+        built: dict[str, dict[str, Clonotype]] = {}
+        for locus, loc_rep in self._sample_repertoire.loci.items():
+            built[locus] = {c.sequence_id: c for c in loc_rep.clonotypes}
+        self._index = built
+        return built
+
+    def get(self, locus: str, sequence_id: str) -> Clonotype | None:
+        return self._materialize().get(locus, {}).get(sequence_id)
+
+
+@dataclass(slots=True)
+class PairedRepertoire:
+    """Paired-chain sample object with optional barcode pair linkage."""
+
+    sample_id: str
     single_cell_repertoire: SingleCellRepertoire
     paired_locus_repertoires: dict[str, PairedLocusRepertoire]
     chain_multiplicity: pl.DataFrame
     loaded_cell_count: int
     loaded_clonotype_count: int
+    _clonotype_lookup: dict[str, dict[str, Clonotype]] | None = field(default=None, init=False, repr=False)
+
+    @property
+    def clonotype_count(self) -> int:
+        return self.loaded_clonotype_count
+
+    def to_sample_repertoire(self) -> SampleRepertoire:
+        """Collapse paired representation into plain per-locus repertoires."""
+        per_locus: dict[str, dict[str, Clonotype]] = {}
+        for locus_pair in self.paired_locus_repertoires.values():
+            for pair in locus_pair.paired_clonotypes:
+                for clonotype in (pair.clonotype1, pair.clonotype2):
+                    per_locus.setdefault(clonotype.locus, {})[clonotype.sequence_id] = clonotype
+
+        loci = {
+            locus: LocusRepertoire(clonotypes=list(by_id.values()), locus=locus)
+            for locus, by_id in per_locus.items()
+        }
+        return SampleRepertoire(loci=loci, sample_id=self.sample_id)
+
+    def _materialize_clonotype_lookup(self) -> dict[str, dict[str, Clonotype]]:
+        if self._clonotype_lookup is not None:
+            return self._clonotype_lookup
+        index: dict[str, dict[str, Clonotype]] = {}
+        for pair_rep in self.paired_locus_repertoires.values():
+            for pair in pair_rep.paired_clonotypes:
+                for clonotype in (pair.clonotype1, pair.clonotype2):
+                    index.setdefault(clonotype.locus, {})[clonotype.sequence_id] = clonotype
+        self._clonotype_lookup = index
+        return index
+
+    def get_clonotype(self, locus: str, clonotype_id: str) -> Clonotype | None:
+        """Lazily retrieve a clonotype by (locus, sequence_id)."""
+        return self._materialize_clonotype_lookup().get(locus, {}).get(clonotype_id)
+
+    @classmethod
+    def from_sample_repertoire(
+        cls,
+        sample_repertoire: SampleRepertoire,
+        pairing_rows: list[tuple[str, str, str, str, str]],
+        *,
+        sample_id: str = "",
+        barcode_pair_ids: list[tuple[str, str]] | None = None,
+    ) -> "PairedRepertoire":
+        """Build paired repertoire from sample repertoire and explicit pairing rows.
+
+        pairing_rows schema:
+            (pair_id, locus_1, locus_2, clonotype_id_1, clonotype_id_2)
+        """
+        if not sample_id:
+            sample_id = sample_repertoire.sample_id
+
+        lookup = _LazyClonotypeIndex(sample_repertoire)
+        paired_by_family: dict[str, list[PairedClonotype]] = {k: [] for k in LOCUS_PAIR_TO_LOCI}
+        used_clonotypes: set[tuple[str, str]] = set()
+
+        for pair_id, locus_1, locus_2, clonotype_id_1, clonotype_id_2 in pairing_rows:
+            locus_1 = str(locus_1).upper()
+            locus_2 = str(locus_2).upper()
+
+            locus_pair = ""
+            for pair_name, (left, right) in LOCUS_PAIR_TO_LOCI.items():
+                if (locus_1, locus_2) == (left, right) or (locus_1, locus_2) == (right, left):
+                    locus_pair = pair_name
+                    break
+            if not locus_pair:
+                raise ValueError(f"Unsupported locus pair ({locus_1}, {locus_2})")
+
+            c1 = lookup.get(locus_1, clonotype_id_1)
+            c2 = lookup.get(locus_2, clonotype_id_2)
+            if c1 is None:
+                raise KeyError(f"Unknown clonotype id {clonotype_id_1!r} for locus {locus_1!r}")
+            if c2 is None:
+                raise KeyError(f"Unknown clonotype id {clonotype_id_2!r} for locus {locus_2!r}")
+
+            paired_by_family[locus_pair].append(PairedClonotype(pair_id=pair_id, clonotype1=c1, clonotype2=c2))
+            used_clonotypes.add((c1.locus, c1.sequence_id))
+            used_clonotypes.add((c2.locus, c2.sequence_id))
+
+        barcode_pair_ids = list(barcode_pair_ids or [])
+        chain_multiplicity = pl.DataFrame(
+            schema={
+                "sample_id": pl.Utf8,
+                "locus_pair": pl.Utf8,
+                "n_chain1": pl.Int64,
+                "m_chain2": pl.Int64,
+                "cell_count": pl.Int64,
+            }
+        )
+
+        return cls(
+            sample_id=sample_id,
+            single_cell_repertoire=SingleCellRepertoire(barcode_pair_ids=barcode_pair_ids),
+            paired_locus_repertoires={
+                name: PairedLocusRepertoire(locus_pair=name, paired_clonotypes=pairs)
+                for name, pairs in paired_by_family.items()
+            },
+            chain_multiplicity=chain_multiplicity,
+            loaded_cell_count=len({barcode for barcode, _ in barcode_pair_ids}),
+            loaded_clonotype_count=len(used_clonotypes),
+        )
 
 
 def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
@@ -87,12 +206,12 @@ def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
     )
 
 
-def build_tenx_donor_from_cell_clonotypes(
+def build_tenx_sample_from_cell_clonotypes(
     cell_clonotypes_df: pl.DataFrame,
     *,
-    donor_id: str,
-) -> TenXVdjV1DonorData:
-    """Assemble donor-level paired structures from matched per-cell clonotype rows."""
+    sample_id: str,
+) -> PairedRepertoire:
+    """Assemble sample-level paired structures from matched per-cell clonotype rows."""
     grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
     matched_clonotype_keys: set[tuple[str, str]] = set()
 
@@ -116,9 +235,7 @@ def build_tenx_donor_from_cell_clonotypes(
         grouped[key][clonotype.locus][clonotype.sequence_id] = clonotype
 
     barcode_pair_ids: list[tuple[str, str]] = []
-    paired_by_family: dict[str, list[PairedClonotype]] = {
-        name: [] for name in LOCUS_PAIR_TO_LOCI
-    }
+    paired_by_family: dict[str, list[PairedClonotype]] = {name: [] for name in LOCUS_PAIR_TO_LOCI}
     multiplicity_rows: list[dict[str, object]] = []
 
     for (barcode, raw_pair_id), loci_map in grouped.items():
@@ -129,7 +246,7 @@ def build_tenx_donor_from_cell_clonotypes(
             n_chain2 = len(chains2)
             multiplicity_rows.append(
                 {
-                    "donor_id": donor_id,
+                    "sample_id": sample_id,
                     "barcode": barcode,
                     "raw_pair_id": raw_pair_id,
                     "locus_pair": locus_pair,
@@ -153,7 +270,7 @@ def build_tenx_donor_from_cell_clonotypes(
     if multiplicity_df.height == 0:
         chain_multiplicity = pl.DataFrame(
             schema={
-                "donor_id": pl.Utf8,
+                "sample_id": pl.Utf8,
                 "locus_pair": pl.Utf8,
                 "n_chain1": pl.Int64,
                 "m_chain2": pl.Int64,
@@ -162,10 +279,10 @@ def build_tenx_donor_from_cell_clonotypes(
         )
     else:
         chain_multiplicity = (
-            multiplicity_df.group_by(["donor_id", "locus_pair", "n_chain1", "m_chain2"])
+            multiplicity_df.group_by(["sample_id", "locus_pair", "n_chain1", "m_chain2"])
             .len()
             .rename({"len": "cell_count"})
-            .sort(["donor_id", "locus_pair", "n_chain1", "m_chain2"])
+            .sort(["sample_id", "locus_pair", "n_chain1", "m_chain2"])
         )
 
     paired_locus_repertoires = {
@@ -173,8 +290,8 @@ def build_tenx_donor_from_cell_clonotypes(
         for locus_pair, paired in paired_by_family.items()
     }
 
-    return TenXVdjV1DonorData(
-        donor_id=donor_id,
+    return PairedRepertoire(
+        sample_id=sample_id,
         single_cell_repertoire=SingleCellRepertoire(barcode_pair_ids=barcode_pair_ids),
         paired_locus_repertoires=paired_locus_repertoires,
         chain_multiplicity=chain_multiplicity,
@@ -183,28 +300,42 @@ def build_tenx_donor_from_cell_clonotypes(
     )
 
 
+def load_10x_vdj_v1_sample(
+    consensus_annotations_path: str | Path,
+    all_contig_annotations_path: str | Path,
+    sample_id: str = "",
+    *,
+    check_is_cell: bool = True,
+) -> PairedRepertoire:
+    """Load one sample from 10x_vdj_v1 files into paired single-cell structures."""
+    consensus_path = Path(consensus_annotations_path)
+    if not sample_id:
+        sample_id = consensus_path.name
+
+    cell_df = load_10x_vdj_v1_cell_clonotypes(
+        consensus_annotations_path=consensus_annotations_path,
+        all_contig_annotations_path=all_contig_annotations_path,
+        sample_id=sample_id,
+        check_is_cell=check_is_cell,
+    )
+    return build_tenx_sample_from_cell_clonotypes(cell_df, sample_id=sample_id)
+
+
+# Backward-compatible function alias for older code paths.
+build_tenx_donor_from_cell_clonotypes = build_tenx_sample_from_cell_clonotypes
+
+
 def load_10x_vdj_v1_donor(
     consensus_annotations_path: str | Path,
     all_contig_annotations_path: str | Path,
     donor_id: str = "",
     *,
     check_is_cell: bool = True,
-) -> TenXVdjV1DonorData:
-    """Load one donor from 10x_vdj_v1 files into paired single-cell structures.
-
-    Args:
-        consensus_annotations_path: Path to donor consensus_annotations CSV(.gz).
-        all_contig_annotations_path: Path to donor all_contig_annotations CSV(.gz).
-        donor_id: Optional donor identifier. Defaults to consensus filename.
-        check_is_cell: If True (default), only keep rows where is_cell is truthy.
-    """
-    consensus_path = Path(consensus_annotations_path)
-    if not donor_id:
-        donor_id = consensus_path.name
-    cell_df = load_10x_vdj_v1_cell_clonotypes(
+) -> PairedRepertoire:
+    """Compatibility wrapper for donor-named API."""
+    return load_10x_vdj_v1_sample(
         consensus_annotations_path=consensus_annotations_path,
         all_contig_annotations_path=all_contig_annotations_path,
-        donor_id=donor_id,
+        sample_id=donor_id,
         check_is_cell=check_is_cell,
     )
-    return build_tenx_donor_from_cell_clonotypes(cell_df, donor_id=donor_id)

@@ -95,28 +95,28 @@ cell barcode linkage separate from paired-clonotype objects.
 
 .. code-block:: python
 
-   from mir.common.single_cell import (
-      build_tenx_donor_from_cell_clonotypes,
-      load_10x_vdj_v1_donor,
-   )
+      from mir.common.single_cell import (
+         build_tenx_sample_from_cell_clonotypes,
+         load_10x_vdj_v1_sample,
+      )
    from mir.common.single_cell_parser import load_10x_vdj_v1_cell_clonotypes
    from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
 
-   donor = load_10x_vdj_v1_donor(
+      sample = load_10x_vdj_v1_sample(
        consensus_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
        all_contig_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
-       donor_id="donor1",
+         sample_id="sample1",
       check_is_cell=True,
    )
 
    # Number of barcoded cells with matched consensus linkage
-   print(donor.loaded_cell_count)
+   print(sample.loaded_cell_count)
 
    # Number of distinct matched clonotypes used for pairing
-   print(donor.loaded_clonotype_count)
+   print(sample.loaded_clonotype_count)
 
    # Multiplicity bins by locus pair (n x m chain counts)
-   print(donor.chain_multiplicity)
+   print(sample.chain_multiplicity)
 
 The loader supports locus-pair families ``TRA_TRB``, ``TRG_TRD``,
 ``IGH_IGK``, and ``IGH_IGL`` and expands multi-chain cells via deterministic
@@ -126,15 +126,15 @@ For parser-first workflows:
 
 .. code-block:: python
 
-   cell_table = load_10x_vdj_v1_cell_clonotypes(
+      cell_table = load_10x_vdj_v1_cell_clonotypes(
       "..._consensus_annotations.csv.gz",
       "..._all_contig_annotations.csv.gz",
-      donor_id="donor1",
+         sample_id="sample1",
       check_is_cell=True,
    )
    imputed = impute_missing_chains(cell_table)
    cleaned = cleanup_cell_clonotypes(imputed)
-   donor = build_tenx_donor_from_cell_clonotypes(cleaned, donor_id="donor1")
+      sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
 
 Notebook examples:
 
