@@ -75,6 +75,8 @@ class TenXVdjV1DonorData:
     single_cell_repertoire: SingleCellRepertoire
     paired_locus_repertoires: dict[str, PairedLocusRepertoire]
     chain_multiplicity: pl.DataFrame
+    loaded_cell_count: int
+    loaded_clonotype_count: int
 
 
 def _to_int(v, default: int = 0) -> int:
@@ -112,9 +114,42 @@ def _build_consensus_lookup(consensus_df: pl.DataFrame) -> dict[tuple[str, str],
             umi_count=_to_int(row.get("umis"), 0),
             locus=locus,
             junction=str(row.get("cdr3_nt") or "").strip(),
-            junction_aa=str(row.get("cdr3_aa") or "").strip(),
+            junction_aa=str(row.get("cdr3_aa") or row.get("cdr3") or "").strip(),
         )
     return lookup
+
+
+def _read_consensus_minimal(path: Path) -> pl.DataFrame:
+    """Read only consensus fields required for paired-chain assembly."""
+    header = pl.read_csv(
+        path,
+        separator=",",
+        n_rows=0,
+        infer_schema_length=0,
+        null_values=["", "NA"],
+        truncate_ragged_lines=True,
+    )
+    aa_col = "cdr3_aa" if "cdr3_aa" in header.columns else "cdr3"
+    return pl.read_csv(
+        path,
+        separator=",",
+        infer_schema_length=0,
+        null_values=["", "NA"],
+        truncate_ragged_lines=True,
+        columns=["clonotype_id", "consensus_id", "chain", "cdr3_nt", aa_col, "reads", "umis"],
+    )
+
+
+def _read_all_contig_minimal(path: Path) -> pl.DataFrame:
+    """Read only all-contig fields required for cell-to-chain linkage."""
+    return pl.read_csv(
+        path,
+        separator=",",
+        infer_schema_length=0,
+        null_values=["", "NA"],
+        truncate_ragged_lines=True,
+        columns=["is_cell", "barcode", "raw_clonotype_id", "raw_consensus_id"],
+    )
 
 
 def load_10x_vdj_v1_donor(
@@ -128,24 +163,12 @@ def load_10x_vdj_v1_donor(
     if not donor_id:
         donor_id = consensus_path.name
 
-    consensus_df = pl.read_csv(
-        consensus_path,
-        separator=",",
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-    )
-    all_contig_df = pl.read_csv(
-        all_contig_path,
-        separator=",",
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-    )
+    consensus_df = _read_consensus_minimal(consensus_path)
+    all_contig_df = _read_all_contig_minimal(all_contig_path)
 
     consensus_lookup = _build_consensus_lookup(consensus_df)
 
-    grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
+    filtered_all_contig_rows: list[dict[str, str]] = []
     for row in all_contig_df.iter_rows(named=True):
         if not _is_truthy(row.get("is_cell")):
             continue
@@ -154,10 +177,25 @@ def load_10x_vdj_v1_donor(
         sequence_id = str(row.get("raw_consensus_id") or "").strip()
         if not barcode or not pair_id or not sequence_id:
             continue
+        filtered_all_contig_rows.append(
+            {
+                "barcode": barcode,
+                "raw_clonotype_id": pair_id,
+                "raw_consensus_id": sequence_id,
+            }
+        )
+
+    grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
+    matched_clonotype_keys: set[tuple[str, str]] = set()
+    for row in filtered_all_contig_rows:
+        barcode = row["barcode"]
+        pair_id = row["raw_clonotype_id"]
+        sequence_id = row["raw_consensus_id"]
 
         clonotype = consensus_lookup.get((pair_id, sequence_id))
         if clonotype is None:
             continue
+        matched_clonotype_keys.add((pair_id, sequence_id))
 
         key = (barcode, pair_id)
         if key not in grouped:
@@ -229,4 +267,6 @@ def load_10x_vdj_v1_donor(
         single_cell_repertoire=SingleCellRepertoire(barcode_pair_ids=barcode_pair_ids),
         paired_locus_repertoires=paired_locus_repertoires,
         chain_multiplicity=chain_multiplicity,
+        loaded_cell_count=len(grouped),
+        loaded_clonotype_count=len(matched_clonotype_keys),
     )

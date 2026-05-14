@@ -87,6 +87,52 @@ Typical Workflow
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
 
+Single-Cell 10x Paired-Chain Loading
+------------------------------------
+
+mirpy includes a dedicated loader for 10x VDJ v1 paired-chain data that keeps
+cell barcode linkage separate from paired-clonotype objects.
+
+.. code-block:: python
+
+   from mir.common.single_cell import load_10x_vdj_v1_donor
+
+   donor = load_10x_vdj_v1_donor(
+       consensus_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
+       all_contig_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
+       donor_id="donor1",
+   )
+
+   # Number of barcoded cells with matched consensus linkage
+   print(donor.loaded_cell_count)
+
+   # Number of distinct matched clonotypes used for pairing
+   print(donor.loaded_clonotype_count)
+
+   # Multiplicity bins by locus pair (n x m chain counts)
+   print(donor.chain_multiplicity)
+
+The loader supports locus-pair families ``TRA_TRB``, ``TRG_TRD``,
+``IGH_IGK``, and ``IGH_IGL`` and expands multi-chain cells via deterministic
+cartesian pairing (e.g., ``2x1`` yields two paired clonotypes).
+
+Benchmarking 10x Loading
+------------------------
+
+Use benchmark tests on AIRR benchmark 10x donor files to track speed, memory,
+and concordance with scirpy loading behavior.
+
+.. code-block:: bash
+
+   env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
+
+The benchmark suite asserts:
+
+* 10x donor objects load with non-empty cell/clonotype/pairing outputs,
+* per-donor runtime and RSS deltas remain within bounded limits,
+* mirpy vs scirpy TRA/TRB quadrant patterns are concordant on dominant bins,
+* mirpy speed and memory are competitive relative to scirpy on the same donor.
+
 For batch-corrected gene usage workflows, use
 ``compute_batch_corrected_gene_usage`` and consume ``pfinal`` as the corrected
 probability output (already normalized per sample/locus).
