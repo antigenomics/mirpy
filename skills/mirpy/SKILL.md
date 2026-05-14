@@ -404,6 +404,47 @@ This suite validates:
 - mirpy vs scirpy TRA/TRB quadrant concordance on dominant patterns,
 - speed/memory competitiveness relative to scirpy on the same donor.
 
+## 13. Single-Cell Parsing, Repair, And Pairing Graphs
+
+Use the parser-first API when you need to apply cleanup or imputation before
+assembling donor paired-clonotype objects.
+
+```python
+from mir.common.single_cell import build_tenx_donor_from_cell_clonotypes
+from mir.common.single_cell_parser import load_10x_vdj_v1_cell_clonotypes
+from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
+from mir.common.single_cell_util import build_pairing_graph
+
+raw = load_10x_vdj_v1_cell_clonotypes(
+    "..._consensus_annotations.csv.gz",
+    "..._all_contig_annotations.csv.gz",
+    donor_id="donor1",
+    check_is_cell=True,  # default
+)
+
+imputed = impute_missing_chains(raw, species="human", seed=42)
+cleaned = cleanup_cell_clonotypes(
+    imputed,
+    secondary_ratio_threshold=0.1,
+    secondary_min_umi_count=2,
+    secondary_min_duplicate_count=5,
+)
+
+donor = build_tenx_donor_from_cell_clonotypes(cleaned, donor_id="donor1")
+pairing_graph = build_pairing_graph(donor, min_shared_cells=1)
+
+print(pairing_graph.nodes)
+print(pairing_graph.edges)
+```
+
+Repair behavior summary:
+
+- Missing chain families are imputed per `(barcode, raw_pair_id)` group.
+- Synthetic rows are OLGA-based where possible and always use
+  `duplicate_count=1`, `umi_count=1`.
+- Cleanup keeps top-1 for `TRB`, `TRD`, `IGH` and conditionally keeps top-2
+  for `TRA`/`TRG` and `IGK`/`IGL` using ratio and minimum support thresholds.
+
 ## 9.1 TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.

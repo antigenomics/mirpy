@@ -60,6 +60,30 @@ mir.common.single\_cell module
    :undoc-members:
    :show-inheritance:
 
+mir.common.single\_cell\_parser module
+---------------------------------------
+
+.. automodule:: mir.common.single_cell_parser
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell\_repair module
+---------------------------------------
+
+.. automodule:: mir.common.single_cell_repair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell\_util module
+-------------------------------------
+
+.. automodule:: mir.common.single_cell_util
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.sampling module
 --------------------------
 
