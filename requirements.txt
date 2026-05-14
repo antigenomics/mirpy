@@ -45,3 +45,4 @@ pylint
 huggingface_hub
 psutil>=5
 scirpy>=0.19
+sc-dandelion

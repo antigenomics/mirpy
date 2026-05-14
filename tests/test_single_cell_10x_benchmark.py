@@ -165,3 +165,107 @@ def test_10x_loader_concordance_and_speed_vs_scirpy() -> None:
         sc_quads[("TRA+", "TRB+")],
     )
     assert rel_gap < 0.3
+
+
+def _quadrants_from_dandelion(all_contig: Path) -> dict[tuple[str, str], int]:
+    """Build TRA/TRB presence quadrants using dandelion's Dandelion loader.
+
+    dandelion's ``read_10x_vdj`` expects ``*_contig_annotations.csv`` naming
+    (no 'all_' prefix), which differs from the AIRR benchmark file naming.
+    Instead we read the CSV directly, remap 10x columns to AIRR schema, and
+    pass the DataFrame to the ``Dandelion`` constructor.  The resulting
+    ``.metadata`` DataFrame has ``locus_VDJ`` / ``locus_VJ`` for chain calls.
+    """
+    import os
+    import warnings
+
+    # dandelion uses setuptools_scm to find its own version from git tags.
+    # In repos with non-PEP-440 tags (like this one) that causes an ImportError.
+    # Setting the env var forces a synthetic version string during import.
+    os.environ.setdefault("SETUPTOOLS_SCM_PRETEND_VERSION", "0.0.0")
+    ddl = pytest.importorskip("dandelion")
+    pandas = pytest.importorskip("pandas")
+
+    df = pandas.read_csv(all_contig)
+    df = df[df["is_cell"] == True].copy()  # noqa: E712
+    df = df.rename(columns={
+        "contig_id": "sequence_id",
+        "barcode": "cell_id",
+        "chain": "locus",
+        "cdr3": "junction_aa",
+        "cdr3_nt": "junction",
+        "v_gene": "v_call",
+        "d_gene": "d_call",
+        "j_gene": "j_call",
+        "c_gene": "c_call",
+        "reads": "consensus_count",
+        "umis": "umi_count",
+    })
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        vdj = ddl.Dandelion(data=df)
+
+    meta = vdj.metadata
+    # locus_VDJ holds TRB (or TRB|TRB…), locus_VJ holds TRA (or TRA|TRA…).
+    # A cell is TRA+ if locus_VJ is a non-empty non-null string containing "TRA".
+    # A cell is TRB+ if locus_VDJ is a non-empty non-null string containing "TRB".
+    def _has_locus(series, locus: str) -> "pandas.Series":
+        return series.notna() & series.astype(str).str.contains(locus, na=False)
+
+    tra_present = _has_locus(meta["locus_VJ"], "TRA")
+    trb_present = _has_locus(meta["locus_VDJ"], "TRB")
+
+    out = (
+        pl.from_pandas(
+            pandas.DataFrame({
+                "tra": tra_present.map({True: "TRA+", False: "TRA-"}),
+                "trb": trb_present.map({True: "TRB+", False: "TRB-"}),
+            })
+        )
+        .group_by(["tra", "trb"])
+        .len()
+        .rename({"len": "cells"})
+    )
+    return {(r["tra"], r["trb"]): int(r["cells"]) for r in out.to_dicts()}
+
+
+def test_10x_loader_concordance_and_speed_vs_dandelion() -> None:
+    """Assert mirpy is faster than dandelion and their TRA/TRB quadrant counts agree."""
+    ensure_test_data(force=False, verbose=False)
+    donors = _discover_donors()
+    if not donors:
+        pytest.skip("No dcode donor assets found under airr_benchmark/dcode")
+
+    donor_id, all_contig, consensus = donors[0]
+
+    donor, mir_time, mir_rss = _measure_load(
+        lambda: load_10x_vdj_v1_donor(
+            consensus_annotations_path=consensus,
+            all_contig_annotations_path=all_contig,
+            donor_id=donor_id,
+        )
+    )
+
+    _, ddl_time, ddl_rss = _measure_load(lambda: _quadrants_from_dandelion(all_contig))
+    mir_quads = _quadrants_from_mirpy(donor.chain_multiplicity)
+    ddl_quads = _quadrants_from_dandelion(all_contig)
+
+    # mirpy should be faster.
+    assert mir_time < ddl_time, (
+        f"mirpy ({mir_time:.2f}s) should be faster than dandelion ({ddl_time:.2f}s)"
+    )
+
+    # Both should agree on dominant quadrant.
+    mir_dominant = max(mir_quads.items(), key=lambda kv: kv[1])[0]
+    ddl_dominant = max(ddl_quads.items(), key=lambda kv: kv[1])[0]
+    assert mir_dominant == ("TRA+", "TRB+"), f"mirpy dominant quadrant: {mir_dominant}"
+    assert ddl_dominant == ("TRA+", "TRB+"), f"dandelion dominant quadrant: {ddl_dominant}"
+
+    # Relative gap on the dominant TRA+/TRB+ bin < 30%.
+    mir_paired = mir_quads.get(("TRA+", "TRB+"), 0)
+    ddl_paired = ddl_quads.get(("TRA+", "TRB+"), 0)
+    rel_gap = abs(mir_paired - ddl_paired) / max(mir_paired, ddl_paired, 1)
+    assert rel_gap < 0.30, (
+        f"TRA+/TRB+ relative gap {rel_gap:.2%} exceeds 30% "
+        f"(mirpy={mir_paired}, dandelion={ddl_paired})"
+    )
