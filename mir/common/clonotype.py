@@ -58,6 +58,7 @@ class Clonotype:
     d_sequence_start: int = -1
     d_sequence_end: int = -1
     j_sequence_start: int = -1
+    umi_count: int = 0
     # Mutable metadata dict excluded from eq/repr/init
     clone_metadata: dict = field(default_factory=dict, repr=False,
                                   compare=False, init=False)
@@ -153,6 +154,7 @@ class Clonotype:
             "d_sequence_start": self.d_sequence_start,
             "d_sequence_end":  self.d_sequence_end,
             "j_sequence_start": self.j_sequence_start,
+            "umi_count":       self.umi_count,
         }
 
     # ------------------------------------------------------------------
@@ -173,6 +175,7 @@ class Clonotype:
         "d_sequence_start": pl.Int64,
         "d_sequence_end":   pl.Int64,
         "j_sequence_start": pl.Int64,
+        "umi_count":        pl.Int64,
     }
 
     @classmethod
@@ -213,6 +216,7 @@ class Clonotype:
                 d_sequence_start=_int(row.get("d_sequence_start")),
                 d_sequence_end= _int(row.get("d_sequence_end")),
                 j_sequence_start=_int(row.get("j_sequence_start")),
+                umi_count=      _int(row.get("umi_count"), 0),
                 _validate=False,
             ))
         return clonotypes

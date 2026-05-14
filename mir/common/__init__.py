@@ -8,6 +8,14 @@ from .pool import pool_samples
 from .control import ControlManager, control_setup_cli
 from .repertoire_dataset import RepertoireDataset
 from .alleles import allele_to_major
+from .single_cell import (
+	LOCUS_PAIR_TO_LOCI,
+	PairedClonotype,
+	PairedLocusRepertoire,
+	SingleCellRepertoire,
+	TenXVdjV1DonorData,
+	load_10x_vdj_v1_donor,
+)
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
 
 __all__ = [
@@ -28,6 +36,12 @@ __all__ = [
 	'control_setup_cli',
 	'RepertoireDataset',
 	'allele_to_major',
+	'LOCUS_PAIR_TO_LOCI',
+	'PairedClonotype',
+	'PairedLocusRepertoire',
+	'SingleCellRepertoire',
+	'TenXVdjV1DonorData',
+	'load_10x_vdj_v1_donor',
 	'compute_batch_corrected_gene_usage',
 	'Segment',
 	'SegmentLibrary',

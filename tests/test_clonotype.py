@@ -69,6 +69,9 @@ class TestFromPolars:
         expected = self.df["duplicate_count"].to_list()
         assert [c.duplicate_count for c in self.clonotypes] == expected
 
+    def test_umi_count_default_zero(self):
+        assert all(c.umi_count == 0 for c in self.clonotypes)
+
     def test_junction_markup_property(self):
         c = self.clonotypes[0]
         jm = c.junction_markup
@@ -159,6 +162,13 @@ class TestClonotypeConstruction:
         d = c.serialize()
         assert set(d.keys()) == set(Clonotype._POLARS_SCHEMA.keys())
 
+    def test_umi_count_roundtrip(self):
+        c = Clonotype(sequence_id="1", junction_aa="CASSEGF", umi_count=12)
+        out = Clonotype.to_polars([c])
+        restored = Clonotype.from_polars(out)
+        assert len(restored) == 1
+        assert restored[0].umi_count == 12
+
 
 # ---------------------------------------------------------------------------
 # Parser integration: ClonotypeTableParser → Clonotype
@@ -179,3 +189,19 @@ class TestParserIntegration:
         clonotypes = ClonotypeTableParser().parse_inner(df)
         for c in clonotypes:
             assert isinstance(c.sequence_id, str)
+
+    def test_umi_count_from_dataframe(self):
+        df = pd.DataFrame(
+            {
+                "junction_aa": ["CASSF"],
+                "junction": ["TGTGCTAGCAGTTTC"],
+                "v_gene": ["TRBV10-1*01"],
+                "j_gene": ["TRBJ1-1*01"],
+                "duplicate_count": [3],
+                "umi_count": [2],
+                "locus": ["TRB"],
+            }
+        )
+        clonotypes = ClonotypeTableParser().parse_inner(df)
+        assert len(clonotypes) == 1
+        assert clonotypes[0].umi_count == 2

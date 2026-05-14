@@ -226,6 +226,8 @@ class ClonotypeTableParser:
 
         dup_counts   = df['duplicate_count'].cast(pl.Int64).fill_null(1).to_list() \
                        if 'duplicate_count' in cols else [1] * n
+        umi_counts   = df['umi_count'].cast(pl.Int64).fill_null(0).to_list() \
+                   if 'umi_count' in cols else [0] * n
         junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
                        if 'junction' in cols else [""] * n
         junction_aas = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
@@ -268,6 +270,7 @@ class ClonotypeTableParser:
                 sequence_id=sid,
                 locus=loc,
                 duplicate_count=dup,
+                umi_count=umi,
                 junction=jnt,
                 junction_aa=jaa,
                 v_gene=vg,
@@ -278,8 +281,8 @@ class ClonotypeTableParser:
                 d_sequence_end=de,
                 j_sequence_start=js,
             )
-            for sid, loc, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
-                seq_ids, loci, dup_counts, junctions, junction_aas,
+            for sid, loc, dup, umi, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                seq_ids, loci, dup_counts, umi_counts, junctions, junction_aas,
                 v_genes, d_genes, j_genes, v_ends, d_starts, d_ends, j_starts,
             )
         ]
@@ -299,6 +302,8 @@ class ClonotypeTableParser:
 
         dup_counts   = df['duplicate_count'].cast(pl.Int64).fill_null(1).to_list() \
                        if 'duplicate_count' in cols else [1] * n
+        umi_counts   = df['umi_count'].cast(pl.Int64).fill_null(0).to_list() \
+                   if 'umi_count' in cols else [0] * n
         junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
                        if 'junction' in cols else [""] * n
         junction_aas_raw = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
@@ -341,12 +346,14 @@ class ClonotypeTableParser:
                 groups[loc] = {
                     'locus': loc,
                     'seq_ids': [], 'dup_counts': [], 'junctions': [],
+                    'umi_counts': [],
                     'junction_aas': [], 'v_genes': [], 'd_genes': [], 'j_genes': [],
                     'v_ends': [], 'd_starts': [], 'd_ends': [], 'j_starts': [],
                 }
             g = groups[loc]
             g['seq_ids'].append(seq_ids[i])
             g['dup_counts'].append(dup_counts[i])
+            g['umi_counts'].append(umi_counts[i])
             g['junctions'].append(junctions[i])
             g['junction_aas'].append(junction_aas[i])
             g['v_genes'].append(v_genes[i])
@@ -1001,3 +1008,18 @@ def load_vdjdb_latest(
 
     print(f"{epitope}: {len(clonotypes)} unique {locus} clonotypes")
     return LocusRepertoire(clonotypes=clonotypes, locus=locus)
+
+
+def load_10x_vdj_v1_donor(
+    consensus_annotations_path: str | Path,
+    all_contig_annotations_path: str | Path,
+    donor_id: str = "",
+):
+    """Load one donor from 10x_vdj_v1 files into paired single-cell objects."""
+    from mir.common.single_cell import load_10x_vdj_v1_donor as _load
+
+    return _load(
+        consensus_annotations_path=consensus_annotations_path,
+        all_contig_annotations_path=all_contig_annotations_path,
+        donor_id=donor_id,
+    )

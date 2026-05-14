@@ -136,3 +136,22 @@ def ensure_airr_benchmark_alice(
         subsets = ["yf", "as"]
     patterns = [f"alice/{sub}/*" for sub in subsets]
     return ensure_airr_benchmark(repo_root=repo_root, allow_patterns=patterns)
+
+
+def find_airr_benchmark_dcode_10x_vdj_v1_donor(
+    dataset_root: Path,
+    donor_id: str,
+) -> tuple[Path, Path]:
+    """Return (all_contig, consensus) files for one dcode 10x_vdj_v1 donor."""
+    dcode_root = dataset_root / "dcode" / "10x_vdj_v1"
+    all_contig = sorted(
+        dcode_root.glob(f"*{donor_id}*_all_contig_annotations.csv.gz")
+    )
+    consensus = sorted(
+        dcode_root.glob(f"*{donor_id}*_consensus_annotations.csv.gz")
+    )
+    if not all_contig or not consensus:
+        raise FileNotFoundError(
+            f"Could not find 10x_vdj_v1 donor {donor_id!r} under {dcode_root}"
+        )
+    return all_contig[0], consensus[0]

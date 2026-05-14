@@ -29,9 +29,19 @@ _REQUIRED_PATTERNS = [
     "alice/yf/Q1_d0.tsv.gz",
     "alice/yf/Q1_d15.tsv.gz",
     "gliph/gliph_trb.tsv.gz",
+    "dcode/10x_vdj_v1/**",
     "vdjdb/**",
     "vdjtools_lite/**",
 ]
+
+
+def _has_10x_vdj_v1_assets() -> bool:
+    dcode_root = DATASET_ROOT / "dcode" / "10x_vdj_v1"
+    return (
+        dcode_root.exists()
+        and any(dcode_root.glob("*_all_contig_annotations.csv.gz"))
+        and any(dcode_root.glob("*_consensus_annotations.csv.gz"))
+    )
 
 TOY_DATASET_METADATA_TSV = """sample_id\tfile_name\tbatch_id
 s1\tvdjtools_trb_d_dot.tsv\tbatch_A
@@ -280,7 +290,12 @@ def _derive_assets(*, verbose: bool = False) -> None:
 
 
 def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
-    if not force and _SENTINEL.exists() and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists():
+    if (
+        not force
+        and _SENTINEL.exists()
+        and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists()
+        and _has_10x_vdj_v1_assets()
+    ):
         return
 
     if force:
