@@ -395,6 +395,7 @@ AIRR benchmark donors:
 
 ```bash
 env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
+env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_repair_benchmark.py -s -x
 ```
 
 This suite validates:
@@ -407,7 +408,7 @@ This suite validates:
 ## 13. Single-Cell Parsing, Repair, And Pairing Graphs
 
 Use the parser-first API when you need to apply cleanup or imputation before
-assembling donor paired-clonotype objects.
+assembling sample paired-clonotype objects.
 
 ```python
 from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
@@ -418,19 +419,19 @@ from mir.graph.single_cell_pairing import build_pairing_graph
 raw = load_10x_vdj_v1_cell_clonotypes(
     "..._consensus_annotations.csv.gz",
     "..._all_contig_annotations.csv.gz",
-  sample_id="sample1",
+    sample_id="sample1",
     check_is_cell=True,  # default
 )
 
-imputed = impute_missing_chains(raw, species="human", seed=42)
+imputed = impute_missing_chains(raw, species="human", seed=42, reuse_slave_per_master=True)
 cleaned = cleanup_cell_clonotypes(
     imputed,
     secondary_ratio_threshold=0.1,
     secondary_min_umi_count=2,
     secondary_min_duplicate_count=5,
-  enforce_consistent_slave_per_master=True,
-  consistency_only_on_synthetic_slave=True,
-  max_slave_edges_per_master=10,
+    enforce_consistent_slave_per_master=True,
+    consistency_only_on_synthetic_slave=True,
+    max_slave_edges_per_master=10,
 )
 
 sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
@@ -452,6 +453,8 @@ Repair behavior summary:
 - Cleanup can enforce one synthetic slave chain per master clonotype and can
   prune master/slave families where one master is connected to too many slave
   clonotypes (`max_slave_edges_per_master`).
+- `consistency_only_on_synthetic_slave=True` limits consistency enforcement to
+  synthetic slaves; set `False` to enforce consistency on all slave chains.
 
 ## 9.1 TCRNET Enrichment
 

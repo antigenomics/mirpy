@@ -135,16 +135,30 @@ For parser-first workflows:
    imputed = impute_missing_chains(cell_table, reuse_slave_per_master=True)
    cleaned = cleanup_cell_clonotypes(
        imputed,
+          # Keep one canonical synthetic slave per master clonotype.
        enforce_consistent_slave_per_master=True,
        consistency_only_on_synthetic_slave=True,
+          # Remove oversized master/slave communities from downstream graph analysis.
        max_slave_edges_per_master=10,
    )
    sample = build_tenx_sample_from_cell_clonotypes(cleaned, sample_id="sample1")
 
+Repair controls summary:
+
+* ``reuse_slave_per_master=True`` reuses one synthetic slave clonotype per
+   master clonotype during imputation.
+* ``enforce_consistent_slave_per_master=True`` keeps master->slave assignments
+   consistent across cells after cleanup.
+* ``consistency_only_on_synthetic_slave=True`` restricts consistency enforcement
+   to synthetic slave chains (set ``False`` to include observed slaves).
+* ``max_slave_edges_per_master=10`` removes flagged master/slave families when
+   a master clonotype connects to too many distinct slave clonotypes.
+
 Notebook examples:
 
 * ``notebooks/single_cell_load.ipynb``: 10x sample loading and concordance checks.
-* ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs.
+* ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs
+   plus TRA/TRB stage heatmaps.
 
 Benchmarking 10x Loading
 ------------------------
