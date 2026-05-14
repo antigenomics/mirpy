@@ -332,3 +332,162 @@ def test_build_pairing_graph_counts_cells_per_edge() -> None:
 
     filtered = build_pairing_graph(sample, min_shared_cells=2)
     assert filtered.edges.height == 1
+
+
+def test_cleanup_enforces_consistent_synthetic_slave_per_master() -> None:
+    rows = _cell_table(
+        [
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 50,
+                "umi_count": 20,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "synthetic_TRA_A",
+                "locus": "TRA",
+                "duplicate_count": 1,
+                "umi_count": 1,
+                "junction": "",
+                "junction_aa": "CAVRNNNARLMF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc2",
+                "raw_pair_id": "p2",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 45,
+                "umi_count": 15,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc2",
+                "raw_pair_id": "p2",
+                "sequence_id": "synthetic_TRA_B",
+                "locus": "TRA",
+                "duplicate_count": 1,
+                "umi_count": 1,
+                "junction": "",
+                "junction_aa": "CAVRNNNARLMF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+        ]
+    )
+
+    cleaned = cleanup_cell_clonotypes(
+        rows,
+        enforce_consistent_slave_per_master=True,
+        consistency_only_on_synthetic_slave=True,
+    )
+    tra_ids = sorted(cleaned.filter(pl.col("locus") == "TRA")["sequence_id"].to_list())
+    assert len(set(tra_ids)) == 1
+
+
+def test_cleanup_prunes_master_with_too_many_slave_edges() -> None:
+    rows_list: list[dict[str, object]] = []
+    for i in range(12):
+        rows_list.append(
+            {
+                "sample_id": "s1",
+                "barcode": f"bc{i}",
+                "raw_pair_id": f"p{i}",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 30,
+                "umi_count": 10,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            }
+        )
+        rows_list.append(
+            {
+                "sample_id": "s1",
+                "barcode": f"bc{i}",
+                "raw_pair_id": f"p{i}",
+                "sequence_id": f"synthetic_TRA_{i}",
+                "locus": "TRA",
+                "duplicate_count": 1,
+                "umi_count": 1,
+                "junction": "",
+                "junction_aa": "CAVRNNNARLMF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            }
+        )
+
+    rows = _cell_table(rows_list)
+    pruned = cleanup_cell_clonotypes(rows, max_slave_edges_per_master=10)
+    assert pruned.filter(pl.col("locus").is_in(["TRB", "TRA"])).height == 0
+
+
+def test_impute_reuses_synthetic_slave_per_master_when_enabled() -> None:
+    rows = _cell_table(
+        [
+            {
+                "sample_id": "s1",
+                "barcode": "bc1",
+                "raw_pair_id": "p1",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 20,
+                "umi_count": 8,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+            {
+                "sample_id": "s1",
+                "barcode": "bc2",
+                "raw_pair_id": "p2",
+                "sequence_id": "trb_master",
+                "locus": "TRB",
+                "duplicate_count": 22,
+                "umi_count": 9,
+                "junction": "",
+                "junction_aa": "CASSQETQYF",
+                "v_gene": "",
+                "d_gene": "",
+                "j_gene": "",
+                "c_gene": "",
+            },
+        ]
+    )
+
+    imputed = impute_missing_chains(rows, seed=7, reuse_slave_per_master=True)
+    tra_ids = sorted(imputed.filter(pl.col("locus") == "TRA")["sequence_id"].to_list())
+    assert len(set(tra_ids)) == 1
