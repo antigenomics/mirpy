@@ -12,11 +12,11 @@ import pytest
 from mir.common.clonotype import Clonotype
 from mir.common.single_cell import (
     LOCUS_PAIR_TO_LOCI,
+    PairedRepertoire,
     PairedClonotype,
     PairedLocusRepertoire,
     SingleCellRepertoire,
-    TenXVdjV1DonorData,
-    load_10x_vdj_v1_donor,
+    load_10x_vdj_v1_sample,
 )
 from tests.prepare_airr_benchmark_data import ensure_test_data
 
@@ -53,13 +53,13 @@ def test_multi_tra_single_trb_expands_to_two_pairs(tmp_path: Path) -> None:
     _write_csv_gz(consensus_path, consensus)
     _write_csv_gz(all_contig_path, all_contig)
 
-    donor = load_10x_vdj_v1_donor(consensus_path, all_contig_path, donor_id="d1")
+    sample = load_10x_vdj_v1_sample(consensus_path, all_contig_path, sample_id="s1")
 
-    tra_trb = donor.paired_locus_repertoires["TRA_TRB"]
+    tra_trb = sample.paired_locus_repertoires["TRA_TRB"]
     assert tra_trb.clonotype_count == 2
     assert [p.pair_id for p in tra_trb.paired_clonotypes] == ["pairA_1", "pairA_2"]
 
-    links = donor.single_cell_repertoire.to_polars().sort(["barcode", "pair_id"])
+    links = sample.single_cell_repertoire.to_polars().sort(["barcode", "pair_id"])
     assert links.height == 2
     assert links["barcode"].to_list() == ["bc1", "bc1"]
     assert links["pair_id"].to_list() == ["pairA_1", "pairA_2"]
@@ -91,12 +91,12 @@ def test_incomplete_pairs_counted_but_not_emitted(tmp_path: Path) -> None:
     _write_csv_gz(consensus_path, consensus)
     _write_csv_gz(all_contig_path, all_contig)
 
-    donor = load_10x_vdj_v1_donor(consensus_path, all_contig_path, donor_id="d2")
+    sample = load_10x_vdj_v1_sample(consensus_path, all_contig_path, sample_id="s2")
 
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
-    assert donor.single_cell_repertoire.to_polars().height == 0
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
+    assert sample.single_cell_repertoire.to_polars().height == 0
 
-    counts = donor.chain_multiplicity.filter(
+    counts = sample.chain_multiplicity.filter(
         (pl.col("locus_pair") == "TRA_TRB")
         & (pl.col("n_chain1") == 1)
         & (pl.col("m_chain2") == 0)
@@ -131,10 +131,10 @@ def test_mixed_locus_pair_routed_to_correct_family(tmp_path: Path) -> None:
     _write_csv_gz(consensus_path, consensus)
     _write_csv_gz(all_contig_path, all_contig)
 
-    donor = load_10x_vdj_v1_donor(consensus_path, all_contig_path, donor_id="d3")
+    sample = load_10x_vdj_v1_sample(consensus_path, all_contig_path, sample_id="s3")
 
-    assert donor.paired_locus_repertoires["IGH_IGK"].clonotype_count == 1
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
+    assert sample.paired_locus_repertoires["IGH_IGK"].clonotype_count == 1
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
 
 
 def test_locus_pair_registry_is_stable() -> None:
@@ -167,14 +167,14 @@ def test_load_10x_vdj_v1_from_airr_benchmark_donor1_like() -> None:
     if donor1_consensus is None:
         pytest.skip("Could not find matching consensus/all_contig donor pair")
 
-    donor = load_10x_vdj_v1_donor(
+    sample = load_10x_vdj_v1_sample(
         consensus_annotations_path=donor1_consensus,
         all_contig_annotations_path=donor1_all,
     )
 
-    assert donor.chain_multiplicity.height > 0
-    assert set(donor.chain_multiplicity.columns) == {
-        "donor_id",
+    assert sample.chain_multiplicity.height > 0
+    assert set(sample.chain_multiplicity.columns) == {
+        "sample_id",
         "locus_pair",
         "n_chain1",
         "m_chain2",
@@ -238,23 +238,23 @@ def test_tenx_vdj_v1_donor_data_construction() -> None:
     repos["TRA_TRB"] = PairedLocusRepertoire(locus_pair="TRA_TRB", paired_clonotypes=[pc])
     scr = SingleCellRepertoire(barcode_pair_ids=[("bc1", "p1")])
     cm = pl.DataFrame({
-        "donor_id": ["d1"], "locus_pair": ["TRA_TRB"],
+        "sample_id": ["s1"], "locus_pair": ["TRA_TRB"],
         "n_chain1": [1], "m_chain2": [1], "cell_count": [1],
     })
-    d = TenXVdjV1DonorData(
-        donor_id="d1",
+    d = PairedRepertoire(
+        sample_id="s1",
         single_cell_repertoire=scr,
         paired_locus_repertoires=repos,
         chain_multiplicity=cm,
         loaded_cell_count=1,
         loaded_clonotype_count=1,
     )
-    assert d.donor_id == "d1"
+    assert d.sample_id == "s1"
     assert d.loaded_cell_count == 1
     assert d.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
 
 
-def test_donor_id_defaults_to_consensus_filename(tmp_path: Path) -> None:
+def test_sample_id_defaults_to_consensus_filename(tmp_path: Path) -> None:
     consensus = pl.DataFrame({
         "clonotype_id": ["pairA", "pairA"],
         "consensus_id": ["consA_TRA", "consA_TRB"],
@@ -275,8 +275,8 @@ def test_donor_id_defaults_to_consensus_filename(tmp_path: Path) -> None:
     ap = tmp_path / "mydonor_all_contig.csv.gz"
     _write_csv_gz(cp, consensus)
     _write_csv_gz(ap, all_contig)
-    donor = load_10x_vdj_v1_donor(cp, ap)
-    assert donor.donor_id == cp.name
+    sample = load_10x_vdj_v1_sample(cp, ap)
+    assert sample.sample_id == cp.name
 
 
 # ---------------------------------------------------------------------------
@@ -305,9 +305,9 @@ def test_non_cell_rows_are_excluded(tmp_path: Path) -> None:
     ap = tmp_path / "all_contig.csv.gz"
     _write_csv_gz(cp, consensus)
     _write_csv_gz(ap, all_contig)
-    donor = load_10x_vdj_v1_donor(cp, ap, donor_id="d_noncell")
-    assert donor.loaded_cell_count == 0
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
+    sample = load_10x_vdj_v1_sample(cp, ap, sample_id="s_noncell")
+    assert sample.loaded_cell_count == 0
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
 
 
 def test_can_disable_is_cell_filter(tmp_path: Path) -> None:
@@ -332,9 +332,9 @@ def test_can_disable_is_cell_filter(tmp_path: Path) -> None:
     _write_csv_gz(cp, consensus)
     _write_csv_gz(ap, all_contig)
 
-    donor = load_10x_vdj_v1_donor(cp, ap, donor_id="d_nofilter", check_is_cell=False)
-    assert donor.loaded_cell_count == 1
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
+    sample = load_10x_vdj_v1_sample(cp, ap, sample_id="s_nofilter", check_is_cell=False)
+    assert sample.loaded_cell_count == 1
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
 
 
 def test_all_contig_missing_consensus_reference_is_skipped(tmp_path: Path) -> None:
@@ -359,13 +359,13 @@ def test_all_contig_missing_consensus_reference_is_skipped(tmp_path: Path) -> No
     ap = tmp_path / "all_contig.csv.gz"
     _write_csv_gz(cp, consensus)
     _write_csv_gz(ap, all_contig)
-    donor = load_10x_vdj_v1_donor(cp, ap, donor_id="d_ghost")
+    sample = load_10x_vdj_v1_sample(cp, ap, sample_id="s_ghost")
     # TRA-only → no complete pair, but no crash
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
 
 
-def test_donor_mismatch_warning_emitted(tmp_path: Path) -> None:
-    """Loading files from different donors (junction conflicts) should raise UserWarning."""
+def test_sample_mismatch_warning_emitted(tmp_path: Path) -> None:
+    """Loading files from different samples (junction conflicts) should raise UserWarning."""
     consensus = pl.DataFrame({
         "clonotype_id": ["pairA", "pairA"],
         "consensus_id": ["consA_TRA", "consA_TRB"],
@@ -375,7 +375,7 @@ def test_donor_mismatch_warning_emitted(tmp_path: Path) -> None:
         "reads": [10, 15],
         "umis": [5, 7],
     })
-    # all_contig references same consensus IDs but different junctions — different donor
+    # all_contig references same consensus IDs but different junctions — different sample
     all_contig = pl.DataFrame({
         "is_cell": [True, True],
         "barcode": ["bc2", "bc2"],
@@ -387,11 +387,11 @@ def test_donor_mismatch_warning_emitted(tmp_path: Path) -> None:
     ap = tmp_path / "all_contig.csv.gz"
     _write_csv_gz(cp, consensus)
     _write_csv_gz(ap, all_contig)
-    with pytest.warns(UserWarning, match="Possible donor mismatch"):
-        load_10x_vdj_v1_donor(cp, ap, donor_id="d_mismatch")
+    with pytest.warns(UserWarning, match="Possible sample mismatch"):
+        load_10x_vdj_v1_sample(cp, ap, sample_id="s_mismatch")
 
 
-def test_no_donor_mismatch_warning_when_junctions_agree(tmp_path: Path) -> None:
+def test_no_sample_mismatch_warning_when_junctions_agree(tmp_path: Path) -> None:
     """No warning should be emitted when junctions match across both files."""
     consensus = pl.DataFrame({
         "clonotype_id": ["pairA", "pairA"],
@@ -416,5 +416,5 @@ def test_no_donor_mismatch_warning_when_junctions_agree(tmp_path: Path) -> None:
     import warnings as _warnings
     with _warnings.catch_warnings():
         _warnings.simplefilter("error", UserWarning)
-        donor = load_10x_vdj_v1_donor(cp, ap, donor_id="d_ok")
-    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
+        sample = load_10x_vdj_v1_sample(cp, ap, sample_id="s_ok")
+    assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1

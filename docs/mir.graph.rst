@@ -47,6 +47,14 @@ mir.graph.token\_graph module
    :undoc-members:
    :show-inheritance:
 
+mir.graph.single\_cell\_pairing module
+---------------------------------------
+
+.. automodule:: mir.graph.single_cell_pairing
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

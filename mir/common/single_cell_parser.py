@@ -131,7 +131,7 @@ def _build_consensus_lookup(consensus_df: pl.DataFrame) -> dict[tuple[str, str],
     return lookup
 
 
-def _warn_if_donor_mismatch(
+def _warn_if_sample_mismatch(
     consensus_lookup: dict[tuple[str, str], Clonotype],
     all_contig_rows: list[dict[str, str]],
     *,
@@ -169,7 +169,7 @@ def _warn_if_donor_mismatch(
     if checked > 0 and mismatched / checked > mismatch_threshold:
         example_str = "\n".join(mismatch_examples)
         warnings.warn(
-            f"Possible donor mismatch: {mismatched}/{checked} checked contigs have "
+            f"Possible sample mismatch: {mismatched}/{checked} checked contigs have "
             f"different cdr3_nt in consensus_annotations vs all_contig_annotations "
             f"({100 * mismatched / checked:.1f}% > threshold "
             f"{100 * mismatch_threshold:.0f}%). "
@@ -184,7 +184,7 @@ def load_10x_vdj_v1_cell_clonotypes(
     consensus_annotations_path: str | Path,
     all_contig_annotations_path: str | Path,
     *,
-    donor_id: str = "",
+    sample_id: str = "",
     check_is_cell: bool = True,
 ) -> pl.DataFrame:
     """Load matched per-cell clonotype rows from 10x VDJ v1 files.
@@ -194,8 +194,8 @@ def load_10x_vdj_v1_cell_clonotypes(
     """
     consensus_path = Path(consensus_annotations_path)
     all_contig_path = Path(all_contig_annotations_path)
-    if not donor_id:
-        donor_id = consensus_path.name
+    if not sample_id:
+        sample_id = consensus_path.name
 
     consensus_df = _read_consensus_minimal(consensus_path)
     all_contig_df = _read_all_contig_minimal(all_contig_path, check_is_cell=check_is_cell)
@@ -222,7 +222,7 @@ def load_10x_vdj_v1_cell_clonotypes(
             }
         )
 
-    _warn_if_donor_mismatch(consensus_lookup, filtered_all_contig_rows)
+    _warn_if_sample_mismatch(consensus_lookup, filtered_all_contig_rows)
 
     out_rows: list[dict[str, str | int]] = []
     for row in filtered_all_contig_rows:
@@ -234,7 +234,7 @@ def load_10x_vdj_v1_cell_clonotypes(
 
         out_rows.append(
             {
-                "donor_id": donor_id,
+                "sample_id": sample_id,
                 "barcode": row["barcode"],
                 "raw_pair_id": pair_id,
                 "sequence_id": clonotype.sequence_id,
@@ -251,7 +251,7 @@ def load_10x_vdj_v1_cell_clonotypes(
         )
 
     schema = {
-        "donor_id": pl.Utf8,
+        "sample_id": pl.Utf8,
         "barcode": pl.Utf8,
         "raw_pair_id": pl.Utf8,
         "sequence_id": pl.Utf8,
@@ -269,3 +269,19 @@ def load_10x_vdj_v1_cell_clonotypes(
         return pl.DataFrame(schema=schema)
 
     return pl.from_dicts(out_rows, schema=schema)
+
+
+def load_10x_vdj_v1_cell_clonotypes_donor(
+    consensus_annotations_path: str | Path,
+    all_contig_annotations_path: str | Path,
+    *,
+    donor_id: str = "",
+    check_is_cell: bool = True,
+) -> pl.DataFrame:
+    """Compatibility wrapper for older donor-named API."""
+    return load_10x_vdj_v1_cell_clonotypes(
+        consensus_annotations_path=consensus_annotations_path,
+        all_contig_annotations_path=all_contig_annotations_path,
+        sample_id=donor_id,
+        check_is_cell=check_is_cell,
+    )
