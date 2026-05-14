@@ -7,6 +7,7 @@ integration.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
@@ -141,15 +142,83 @@ def _read_consensus_minimal(path: Path) -> pl.DataFrame:
 
 
 def _read_all_contig_minimal(path: Path) -> pl.DataFrame:
-    """Read only all-contig fields required for cell-to-chain linkage."""
+    """Read all-contig fields required for cell-to-chain linkage plus cdr3_nt for mismatch detection."""
+    header = pl.read_csv(
+        path,
+        separator=",",
+        n_rows=0,
+        infer_schema_length=0,
+        null_values=["", "NA"],
+        truncate_ragged_lines=True,
+    )
+    # Include cdr3_nt when available for cross-donor junction mismatch detection.
+    extra = ["cdr3_nt"] if "cdr3_nt" in header.columns else []
     return pl.read_csv(
         path,
         separator=",",
         infer_schema_length=0,
         null_values=["", "NA"],
         truncate_ragged_lines=True,
-        columns=["is_cell", "barcode", "raw_clonotype_id", "raw_consensus_id"],
+        columns=["is_cell", "barcode", "raw_clonotype_id", "raw_consensus_id"] + extra,
     )
+
+
+def _warn_if_donor_mismatch(
+    consensus_lookup: dict[tuple[str, str], Clonotype],
+    all_contig_rows: list[dict[str, str]],
+    *,
+    mismatch_threshold: float = 0.10,
+) -> None:
+    """Emit a warning when junction sequences disagree between the two files.
+
+    A junction mismatch for the same (clonotype_id, consensus_id) key strongly
+    suggests the consensus_annotations and all_contig_annotations files come
+    from different donors and were combined accidentally.
+
+    Args:
+        consensus_lookup: Pre-built lookup from _build_consensus_lookup.
+        all_contig_rows: Filtered cell rows from all_contig_annotations with
+            optional 'cdr3_nt' field.
+        mismatch_threshold: Fraction of checked rows that may mismatch before
+            a warning is raised (default 10 %).
+    """
+    checked = 0
+    mismatched = 0
+    mismatch_examples: list[str] = []
+
+    for row in all_contig_rows:
+        ac_junc = str(row.get("cdr3_nt") or "").strip()
+        if not ac_junc:
+            continue  # all_contig row has no junction to compare
+        pair_id = row["raw_clonotype_id"]
+        sequence_id = row["raw_consensus_id"]
+        clonotype = consensus_lookup.get((pair_id, sequence_id))
+        if clonotype is None:
+            continue  # unmatched key — normal for cross-locus rows
+        cons_junc = clonotype.junction
+        if not cons_junc:
+            continue  # consensus has no junction to compare
+        checked += 1
+        if ac_junc != cons_junc:
+            mismatched += 1
+            if len(mismatch_examples) < 3:
+                mismatch_examples.append(
+                    f"  consensus_id={sequence_id!r}: "
+                    f"consensus={cons_junc!r} vs all_contig={ac_junc!r}"
+                )
+
+    if checked > 0 and mismatched / checked > mismatch_threshold:
+        example_str = "\n".join(mismatch_examples)
+        warnings.warn(
+            f"Possible donor mismatch: {mismatched}/{checked} checked contigs have "
+            f"different cdr3_nt in consensus_annotations vs all_contig_annotations "
+            f"({100 * mismatched / checked:.1f}% > threshold "
+            f"{100 * mismatch_threshold:.0f}%). "
+            f"Verify that both files belong to the same donor.\n"
+            f"Example mismatches:\n{example_str}",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def load_10x_vdj_v1_donor(
@@ -177,13 +246,17 @@ def load_10x_vdj_v1_donor(
         sequence_id = str(row.get("raw_consensus_id") or "").strip()
         if not barcode or not pair_id or not sequence_id:
             continue
+        ac_cdr3_nt = str(row.get("cdr3_nt") or "").strip()
         filtered_all_contig_rows.append(
             {
                 "barcode": barcode,
                 "raw_clonotype_id": pair_id,
                 "raw_consensus_id": sequence_id,
+                "cdr3_nt": ac_cdr3_nt,
             }
         )
+
+    _warn_if_donor_mismatch(consensus_lookup, filtered_all_contig_rows)
 
     grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
     matched_clonotype_keys: set[tuple[str, str]] = set()
