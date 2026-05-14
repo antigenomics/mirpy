@@ -14,8 +14,12 @@ from .single_cell import (
 	PairedLocusRepertoire,
 	SingleCellRepertoire,
 	TenXVdjV1DonorData,
+	build_tenx_donor_from_cell_clonotypes,
 	load_10x_vdj_v1_donor,
 )
+from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes
+from .single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
+from .single_cell_util import PairingGraph, build_pairing_graph
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
 
 __all__ = [
@@ -41,7 +45,13 @@ __all__ = [
 	'PairedLocusRepertoire',
 	'SingleCellRepertoire',
 	'TenXVdjV1DonorData',
+	'build_tenx_donor_from_cell_clonotypes',
 	'load_10x_vdj_v1_donor',
+	'load_10x_vdj_v1_cell_clonotypes',
+	'cleanup_cell_clonotypes',
+	'impute_missing_chains',
+	'PairingGraph',
+	'build_pairing_graph',
 	'compute_batch_corrected_gene_usage',
 	'Segment',
 	'SegmentLibrary',

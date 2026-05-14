@@ -1,13 +1,7 @@
-"""Single-cell paired-chain repertoire structures and 10x VDJ v1 loader.
-
-This module provides a lightweight paired-clonotype model for cell-level
-analysis while keeping barcode mappings separate for downstream multimodal
-integration.
-"""
+"""Single-cell paired-chain repertoire structures and 10x VDJ v1 loader."""
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
@@ -15,13 +9,10 @@ from pathlib import Path
 import polars as pl
 
 from mir.common.clonotype import Clonotype
-
-LOCUS_PAIR_TO_LOCI: dict[str, tuple[str, str]] = {
-    "TRA_TRB": ("TRA", "TRB"),
-    "TRG_TRD": ("TRG", "TRD"),
-    "IGH_IGK": ("IGH", "IGK"),
-    "IGH_IGL": ("IGH", "IGL"),
-}
+from mir.common.single_cell_parser import (
+    LOCUS_PAIR_TO_LOCI,
+    load_10x_vdj_v1_cell_clonotypes,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,197 +71,44 @@ class TenXVdjV1DonorData:
     loaded_clonotype_count: int
 
 
-def _to_int(v, default: int = 0) -> int:
-    if v is None:
-        return default
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return default
-
-
-def _is_truthy(v) -> bool:
-    if isinstance(v, bool):
-        return v
-    if v is None:
-        return False
-    s = str(v).strip().lower()
-    return s in {"1", "true", "t", "yes", "y"}
-
-
-def _build_consensus_lookup(consensus_df: pl.DataFrame) -> dict[tuple[str, str], Clonotype]:
-    lookup: dict[tuple[str, str], Clonotype] = {}
-    valid_loci = {locus for pair in LOCUS_PAIR_TO_LOCI.values() for locus in pair}
-
-    for row in consensus_df.iter_rows(named=True):
-        pair_id = str(row.get("clonotype_id") or "").strip()
-        sequence_id = str(row.get("consensus_id") or "").strip()
-        locus = str(row.get("chain") or "").strip().upper()
-        if not pair_id or not sequence_id or locus not in valid_loci:
-            continue
-        lookup[(pair_id, sequence_id)] = Clonotype(
-            _validate=False,
-            sequence_id=sequence_id,
-            duplicate_count=_to_int(row.get("reads"), 0),
-            umi_count=_to_int(row.get("umis"), 0),
-            locus=locus,
-            junction=str(row.get("cdr3_nt") or "").strip(),
-            junction_aa=str(row.get("cdr3_aa") or row.get("cdr3") or "").strip(),
-        )
-    return lookup
-
-
-def _read_consensus_minimal(path: Path) -> pl.DataFrame:
-    """Read only consensus fields required for paired-chain assembly."""
-    header = pl.read_csv(
-        path,
-        separator=",",
-        n_rows=0,
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-    )
-    aa_col = "cdr3_aa" if "cdr3_aa" in header.columns else "cdr3"
-    return pl.read_csv(
-        path,
-        separator=",",
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-        columns=["clonotype_id", "consensus_id", "chain", "cdr3_nt", aa_col, "reads", "umis"],
+def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
+    return Clonotype(
+        _validate=False,
+        sequence_id=str(row.get("sequence_id") or ""),
+        duplicate_count=int(row.get("duplicate_count") or 0),
+        umi_count=int(row.get("umi_count") or 0),
+        locus=str(row.get("locus") or ""),
+        junction=str(row.get("junction") or ""),
+        junction_aa=str(row.get("junction_aa") or ""),
+        v_gene=str(row.get("v_gene") or ""),
+        d_gene=str(row.get("d_gene") or ""),
+        j_gene=str(row.get("j_gene") or ""),
+        c_gene=str(row.get("c_gene") or ""),
     )
 
 
-def _read_all_contig_minimal(path: Path) -> pl.DataFrame:
-    """Read all-contig fields required for cell-to-chain linkage plus cdr3_nt for mismatch detection."""
-    header = pl.read_csv(
-        path,
-        separator=",",
-        n_rows=0,
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-    )
-    # Include cdr3_nt when available for cross-donor junction mismatch detection.
-    extra = ["cdr3_nt"] if "cdr3_nt" in header.columns else []
-    return pl.read_csv(
-        path,
-        separator=",",
-        infer_schema_length=0,
-        null_values=["", "NA"],
-        truncate_ragged_lines=True,
-        columns=["is_cell", "barcode", "raw_clonotype_id", "raw_consensus_id"] + extra,
-    )
-
-
-def _warn_if_donor_mismatch(
-    consensus_lookup: dict[tuple[str, str], Clonotype],
-    all_contig_rows: list[dict[str, str]],
+def build_tenx_donor_from_cell_clonotypes(
+    cell_clonotypes_df: pl.DataFrame,
     *,
-    mismatch_threshold: float = 0.10,
-) -> None:
-    """Emit a warning when junction sequences disagree between the two files.
-
-    A junction mismatch for the same (clonotype_id, consensus_id) key strongly
-    suggests the consensus_annotations and all_contig_annotations files come
-    from different donors and were combined accidentally.
-
-    Args:
-        consensus_lookup: Pre-built lookup from _build_consensus_lookup.
-        all_contig_rows: Filtered cell rows from all_contig_annotations with
-            optional 'cdr3_nt' field.
-        mismatch_threshold: Fraction of checked rows that may mismatch before
-            a warning is raised (default 10 %).
-    """
-    checked = 0
-    mismatched = 0
-    mismatch_examples: list[str] = []
-
-    for row in all_contig_rows:
-        ac_junc = str(row.get("cdr3_nt") or "").strip()
-        if not ac_junc:
-            continue  # all_contig row has no junction to compare
-        pair_id = row["raw_clonotype_id"]
-        sequence_id = row["raw_consensus_id"]
-        clonotype = consensus_lookup.get((pair_id, sequence_id))
-        if clonotype is None:
-            continue  # unmatched key — normal for cross-locus rows
-        cons_junc = clonotype.junction
-        if not cons_junc:
-            continue  # consensus has no junction to compare
-        checked += 1
-        if ac_junc != cons_junc:
-            mismatched += 1
-            if len(mismatch_examples) < 3:
-                mismatch_examples.append(
-                    f"  consensus_id={sequence_id!r}: "
-                    f"consensus={cons_junc!r} vs all_contig={ac_junc!r}"
-                )
-
-    if checked > 0 and mismatched / checked > mismatch_threshold:
-        example_str = "\n".join(mismatch_examples)
-        warnings.warn(
-            f"Possible donor mismatch: {mismatched}/{checked} checked contigs have "
-            f"different cdr3_nt in consensus_annotations vs all_contig_annotations "
-            f"({100 * mismatched / checked:.1f}% > threshold "
-            f"{100 * mismatch_threshold:.0f}%). "
-            f"Verify that both files belong to the same donor.\n"
-            f"Example mismatches:\n{example_str}",
-            UserWarning,
-            stacklevel=3,
-        )
-
-
-def load_10x_vdj_v1_donor(
-    consensus_annotations_path: str | Path,
-    all_contig_annotations_path: str | Path,
-    donor_id: str = "",
+    donor_id: str,
 ) -> TenXVdjV1DonorData:
-    """Load one donor from 10x_vdj_v1 files into paired single-cell structures."""
-    consensus_path = Path(consensus_annotations_path)
-    all_contig_path = Path(all_contig_annotations_path)
-    if not donor_id:
-        donor_id = consensus_path.name
-
-    consensus_df = _read_consensus_minimal(consensus_path)
-    all_contig_df = _read_all_contig_minimal(all_contig_path)
-
-    consensus_lookup = _build_consensus_lookup(consensus_df)
-
-    filtered_all_contig_rows: list[dict[str, str]] = []
-    for row in all_contig_df.iter_rows(named=True):
-        if not _is_truthy(row.get("is_cell")):
-            continue
-        barcode = str(row.get("barcode") or "").strip()
-        pair_id = str(row.get("raw_clonotype_id") or "").strip()
-        sequence_id = str(row.get("raw_consensus_id") or "").strip()
-        if not barcode or not pair_id or not sequence_id:
-            continue
-        ac_cdr3_nt = str(row.get("cdr3_nt") or "").strip()
-        filtered_all_contig_rows.append(
-            {
-                "barcode": barcode,
-                "raw_clonotype_id": pair_id,
-                "raw_consensus_id": sequence_id,
-                "cdr3_nt": ac_cdr3_nt,
-            }
-        )
-
-    _warn_if_donor_mismatch(consensus_lookup, filtered_all_contig_rows)
-
+    """Assemble donor-level paired structures from matched per-cell clonotype rows."""
     grouped: dict[tuple[str, str], dict[str, dict[str, Clonotype]]] = {}
     matched_clonotype_keys: set[tuple[str, str]] = set()
-    for row in filtered_all_contig_rows:
-        barcode = row["barcode"]
-        pair_id = row["raw_clonotype_id"]
-        sequence_id = row["raw_consensus_id"]
 
-        clonotype = consensus_lookup.get((pair_id, sequence_id))
-        if clonotype is None:
+    for row in cell_clonotypes_df.iter_rows(named=True):
+        barcode = str(row.get("barcode") or "").strip()
+        raw_pair_id = str(row.get("raw_pair_id") or "").strip()
+        sequence_id = str(row.get("sequence_id") or "").strip()
+        if not barcode or not raw_pair_id or not sequence_id:
             continue
-        matched_clonotype_keys.add((pair_id, sequence_id))
 
-        key = (barcode, pair_id)
+        clonotype = _cell_row_to_clonotype(row)
+        if not clonotype.locus:
+            continue
+
+        matched_clonotype_keys.add((raw_pair_id, sequence_id))
+        key = (barcode, raw_pair_id)
         if key not in grouped:
             grouped[key] = {}
         if clonotype.locus not in grouped[key]:
@@ -343,3 +181,30 @@ def load_10x_vdj_v1_donor(
         loaded_cell_count=len(grouped),
         loaded_clonotype_count=len(matched_clonotype_keys),
     )
+
+
+def load_10x_vdj_v1_donor(
+    consensus_annotations_path: str | Path,
+    all_contig_annotations_path: str | Path,
+    donor_id: str = "",
+    *,
+    check_is_cell: bool = True,
+) -> TenXVdjV1DonorData:
+    """Load one donor from 10x_vdj_v1 files into paired single-cell structures.
+
+    Args:
+        consensus_annotations_path: Path to donor consensus_annotations CSV(.gz).
+        all_contig_annotations_path: Path to donor all_contig_annotations CSV(.gz).
+        donor_id: Optional donor identifier. Defaults to consensus filename.
+        check_is_cell: If True (default), only keep rows where is_cell is truthy.
+    """
+    consensus_path = Path(consensus_annotations_path)
+    if not donor_id:
+        donor_id = consensus_path.name
+    cell_df = load_10x_vdj_v1_cell_clonotypes(
+        consensus_annotations_path=consensus_annotations_path,
+        all_contig_annotations_path=all_contig_annotations_path,
+        donor_id=donor_id,
+        check_is_cell=check_is_cell,
+    )
+    return build_tenx_donor_from_cell_clonotypes(cell_df, donor_id=donor_id)

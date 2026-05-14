@@ -310,6 +310,33 @@ def test_non_cell_rows_are_excluded(tmp_path: Path) -> None:
     assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 0
 
 
+def test_can_disable_is_cell_filter(tmp_path: Path) -> None:
+    consensus = pl.DataFrame({
+        "clonotype_id": ["pairA", "pairA"],
+        "consensus_id": ["consA_TRA", "consA_TRB"],
+        "chain": ["TRA", "TRB"],
+        "cdr3_nt": ["AAA", "GGG"],
+        "cdr3_aa": ["CAAAF", "CGGGF"],
+        "reads": [10, 15],
+        "umis": [5, 7],
+    })
+    all_contig = pl.DataFrame({
+        "is_cell": [False, False],
+        "barcode": ["bc1", "bc1"],
+        "raw_clonotype_id": ["pairA", "pairA"],
+        "raw_consensus_id": ["consA_TRA", "consA_TRB"],
+        "cdr3_nt": ["AAA", "GGG"],
+    })
+    cp = tmp_path / "consensus.csv.gz"
+    ap = tmp_path / "all_contig.csv.gz"
+    _write_csv_gz(cp, consensus)
+    _write_csv_gz(ap, all_contig)
+
+    donor = load_10x_vdj_v1_donor(cp, ap, donor_id="d_nofilter", check_is_cell=False)
+    assert donor.loaded_cell_count == 1
+    assert donor.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
+
+
 def test_all_contig_missing_consensus_reference_is_skipped(tmp_path: Path) -> None:
     """Rows referencing a consensus_id absent in consensus file are silently skipped."""
     consensus = pl.DataFrame({

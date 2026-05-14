@@ -95,12 +95,18 @@ cell barcode linkage separate from paired-clonotype objects.
 
 .. code-block:: python
 
-   from mir.common.single_cell import load_10x_vdj_v1_donor
+   from mir.common.single_cell import (
+      build_tenx_donor_from_cell_clonotypes,
+      load_10x_vdj_v1_donor,
+   )
+   from mir.common.single_cell_parser import load_10x_vdj_v1_cell_clonotypes
+   from mir.common.single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
 
    donor = load_10x_vdj_v1_donor(
        consensus_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
        all_contig_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
        donor_id="donor1",
+      check_is_cell=True,
    )
 
    # Number of barcoded cells with matched consensus linkage
@@ -115,6 +121,25 @@ cell barcode linkage separate from paired-clonotype objects.
 The loader supports locus-pair families ``TRA_TRB``, ``TRG_TRD``,
 ``IGH_IGK``, and ``IGH_IGL`` and expands multi-chain cells via deterministic
 cartesian pairing (e.g., ``2x1`` yields two paired clonotypes).
+
+For parser-first workflows:
+
+.. code-block:: python
+
+   cell_table = load_10x_vdj_v1_cell_clonotypes(
+      "..._consensus_annotations.csv.gz",
+      "..._all_contig_annotations.csv.gz",
+      donor_id="donor1",
+      check_is_cell=True,
+   )
+   imputed = impute_missing_chains(cell_table)
+   cleaned = cleanup_cell_clonotypes(imputed)
+   donor = build_tenx_donor_from_cell_clonotypes(cleaned, donor_id="donor1")
+
+Notebook examples:
+
+* ``notebooks/single_cell_load.ipynb``: 10x donor loading and concordance checks.
+* ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs.
 
 Benchmarking 10x Loading
 ------------------------
