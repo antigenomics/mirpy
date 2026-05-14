@@ -29,14 +29,14 @@ _REQUIRED_PATTERNS = [
     "alice/yf/Q1_d0.tsv.gz",
     "alice/yf/Q1_d15.tsv.gz",
     "gliph/gliph_trb.tsv.gz",
-    "dcode/10x_vdj_v1/**",
+    "dcode/**",
     "vdjdb/**",
     "vdjtools_lite/**",
 ]
 
 
 def _has_10x_vdj_v1_assets() -> bool:
-    dcode_root = DATASET_ROOT / "dcode" / "10x_vdj_v1"
+    dcode_root = DATASET_ROOT / "dcode"
     return (
         dcode_root.exists()
         and any(dcode_root.glob("*_all_contig_annotations.csv.gz"))

@@ -143,7 +143,7 @@ def find_airr_benchmark_dcode_10x_vdj_v1_donor(
     donor_id: str,
 ) -> tuple[Path, Path]:
     """Return (all_contig, consensus) files for one dcode 10x_vdj_v1 donor."""
-    dcode_root = dataset_root / "dcode" / "10x_vdj_v1"
+    dcode_root = dataset_root / "dcode"
     all_contig = sorted(
         dcode_root.glob(f"*{donor_id}*_all_contig_annotations.csv.gz")
     )
