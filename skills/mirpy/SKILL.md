@@ -306,6 +306,60 @@ print(f"Mean between-dist: {between_dist.mean():.3f}")
 - `cdr3_aligner` property and `_proto_cdr3` attribute remain available (aliases to `junction_aligner` and `_proto_junction`).
 - Existing pickled models with `CDRAligner` unpickle without modification.
 
+### Paired TRA/TRB embeddings from VDJdb full
+
+Use `VDJdbFullPairedParser` when the source file is `vdjdb_full.txt.gz` and you
+want paired TRA/TRB records instead of independent slim rows.
+
+```python
+from mir.common.parser import VDJdbFullPairedParser
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
+from mir.common.single_cell_repair import impute_missing_chains
+from mir.embedding.tcremp import PairedTCREmp
+
+parser = VDJdbFullPairedParser()
+
+# Strict paired mode.
+strict_df, strict_meta = parser.parse_cell_clonotypes_file(
+  "tests/assets/vdjdb_full.txt.gz",
+  species="HomoSapiens",
+  include_incomplete=False,
+)
+strict_sample = build_tenx_sample_from_cell_clonotypes(
+  strict_df,
+  sample_id="vdjdb_full_human_strict",
+  barcode_metadata=strict_meta,
+)
+
+# Imputation mode for single-chain rows.
+impute_df, impute_meta = parser.parse_cell_clonotypes_file(
+  "tests/assets/vdjdb_full.txt.gz",
+  species="HomoSapiens",
+  include_incomplete=True,
+)
+imputed_df = impute_missing_chains(impute_df)
+imputed_sample = build_tenx_sample_from_cell_clonotypes(
+  imputed_df,
+  sample_id="vdjdb_full_human_imputed",
+  barcode_metadata=impute_meta,
+)
+
+paired_model = PairedTCREmp.from_defaults(
+  species="human",
+  locus_pair="TRA_TRB",
+  n_prototypes=500,
+)
+paired_clonotypes = imputed_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+X_pair = paired_model.embed(paired_clonotypes)
+```
+
+Operational notes:
+
+- The paired embedding dimension is the sum of the two chain embedding dimensions.
+- `parse_cell_clonotypes_file(..., include_incomplete=True)` returns synthetic single-cell style rows so you can run `impute_missing_chains` before building paired repertoires.
+- Each synthetic barcode stores `vdjdb_record_id`, `mhc.a`, `mhc.b`, `mhc.class`, `antigen.epitope`, `antigen.gene`, and `antigen.species` in `SingleCellRepertoire.barcode_metadata`.
+- Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
+
 ## 10. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.

@@ -253,14 +253,21 @@ def _derive_assets(*, verbose: bool = False) -> None:
     _copy(vdjtools_dir / "vdjtools_trb_d_dot_2.tsv", ASSETS_DIR / "vdjtools_trb_d_dot_2.tsv")
 
     vdjdb_candidates = sorted(DATASET_ROOT.glob("vdjdb/vdjdb-*/vdjdb.slim.txt.gz"))
+    vdjdb_full_candidates = sorted(DATASET_ROOT.glob("vdjdb/vdjdb-*/vdjdb_full.txt.gz"))
     if not vdjdb_candidates:
         raise RuntimeError("Could not locate vdjdb.slim.txt.gz in downloaded dataset")
+    if not vdjdb_full_candidates:
+        raise RuntimeError("Could not locate vdjdb_full.txt.gz in downloaded dataset")
     vdjdb_local = vdjdb_candidates[-1]
+    vdjdb_full_local = vdjdb_full_candidates[-1]
 
     if not _is_valid_gzip(vdjdb_local):
         raise RuntimeError(f"Downloaded VDJdb slim is corrupt: {vdjdb_local}")
+    if not _is_valid_gzip(vdjdb_full_local):
+        raise RuntimeError(f"Downloaded VDJdb full is corrupt: {vdjdb_full_local}")
 
     _copy(vdjdb_local, ASSETS_DIR / "vdjdb.slim.txt.gz")
+    _copy(vdjdb_full_local, ASSETS_DIR / "vdjdb_full.txt.gz")
     _convert_yf_vdjtools_to_airr(
         DATASET_ROOT / "alice/yf/Q1_d0.tsv.gz",
         REAL_REPS_DIR / "Q1_0_F1.airr.tsv.gz",
@@ -284,6 +291,7 @@ def _derive_assets(*, verbose: bool = False) -> None:
     if verbose:
         print(f"prepared test data under {TESTS_DIR}")
         print(f"vdjdb source: {vdjdb_local.relative_to(DATASET_ROOT)}")
+        print(f"vdjdb full source: {vdjdb_full_local.relative_to(DATASET_ROOT)}")
         print(f"derived GILG cdr3 count: {gilg_n}")
         print(f"derived LLW rows: {llw_n}")
         print(f"derived OLGA rows: {olga_n}")
@@ -294,6 +302,7 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
         not force
         and _SENTINEL.exists()
         and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists()
+        and (ASSETS_DIR / "vdjdb_full.txt.gz").exists()
         and _has_10x_vdj_v1_assets()
     ):
         return

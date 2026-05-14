@@ -160,6 +160,64 @@ Notebook examples:
 * ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs
    plus TRA/TRB stage heatmaps.
 
+Paired TCREmp From VDJdb Full
+-----------------------------
+
+mirpy also supports paired-chain prototype embeddings built from VDJdb full
+rows. The paired embedding is a simple concatenation of the TRA and TRB
+TCREmp vectors in canonical ``TRA_TRB`` order.
+
+.. code-block:: python
+
+   from mir.common.parser import VDJdbFullPairedParser
+   from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
+   from mir.common.single_cell_repair import impute_missing_chains
+   from mir.embedding.tcremp import PairedTCREmp
+
+   parser = VDJdbFullPairedParser()
+
+   # Strict mode: keep only rows that already contain both alpha and beta chains.
+   strict_df, strict_meta = parser.parse_cell_clonotypes_file(
+      "vdjdb_full.txt.gz",
+      species="HomoSapiens",
+      include_incomplete=False,
+   )
+   strict_sample = build_tenx_sample_from_cell_clonotypes(
+      strict_df,
+      sample_id="vdjdb_full_human_strict",
+      barcode_metadata=strict_meta,
+   )
+
+   # Imputation mode: keep incomplete rows, synthesize the missing chain, then pair.
+   impute_df, impute_meta = parser.parse_cell_clonotypes_file(
+      "vdjdb_full.txt.gz",
+      species="HomoSapiens",
+      include_incomplete=True,
+   )
+   imputed_df = impute_missing_chains(impute_df)
+   imputed_sample = build_tenx_sample_from_cell_clonotypes(
+      imputed_df,
+      sample_id="vdjdb_full_human_imputed",
+      barcode_metadata=impute_meta,
+   )
+
+   model = PairedTCREmp.from_defaults(
+      species="human",
+      locus_pair="TRA_TRB",
+      n_prototypes=500,
+   )
+   paired_clonotypes = imputed_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+   X = model.embed(paired_clonotypes)
+
+Each synthetic barcode stores VDJdb metadata such as ``mhc.a``, ``mhc.b``,
+``mhc.class``, ``antigen.epitope``, ``antigen.gene``, and
+``antigen.species`` in ``sample.single_cell_repertoire.barcode_metadata``.
+
+Notebook examples:
+
+* ``notebooks/tcremp_vdjdb_analysis.ipynb``: single-chain TRA/TRB TCRemp analysis on VDJdb slim.
+* ``notebooks/tcremp_vdjdb_analysis_paired.ipynb``: paired TRA/TRB embeddings on VDJdb full with strict and imputed workflows.
+
 Benchmarking 10x Loading
 ------------------------
 

@@ -184,6 +184,52 @@ For custom prototypes:
 model_custom = TCREmp.from_file("prototypes.tsv", species="human", locus="TRB")
 ```
 
+Paired-chain embedding uses the same idea, but concatenates the TRA and TRB
+embeddings for each `PairedClonotype`:
+
+```python
+from mir.common.parser import VDJdbFullPairedParser
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
+from mir.common.single_cell_repair import impute_missing_chains
+from mir.embedding.tcremp import PairedTCREmp
+
+parser = VDJdbFullPairedParser()
+
+# Keep only complete TRA/TRB rows.
+strict_df, strict_meta = parser.parse_cell_clonotypes_file(
+    "vdjdb_full.txt.gz",
+    species="HomoSapiens",
+    include_incomplete=False,
+)
+strict_sample = build_tenx_sample_from_cell_clonotypes(
+    strict_df,
+    sample_id="vdjdb_full_human_strict",
+    barcode_metadata=strict_meta,
+)
+
+# Or keep incomplete rows and impute the missing chain before pairing.
+impute_df, impute_meta = parser.parse_cell_clonotypes_file(
+    "vdjdb_full.txt.gz",
+    species="HomoSapiens",
+    include_incomplete=True,
+)
+imputed_df = impute_missing_chains(impute_df)
+imputed_sample = build_tenx_sample_from_cell_clonotypes(
+    imputed_df,
+    sample_id="vdjdb_full_human_imputed",
+    barcode_metadata=impute_meta,
+)
+
+paired_model = PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=500)
+paired_clonotypes = imputed_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+X_pair = paired_model.embed(paired_clonotypes)
+```
+
+The VDJdb full parser uses one synthetic barcode per source row and stores the
+row id plus antigen/MHC annotations in
+`sample.single_cell_repertoire.barcode_metadata`. A paired analysis notebook is
+available at `notebooks/tcremp_vdjdb_analysis_paired.ipynb`.
+
 Key features:
 
 - **Distance formula**: `d(a, b) = s(a,a) + s(b,b) − 2·s(a,b)` ensures metric properties.

@@ -11,6 +11,7 @@ import pytest
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
+from mir.common.single_cell import PairedClonotype
 from mir.distances.aligner import (
     BioAlignerWrapper,
     CDRAligner,
@@ -18,7 +19,7 @@ from mir.distances.aligner import (
     Scoring,
 )
 from mir.embedding.prototypes import load_prototypes
-from mir.embedding.tcremp import TCREmp
+from mir.embedding.tcremp import PairedTCREmp, TCREmp
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +48,18 @@ def tcremp_medium():
     return TCREmp.from_defaults("human", "TRB", n_prototypes=100)
 
 
+@pytest.fixture(scope="module")
+def paired_tcremp_small():
+    """PairedTCREmp with 10 prototypes per chain for fast checks."""
+    return PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=10)
+
+
 def _clonotype(v, j, cdr3):
     return Clonotype(v_gene=v, j_gene=j, junction_aa=cdr3)
+
+
+def _paired_clonotype(pair_id, tra, trb):
+    return PairedClonotype(pair_id=pair_id, clonotype1=tra, clonotype2=trb)
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +263,54 @@ class TestTCREmpEmbedShape:
         X = tcremp_small.embed(clonos)
         assert X.shape == (3, 30)
         assert X.dtype == np.float32
+
+
+class TestPairedTCREmp:
+
+    def test_from_defaults_returns_instance(self, paired_tcremp_small):
+        assert isinstance(paired_tcremp_small, PairedTCREmp)
+
+    def test_embedding_dim_is_sum_of_chain_dims(self, paired_tcremp_small):
+        assert paired_tcremp_small.n_prototypes == (10, 10)
+        assert paired_tcremp_small.embedding_dim == 60
+
+    def test_empty_input(self, paired_tcremp_small):
+        X = paired_tcremp_small.embed([])
+        assert X.shape == (0, 60)
+        assert X.dtype == np.float32
+
+    def test_paired_embedding_matches_chain_concatenation(self, paired_tcremp_small):
+        tra = _clonotype("TRAV26-1*01", "TRAJ42*01", "CIVRLRTNYGGSQGNLIF")
+        trb = _clonotype("TRBV5-4*01", "TRBJ1-3*01", "CASSFDRGTGNTIYF")
+        pair = _paired_clonotype("p1", tra, trb)
+
+        X_pair = paired_tcremp_small.embed([pair])
+        X_expected = np.concatenate(
+            [
+                paired_tcremp_small.chain1_model.embed([tra]),
+                paired_tcremp_small.chain2_model.embed([trb]),
+            ],
+            axis=1,
+            dtype=np.float32,
+        )
+        np.testing.assert_allclose(X_pair, X_expected)
+
+    def test_paired_embedding_reorders_swapped_chain_input(self, paired_tcremp_small):
+        tra = _clonotype("TRAV38-2/DV8*01", "TRAJ53*01", "CAYRSAGSGGSNYKLTF")
+        trb = _clonotype("TRBV27*01", "TRBJ1-5*01", "CASSLMTNQPQHF")
+        canonical = _paired_clonotype("p1", tra, trb)
+        swapped = PairedClonotype(pair_id="p1", clonotype1=trb, clonotype2=tra)
+        np.testing.assert_allclose(
+            paired_tcremp_small.embed([canonical]),
+            paired_tcremp_small.embed([swapped]),
+        )
+
+    def test_paired_embedding_requires_expected_loci(self, paired_tcremp_small):
+        tra1 = _clonotype("TRAV26-1*01", "TRAJ42*01", "CIVRLRTNYGGSQGNLIF")
+        tra2 = _clonotype("TRAV38-2/DV8*01", "TRAJ53*01", "CAYRSAGSGGSNYKLTF")
+        bad_pair = _paired_clonotype("bad", tra1, tra2)
+        with pytest.raises(ValueError, match="required loci"):
+            paired_tcremp_small.embed([bad_pair])
 
 
 # ---------------------------------------------------------------------------
