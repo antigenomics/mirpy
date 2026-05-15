@@ -15,7 +15,9 @@ from .notebook_assets import (
 )
 from .embedding_diagnostics import (
     analyze_embedding_dbscan,
+    classification_scores_by_label,
     cluster_purity_consistency,
+    majority_vote_cluster_predictions,
     select_eps_kneedle,
 )
 from .stats import bh_fdr
@@ -33,7 +35,9 @@ __all__ = [
     "notebook_assets_root",
     "notebook_large_assets_root",
     "analyze_embedding_dbscan",
+    "classification_scores_by_label",
     "cluster_purity_consistency",
+    "majority_vote_cluster_predictions",
     "select_eps_kneedle",
     "bh_fdr",
 ]

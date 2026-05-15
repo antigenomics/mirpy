@@ -481,6 +481,10 @@ Notes:
   `(HLA, epitope)` targets against rows whose `reference.id` contains `10x`.
 - Current dcode donors have two consistent residual unmatched targets
   (`CLGGLLTMV`, `LLMGTLGIVC`) that are tracked in tests.
+- `notebooks/tcremp_10xdcode_analysis.ipynb` provides a full diagnostics run with
+  TRA/TRB/TRA_TRB embeddings, cumulative PCA variance plots, sorted 4-NN
+  kneedle/eps plots, UMAP projections colored by epitope, and per-epitope
+  precision/recall/F1 support tables.
 
 ## 12. 10x Benchmark And scirpy Concordance
 

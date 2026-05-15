@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from mir.utils.embedding_diagnostics import analyze_embedding_dbscan, cluster_purity_consistency
+from mir.utils.embedding_diagnostics import (
+    analyze_embedding_dbscan,
+    classification_scores_by_label,
+    cluster_purity_consistency,
+    majority_vote_cluster_predictions,
+)
 
 
 def test_cluster_purity_consistency_handles_noise_and_clusters() -> None:
@@ -51,3 +56,15 @@ def test_analyze_embedding_dbscan_returns_expected_keys() -> None:
     assert 0.0 <= result["retention"] <= 1.0
     assert 0.0 <= result["purity"] <= 1.0
     assert 0.0 <= result["consistency"] <= 1.0
+
+
+def test_majority_vote_predictions_and_scores() -> None:
+    labels = np.array(["E1", "E1", "E2", "E2", "E3", "E3"])
+    clusters = np.array([0, 0, 1, 1, -1, 1])
+
+    predicted = majority_vote_cluster_predictions(labels, clusters)
+    scores = classification_scores_by_label(labels, predicted)
+
+    assert predicted.shape == labels.shape
+    assert float(scores["accuracy"]) >= 0.0
+    assert len(scores["per_label"]) == len(np.unique(labels))

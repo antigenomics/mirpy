@@ -7,6 +7,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler, normalize as l2normalize
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 try:
     from kneed import KneeLocator
@@ -115,4 +116,77 @@ def analyze_embedding_dbscan(
         "cum": cum,
         "X_pca": X_pca,
         "clusters": clusters,
+    }
+
+
+def majority_vote_cluster_predictions(
+    labels: np.ndarray,
+    clusters: np.ndarray,
+    *,
+    noise_label: str = "noise",
+) -> np.ndarray:
+    """Map cluster ids to majority labels and return per-point predicted labels."""
+    labels = np.asarray(labels)
+    clusters = np.asarray(clusters)
+    preds = np.full(labels.shape, noise_label, dtype=object)
+
+    cluster_ids = np.unique(clusters[clusters != -1])
+    for cid in cluster_ids:
+        idx = clusters == cid
+        cl_labels = labels[idx]
+        uniq, counts = np.unique(cl_labels, return_counts=True)
+        preds[idx] = uniq[np.argmax(counts)]
+    return preds
+
+
+def classification_scores_by_label(
+    labels: np.ndarray,
+    predicted: np.ndarray,
+) -> dict[str, float | list[dict[str, float | str | int]]]:
+    """Compute per-label precision/recall/F1/support and global summary scores."""
+    labels = np.asarray(labels)
+    predicted = np.asarray(predicted)
+
+    unique_labels = np.unique(labels)
+    precision, recall, f1, support = precision_recall_fscore_support(
+        labels,
+        predicted,
+        labels=unique_labels,
+        average=None,
+        zero_division=0,
+    )
+
+    per_label = [
+        {
+            "label": str(label),
+            "precision": float(precision[i]),
+            "recall": float(recall[i]),
+            "f1": float(f1[i]),
+            "support": int(support[i]),
+        }
+        for i, label in enumerate(unique_labels)
+    ]
+
+    macro_p, macro_r, macro_f1, _ = precision_recall_fscore_support(
+        labels,
+        predicted,
+        average="macro",
+        zero_division=0,
+    )
+    weighted_p, weighted_r, weighted_f1, _ = precision_recall_fscore_support(
+        labels,
+        predicted,
+        average="weighted",
+        zero_division=0,
+    )
+
+    return {
+        "accuracy": float(accuracy_score(labels, predicted)),
+        "macro_precision": float(macro_p),
+        "macro_recall": float(macro_r),
+        "macro_f1": float(macro_f1),
+        "weighted_precision": float(weighted_p),
+        "weighted_recall": float(weighted_r),
+        "weighted_f1": float(weighted_f1),
+        "per_label": per_label,
     }
