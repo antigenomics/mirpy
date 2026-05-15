@@ -1,0 +1,74 @@
+{
+  "human_IGH": {
+    "generated_at_utc": "2026-05-11T19:57:33.173293+00:00",
+    "locus": "IGH",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "human_IGK": {
+    "generated_at_utc": "2026-05-11T19:57:33.580726+00:00",
+    "locus": "IGK",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "human_IGL": {
+    "generated_at_utc": "2026-05-11T19:57:33.984159+00:00",
+    "locus": "IGL",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "human_TRA": {
+    "generated_at_utc": "2026-05-11T19:57:34.454606+00:00",
+    "locus": "TRA",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "human_TRB": {
+    "generated_at_utc": "2026-05-11T19:57:51.086887+00:00",
+    "locus": "TRB",
+    "n": 10000,
+    "seed": 42,
+    "source": "real",
+    "species": "human"
+  },
+  "human_TRD": {
+    "generated_at_utc": "2026-05-11T19:57:52.101356+00:00",
+    "locus": "TRD",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "human_TRG": {
+    "generated_at_utc": "2026-05-11T19:57:52.571491+00:00",
+    "locus": "TRG",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "human"
+  },
+  "mouse_TRA": {
+    "generated_at_utc": "2026-05-11T19:57:52.969496+00:00",
+    "locus": "TRA",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "mouse"
+  },
+  "mouse_TRB": {
+    "generated_at_utc": "2026-05-11T19:57:53.601751+00:00",
+    "locus": "TRB",
+    "n": 10000,
+    "seed": 42,
+    "source": "synthetic",
+    "species": "mouse"
+  }
+}

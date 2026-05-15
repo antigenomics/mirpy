@@ -174,6 +174,39 @@ def matches(a: Seq, b: Seq, mask_byte: int) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Back-translation (amino acid → nucleotide)
+# ---------------------------------------------------------------------------
+
+# Most likely human codon per amino acid (Kazusa Homo sapiens codon usage table).
+_MOST_LIKELY_CODON: dict[str, str] = {
+    "A": "GCC", "R": "AGG", "N": "AAC", "D": "GAC",
+    "C": "TGC", "Q": "CAG", "E": "GAG", "G": "GGC",
+    "H": "CAC", "I": "ATC", "L": "CTG", "K": "AAG",
+    "M": "ATG", "F": "TTC", "P": "CCC", "S": "AGC",
+    "T": "ACC", "W": "TGG", "Y": "TAC", "V": "GTG",
+}
+
+
+def back_translate(aa_seq: str, unknown_codon: str = "NNN") -> str:
+    """Back-translate *aa_seq* to a nucleotide sequence.
+
+    Each residue is mapped to the most frequently used human codon
+    (Kazusa Homo sapiens codon usage database).  Non-standard residues
+    (``X``, ``*``, ``_``, etc.) produce *unknown_codon* (default ``"NNN"``).
+
+    The returned sequence has length ``len(aa_seq) * 3``.
+
+    Examples
+    --------
+    >>> back_translate("CA")
+    'TGCGCC'
+    >>> back_translate("X")
+    'NNN'
+    """
+    return "".join(_MOST_LIKELY_CODON.get(aa, unknown_codon) for aa in aa_seq)
+
+
 def matches_aa_reduced(aa_seq: Seq, reduced_seq: Seq) -> bool:
     """Wildcard-aware match between an amino-acid and a reduced-alphabet sequence."""
     ba = _to_bytes(aa_seq)

@@ -4,26 +4,27 @@ mir.embedding package
 Submodules
 ----------
 
-mir.embedding.prototype_embedding module
-----------------------------------------
+mir.embedding.bag\_of\_kmers module
+------------------------------------
 
-.. automodule:: mir.embedding.prototype_embedding
+.. automodule:: mir.embedding.bag_of_kmers
    :members:
    :undoc-members:
    :show-inheritance:
 
-mir.embedding.repertoire_embedding module
------------------------------------------
+mir.embedding.prototypes module
+--------------------------------
 
-.. automodule:: mir.embedding.repertoire_embedding
+.. automodule:: mir.embedding.prototypes
    :members:
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
+mir.embedding.tcremp module
+----------------------------
 
-.. automodule:: mir.embedding
+.. automodule:: mir.embedding.tcremp
    :members:
    :undoc-members:
    :show-inheritance:
+

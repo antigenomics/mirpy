@@ -18,7 +18,6 @@ extensions = [
     "sphinx.ext.todo",
     "sphinx.ext.viewcode",
     "nbsphinx",
-    "nbsphinx_link",
 ]
 
 templates_path = ["_templates"]
@@ -30,6 +29,10 @@ exclude_patterns = [
 autosummary_generate = False
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
+autodoc_mock_imports = [
+    "multipy",
+    "pympler",
+]
 
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
