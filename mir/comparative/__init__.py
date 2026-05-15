@@ -10,7 +10,6 @@ from mir.comparative.vdjbet import (
 from mir.comparative.vdjbet_workflow import (
 	RealControlAnalysisResult,
 	UsageAdjustmentResult,
-	bh_fdr,
 	build_real_control_analysis,
 	build_synthetic_comparison,
 	compute_bin_alignment_diagnostics,
@@ -27,7 +26,6 @@ __all__ = [
 	"compute_pgen_histogram",
 	"RealControlAnalysisResult",
 	"UsageAdjustmentResult",
-	"bh_fdr",
 	"build_real_control_analysis",
 	"build_synthetic_comparison",
 	"compute_bin_alignment_diagnostics",

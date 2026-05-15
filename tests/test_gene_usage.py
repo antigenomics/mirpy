@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from mir.basic import pgen as pgen_module
@@ -284,8 +284,8 @@ class TestPrecomputeOlgaGeneUsage:
     """Unit tests for OLGA gene-usage precompute helper."""
 
     @staticmethod
-    def _mock_control_df() -> pd.DataFrame:
-        return pd.DataFrame(
+    def _mock_control_df() -> pl.DataFrame:
+        return pl.DataFrame(
             {
                 "v_gene": ["TRBV20-1*01", "TRBV20-1*01", "TRBV5-1*01"],
                 "j_gene": ["TRBJ2-7*01", "TRBJ1-2*01", "TRBJ2-7*01"],

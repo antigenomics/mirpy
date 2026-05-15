@@ -11,17 +11,27 @@ import io
 import tempfile
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from mir.basic.alphabets import back_translate, _MOST_LIKELY_CODON
-from mir.common.parser import OldMiXCRParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser, AdaptiveParser
+from mir.common.parser import (
+    AdaptiveParser,
+    OldMiXCRParser,
+    OlgaParser,
+    VDJdbFullPairedParser,
+    VDJdbSlimParser,
+    VDJtoolsParser,
+)
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 from mir.common.gene_library import GeneLibrary
+from mir.common.single_cell import PairedRepertoire
 
 ASSETS = Path(__file__).parent / "assets"
 
 _OLD_MIXCR_FILE = ASSETS / "old_mixcr.gz"
 _VDJDB_FILE     = ASSETS / "vdjdb.slim.txt.gz"
+_VDJDB_FULL_FILE = ASSETS / "vdjdb_full.txt.gz"
 _OLGA_FILE      = ASSETS / "olga_humanTRB_1000.txt.gz"
 _VDJTOOLS_FILE  = ASSETS / "vdjtools_trb_d_dot.tsv"
 
@@ -225,6 +235,98 @@ def test_vdjdb_locus_from_gene_column(vdjdb_sample):
         assert c.locus == "TRB"
     for c in vdjdb_sample["TRA"].clonotypes[:5]:
         assert c.locus == "TRA"
+
+
+# ---------------------------------------------------------------------------
+# VDJdbFullPairedParser
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def vdjdb_full_parser() -> VDJdbFullPairedParser:
+    return VDJdbFullPairedParser()
+
+
+@pytest.fixture(scope="module")
+def vdjdb_full_paired(vdjdb_full_parser) -> PairedRepertoire:
+    return vdjdb_full_parser.parse_file(
+        _VDJDB_FULL_FILE,
+        sample_id="vdjdb_full_human",
+        species="HomoSapiens",
+    )
+
+
+def test_vdjdb_full_returns_paired_repertoire(vdjdb_full_paired):
+    assert isinstance(vdjdb_full_paired, PairedRepertoire)
+
+
+def test_vdjdb_full_has_tra_trb_pairs(vdjdb_full_paired):
+    assert vdjdb_full_paired.paired_locus_repertoires["TRA_TRB"].clonotype_count > 0
+
+
+def test_vdjdb_full_manual_record_993(vdjdb_full_paired):
+    pair = next(
+        pair
+        for pair in vdjdb_full_paired.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+        if pair.pair_id == "993"
+    )
+    chains = {pair.clonotype1.locus: pair.clonotype1, pair.clonotype2.locus: pair.clonotype2}
+    assert chains["TRA"].sequence_id == "993_TRA"
+    assert chains["TRA"].v_gene == "TRAV38-2/DV8*01"
+    assert chains["TRA"].j_gene == "TRAJ53*01"
+    assert chains["TRA"].junction_aa == "CAYRSAGSGGSNYKLTF"
+    assert chains["TRB"].sequence_id == "993_TRB"
+    assert chains["TRB"].v_gene == "TRBV27*01"
+    assert chains["TRB"].j_gene == "TRBJ1-5*01"
+    assert chains["TRB"].junction_aa == "CASSLMTNQPQHF"
+
+
+def test_vdjdb_full_manual_record_1007_metadata(vdjdb_full_paired):
+    metadata = vdjdb_full_paired.single_cell_repertoire.barcode_metadata["1007"]
+    assert metadata["vdjdb_record_id"] == "1007"
+    assert metadata["mhc.a"] == "HLA-B*07:02"
+    assert metadata["mhc.b"] == "B2M"
+    assert metadata["mhc.class"] == "MHCI"
+    assert metadata["antigen.epitope"] == "RPIIRPATL"
+    assert metadata["antigen.gene"] == "NP"
+    assert metadata["antigen.species"] == "InfluenzaB"
+
+
+def test_vdjdb_full_metadata_to_polars_contains_expected_columns(vdjdb_full_paired):
+    meta_df = vdjdb_full_paired.single_cell_repertoire.metadata_to_polars()
+    assert meta_df.height > 0
+    assert "barcode" in meta_df.columns
+    assert "vdjdb_record_id" in meta_df.columns
+    assert "antigen.epitope" in meta_df.columns
+    row = meta_df.filter(pl.col("barcode") == "1007")
+    assert row.height == 1
+    assert row[0, "antigen.epitope"] == "RPIIRPATL"
+
+
+def test_vdjdb_full_clone_metadata_propagates(vdjdb_full_paired):
+    pair = next(
+        pair
+        for pair in vdjdb_full_paired.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+        if pair.pair_id == "1007"
+    )
+    chains = {pair.clonotype1.locus: pair.clonotype1, pair.clonotype2.locus: pair.clonotype2}
+    assert chains["TRA"].clone_metadata["vdjdb_record_id"] == "1007"
+    assert chains["TRB"].clone_metadata["antigen.epitope"] == "RPIIRPATL"
+
+
+def test_vdjdb_full_include_incomplete_keeps_single_chain_records(vdjdb_full_parser):
+    cell_df, barcode_metadata = vdjdb_full_parser.parse_cell_clonotypes_file(
+        _VDJDB_FULL_FILE,
+        species="HomoSapiens",
+        include_incomplete=True,
+    )
+    record_zero = cell_df.filter((pl.col("barcode") == "0") & (pl.col("locus") == "TRB"))
+    record_112 = cell_df.filter((pl.col("barcode") == "112") & (pl.col("locus") == "TRA"))
+    assert record_zero.height == 1
+    assert record_zero[0, "junction_aa"] == "CASSIVGGNEQFF"
+    assert record_112.height == 1
+    assert record_112[0, "junction_aa"] == "CAASGGYQKVTF"
+    assert barcode_metadata["0"]["antigen.epitope"] == "GILGFVFTL"
+    assert barcode_metadata["112"]["antigen.epitope"] == "KAFSPEVIPMF"
 
 
 # ---------------------------------------------------------------------------

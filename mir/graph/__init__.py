@@ -10,10 +10,13 @@ from mir.graph.neighborhood_enrichment import (
     compute_neighborhood_stats_by_locus,
     compute_neighborhood_stats,
 )
+from mir.graph.single_cell_pairing import PairingGraph, build_pairing_graph
 
 __all__ = [
     "compute_neighborhood_stats",
     "compute_neighborhood_stats_by_locus",
     "add_neighborhood_metadata",
     "add_neighborhood_enrichment_metadata",
+    "PairingGraph",
+    "build_pairing_graph",
 ]

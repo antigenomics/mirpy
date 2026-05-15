@@ -4,14 +4,6 @@ mir.comparative package
 Submodules
 ----------
 
-mir.comparative.match module
-----------------------------
-
-.. automodule:: mir.comparative.match
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.comparative.overlap module
 ------------------------------
 
@@ -28,26 +20,10 @@ mir.comparative.vdjbet module
    :undoc-members:
    :show-inheritance:
 
-mir.comparative.vdjbet_workflow module
---------------------------------------
+mir.comparative.vdjbet\_workflow module
+----------------------------------------
 
 .. automodule:: mir.comparative.vdjbet_workflow
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.comparative.pair_matcher module
------------------------------------
-
-.. automodule:: mir.comparative.pair_matcher
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.comparative.tcrnet module
------------------------------
-
-.. automodule:: mir.comparative.tcrnet
    :members:
    :undoc-members:
    :show-inheritance:

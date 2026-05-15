@@ -13,9 +13,11 @@ def test_compare_kmer_counts_binom_uses_control_background_probability() -> None
     counts_sample = {"AAA": 20, "BBB": 10}
     counts_control = {"AAA": 8, "BBB": 12}
 
+    import polars as pl
+
     df = compare_kmer_counts(counts_sample, counts_control, test="binom", p_adj_method="fdr_bh")
 
-    row = df.loc["AAA"]
+    row = df.filter(pl.col("kmer") == "AAA").row(0, named=True)
     expected_p_background = 8 / 20
     expected_pval = float(binom.sf(20 - 1, 30, expected_p_background))
 

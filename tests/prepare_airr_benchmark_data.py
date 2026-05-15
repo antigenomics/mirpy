@@ -21,8 +21,8 @@ SRX_DIR = ASSETS_DIR / "srx_repertoires"
 # Written after a successful bootstrap so we can skip on subsequent runs.
 _SENTINEL = DATASET_ROOT / ".test_data_ready"
 
-# Files to pull from the HuggingFace dataset.
-_REQUIRED_PATTERNS = [
+# Patterns always fetched — sufficient for unit tests.
+_MINIMAL_PATTERNS = [
     "sra/meta.tsv",
     "sra/samples.tar.gz",
     "tcrnet/B35+.txt.gz",
@@ -32,6 +32,20 @@ _REQUIRED_PATTERNS = [
     "vdjdb/**",
     "vdjtools_lite/**",
 ]
+
+# Extra patterns only fetched for integration / benchmark runs (large blobs).
+_SC_PATTERNS = [
+    "dcode/**",
+]
+
+
+def _has_10x_vdj_v1_assets() -> bool:
+    dcode_root = DATASET_ROOT / "dcode"
+    return (
+        dcode_root.exists()
+        and any(dcode_root.glob("*_all_contig_annotations.csv.gz"))
+        and any(dcode_root.glob("*_consensus_annotations.csv.gz"))
+    )
 
 TOY_DATASET_METADATA_TSV = """sample_id\tfile_name\tbatch_id
 s1\tvdjtools_trb_d_dot.tsv\tbatch_A
@@ -243,14 +257,21 @@ def _derive_assets(*, verbose: bool = False) -> None:
     _copy(vdjtools_dir / "vdjtools_trb_d_dot_2.tsv", ASSETS_DIR / "vdjtools_trb_d_dot_2.tsv")
 
     vdjdb_candidates = sorted(DATASET_ROOT.glob("vdjdb/vdjdb-*/vdjdb.slim.txt.gz"))
+    vdjdb_full_candidates = sorted(DATASET_ROOT.glob("vdjdb/vdjdb-*/vdjdb_full.txt.gz"))
     if not vdjdb_candidates:
         raise RuntimeError("Could not locate vdjdb.slim.txt.gz in downloaded dataset")
+    if not vdjdb_full_candidates:
+        raise RuntimeError("Could not locate vdjdb_full.txt.gz in downloaded dataset")
     vdjdb_local = vdjdb_candidates[-1]
+    vdjdb_full_local = vdjdb_full_candidates[-1]
 
     if not _is_valid_gzip(vdjdb_local):
         raise RuntimeError(f"Downloaded VDJdb slim is corrupt: {vdjdb_local}")
+    if not _is_valid_gzip(vdjdb_full_local):
+        raise RuntimeError(f"Downloaded VDJdb full is corrupt: {vdjdb_full_local}")
 
     _copy(vdjdb_local, ASSETS_DIR / "vdjdb.slim.txt.gz")
+    _copy(vdjdb_full_local, ASSETS_DIR / "vdjdb_full.txt.gz")
     _convert_yf_vdjtools_to_airr(
         DATASET_ROOT / "alice/yf/Q1_d0.tsv.gz",
         REAL_REPS_DIR / "Q1_0_F1.airr.tsv.gz",
@@ -274,13 +295,32 @@ def _derive_assets(*, verbose: bool = False) -> None:
     if verbose:
         print(f"prepared test data under {TESTS_DIR}")
         print(f"vdjdb source: {vdjdb_local.relative_to(DATASET_ROOT)}")
+        print(f"vdjdb full source: {vdjdb_full_local.relative_to(DATASET_ROOT)}")
         print(f"derived GILG cdr3 count: {gilg_n}")
         print(f"derived LLW rows: {llw_n}")
         print(f"derived OLGA rows: {olga_n}")
 
 
-def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
-    if not force and _SENTINEL.exists() and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists():
+def ensure_test_data(
+    *, force: bool = False, verbose: bool = False, include_sc_assets: bool = False
+) -> None:
+    """Download and derive test assets from the HuggingFace benchmark dataset.
+
+    Args:
+        force: Re-download even if the sentinel already exists.
+        verbose: Print a progress summary.
+        include_sc_assets: Also fetch large single-cell (dcode/**) blobs.
+            Enable only for integration / benchmark runs to avoid long downloads
+            during ordinary unit-test collection.
+    """
+    sc_ready = not include_sc_assets or _has_10x_vdj_v1_assets()
+    if (
+        not force
+        and _SENTINEL.exists()
+        and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists()
+        and (ASSETS_DIR / "vdjdb_full.txt.gz").exists()
+        and sc_ready
+    ):
         return
 
     if force:
@@ -290,11 +330,15 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
 
     from huggingface_hub import snapshot_download
 
+    patterns = list(_MINIMAL_PATTERNS)
+    if include_sc_assets:
+        patterns.extend(_SC_PATTERNS)
+
     snapshot_download(
         repo_id=DATASET_ID,
         repo_type="dataset",
         local_dir=str(DATASET_ROOT),
-        allow_patterns=_REQUIRED_PATTERNS,
+        allow_patterns=patterns,
     )
 
     _derive_assets(verbose=verbose)
@@ -303,7 +347,8 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
 
 def main() -> None:
     force = os.getenv("MIRPY_TEST_DATA_FORCE", "0") in {"1", "true", "TRUE", "yes", "YES"}
-    ensure_test_data(force=force, verbose=True)
+    include_sc = os.getenv("MIRPY_TEST_DATA_SC", "0") in {"1", "true", "TRUE", "yes", "YES"}
+    ensure_test_data(force=force, verbose=True, include_sc_assets=include_sc)
 
 
 if __name__ == "__main__":

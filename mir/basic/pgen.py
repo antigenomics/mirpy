@@ -40,7 +40,7 @@ import numpy as np
 import olga.generation_probability as pgen
 import olga.load_model as load_model
 import olga.sequence_generation as seq_gen
-import pandas as pd
+import polars as pl
 
 from mir import get_resource_path
 from mir.basic.aliases import LOCUS_TO_OLGA_SUFFIX
@@ -598,7 +598,9 @@ class OlgaModel:
         else:
             records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
         locus = self._init_kwargs.get("locus", "")
-        usage_df = pd.DataFrame.from_records(records, columns=["v_gene", "j_gene"])
+        usage_df = pl.from_dicts(
+            [{"v_gene": str(r.get("v_gene", "")), "j_gene": str(r.get("j_gene", ""))} for r in records]
+        )
         return GeneUsage.from_dataframe(usage_df, locus=locus)
 
 
@@ -707,7 +709,7 @@ _GENE_USAGE_PROB_CACHE: dict[tuple[str, str, int], dict[str, dict[object, float]
 
 
 def compute_gene_usage_probabilities_from_control_df(
-    control_df: pd.DataFrame,
+    control_df: "pl.DataFrame",
 ) -> dict[str, dict[object, float]]:
     """Estimate OLGA V/J/VJ probabilities from a synthetic control table."""
     from mir.common.alleles import allele_to_major
@@ -717,23 +719,32 @@ def compute_gene_usage_probabilities_from_control_df(
     if missing:
         raise ValueError(f"control_df missing required columns: {sorted(missing)}")
 
-    df = control_df.loc[:, ["v_gene", "j_gene"]].copy()
-    df["v_gene"] = df["v_gene"].map(lambda x: allele_to_major(str(x or "")))
-    df["j_gene"] = df["j_gene"].map(lambda x: allele_to_major(str(x or "")))
-    df = df[(df["v_gene"] != "") & (df["j_gene"] != "")]
+    df = (
+        control_df.select(["v_gene", "j_gene"])
+        .with_columns([
+            pl.col("v_gene").cast(pl.Utf8).map_elements(
+                lambda x: allele_to_major(str(x or "")), return_dtype=pl.Utf8
+            ),
+            pl.col("j_gene").cast(pl.Utf8).map_elements(
+                lambda x: allele_to_major(str(x or "")), return_dtype=pl.Utf8
+            ),
+        ])
+        .filter((pl.col("v_gene") != "") & (pl.col("j_gene") != ""))
+    )
     total = len(df)
     if total == 0:
         return {"v": {}, "j": {}, "vj": {}}
 
-    p_v = (df["v_gene"].value_counts(sort=False) / total).to_dict()
-    p_j = (df["j_gene"].value_counts(sort=False) / total).to_dict()
-    p_vj = (df.groupby(["v_gene", "j_gene"], sort=False).size() / total).to_dict()
+    v_vc = df["v_gene"].value_counts(sort=False)
+    p_v = {row[0]: float(row[1]) / total for row in v_vc.iter_rows()}
 
-    return {
-        "v": {k: float(v) for k, v in p_v.items()},
-        "j": {k: float(v) for k, v in p_j.items()},
-        "vj": {k: float(v) for k, v in p_vj.items()},
-    }
+    j_vc = df["j_gene"].value_counts(sort=False)
+    p_j = {row[0]: float(row[1]) / total for row in j_vc.iter_rows()}
+
+    vj_counts = df.group_by(["v_gene", "j_gene"]).agg(pl.len().alias("count"))
+    p_vj = {(row[0], row[1]): float(row[2]) / total for row in vj_counts.iter_rows()}
+
+    return {"v": p_v, "j": p_j, "vj": p_vj}
 
 
 def get_olga_gene_usage_probabilities(

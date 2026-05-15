@@ -42,7 +42,11 @@ RUN_INTEGRATION = os.getenv("RUN_INTEGRATION") == "1"
 # Prepare all test and benchmark datasets before test collection. This allows
 # tests to keep stable local paths while sourcing data from airr_benchmark.
 if os.getenv("MIRPY_SKIP_TEST_DATA_BOOTSTRAP", "0") not in {"1", "true", "TRUE", "yes", "YES"}:
-    ensure_test_data(force=False, verbose=False)
+    ensure_test_data(
+        force=False,
+        verbose=False,
+        include_sc_assets=RUN_BENCHMARKS or RUN_INTEGRATION,
+    )
 
 skip_benchmarks = pytest.mark.skipif(
     not RUN_BENCHMARKS,

@@ -96,6 +96,16 @@ def find_airr_benchmark_vdjdb_slim(dataset_root: Path) -> Path:
     return candidates[-1]
 
 
+def find_airr_benchmark_vdjdb_full(dataset_root: Path) -> Path:
+    """Return the latest ``vdjdb_full.txt.gz`` file inside AIRR benchmark."""
+    candidates = sorted(dataset_root.glob("vdjdb/vdjdb-*/vdjdb_full.txt.gz"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find vdjdb_full.txt.gz under {dataset_root / 'vdjdb'}"
+        )
+    return candidates[-1]
+
+
 def find_airr_benchmark_sra_meta(dataset_root: Path) -> tuple[Path, Path]:
     """Return ``(samples.tar.gz, meta.tsv)`` for the AIRR benchmark SRA bundle."""
     tarball = dataset_root / "sra" / "samples.tar.gz"
@@ -136,3 +146,36 @@ def ensure_airr_benchmark_alice(
         subsets = ["yf", "as"]
     patterns = [f"alice/{sub}/*" for sub in subsets]
     return ensure_airr_benchmark(repo_root=repo_root, allow_patterns=patterns)
+
+
+def find_airr_benchmark_dcode_10x_vdj_v1_donor(
+    dataset_root: Path,
+    donor_id: str,
+) -> tuple[Path, Path]:
+    """Return (all_contig, consensus) files for one dcode 10x_vdj_v1 donor."""
+    dcode_root = dataset_root / "dcode"
+    all_contig = sorted(
+        dcode_root.glob(f"*{donor_id}*_all_contig_annotations.csv.gz")
+    )
+    consensus = sorted(
+        dcode_root.glob(f"*{donor_id}*_consensus_annotations.csv.gz")
+    )
+    if not all_contig or not consensus:
+        raise FileNotFoundError(
+            f"Could not find 10x_vdj_v1 donor {donor_id!r} under {dcode_root}"
+        )
+    return all_contig[0], consensus[0]
+
+
+def find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix(
+    dataset_root: Path,
+    donor_id: str,
+) -> Path:
+    """Return donor-specific dcode 10x_vdj_v1 binarized CITE-seq matrix path."""
+    dcode_root = dataset_root / "dcode"
+    matrices = sorted(dcode_root.glob(f"*{donor_id}*_binarized_matrix.csv.gz"))
+    if not matrices:
+        raise FileNotFoundError(
+            f"Could not find 10x_vdj_v1 donor matrix {donor_id!r} under {dcode_root}"
+        )
+    return matrices[0]

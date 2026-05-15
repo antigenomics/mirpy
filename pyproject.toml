@@ -19,10 +19,16 @@ description = "A library for managing and analyzing immunosequencing data"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent",
 ]
+keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "repertoire", "single-cell", "VDJdb"]
 dependencies = [
   "biopython",
   "matplotlib",
@@ -44,11 +50,23 @@ dependencies = [
 license = {text = "GPL-3.0 license"}
 
 [project.optional-dependencies]
+sc = [
+  "scanpy",
+  "scirpy",
+  "sc-dandelion",
+  "kneed",
+  "umap-learn",
+]
 dev = [
   "pytest>=8",
   "pylint",
   "huggingface_hub",
   "psutil>=5",
+  "scanpy",
+  "scirpy",
+  "sc-dandelion",
+  "kneed",
+  "umap-learn",
 ]
 docs = [
   "sphinx>=7.2,<9",
@@ -59,8 +77,9 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/antigenomics/mirpy"
-Issues   = "https://github.com/antigenomics/mirpy/issues"
+Homepage      = "https://github.com/antigenomics/mirpy"
+Documentation = "https://antigenomics.github.io/mirpy"
+Issues        = "https://github.com/antigenomics/mirpy/issues"
 
 [project.scripts]
 mirpy-control-setup = "mir.common.control:control_setup_cli"

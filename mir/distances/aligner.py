@@ -1,51 +1,60 @@
-"""CDR3, germline and clonotype alignment scoring.
+"""Junction, germline and clonotype alignment scoring.
 
 This module provides scoring classes for comparing TCR/BCR sequences:
 
-* :class:`CDRAligner` — CDR3 amino-acid alignment with gap model and
+* :class:`JunctionAligner` — junction amino-acid alignment with gap model and
   BLOSUM62 substitution scoring.  Delegates to the C extension
   ``seqdist_c`` when available, with a pure-Python fallback.
 
   Key methods:
 
-  - :meth:`~CDRAligner.score` — best alignment score across gap positions.
-  - :meth:`~CDRAligner.score_norm` / :meth:`~CDRAligner.score_dist` —
+  - :meth:`~JunctionAligner.score` — best alignment score across gap positions.
+  - :meth:`~JunctionAligner.score_norm` / :meth:`~JunctionAligner.score_dist` —
     normalised / distance variants.
-  - :meth:`~CDRAligner.align` — best alignment with visualization strings:
-    gapped sequences and a midline showing matches (``|``), conservative
-    substitutions (``:``) and mismatches (``.``).  Implemented in the C
-    extension for speed.
+  - :meth:`~JunctionAligner.score_batch` — one query vs K refs, one C call.
+  - :meth:`~JunctionAligner.score_matrix` — N queries vs K refs, (N,K) result,
+    GIL released; suitable for parallel threading.
+  - :meth:`~JunctionAligner.align` — best alignment with visualization strings.
 
 * :class:`BioAlignerWrapper` — thin wrapper around BioPython's
   ``PairwiseAligner``.
 * :class:`GermlineAligner` — dict-based germline gene scoring built from
   pairwise sequence alignment.
 * :class:`ClonotypeAligner` — composite scorer combining V/J germline
-  aligners with a CDR3 aligner.
+  aligners with a junction aligner.
 * :class:`ClonotypeScore` / :class:`PairedCloneScore` — score containers.
+
+``CDRAligner`` is kept as an alias for :class:`JunctionAligner` for
+backward compatibility.
 
 Performance
 -----------
-Benchmarked on 200 pairs of OLGA-generated human TRB CDR3 sequences
-(lengths 10–24 aa), measured on Apple M-series, single thread:
+Benchmarked on OLGA-generated human TRB junction sequences (lengths 10–24 aa),
+measured on Apple M3, single thread:
 
-+-----------------------+-----------+--------------+
-| Method                | Time (ms) | Throughput   |
-+=======================+===========+==============+
-| CDRAligner (C)        |      0.2  | ~1 M pairs/s |
-+-----------------------+-----------+--------------+
-| BioPython PairwiseAl. |      0.7  | ~270 k p/s   |
-+-----------------------+-----------+--------------+
-| CDRAligner (Python)   |      3.9  | ~50 k p/s    |
-+-----------------------+-----------+--------------+
++-------------------------------+------------------+---------------------+
+| Method                        | Rate (pairs/s)   | Notes               |
++===============================+==================+=====================+
+| JunctionAligner.score_matrix  | ~25 M pairs/s    | full N×K C loop,    |
+|                               | effective        | GIL released        |
++-------------------------------+------------------+---------------------+
+| JunctionAligner.score_batch   | ~25 M pairs/s    | one C call per      |
+|                               | effective        | query vs K refs     |
++-------------------------------+------------------+---------------------+
+| JunctionAligner.score (C)     | ~1 M pairs/s     | per-pair            |
++-------------------------------+------------------+---------------------+
+| BioAlignerWrapper             | ~270 k pairs/s   | full DP alignment   |
++-------------------------------+------------------+---------------------+
+| JunctionAligner (Python fb.)  | ~50 k pairs/s    | no C extension      |
++-------------------------------+------------------+---------------------+
 
-The C extension is **~20× faster** than the pure-Python fallback and
-**~4× faster** than BioPython for the simplified CDR3 gap model.
-For ungapped equal-length alignment the CDRAligner C scores match
-BioPython exactly (same BLOSUM62 matrix, verified in test suite).
+:meth:`JunctionAligner.score_matrix` calls ``seqdist_c.score_matrix`` once
+for the entire N×K loop in C with the GIL released.  When split across
+Python threads, each chunk runs in true parallel — enabling linear scaling
+up to the number of CPU cores.
 """
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from itertools import starmap
 from multiprocessing import Pool
 from Bio import Align
@@ -56,10 +65,6 @@ import numpy as np
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary
-
-# Legacy aliases
-Segment = GeneEntry
-SegmentLibrary = GeneLibrary
 
 # ---------------------------------------------------------------------------
 # Lazy-load C acceleration from seqdist_c (score_max, selfscore)
@@ -72,39 +77,83 @@ def _get_seqdist():
     if _seqdist_mod is None:
         try:
             from mir.distances import seqdist_c as _mod
-            # Verify the CDR3 scoring functions are present
+            # Verify the junction scoring functions are present
             if hasattr(_mod, 'score_max') and hasattr(_mod, 'selfscore'):
                 _seqdist_mod = _mod
         except ImportError:
             pass
     return _seqdist_mod
 
-class Scoring:
+class Scoring(ABC):
     """Abstract base for pairwise sequence scoring."""
 
     @abstractmethod
     def score(self, s1: str, s2: str) -> float:
         """Raw alignment score between *s1* and *s2*."""
 
+    def score_batch(self, query: str, refs: list[str]) -> np.ndarray:
+        """Score *query* against every string in *refs*.
+
+        Default implementation falls back to a Python loop over
+        :meth:`score`.  Subclasses should override for better performance.
+
+        Returns:
+            Float64 numpy array of length ``len(refs)``.
+        """
+        return np.array([self.score(query, r) for r in refs], dtype=np.float64)
+
+    def score_matrix(self, queries: list[str], refs: list[str]) -> np.ndarray:
+        """Score all *queries* against all *refs*.
+
+        Default implementation calls :meth:`score_batch` row-by-row.
+        Subclasses should override for better performance.
+
+        Returns:
+            Float64 numpy array of shape ``(len(queries), len(refs))``.
+        """
+        N, K = len(queries), len(refs)
+        result = np.empty((N, K), dtype=np.float64)
+        for i, q in enumerate(queries):
+            result[i] = self.score_batch(q, refs)
+        return result
+
     def score_norm(self, s1: str, s2: str) -> float:
         """Normalised score: ``score(s1,s2) - max(score(s1,s1), score(s2,s2))``."""
         return self.score(s1, s2) - max(self.score(s1, s1), self.score(s2, s2))
 
+    def score_dist(self, s1: str, s2: str) -> float:
+        """Distance: ``score(s1,s1) + score(s2,s2) - 2*score(s1,s2)``."""
+        return self.score(s1, s1) + self.score(s2, s2) - 2 * self.score(s1, s2)
+
 
 class BioAlignerWrapper(Scoring):
-    """Wrapper around :class:`Bio.Align.PairwiseAligner`."""
+    """Wrapper around :class:`Bio.Align.PairwiseAligner`.
+
+    Safe to use with :mod:`multiprocessing` — the underlying BioPython
+    aligner object is reconstructed on unpickling via ``__getstate__`` /
+    ``__setstate__``.
+    """
 
     def __init__(self, scoring: str = "blastp"):
+        self._scoring_name = scoring
         self.aligner = Align.PairwiseAligner(scoring)
+
+    def __getstate__(self):
+        return {"_scoring_name": self._scoring_name}
+
+    def __setstate__(self, state):
+        self._scoring_name = state["_scoring_name"]
+        self.aligner = Align.PairwiseAligner(self._scoring_name)
 
     def score(self, s1, s2) -> float:
         return self.aligner.align(s1, s2).score
 
 
-class CDRAligner(Scoring):
-    """CDR3 amino-acid aligner with a simplified gap model.
+class JunctionAligner(Scoring):
+    """Junction amino-acid aligner with a simplified gap model.
 
-    Scores are computed over the interior of the CDR3 (skipping
+    Aligns TCR/BCR junction (CDR3) sequences using fixed gap positions.
+    Scores are computed over the interior of the junction (skipping
     *v_offset* positions from the start and *j_offset* from the end)
     using a substitution matrix (BLOSUM62 by default).  When sequences
     differ in length the shorter sequence is padded with a gap block
@@ -113,6 +162,9 @@ class CDRAligner(Scoring):
     The heavy lifting is done in C (``seqdist_c.score_max`` /
     ``seqdist_c.selfscore``) when available; a pure-Python fallback
     is used otherwise.
+
+    :meth:`score_matrix` computes an N×K score matrix in a single C call
+    with the GIL released, enabling true thread-level parallelism.
 
     Parameters
     ----------
@@ -252,9 +304,9 @@ class CDRAligner(Scoring):
         val = self._self_cache.get(s)
         if val is not None:
             return val
-        cdr = _get_seqdist()
-        if cdr is not None:
-            val = cdr.selfscore(s, self._mat256, self._factor, self._use_mat)
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None:
+            val = junction_scorer.selfscore(s, self._mat256, self._factor, self._use_mat)
         else:
             if self.mat is None:
                 val = 0.0
@@ -270,9 +322,9 @@ class CDRAligner(Scoring):
         return val
 
     def score(self, s1, s2) -> float:
-        cdr = _get_seqdist()
-        if cdr is not None:
-            return cdr.score_max(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None:
+            return junction_scorer.score_max(
                 s1, s2,
                 self._mat256,
                 np.asarray(self.gap_positions, dtype=np.int32),
@@ -287,6 +339,70 @@ class CDRAligner(Scoring):
             if sc > best:
                 best = sc
         return best
+
+    def score_batch(self, query: str, refs: list[str]) -> np.ndarray:
+        """Score *query* against every string in *refs* in a single C call.
+
+        Args:
+            query: Query junction amino-acid sequence.
+            refs: List of reference junction sequences to score against.
+
+        Returns:
+            Float64 numpy array of alignment scores, one per reference.
+        """
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "score_batch_max"):
+            return junction_scorer.score_batch_max(
+                query, refs,
+                self._mat256,
+                self.gap_positions,
+                self.gap_penalty, self.v_offset, self.j_offset,
+                self._factor, self._use_mat,
+            )
+        return np.array([self.score(query, r) for r in refs], dtype=np.float64)
+
+    def score_matrix(self, queries: list[str], refs: list[str]) -> np.ndarray:
+        """Score all *queries* against all *refs* in a single C call.
+
+        Computes the full N×K alignment score matrix with the GIL released
+        for the entire inner loop.  Calling this from concurrent Python
+        threads on disjoint query chunks achieves true CPU parallelism.
+
+        Args:
+            queries: List of N query junction sequences.
+            refs: List of K reference junction sequences.
+
+        Returns:
+            Float64 numpy array of shape ``(N, K)``.
+        """
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "score_matrix"):
+            return junction_scorer.score_matrix(
+                queries, refs,
+                self._mat256,
+                self.gap_positions,
+                self.gap_penalty, self.v_offset, self.j_offset,
+                self._factor, self._use_mat,
+            )
+        N, K = len(queries), len(refs)
+        result = np.empty((N, K), dtype=np.float64)
+        for i, q in enumerate(queries):
+            result[i] = self.score_batch(q, refs)
+        return result
+
+    def selfscore_batch(self, seqs: list[str]) -> np.ndarray:
+        """Self-alignment scores for a list of sequences.
+
+        Args:
+            seqs: List of N junction sequences.
+
+        Returns:
+            Float64 numpy array of shape ``(N,)`` with ``score(s, s)`` for each.
+        """
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, "selfscore_batch"):
+            return junction_scorer.selfscore_batch(seqs, self._mat256, self._factor, self._use_mat)
+        return np.array([self._selfscore_cached(s) for s in seqs], dtype=np.float64)
 
     def score_norm(self, s1, s2) -> float:
         return self.score(s1, s2) - max(self._selfscore_cached(s1), self._selfscore_cached(s2))
@@ -316,10 +432,10 @@ class CDRAligner(Scoring):
             return tuple(res)
 
     def alns(self, s1, s2) -> tuple[tuple[str, str, float]]:
-        cdr = _get_seqdist()
+        junction_scorer = _get_seqdist()
         if len(s1) == len(s2):
-            if cdr is not None:
-                sc = cdr.score_max(
+            if junction_scorer is not None:
+                sc = junction_scorer.score_max(
                     s1, s2, self._mat256, np.array([0], dtype=np.int32),
                     self.gap_penalty, self.v_offset, self.j_offset,
                     self._factor, self._use_mat
@@ -327,9 +443,9 @@ class CDRAligner(Scoring):
             else:
                 sc = self._score_equal_len_py(s1, s2)
             return ((s1, s2, sc),)
-        if cdr is not None:
+        if junction_scorer is not None:
             scores = tuple(
-                cdr.score_max(
+                junction_scorer.score_max(
                     s1, s2, self._mat256, np.array([int(p)], dtype=np.int32),
                     self.gap_penalty, self.v_offset, self.j_offset,
                     self._factor, self._use_mat
@@ -360,9 +476,9 @@ class CDRAligner(Scoring):
         tuple[str, str, str, float]
             ``(s1_gapped, midline, s2_gapped, score)``
         """
-        cdr = _get_seqdist()
-        if cdr is not None and hasattr(cdr, 'best_alignment'):
-            return cdr.best_alignment(
+        junction_scorer = _get_seqdist()
+        if junction_scorer is not None and hasattr(junction_scorer, 'best_alignment'):
+            return junction_scorer.best_alignment(
                 s1, s2,
                 self._mat256,
                 np.asarray(self.gap_positions, dtype=np.int32),
@@ -416,6 +532,9 @@ class CDRAligner(Scoring):
                 mid_chars.append(_mid(a, b))
         return (gs1, ''.join(mid_chars), gs2, best_sc)
 
+CDRAligner = JunctionAligner  # backward-compatibility alias
+
+
 class _Scoring_Wrapper:
     def __init__(self, scoring: Scoring):
         self.scoring = scoring
@@ -425,11 +544,28 @@ class _Scoring_Wrapper:
 
 
 class GermlineAligner:
-    """Dict-based gene-level aligner built from pre-computed pairwise scores."""
+    """Gene-level aligner built from pre-computed pairwise scores.
+
+    Two construction paths are available:
+
+    * :meth:`from_seqs` — single-locus, backward-compatible; builds from a
+      dict or list of ``(allele, sequence_aa)`` pairs.  Scores are accessed
+      via :meth:`score` / :meth:`score_norm` / :meth:`score_dist`.
+    * :meth:`from_library` — multi-locus; builds from a :class:`GeneLibrary`
+      and computes all pairwise V/J distances per locus.  Distances are
+      accessed via :meth:`dist`.
+
+    Both paths store raw pairwise *scores* (higher = more similar).  The
+    distance formula ``d(a,b) = s(a,a) + s(b,b) - 2 x s(a,b)`` converts
+    scores to non-negative distances where ``d(a,a) = 0``.
+    """
 
     def __init__(self, dist: dict[tuple[str, str], float]):
         self.dist = dist
         self.dist.update(dict(((g2, g1), score) for ((g1, g2), score) in dist.items()))
+        self._locus_dist: dict[tuple[str, str, str], float] = {}
+        self._fallback_dist: dict[tuple[str, str], float] = {}
+        self._locus_gene_sets: dict[tuple[str, str], frozenset[str]] = {}
 
     def score(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         if isinstance(g1, GeneEntry):
@@ -446,9 +582,117 @@ class GermlineAligner:
     def score_dist(self, g1: str | GeneEntry, g2: str | GeneEntry) -> float:
         return self.score(g1, g1) + self.score(g2, g2) - 2 * self.score(g1, g2)
 
+    def gene_dist(self, locus: str, g1: str, g2: str) -> float:
+        """Pre-computed distance between *g1* and *g2* for *locus*.
+
+        Only available when the aligner was built via :meth:`from_library`.
+        Returns ``d(g1,g2) = s(g1,g1) + s(g2,g2) − 2·s(g1,g2)`` where
+        scores were computed at construction time.
+
+        Args:
+            locus: Receptor locus, e.g. ``'TRB'``.
+            g1: First gene allele, e.g. ``'TRBV10-1*01'``.
+            g2: Second gene allele, e.g. ``'TRBV10-2*01'``.
+
+        Returns:
+            Non-negative distance value (0 when ``g1 == g2``).
+
+        Raises:
+            KeyError: If ``(locus, g1, g2)`` was not in the library used
+                during construction.
+        """
+        key = (locus, g1, g2)
+        val = self._locus_dist.get(key)
+        if val is not None:
+            return val
+        # One or both genes are absent from the library (e.g., pseudogenes or
+        # missing alleles in prototype files).  Return the worst-case distance
+        # for the appropriate gene type so unknown genes are treated as
+        # maximally distant.
+        for gene_type in ('V', 'J', 'D'):
+            gs = self._locus_gene_sets.get((locus, gene_type), frozenset())
+            if g1 in gs or g2 in gs:
+                return self._fallback_dist.get((locus, gene_type), 0.0)
+        # Last resort: infer gene type from allele name prefix
+        allele = g1
+        gene_type_char = allele[len(locus)] if allele.startswith(locus) and len(allele) > len(locus) else 'V'
+        return self._fallback_dist.get((locus, gene_type_char), 0.0)
+
+    @classmethod
+    def from_library(
+        cls,
+        lib: GeneLibrary,
+        loci: list[str] | None = None,
+        scoring: Scoring | None = None,
+    ) -> 'GermlineAligner':
+        """Build a multi-locus GermlineAligner from a :class:`GeneLibrary`.
+
+        Computes all pairwise V-gene and J-gene distances for each locus in
+        *lib* (or the requested subset) at construction time.  Distances are
+        stored internally and retrieved in O(1) via :meth:`dist`.
+
+        Args:
+            lib: Gene library to extract sequences from.
+            loci: Loci to include (e.g. ``['TRB', 'TRA']``).
+                Defaults to all loci present in *lib*.
+            scoring: Scoring function for sequence comparison.
+                Defaults to :class:`BioAlignerWrapper` (full DP alignment).
+
+        Returns:
+            GermlineAligner populated with pre-computed pairwise distances.
+
+        Example:
+            >>> lib = GeneLibrary.load_default(loci={'TRB'}, species={'human'})
+            >>> ga = GermlineAligner.from_library(lib, loci=['TRB'])
+            >>> ga.dist('TRB', 'TRBV10-1*01', 'TRBV10-1*01')
+            0.0
+        """
+        if scoring is None:
+            scoring = BioAlignerWrapper()
+        if loci is None:
+            loci = sorted(lib.get_loci())
+
+        locus_dist: dict[tuple[str, str, str], float] = {}
+        fallback_dist: dict[tuple[str, str], float] = {}
+        locus_gene_sets: dict[tuple[str, str], frozenset[str]] = {}
+
+        for locus in loci:
+            for gene_type in ('V', 'J'):
+                seqs = lib.get_sequences_aa(locus=locus, gene=gene_type)
+                if not seqs:
+                    continue
+
+                locus_gene_sets[(locus, gene_type)] = frozenset(a for a, _ in seqs)
+
+                # Compute pairwise raw scores (half-matrix, then mirror).
+                pair_scores: dict[tuple[str, str], float] = {}
+                for i, (a1, s1) in enumerate(seqs):
+                    for j, (a2, s2) in enumerate(seqs):
+                        if (a2, a1) in pair_scores:
+                            pair_scores[(a1, a2)] = pair_scores[(a2, a1)]
+                        else:
+                            pair_scores[(a1, a2)] = scoring.score(s1, s2)
+
+                # Convert scores to distances and store with locus key.
+                max_d = 0.0
+                for a1, _ in seqs:
+                    for a2, _ in seqs:
+                        d = pair_scores[(a1, a1)] + pair_scores[(a2, a2)] - 2 * pair_scores[(a1, a2)]
+                        locus_dist[(locus, a1, a2)] = float(d)
+                        if d > max_d:
+                            max_d = d
+                fallback_dist[(locus, gene_type)] = max_d
+
+        inst = cls.__new__(cls)
+        inst.dist = {}  # single-locus path not used
+        inst._locus_dist = locus_dist
+        inst._fallback_dist = fallback_dist
+        inst._locus_gene_sets = locus_gene_sets
+        return inst
+
     @classmethod
     def from_seqs(cls,
-                  seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[Segment],
+                  seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[GeneEntry],
                   scoring: Scoring = BioAlignerWrapper(),
                   nproc=1, chunk_sz=4096):
         scoring_wrapper = _Scoring_Wrapper(scoring)
@@ -466,22 +710,29 @@ class GermlineAligner:
 
 
 class ClonotypeScore:
-    """Container for V / J / CDR3 component scores."""
+    """Container for V / J / junction component scores."""
 
-    __scores__ = ['v_score', 'j_score', 'cdr3_score']
+    __scores__ = ['v_score', 'j_score', 'junction_score']
 
-    def __init__(self, v_score: float, j_score: float, cdr3_score: float):
+    def __init__(self, v_score: float, j_score: float, junction_score: float):
         self.v_score = v_score
         self.j_score = j_score
-        self.cdr3_score = cdr3_score
+        self.junction_score = junction_score
+
+    @property
+    def cdr3_score(self) -> float:
+        """Backward-compatibility alias for :attr:`junction_score`."""
+        return self.junction_score
 
     def __repr__(self):
-        return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
+        return (f'ClonotypeScore: v={self.v_score}, j={self.j_score}, '
+                f'junction={self.junction_score}')
+
     def __str__(self):
-        return f'Clonotype score: v_score={self.v_score}, j_score={self.j_score}, cdr3_score={self.cdr3_score}'
+        return self.__repr__()
 
     def get_flatten_score(self):
-        return [self.v_score, self.j_score, self.cdr3_score]
+        return [self.v_score, self.j_score, self.junction_score]
 
 
 class PairedCloneScore:
@@ -497,39 +748,50 @@ class PairedCloneScore:
 
 
 class ClonotypeAligner:
-    """Composite aligner combining V gene, J gene, and CDR3 scoring."""
+    """Composite aligner combining V gene, J gene, and junction scoring."""
 
     def __init__(self,
                  v_aligner: GermlineAligner,
                  j_aligner: GermlineAligner,
-                 cdr3_aligner: CDRAligner = CDRAligner()):
+                 junction_aligner: JunctionAligner = JunctionAligner()):
         self.v_aligner = v_aligner
         self.j_aligner = j_aligner
-        self.cdr3_aligner = cdr3_aligner
+        self.junction_aligner = junction_aligner
+
+    @property
+    def cdr3_aligner(self) -> JunctionAligner:
+        """Backward-compatibility alias for :attr:`junction_aligner`."""
+        return self.junction_aligner
 
     @classmethod
     def from_library(cls,
                      lib: GeneLibrary = None,
                      locus: str = None,
-                     cdr3_aligner: CDRAligner = CDRAligner()):
+                     junction_aligner: JunctionAligner = JunctionAligner()):
         if lib is None:
             lib = GeneLibrary.load_default()
         v_aligner = GermlineAligner.from_seqs(lib.get_sequences_aa(locus=locus, gene='V'))
         j_aligner = GermlineAligner.from_seqs(lib.get_sequences_aa(locus=locus, gene='J'))
-        return cls(v_aligner, j_aligner, cdr3_aligner)
+        return cls(v_aligner, j_aligner, junction_aligner)
 
     def score(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
-                              j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
-                              cdr3_score=self.cdr3_aligner.score(cln1.junction_aa, cln2.junction_aa))
+        return ClonotypeScore(
+            v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
+            j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
+            junction_score=self.junction_aligner.score(cln1.junction_aa, cln2.junction_aa),
+        )
 
     def score_norm(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
-                              j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
-                              cdr3_score=self.cdr3_aligner.score_norm(cln1.junction_aa, cln2.junction_aa))
+        return ClonotypeScore(
+            v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
+            j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
+            junction_score=self.junction_aligner.score_norm(cln1.junction_aa, cln2.junction_aa),
+        )
 
     def score_dist(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
-        return ClonotypeScore(v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
-                              j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
-                              cdr3_score=self.cdr3_aligner.score_dist(cln1.junction_aa, cln2.junction_aa))
+        return ClonotypeScore(
+            v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
+            j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
+            junction_score=self.junction_aligner.score_dist(cln1.junction_aa, cln2.junction_aa),
+        )
 

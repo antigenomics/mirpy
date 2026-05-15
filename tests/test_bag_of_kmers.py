@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
@@ -60,7 +60,7 @@ def test_tokenize_locus_repertoire_plain_and_reduced() -> None:
         rep,
         params=BagOfKmersParams(k=3, reduced_alphabet=True),
     )
-    assert int(reduced["T"].iloc[0]) == int(plain["T"].iloc[0])
+    assert int(reduced["T"][0]) == int(plain["T"][0])
 
 
 def test_tokenize_locus_repertoire_with_v_annotation() -> None:
@@ -83,7 +83,7 @@ def test_tokenize_locus_repertoire_gapped_total_kmers() -> None:
         rep,
         params=BagOfKmersParams(k=3, gapped=True),
     )
-    total = int(table["T"].iloc[0])
+    total = int(table["T"][0])
     # len=5, k=3 -> (5-3+1)*3 = 9 gapped tokens
     assert total == 9
 
@@ -126,7 +126,7 @@ def test_control_profile_name_shape() -> None:
 def test_build_control_kmer_profile_in_memory_default(tmp_path: Path, monkeypatch) -> None:
     mgr = ControlManager(control_dir=tmp_path / "controls")
 
-    control_df = pd.DataFrame(
+    control_df = pl.DataFrame(
         {
             "duplicate_count": [2, 1],
             "junction": ["ATG", "GCT"],
@@ -160,7 +160,7 @@ def test_build_control_kmer_profile_in_memory_default(tmp_path: Path, monkeypatc
     assert profile.metadata["total_kmers"] > 0
     assert profile.metadata["cache_enabled"] is False
 
-    row = profile.token_stats[profile.token_stats["token"] == "CAS"].iloc[0]
+    row = profile.token_stats.filter(pl.col("token") == "CAS").row(0, named=True)
     assert int(row["n"]) == 3
     assert math.isclose(float(row["idf"]), -math.log(float(row["n"]) / float(row["T"])))
 
@@ -168,7 +168,7 @@ def test_build_control_kmer_profile_in_memory_default(tmp_path: Path, monkeypatc
 def test_ensure_and_load_control_kmer_profile_with_cache(tmp_path: Path, monkeypatch) -> None:
     mgr = ControlManager(control_dir=tmp_path / "controls")
 
-    control_df = pd.DataFrame(
+    control_df = pl.DataFrame(
         {
             "duplicate_count": [2, 1],
             "junction": ["ATG", "GCT"],
@@ -217,7 +217,7 @@ def test_ensure_and_load_control_kmer_profile_with_cache(tmp_path: Path, monkeyp
 def test_control_kmer_profile_waits_for_lock(tmp_path: Path, monkeypatch) -> None:
     mgr = ControlManager(control_dir=tmp_path / "controls")
 
-    control_df = pd.DataFrame(
+    control_df = pl.DataFrame(
         {
             "duplicate_count": [1],
             "junction": ["ATG"],

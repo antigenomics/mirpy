@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import warnings
 
+import pandas as pd
+import polars as pl
+
 from mir.biomarkers.gliph import (
     deduplicate_clonotype_rows,
     extract_g5mer_artifacts,
@@ -11,11 +14,10 @@ from mir.biomarkers.gliph import (
     extract_vpos3mer_artifacts,
     normalize_control_v,
 )
-import pandas as pd
 
 
 def test_deduplicate_clonotype_rows_sums_duplicate_count() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study", "study", "study"],
             "junction_aa": ["AAAA", "AAAA", "CCCC"],
@@ -30,12 +32,12 @@ def test_deduplicate_clonotype_rows_sums_duplicate_count() -> None:
     dedup = deduplicate_clonotype_rows(df)
 
     assert len(dedup) == 2
-    aaaa = dedup[dedup["junction_aa"] == "AAAA"].iloc[0]
+    aaaa = dedup.filter(pl.col("junction_aa") == "AAAA").row(0, named=True)
     assert int(aaaa["duplicate_count"]) == 5
 
 
 def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study", "study"],
             "junction_aa": ["CASSLGQETQYF", "CASSLGQETQYF"],
@@ -58,7 +60,7 @@ def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
 
 
 def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
@@ -80,7 +82,7 @@ def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
 
 
 def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
@@ -99,7 +101,7 @@ def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
 
 
 def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
@@ -119,7 +121,7 @@ def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
 
 
 def test_extract_family_artifacts_can_disable_trimming() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
