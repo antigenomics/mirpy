@@ -68,12 +68,14 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
     assert not result.table.is_empty()
     row0 = result.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
 
-    assert int(row0["n_neighbors"]) == 1
+    # CASSLGQETQYF and CASSLGQETQFF differ by 1 AA (Hamming-1 neighbours).
+    # With neighbourhood_threshold=1, both sequences are neighbours → n=2.
+    assert int(row0["n_neighbors"]) == 2
     assert int(row0["N_possible"]) == 2
     assert float(row0["pgen"]) == pytest.approx(0.2)
     assert float(row0["expected_neighbors"]) == pytest.approx(0.4)
-    assert float(row0["fold_enrichment"]) == pytest.approx(2.5)
-    assert float(row0["p_value"]) == pytest.approx(float(poisson.sf(0, 0.4)))
+    assert float(row0["fold_enrichment"]) == pytest.approx(5.0)
+    assert float(row0["p_value"]) == pytest.approx(float(poisson.sf(1, 0.4)))
 
 
 def test_compute_alice_v_matching_raw_pgen(monkeypatch) -> None:

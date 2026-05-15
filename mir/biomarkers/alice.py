@@ -307,7 +307,10 @@ def compute_alice(
         raise ValueError("ALICE currently supports only metric='hamming'")
 
     match_v, match_j = match_flags(norm_match_mode)
-    neighborhood_threshold = 1 if pgen_mode == "1mm" else 0
+    # ALICE always counts Hamming-1 neighborhoods (CDR3s differing by ≤1 AA).
+    # pgen_mode only controls how Pgen is computed: "exact" uses OLGA on the
+    # CDR3 directly; "1mm" sums Pgen over the CDR3 and all 1-mismatch variants.
+    neighborhood_threshold = 1
     query_loci = iter_loci(repertoire)
 
     for locus, qrep in query_loci.items():
