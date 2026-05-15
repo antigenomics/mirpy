@@ -321,7 +321,7 @@ def _build_context(
     for sample_id in samples:
         refs[sample_id], missing[sample_id] = _build_target_reference(vdjdb_df, sample_id)
 
-    _control_df_real_full = manager.ensure_and_load_control_df("real", "human", "TRB")
+    _control_df_real_full = manager.ensure_and_load_control_df("real", "human", "TRB").to_pandas()
     # Pre-sample to real_control_limit before copying to avoid large DataFrame copies.
     _real_cap = real_control_limit if real_control_limit and real_control_limit < len(_control_df_real_full) else None
     if _real_cap:
@@ -339,7 +339,7 @@ def _build_context(
         seed=42,
         n_jobs=4,
         progress=False,
-    )
+    ).to_pandas()
     controls = {
         "real": _df_to_repertoire(control_df_real, repertoire_id="real-control"),
         "synthetic": _df_to_repertoire(control_df_syn, repertoire_id="synthetic-control", limit=synthetic_n),
@@ -369,7 +369,7 @@ def _execute_run(
                 pgen_mode=alice_pgen_mode,
                 n_jobs=n_jobs,
             )
-            table = result.table
+            table = result.table.to_pandas()
         else:
             result = compute_tcrnet(
                 rep,
@@ -381,7 +381,7 @@ def _execute_run(
                 pvalue_mode="binomial",
                 n_jobs=n_jobs,
             )
-            table = result.table
+            table = result.table.to_pandas()
 
         elapsed = time.perf_counter() - t0
         enriched = _enriched_table(table)

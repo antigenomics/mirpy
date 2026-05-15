@@ -58,8 +58,8 @@ def test_bag_of_kmers_real_human_trb_k3_cas_position0(tmp_path: Path, capsys) ->
     )
     elapsed_cached = time.perf_counter() - t0
 
-    token_stats = profile_mem.token_stats
-    pos_stats = profile_mem.position_stats
+    token_stats = profile_mem.token_stats.to_pandas()
+    pos_stats = profile_mem.position_stats.to_pandas()
 
     top = token_stats.sort_values("n", ascending=False).head(10)
     cas_pos = pos_stats[pos_stats["token"] == "CAS"].sort_values("count", ascending=False)

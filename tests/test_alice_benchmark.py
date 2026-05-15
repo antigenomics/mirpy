@@ -129,7 +129,7 @@ def _profile_alice_run(
         tracemalloc.stop()
 
     t_bh = time.perf_counter()
-    table = result.table.copy()
+    table = result.table.to_pandas()
     table["q_value"] = bh_fdr(table["p_value"].to_numpy())
     hits = int((table["q_value"] < 0.05).sum())
     bh_s = time.perf_counter() - t_bh

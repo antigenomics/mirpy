@@ -120,7 +120,7 @@ class TestTokenStatsBenchmark(unittest.TestCase):
 
     def test_rs_motif_enriched_k3(self):
         """k=3 RS-containing k-mers should be among the top enriched."""
-        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=3)
+        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=3).to_pandas().set_index("kmer")
         # Keep only k-mers enriched in GILGFVFTL (freq_fc > 1)
         enriched = df[df["freq_fc"] > 1].sort_values("p_val")
 
@@ -141,7 +141,7 @@ class TestTokenStatsBenchmark(unittest.TestCase):
 
     def test_rs_motif_enriched_k4(self):
         """k=4 RS-containing k-mers should be among the top enriched."""
-        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=4)
+        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=4).to_pandas().set_index("kmer")
         enriched = df[df["freq_fc"] > 1].sort_values("p_val")
 
         top30 = enriched.head(30)
@@ -161,7 +161,7 @@ class TestTokenStatsBenchmark(unittest.TestCase):
 
     def test_rs_pvalue_significant(self):
         """At least one RS-containing k-mer should have adjusted p < 0.05."""
-        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=3)
+        df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=3).to_pandas().set_index("kmer")
         rs_kmers = df[[("RS" in kmer) for kmer in df.index]]
         # Filter for enriched in GILGFVFTL
         rs_enriched = rs_kmers[rs_kmers["freq_fc"] > 1]
@@ -188,7 +188,7 @@ class TestTokenStatsBenchmark(unittest.TestCase):
         print(f"    OLGA background : {len(self.bg_cdr3s)}")
 
         for k in (2, 3, 4, 5):
-            df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=k)
+            df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=k).to_pandas().set_index("kmer")
             enriched = df[df["freq_fc"] > 1].sort_values("p_val")
             n_sig = (enriched["p_val_adj"] < 0.05).sum()
             top3 = list(enriched.head(3).index)
