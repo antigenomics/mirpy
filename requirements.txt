@@ -32,7 +32,7 @@ polars==1.39.3
 pympler==1.1
 seaborn==0.12.2
 textdistance==4.5.0
-tcrtrie>=0.1.2
+tcrtrie>=0.2.3
 tqdm==4.66.2
 
 # ── Notebook / analysis extras (not required by library at runtime) ────────────
