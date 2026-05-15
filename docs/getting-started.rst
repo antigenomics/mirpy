@@ -193,7 +193,9 @@ use ``SingleCellSample`` to keep paired repertoires and CITE-seq labels together
 Notebook example:
 
 * ``notebooks/tcremp_10xdcode_analysis.ipynb``: donor-wide 10x+CITE-seq sanity checks
-  and donor1 paired TCREmp diagnostics (polars-only preprocessing).
+   and donor1 TRA/TRB/paired TCREmp diagnostics (polars-only preprocessing), including
+   cumulative PCA variance curves, k-nearest-neighbor kneedle/eps plots, UMAP
+   projections colored by epitope labels, and per-epitope classification score tables.
 
 Paired TCREmp From VDJdb Full
 -----------------------------
