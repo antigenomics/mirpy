@@ -265,21 +265,29 @@ class PgenBinPool:
             n_int = int(n)
             if len(df) > n_int:
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(np.asarray(df["duplicate_count"], dtype=float), 1.0, None)
-                    try:
-                        df = df.sample(n=n_int, replace=False, random_state=seed, weights=weights)
-                    except ValueError:
-                        # Some weight distributions are invalid for replace=False in pandas.
-                        df = df.sample(n=n_int, replace=True, random_state=seed, weights=weights)
+                    weights = np.clip(
+                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
+                    )
+                    df = df.sample(
+                        n=n_int,
+                        with_replacement=False,
+                        seed=seed,
+                        weights=weights.tolist(),
+                    )
                 else:
-                    df = df.sample(n=n_int, replace=False, random_state=seed)
-            elif len(df) == n_int:
-                df = df.copy()
-            elif len(df) > 0:
+                    df = df.sample(n=n_int, with_replacement=False, seed=seed)
+            elif len(df) > 0 and len(df) < n_int:
                 weights = None
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(np.asarray(df["duplicate_count"], dtype=float), 1.0, None)
-                df = df.sample(n=n_int, replace=True, random_state=seed, weights=weights)
+                    weights = np.clip(
+                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
+                    )
+                df = df.sample(
+                    n=n_int,
+                    with_replacement=True,
+                    seed=seed,
+                    weights=weights.tolist() if weights is not None else None,
+                )
 
         records = compute_control_pgen_records(
             df,

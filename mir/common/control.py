@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from mir import get_resource_path
 from mir.common.alleles import allele_with_default
@@ -286,7 +286,7 @@ class ControlManager:
                 # Reuse existing synthetic controls for same species/locus.
                 # If an existing cache is larger, keep first n rows.
                 # If smaller, append exactly (n - N) newly generated rows.
-                candidates: list[tuple[ControlRecord, pd.DataFrame]] = []
+                candidates: list[tuple[ControlRecord, pl.DataFrame]] = []
                 for rec in self.list_available_controls():
                     if rec.control_type != "synthetic":
                         continue
@@ -327,7 +327,7 @@ class ControlManager:
                 larger = [(rec, df) for rec, df in candidates if len(df) > n]
                 if larger:
                     rec, base_df = min(larger, key=lambda x: len(x[1]))
-                    trimmed = base_df.iloc[:n].copy()
+                    trimmed = base_df.head(n)
                     _write_pickle(trimmed, path)
                     out_rec = ControlRecord(
                         control_type="synthetic",
@@ -361,7 +361,7 @@ class ControlManager:
                         chunk_size=chunk_size,
                         progress=progress,
                     )
-                    combined = pd.concat([base_df, extra], ignore_index=True)
+                    combined = pl.concat([base_df, extra])
                     _write_pickle(combined, path)
                     out_rec = ControlRecord(
                         control_type="synthetic",
@@ -625,7 +625,7 @@ class ControlManager:
         n: int | None = None,
         wait_if_building: bool = True,
         wait_timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         species_c = self.canonical_species(species)
         locus_c = self.canonical_locus(locus)
         ctype = control_type.strip().lower()
@@ -645,7 +645,7 @@ class ControlManager:
         species: str,
         locus: str,
         **kwargs,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """Ensure control exists on disk and return it as a DataFrame."""
         n = kwargs.get("n") if control_type.strip().lower() == "synthetic" else None
         self.ensure_control(control_type, species, locus, **kwargs)
@@ -685,7 +685,7 @@ def generate_synthetic_olga_control(
     n_jobs: int | None = None,
     zipf_alpha: float = 2.0,
     max_duplicate_count: int = 10_000,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Generate synthetic OLGA control DataFrame with ntvj columns.
 
     Output columns:
@@ -719,11 +719,11 @@ def generate_synthetic_olga_control(
     if progress:
         print(f"Generated synthetic control {species}/{locus}: {len(rows)}/{n}")
 
-    return pd.DataFrame.from_records(rows)
+    return pl.from_dicts(rows)
 
 
 def compute_control_pgen_records(
-    control_df: pd.DataFrame,
+    control_df: pl.DataFrame,
     *,
     locus: str,
     species: str = "human",
@@ -741,8 +741,8 @@ def compute_control_pgen_records(
     if missing:
         raise ValueError(f"control_df missing required columns: {missing}")
 
-    df = control_df.dropna(subset=required).copy()
-    if df.empty:
+    df = control_df.drop_nulls(subset=required)
+    if df.is_empty():
         return []
 
     if "log2_pgen" in df.columns:
@@ -753,9 +753,9 @@ def compute_control_pgen_records(
                 _normalize_allele(str(jg)),
                 float(l2p),
             )
-            for jaa, vg, jg, l2p in df[
+            for jaa, vg, jg, l2p in df.select(
                 ["junction_aa", "v_gene", "j_gene", "log2_pgen"]
-            ].itertuples(index=False)
+            ).iter_rows()
             if str(jaa)
         ]
     else:
@@ -766,9 +766,9 @@ def compute_control_pgen_records(
                 _normalize_allele(str(jg)),
                 None,
             )
-            for jaa, vg, jg in df[
+            for jaa, vg, jg in df.select(
                 ["junction_aa", "v_gene", "j_gene"]
-            ].itertuples(index=False)
+            ).iter_rows()
             if str(jaa)
         ]
     if not rows:
@@ -851,41 +851,40 @@ def compute_control_pgen_records(
     return records
 
 
-def build_real_control_from_ntvj(path: str | Path) -> pd.DataFrame:
+def build_real_control_from_ntvj(path: str | Path) -> pl.DataFrame:
     """Load .ntvj-like VDJtools file and normalize to ntvj schema.
 
-    Alleles are appended as *01 when absent.
+    Alleles are appended as ``*01`` when absent.
     """
     p = Path(path)
-    df = pd.read_csv(p, sep="\t")
-    renamed = {
-        "cdr3nt": "junction",
-        "cdr3aa": "junction_aa",
-        "v": "v_gene",
-        "j": "j_gene",
-    }
-    for src, dst in renamed.items():
+    df = pl.read_csv(p, separator="\t", infer_schema_length=10000, ignore_errors=True)
+
+    # Rename legacy column names to AIRR equivalents
+    rename_map = {}
+    for src, dst in {"cdr3nt": "junction", "cdr3aa": "junction_aa", "v": "v_gene", "j": "j_gene"}.items():
         if src in df.columns and dst not in df.columns:
-            df[dst] = df[src]
+            rename_map[src] = dst
+    if rename_map:
+        df = df.rename(rename_map)
 
     count_candidates = ["duplicate_count", "count", "#count", "clonotype_count"]
     count_col = next((c for c in count_candidates if c in df.columns), None)
     if count_col is None:
-        df["duplicate_count"] = 1
+        df = df.with_columns(pl.lit(1).alias("duplicate_count"))
     elif count_col != "duplicate_count":
-        df["duplicate_count"] = df[count_col]
+        df = df.rename({count_col: "duplicate_count"})
 
     required = ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns in {p}: {missing}")
 
-    out = df[required].copy()
-    out["duplicate_count"] = pd.to_numeric(out["duplicate_count"], errors="coerce").fillna(1).astype(int)
-    out.loc[out["duplicate_count"] < 1, "duplicate_count"] = 1
-    out["v_gene"] = out["v_gene"].astype(str).map(_normalize_allele)
-    out["j_gene"] = out["j_gene"].astype(str).map(_normalize_allele)
-    return out
+    df = df.select(required).with_columns([
+        pl.col("duplicate_count").cast(pl.Int64, strict=False).fill_null(1).clip(lower_bound=1),
+        pl.col("v_gene").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
+        pl.col("j_gene").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
+    ])
+    return df
 
 
 def _normalize_allele(gene_name: str) -> str:
@@ -937,17 +936,24 @@ def _download_hf_snapshot(repo_id: str, cache_dir: str | Path | None = None) -> 
     )
 
 
-def _write_pickle(df: pd.DataFrame, path: Path) -> None:
+def _write_pickle(df: pl.DataFrame, path: Path) -> None:
     with path.open("wb") as fh:
         pickle.dump(df, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def _read_pickle(path: Path) -> pd.DataFrame:
+def _read_pickle(path: Path) -> pl.DataFrame:
     with path.open("rb") as fh:
         obj = pickle.load(fh)
-    if not isinstance(obj, pd.DataFrame):
-        raise TypeError(f"Pickle at {path} is not a pandas DataFrame")
-    return obj
+    if isinstance(obj, pl.DataFrame):
+        return obj
+    # Backward compatibility: old cache files stored pandas DataFrames.
+    try:
+        import pandas as _pd
+        if isinstance(obj, _pd.DataFrame):
+            return pl.from_pandas(obj)
+    except ImportError:
+        pass
+    raise TypeError(f"Pickle at {path} is not a DataFrame (got {type(obj).__name__})")
 
 
 def _utc_now() -> str:

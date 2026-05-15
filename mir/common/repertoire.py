@@ -167,13 +167,13 @@ class LocusRepertoire:
             self._clonotypes_cache = [
                 _Clonotype(_validate=False,
                     sequence_id=sid, locus=c['locus'],
-                    duplicate_count=dup, junction=jnt, junction_aa=jaa,
+                    duplicate_count=dup, umi_count=umi, junction=jnt, junction_aa=jaa,
                     v_gene=vg, d_gene=dg, j_gene=jg,
                     v_sequence_end=ve, d_sequence_start=ds,
                     d_sequence_end=de, j_sequence_start=js,
                 )
-                for sid, dup, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
-                    c['seq_ids'], c['dup_counts'], c['junctions'], c['junction_aas'],
+                for sid, dup, umi, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
+                    c['seq_ids'], c['dup_counts'], c.get('umi_counts', [0] * len(c['seq_ids'])), c['junctions'], c['junction_aas'],
                     c['v_genes'], c['d_genes'], c['j_genes'],
                     c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
                 )
@@ -609,17 +609,24 @@ class LocusRepertoire:
                 chunks.append(chunk)
         return chunks
 
-    def serialize(self) -> pd.DataFrame:
-        """Serialise to a pandas DataFrame (legacy helper).
+    def serialize(self) -> pl.DataFrame:
+        """Serialise to a Polars DataFrame (legacy helper; prefer :meth:`to_polars`).
 
-        Returns a DataFrame indexed by ``sequence_id`` with one row per
-        clonotype and one column per :meth:`Clonotype.serialize` key.
+        Returns a DataFrame with one row per clonotype and one column per
+        :meth:`Clonotype.serialize` key, plus a ``sequence_id`` column.
         """
         data: dict[str, list] = defaultdict(list)
+        ids = []
         for c in self.clonotypes:
+            ids.append(c.id)
             for k, v in c.serialize().items():
                 data[k].append(v)
-        return pd.DataFrame(data, index=[c.id for c in self.clonotypes])
+        if not data:
+            return pl.DataFrame()
+        df = pl.from_dict(dict(data))
+        if ids:
+            df = df.with_columns(pl.Series("sequence_id", ids))
+        return df
 
     def to_pickle(self, path: str | Path) -> Path:
         """Serialize this repertoire to a pickle file and return the path."""

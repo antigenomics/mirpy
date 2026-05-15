@@ -36,7 +36,7 @@ import typing as t
 _MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import dataclass
 
-import pandas as pd
+import polars as pl
 from scipy.stats import nbinom, poisson
 
 from mir.basic.pgen import OlgaModel
@@ -84,7 +84,7 @@ class AliceParams:
 class AliceResult:
     """In-memory ALICE output."""
 
-    table: pd.DataFrame
+    table: pl.DataFrame
     params: AliceParams
 
 
@@ -214,12 +214,29 @@ def _apply_alice_metrics_batch(
 
 
 
+_ALICE_TABLE_SCHEMA: dict[str, type] = {
+    "sequence_id": pl.Utf8,
+    "locus": pl.Utf8,
+    "junction_aa": pl.Utf8,
+    "v_gene": pl.Utf8,
+    "j_gene": pl.Utf8,
+    "n_neighbors": pl.Int64,
+    "N_possible": pl.Int64,
+    "pgen_raw": pl.Float64,
+    "pgen": pl.Float64,
+    "expected_neighbors": pl.Float64,
+    "fold_enrichment": pl.Float64,
+    "p_value": pl.Float64,
+    "q_value": pl.Float64,
+}
+
+
 def alice_table(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
     metadata_prefix: str = "alice",
     sort: bool = True,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Build an ALICE result table from clonotype metadata."""
     rows: list[dict[str, t.Any]] = []
     for locus, lrep in iter_loci(repertoire).items():
@@ -245,9 +262,11 @@ def alice_table(
                 }
             )
 
-    table = pd.DataFrame.from_records(rows)
-    if sort and not table.empty:
-        table = table.sort_values(["p_value", "fold_enrichment"], ascending=[True, False]).reset_index(drop=True)
+    if not rows:
+        return pl.DataFrame(schema=_ALICE_TABLE_SCHEMA)
+    table = pl.from_dicts(rows)
+    if sort:
+        table = table.sort(["p_value", "fold_enrichment"], descending=[False, True])
     return table
 
 

@@ -1,29 +1,8 @@
 mir.ml package
 ==============
 
-Submodules
-----------
+.. note::
 
-mir.ml.grid_search_classifier module
-------------------------------------
-
-.. automodule:: mir.ml.grid_search_classifier
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.ml.grid_search_parameters module
-------------------------------------
-
-.. automodule:: mir.ml.grid_search_parameters
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: mir.ml
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   The ``mir.ml`` subpackage is not yet part of the public release. Machine
+   learning utilities for repertoire classification are planned for a future
+   version.

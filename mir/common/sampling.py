@@ -1,23 +1,13 @@
 """Repertoire downsampling and resampling utilities.
 
-This module provides functions to downsample immune repertoires by randomly
-sampling clonotypes according to their abundance, and to resample them to
-match target gene usage distributions.
+Provides functions to downsample immune repertoires by randomly sampling
+clonotypes according to their abundance, and to resample them to match
+target gene usage distributions.
 
-Important Notes on Allele Handling
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-This module preserves the original allele information from clonotypes while
-using stripped gene bases for gene usage comparisons. For example:
-- When comparing gene usage, ``TRBV1*01`` and ``TRBV1*02`` are treated as
-  the same V-gene (``TRBV1``)
-- Clonotypes in the output repertoire retain their original alleles
-- Target gene usage dicts should use base gene names (without alleles)
-
-This design ensures:
-1. Downsampled/resampled repertoires preserve input allele information
-2. Gene usage statistics are comparable across datasets with different
-   allele naming conventions
-3. No accidental data loss due to allele normalization
+Allele handling: this module preserves original allele information from
+clonotypes while using stripped gene bases for gene usage comparisons
+(e.g. ``TRBV1*01`` and ``TRBV1*02`` both count as ``TRBV1``). Target
+gene usage dicts should use base gene names without allele suffixes.
 """
 
 from __future__ import annotations

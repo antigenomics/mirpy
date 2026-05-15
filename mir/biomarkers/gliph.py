@@ -59,6 +59,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from mir.biomarkers.token_stats import compare_kmer_counts
 from mir.basic.token_tables import tokenize_clonotypes
@@ -116,20 +117,16 @@ _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
 )
 
 
-def _locus_repertoire_from_dataframe(df: pd.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
-    """Build a LocusRepertoire from a pandas DataFrame using polars backend.
-    
-    Converts to polars for compatibility with LocusRepertoire.from_polars,
-    accepting both 'sequence_id' and legacy 'row_id' column names.
-    """
-    import polars as pl
-    
+def _locus_repertoire_from_dataframe(df: "pd.DataFrame | pl.DataFrame", *, locus: str = "TRB") -> LocusRepertoire:
+    """Build a LocusRepertoire from a polars or pandas DataFrame."""
+    if isinstance(df, pl.DataFrame):
+        if "sequence_id" not in df.columns and "row_id" in df.columns:
+            df = df.rename({"row_id": "sequence_id"})
+        return LocusRepertoire.from_polars(df, locus=locus)
+    # pandas path — convert without pyarrow (nullable dtypes require it)
     tmp = df.copy()
     if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
         tmp = tmp.rename(columns={"row_id": "sequence_id"})
-    
-    # Avoid pl.from_pandas: nullable pandas dtypes (Int64, etc.) require pyarrow.
-    # Build via Python lists to stay pyarrow-free on all platforms.
     data = {col: [None if pd.isna(v) else v for v in tmp[col].tolist()] for col in tmp.columns}
     pl_df = pl.DataFrame(data, strict=False)
     return LocusRepertoire.from_polars(pl_df, locus=locus)
@@ -211,18 +208,10 @@ def repertoire_to_clonotypes(
     return trimmed
 
 
-def rows_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
+def rows_to_clonotypes(df: "pd.DataFrame | pl.DataFrame") -> list[Clonotype]:
     """Convert a DataFrame of AIRR-schema rows to :class:`Clonotype` objects.
 
     **Deprecated**: Use :func:`repertoire_to_clonotypes` with :class:`LocusRepertoire` instead.
-
-    Uses column-level list extraction (not :meth:`DataFrame.iterrows`) for
-    substantially faster conversion on large tables.
-
-    Required columns
-    ----------------
-    ``row_id``, ``junction_aa``, ``v_gene``, ``duplicate_count``.
-    Optional: ``j_gene`` (defaults to ``""`` if absent).
     """
     warnings.warn(
         "rows_to_clonotypes is deprecated; use repertoire_to_clonotypes with LocusRepertoire.",
@@ -233,51 +222,45 @@ def rows_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
     return repertoire_to_clonotypes(repertoire, trim_first=0, trim_last=0)
 
 
-def _first_nonempty(series: pd.Series):
-    """Return the first non-empty value from a grouped series."""
-    non_null = series.dropna()
-    if non_null.empty:
-        return None
-    if non_null.dtype == object:
-        stripped = non_null.astype(str).str.strip()
-        valid = stripped[~stripped.str.lower().isin({"", "nan", "none", "na"})]
-        if not valid.empty:
-            return valid.iloc[0]
-    return non_null.iloc[0]
-
-
 def deduplicate_clonotype_rows(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     *,
     subset: tuple[str, ...] = _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS,
     duplicate_count_col: str = "duplicate_count",
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Aggregate repeated clonotype rows to one row per unique clonotype.
 
-    ``duplicate_count`` values are summed; all remaining metadata columns keep
-    the first non-empty value observed within each group.
+    ``duplicate_count`` values are summed; remaining columns keep the first
+    non-null value within each group.
     """
-    group_cols = [col for col in subset if col in df.columns]
-    if not group_cols:
-        return df.copy()
+    if isinstance(df, pl.DataFrame):
+        pl_df = df
+    else:
+        data = {col: [None if pd.isna(v) else v for v in df[col].tolist()] for col in df.columns}
+        pl_df = pl.DataFrame(data, strict=False)
 
-    agg: dict[str, str | callable] = {}
-    for col in df.columns:
+    group_cols = [col for col in subset if col in pl_df.columns]
+    if not group_cols:
+        return pl_df.clone()
+
+    agg_exprs = []
+    for col in pl_df.columns:
         if col in group_cols:
             continue
         if col == duplicate_count_col:
-            agg[col] = "sum"
+            agg_exprs.append(
+                pl.col(col).cast(pl.Int64, strict=False).fill_null(0).sum().alias(col)
+            )
         else:
-            agg[col] = _first_nonempty
+            agg_exprs.append(pl.col(col).drop_nulls().first().alias(col))
 
-    dedup = df.groupby(group_cols, sort=False, dropna=False, as_index=False).agg(agg)
-    if duplicate_count_col not in dedup.columns:
-        dedup[duplicate_count_col] = 1
-    dedup[duplicate_count_col] = (
-        pd.to_numeric(dedup[duplicate_count_col], errors="coerce").fillna(1).astype(int)
+    dedup = pl_df.group_by(group_cols, maintain_order=False).agg(agg_exprs)
+    dedup = dedup.with_columns(
+        pl.col(duplicate_count_col).cast(pl.Int64, strict=False).fill_null(1).clip(lower_bound=1)
     )
-    dedup = dedup.reset_index(drop=True)
-    dedup["row_id"] = dedup.index.astype(str)
+    dedup = dedup.with_row_index("_idx").with_columns(
+        pl.col("_idx").cast(pl.Utf8).alias("row_id")
+    ).drop("_idx")
     return dedup
 
 
@@ -377,7 +360,7 @@ def _build_artifacts_from_token_table(
 
 
 def _worker_extract(
-    chunk_df: pd.DataFrame,
+    chunk_df: pl.DataFrame,
     family: TOKEN_FAMILY,
     count_mode: COUNT_MODE,
     trim_first: int = 3,
@@ -450,17 +433,17 @@ def _merge_artifact_parts(
     )
 
 
-def _split_dataframe(df: pd.DataFrame, threads: int) -> list[pd.DataFrame]:
-    """Split a DataFrame into row-wise chunks while preserving DataFrame type."""
+def _split_dataframe(df: pl.DataFrame, threads: int) -> list[pl.DataFrame]:
+    """Split a DataFrame into row-wise chunks."""
     if threads <= 1 or len(df) == 0:
         return [df]
 
-    boundaries = np.linspace(0, len(df), num=threads + 1, dtype=int)
-    chunks: list[pd.DataFrame] = []
-    for start, stop in zip(boundaries[:-1], boundaries[1:]):
-        if start == stop:
-            continue
-        chunks.append(df.iloc[start:stop].reset_index(drop=True))
+    chunk_size = (len(df) + threads - 1) // threads
+    chunks: list[pl.DataFrame] = []
+    start = 0
+    while start < len(df):
+        chunks.append(df.slice(start, chunk_size))
+        start += chunk_size
     return chunks
 
 
@@ -470,7 +453,7 @@ def _split_dataframe(df: pd.DataFrame, threads: int) -> list[pd.DataFrame]:
 
 
 def extract_gliph_token_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     family: TOKEN_FAMILY,
     *,
     threads: int = 1,
@@ -485,9 +468,9 @@ def extract_gliph_token_artifacts(
 
     Parameters
     ----------
-    df : pd.DataFrame
-        Clonotype table with columns ``row_id``, ``junction_aa``, ``v_gene``,
-        ``j_gene`` (optional), ``duplicate_count``.
+    df : polars.DataFrame or pandas.DataFrame
+        Clonotype table with columns ``row_id`` (or ``sequence_id``),
+        ``junction_aa``, ``v_gene``, ``j_gene`` (optional), ``duplicate_count``.
     family : {"v3", "pos3", "u3", "u4", "g4", "g5"}
         Token family to extract.
     threads : int, optional
@@ -514,15 +497,20 @@ def extract_gliph_token_artifacts(
         )
         threads = n_workers
 
-    if unique_clonotypes:
-        df = deduplicate_clonotype_rows(df, subset=unique_subset)
+    # Normalise input to polars at the boundary.
+    if not isinstance(df, pl.DataFrame):
+        data = {col: [None if pd.isna(v) else v for v in df[col].tolist()] for col in df.columns}
+        pl_df: pl.DataFrame = pl.DataFrame(data, strict=False)
     else:
-        df = df.copy()
+        pl_df = df
+
+    if unique_clonotypes:
+        pl_df = deduplicate_clonotype_rows(pl_df, subset=unique_subset)
 
     if threads <= 1:
-        return _worker_extract(df, family=family, count_mode=count_mode, trim_first=trim_first, trim_last=trim_last)
+        return _worker_extract(pl_df, family=family, count_mode=count_mode, trim_first=trim_first, trim_last=trim_last)
 
-    chunks = _split_dataframe(df.reset_index(drop=True), threads)
+    chunks = _split_dataframe(pl_df, threads)
     with ProcessPoolExecutor(max_workers=threads, mp_context=_MP_CTX) as pool:
         parts = list(
             pool.map(
@@ -721,7 +709,7 @@ def extract_gliph_artifacts_batch_from_repertoire(
 
 
 def extract_v3mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -746,7 +734,7 @@ def extract_v3mer_artifacts(
 
 
 def extract_vpos3mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -771,7 +759,7 @@ def extract_vpos3mer_artifacts(
 
 
 def extract_pos3mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -800,7 +788,7 @@ def extract_pos3mer_artifacts(
 
 
 def extract_u3mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -825,7 +813,7 @@ def extract_u3mer_artifacts(
 
 
 def extract_u4mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -856,7 +844,7 @@ def compare_gliph_token_incidence(
     test: Literal["chi2", "fisher", "binom"] = "binom",
     p_adj_method: str = "fdr_bh",
     pseudocount: int = 1,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Compare token incidence (clonotype presence) between sample and control."""
     return compare_kmer_counts(
         sample_artifacts.clonotype_counts,
@@ -868,7 +856,7 @@ def compare_gliph_token_incidence(
 
 
 def extract_g4mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",
@@ -893,7 +881,7 @@ def extract_g4mer_artifacts(
 
 
 def extract_g5mer_artifacts(
-    df: pd.DataFrame,
+    df: "pd.DataFrame | pl.DataFrame",
     threads: int = 1,
     *,
     count_mode: COUNT_MODE = "clonotype",

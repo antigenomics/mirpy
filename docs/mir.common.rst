@@ -12,18 +12,90 @@ mir.common.clonotype module
    :undoc-members:
    :show-inheritance:
 
-mir.common.clonotype_dataset module
------------------------------------
-
-.. automodule:: mir.common.clonotype_dataset
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 mir.common.filter module
 ------------------------
 
 .. automodule:: mir.common.filter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.alleles module
+-------------------------
+
+.. automodule:: mir.common.alleles
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.gene\_library module
+--------------------------------
+
+.. automodule:: mir.common.gene_library
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.parser module
+------------------------
+
+.. automodule:: mir.common.parser
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.repertoire module
+----------------------------
+
+.. automodule:: mir.common.repertoire
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell module
+------------------------------
+
+.. automodule:: mir.common.single_cell
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell\_parser module
+---------------------------------------
+
+.. automodule:: mir.common.single_cell_parser
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell\_repair module
+---------------------------------------
+
+.. automodule:: mir.common.single_cell_repair
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.single\_cell\_util module
+-------------------------------------
+
+.. automodule:: mir.common.single_cell_util
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.sampling module
+--------------------------
+
+.. automodule:: mir.common.sampling
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.pool module
+----------------------
+
+.. automodule:: mir.common.pool
    :members:
    :undoc-members:
    :show-inheritance:
@@ -36,24 +108,16 @@ mir.common.control module
    :undoc-members:
    :show-inheritance:
 
-mir.common.io_parallel module
------------------------------
+mir.common.io\_parallel module
+------------------------------
 
 .. automodule:: mir.common.io_parallel
    :members:
    :undoc-members:
    :show-inheritance:
 
-mir.common.repertoire_dataset module
------------------------------------
-
-.. automodule:: mir.common.repertoire_dataset
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Parallel Default And Fallback Policy
-------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Default mode uses parallel parsing with 4 workers.
 - Sequential fallback is used when any of these are true:
@@ -73,34 +137,18 @@ Parallel Default And Fallback Policy
    - If a gzipped AIRR file is substantially below about 0.23 MB, sequential loading is typically chosen.
    - If it is above about 0.23 MB, parallel loading is typically beneficial and selected by default.
 
-mir.common.parser module
-------------------------
+mir.common.repertoire\_dataset module
+--------------------------------------
 
-.. automodule:: mir.common.parser
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.common.repertoire module
-----------------------------
-
-.. automodule:: mir.common.repertoire
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-mir.common.pool module
-----------------------
-
-.. automodule:: mir.common.pool
+.. automodule:: mir.common.repertoire_dataset
    :members:
    :undoc-members:
    :show-inheritance:
 
 TSV And Parquet I/O Layouts
----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The repertoire classes now provide Polars-first TSV/Parquet I/O helpers with
+The repertoire classes provide Polars-first TSV/Parquet I/O helpers with
 roundtrip-safe schemas:
 
 - LocusRepertoire:
