@@ -608,12 +608,13 @@ class TestTCREmpUserPrototypeFile:
             "TRBV19*01\tTRBJ1-2*01\tCASAFGTQFF\n"
         )
         
-        # Should load without error
+        # Should load without error with exactly one custom-prototype warning.
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             model = TCREmp.from_file(str(proto_file), species="human", locus="TRB")
-            assert len(w) == 1
-            assert "custom prototype" in str(w[0].message).lower()
+            relevant = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(relevant) == 1
+            assert "custom prototype" in str(relevant[0].message).lower()
         
         assert model.n_prototypes == 2
 

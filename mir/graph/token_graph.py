@@ -29,14 +29,20 @@ import igraph as ig
 import polars as pl
 
 from mir.basic.token_tables import Kmer, KmerMatch, Clonotype
-from mir.common.clonotype import Clonotype as CommonClonotype
 from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 
 
-def _locus_repertoire_from_dataframe(df: pl.DataFrame, *, locus: str = "TRB") -> LocusRepertoire:
-    """Build a LocusRepertoire from a Polars DataFrame."""
-    if "sequence_id" not in df.columns and "row_id" in df.columns:
+def _locus_repertoire_from_dataframe(df: "pl.DataFrame | pd.DataFrame", *, locus: str = "TRB") -> LocusRepertoire:
+    """Build a LocusRepertoire from a Polars or pandas DataFrame."""
+    if not isinstance(df, pl.DataFrame):
+        import pandas as pd
+        tmp = df.copy()
+        if "sequence_id" not in tmp.columns and "row_id" in tmp.columns:
+            tmp = tmp.rename(columns={"row_id": "sequence_id"})
+        data = {col: [None if pd.isna(v) else v for v in tmp[col].tolist()] for col in tmp.columns}
+        df = pl.DataFrame(data, strict=False)
+    elif "sequence_id" not in df.columns and "row_id" in df.columns:
         df = df.rename({"row_id": "sequence_id"})
     return LocusRepertoire.from_polars(df, locus=locus)
 

@@ -321,7 +321,9 @@ def plot_comparison(
     elif kind == "volcano":
         floor = 2.0 ** -100
         finite_fc = df.filter(
-            pl.col("freq_fc").is_finite() & pl.col("freq_fc").is_not_null()
+            pl.col("freq_fc").is_finite()
+            & pl.col("freq_fc").is_not_null()
+            & (pl.col("freq_fc") > 0)
         )
         log_fc = np.log2(finite_fc["freq_fc"].to_numpy())
         pv = np.maximum(finite_fc["p_val"].to_numpy(), floor)
@@ -333,7 +335,8 @@ def plot_comparison(
 
         top = finite_fc.sort("p_val").head(top_n)
         for row in top.iter_rows(named=True):
-            x = np.log2(row["freq_fc"]) if np.isfinite(np.log2(row["freq_fc"])) else 0
+            fc = row["freq_fc"]
+            x = float(np.log2(fc)) if fc > 0 and np.isfinite(fc) else 0.0
             y = -np.log2(max(row["p_val"], floor))
             ax.annotate(
                 row["kmer"], (x, y),

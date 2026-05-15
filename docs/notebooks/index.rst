@@ -1,108 +1,88 @@
 Notebook Gallery
 ================
 
-All notebooks from the repository are listed below. They are rendered in the
-docs site without execution during the build.
+Rendered walkthroughs for the key mirpy workflows. All notebooks are included
+as-is with pre-computed outputs; they are not re-executed during the docs build.
 
-Some notebooks are polished walkthroughs, while a smaller set remain as legacy
-exploratory analyses that may require local assets or older research context.
-
-Core Workflows
-==============
-
-Essential workflows for getting started with mirpy.
+Parsing And Repertoire Basics
+==============================
 
 .. toctree::
    :maxdepth: 1
 
-   setup_assets
-   parsing_airr
-   diversity_estimation
-   repertoire_resampling
-   gene_similarity
+   parsing_example
    sample_repertoire_overview
+   gene_usage_correction
 
-**setup_assets** — Download and cache reference data (TCR/BCR gene libraries, VDJDB).
+**parsing_example** — Parse VDJdb, AIRR, and VDJtools files into repertoire objects.
 
-**parsing_airr** — Parse AIRR-compliant TSV files and construct repertoire objects.
+**sample_repertoire_overview** — Load a multi-locus SRA cohort and inspect coverage statistics.
 
-**diversity_estimation** — Calculate alpha and beta diversity metrics.
+**gene_usage_correction** — Batch-correct V/J gene usage across donors and derive PCA/UMAP embeddings.
 
-**repertoire_resampling** — Downsample or resample repertoires by gene usage.
-
-**gene_similarity** — Compare gene usage patterns between repertoires.
-
-**sample_repertoire_overview** — Load and inspect a sample cohort structure.
-
-Graph Analysis
-==============
-
-Build and analyze similarity and distance graphs from TCR/BCR sequences.
+Graph And Sequence Analysis
+============================
 
 .. toctree::
    :maxdepth: 1
 
+   gene_similarity
    token_graph
    edit_distance_graph
-   cdr3_aln_benchmark
-   cdr3_graph
+   vdjdb_cdr3_graph
 
-**token_graph** — Build weighted k-mer co-occurrence networks.
+**gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
 
-**edit_distance_graph** — Construct edit distance graphs and analyze connectedness.
+**token_graph** — Build bipartite k-mer/clonotype graphs and filter by sequence motifs.
 
-**cdr3_aln_benchmark** — Benchmark CDR3 sequence alignment performance.
+**edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from CDR3 sequences.
 
-**cdr3_graph** — Analyze CDR3 sequences as graph structures.
+**vdjdb_cdr3_graph** — Analyse multi-epitope CDR3 Hamming graphs from VDJdb.
 
-Distance, Matching, And Embedding
-==================================
-
-Advanced sequence matching and dimensionality reduction techniques.
+Biomarker Detection
+====================
 
 .. toctree::
    :maxdepth: 1
 
-   prototype_embedding
-   proto_embedding_new
-
-**prototype_embedding** — Embed repertoires into continuous space via prototype selection.
-
-**proto_embedding_new** — Alternative prototype embedding approach.
-
-Analysis And Modeling
-=====================
-
-Advanced analysis and biomarker detection; these notebooks may require larger local datasets.
-
-.. toctree::
-   :maxdepth: 1
-
+   alice_analysis
+   tcrnet_analysis
    gliph_analysis
    vdjbet_yf
 
-**gliph_analysis** — GLIPH-style multi-family token enrichment and clustering with binomial control baseline.
+**alice_analysis** — ALICE antigen-expanded clone detection on YF, AS, and MLR datasets.
 
-**vdjbet_yf** — Disease-associated overlap analysis using VDJBET stratification.
+**tcrnet_analysis** — TCRNET enrichment for CMV+ vs B35+ donors with VDJdb annotation.
 
-Legacy Exploratory Notebooks
-============================
+**gliph_analysis** — GLIPH-style multi-family token enrichment and clonotype graph clustering.
 
-These notebooks are kept for reference, but parts of their workflow predate the
-current public API and may need manual adaptation before rerunning.
+**vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
+
+TCREmp Embeddings
+==================
 
 .. toctree::
    :maxdepth: 1
 
-   biomarkers_inference
-   cluster_associations
-   grid_search_clf
-   kmer_generator
+   tcremp_vdjdb_analysis
+   tcremp_vdjdb_analysis_paired
+   tcremp_10xdcode_analysis
 
-**biomarkers_inference** — ALICE and TCRNET biomarker detection (legacy APIs).
+**tcremp_vdjdb_analysis** — Single-chain TCREmp on VDJdb epitope-labelled clonotypes with UMAP projection.
 
-**cluster_associations** — Find associations between clusters and metadata.
+**tcremp_vdjdb_analysis_paired** — Paired TRA/TRB TCREmp on VDJdb full records with imputed missing chains.
 
-**grid_search_clf** — Hyperparameter optimization for classifiers.
+**tcremp_10xdcode_analysis** — 10x CITE-seq + TCREmp embedding with DBSCAN epitope clustering.
 
-**kmer_generator** — K-mer feature extraction and analysis.
+Single-Cell Analysis
+=====================
+
+.. toctree::
+   :maxdepth: 1
+
+   single_cell_load
+   single_cell_pairing_analysis
+
+**single_cell_load** — Load 10x VDJ v1 donors, inspect chain multiplicity, and benchmark against scirpy.
+
+**single_cell_pairing_analysis** — Build and compare pairing graphs across raw, imputed, and cleaned stages.

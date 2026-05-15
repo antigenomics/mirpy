@@ -21,17 +21,21 @@ SRX_DIR = ASSETS_DIR / "srx_repertoires"
 # Written after a successful bootstrap so we can skip on subsequent runs.
 _SENTINEL = DATASET_ROOT / ".test_data_ready"
 
-# Files to pull from the HuggingFace dataset.
-_REQUIRED_PATTERNS = [
+# Patterns always fetched — sufficient for unit tests.
+_MINIMAL_PATTERNS = [
     "sra/meta.tsv",
     "sra/samples.tar.gz",
     "tcrnet/B35+.txt.gz",
     "alice/yf/Q1_d0.tsv.gz",
     "alice/yf/Q1_d15.tsv.gz",
     "gliph/gliph_trb.tsv.gz",
-    "dcode/**",
     "vdjdb/**",
     "vdjtools_lite/**",
+]
+
+# Extra patterns only fetched for integration / benchmark runs (large blobs).
+_SC_PATTERNS = [
+    "dcode/**",
 ]
 
 
@@ -297,13 +301,25 @@ def _derive_assets(*, verbose: bool = False) -> None:
         print(f"derived OLGA rows: {olga_n}")
 
 
-def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
+def ensure_test_data(
+    *, force: bool = False, verbose: bool = False, include_sc_assets: bool = False
+) -> None:
+    """Download and derive test assets from the HuggingFace benchmark dataset.
+
+    Args:
+        force: Re-download even if the sentinel already exists.
+        verbose: Print a progress summary.
+        include_sc_assets: Also fetch large single-cell (dcode/**) blobs.
+            Enable only for integration / benchmark runs to avoid long downloads
+            during ordinary unit-test collection.
+    """
+    sc_ready = not include_sc_assets or _has_10x_vdj_v1_assets()
     if (
         not force
         and _SENTINEL.exists()
         and (ASSETS_DIR / "vdjdb.slim.txt.gz").exists()
         and (ASSETS_DIR / "vdjdb_full.txt.gz").exists()
-        and _has_10x_vdj_v1_assets()
+        and sc_ready
     ):
         return
 
@@ -314,11 +330,15 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
 
     from huggingface_hub import snapshot_download
 
+    patterns = list(_MINIMAL_PATTERNS)
+    if include_sc_assets:
+        patterns.extend(_SC_PATTERNS)
+
     snapshot_download(
         repo_id=DATASET_ID,
         repo_type="dataset",
         local_dir=str(DATASET_ROOT),
-        allow_patterns=_REQUIRED_PATTERNS,
+        allow_patterns=patterns,
     )
 
     _derive_assets(verbose=verbose)
@@ -327,7 +347,8 @@ def ensure_test_data(*, force: bool = False, verbose: bool = False) -> None:
 
 def main() -> None:
     force = os.getenv("MIRPY_TEST_DATA_FORCE", "0") in {"1", "true", "TRUE", "yes", "YES"}
-    ensure_test_data(force=force, verbose=True)
+    include_sc = os.getenv("MIRPY_TEST_DATA_SC", "0") in {"1", "true", "TRUE", "yes", "YES"}
+    ensure_test_data(force=force, verbose=True, include_sc_assets=include_sc)
 
 
 if __name__ == "__main__":
