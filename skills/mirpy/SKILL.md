@@ -556,7 +556,7 @@ Repair behavior summary:
 - `consistency_only_on_synthetic_slave=True` limits consistency enforcement to
   synthetic slaves; set `False` to enforce consistency on all slave chains.
 
-## 9.1 TCRNET Enrichment
+## 14. TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
 
@@ -619,7 +619,7 @@ Key behavior notes:
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus.
 - Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
 
-## 9.2 GLIPH-Style K-mer Enrichment (binomial)
+## 15. GLIPH-Style K-mer Enrichment (binomial)
 
 For GLIPH-like motif workflows, prefer repertoire-first extraction and reuse
 one shared unnormalized control background across studies.
@@ -676,7 +676,7 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
-## 10. Pgen And VDJBet Workflows
+## 16. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
 with `PgenGeneUsageAdjustment` and `VDJBetOverlapAnalysis` for overlap tests.
@@ -703,7 +703,7 @@ result = analysis.score(query_rep, match_v=True, match_j=True)
 - For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
 - Typical throughput (single-core exact): ~135 seqs/s for TRB; 1mm: ~8 seqs/s. True scaling with `n_jobs=8`: ~900 seqs/s exact.
 
-## 10.1 VDJBet YF Shortcuts (new reusable workflow API)
+## 16.1 VDJBet YF Shortcuts (reusable workflow API)
 
 Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
 copying large notebook blocks:
@@ -761,7 +761,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 11. Plotting Standards (publication-ready)
+## 17. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
@@ -820,7 +820,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 12. SampleRepertoire Construction
+## 18. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever
@@ -846,7 +846,7 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 13. TCREMP Embeddings
+## 19. TCREMP Embeddings
 
 Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
 against a fixed set of prototype clonotypes.  Each clonotype is represented as
@@ -934,7 +934,7 @@ Embedding quality (R² between sequence-space and latent-space distances, 1000×
 Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
 variability is the strongest single predictor of embedding distance.
 
-## 13. Practical Defaults
+## 20. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

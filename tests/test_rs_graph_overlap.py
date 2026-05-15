@@ -27,7 +27,7 @@ from pathlib import Path
 from tests.conftest import skip_benchmarks
 from mir.basic.token_tables import (
     filter_token_table,
-    tokenize_rearrangements,
+    tokenize_clonotypes,
 )
 from mir.common.clonotype import Clonotype
 from mir.graph.edit_distance_graph import build_edit_distance_graph
@@ -87,7 +87,7 @@ class TestRSGraphOverlap(unittest.TestCase):
         cls.n_rs_total = sum(1 for r in rearrangements if "RS" in r.junction_aa)
 
         # --- k-mer RS cluster ------------------------------------------------
-        table    = tokenize_rearrangements(rearrangements, k=_K)
+        table    = tokenize_clonotypes(rearrangements, k=_K)
         rs_table = filter_token_table(table, kmer_pattern="RS")
         g_kmer   = build_token_graph(rearrangements, rs_table)
         kmer_cc  = g_kmer.components().giant()
