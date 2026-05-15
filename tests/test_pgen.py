@@ -1,0 +1,221 @@
+"""
+Tests for OlgaModel across all nine built-in models.
+- 100 sequences are generated to verify the sampler
+- Exact Pgen is computed for 20 sequences (IGH exact pgen ~100 ms/seq)
+- 1mm Pgen is computed for 5 sequences (len(seq) × exact cost)
+Mean log10 Pgen for each model is printed for reference.
+"""
+import math
+import os
+import time
+
+import pytest
+
+from mir.basic.pgen import OlgaModel
+from tests.conftest import skip_benchmarks
+
+ALL_MODELS = [
+    ("TRA", "human"),
+    ("TRB", "human"),
+    ("TRG", "human"),
+    ("TRD", "human"),
+    ("IGH", "human"),
+    ("IGK", "human"),
+    ("IGL", "human"),
+    ("TRA", "mouse"),
+    ("TRB", "mouse"),
+]
+
+
+@pytest.fixture(scope="module", params=ALL_MODELS, ids=[f"{s}-{l}" for l, s in ALL_MODELS])
+def olga_model(request):
+    locus, species = request.param
+    return locus, species, OlgaModel(locus=locus, species=species)
+
+
+def test_seed_reproducibility():
+    """Same seed must produce identical sequences; different seeds must differ."""
+    model = OlgaModel(locus="TRB", species="human", seed=None)
+
+    seqs_a = model.generate_sequences(20, seed=42)
+    seqs_b = model.generate_sequences(20, seed=42)
+    seqs_c = model.generate_sequences(20, seed=99)
+
+    assert seqs_a == seqs_b, "same seed must yield the same sequences"
+    assert seqs_a != seqs_c, "different seeds must yield different sequences"
+
+    # generate_sequences_with_meta reproducibility
+    meta_a = model.generate_sequences_with_meta(5, pgens=False, seed=7)
+    meta_b = model.generate_sequences_with_meta(5, pgens=False, seed=7)
+    assert [r["junction_aa"] for r in meta_a] == [r["junction_aa"] for r in meta_b]
+
+    # generate_sequences_parallel reproducibility
+    par_a = model.generate_sequences_parallel(20, n_jobs=2, seed=42)
+    par_b = model.generate_sequences_parallel(20, n_jobs=2, seed=42)
+    assert par_a == par_b, "same seed must yield the same parallel sequences"
+
+
+def test_compute_usage_cache_parallel_branch(monkeypatch):
+    """compute_usage_cache uses generate_pool when n_jobs > 1."""
+    model = OlgaModel.__new__(OlgaModel)
+    model._init_kwargs = {"locus": "TRB"}
+
+    def _fail_if_called(*_args, **_kwargs):  # pragma: no cover
+        raise AssertionError("generate_sequences_with_meta should not be used for n_jobs > 1")
+
+    def _fake_generate_pool(*, n, n_jobs, seed):
+        assert n == 4
+        assert n_jobs == 3
+        assert seed == 11
+        return [
+            {"v_gene": "TRBV20-1*01", "j_gene": "TRBJ2-7*01"},
+            {"v_gene": "TRBV20-1*02", "j_gene": "TRBJ2-7*01"},
+            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
+            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
+        ]
+
+    monkeypatch.setattr(model, "generate_sequences_with_meta", _fail_if_called)
+    monkeypatch.setattr(model, "generate_pool", _fake_generate_pool)
+
+    gu = model.compute_usage_cache(n=4, seed=11, n_jobs=3)
+    vj = gu.vj_usage("TRB")
+    assert vj[("TRBV20-1", "TRBJ2-7")] == 2
+    assert vj[("TRBV5-1", "TRBJ1-2")] == 2
+
+
+def test_pgen_model(olga_model):
+    locus, species, model = olga_model
+
+    seqs = model.generate_sequences(100)
+    assert len(seqs) == 100
+    assert all(isinstance(s, str) and s for s in seqs), "empty or non-string sequence generated"
+
+    # exact and 1mm Pgen on the same 5 sequences so 1mm >= exact is guaranteed per-sequence
+    log_exact, log_1mm = [], []
+    for s in seqs[:5]:
+        p_exact = model.compute_pgen_junction_aa(s)
+        p_1mm   = model.compute_pgen_junction_aa_1mm(s)
+        assert p_exact is not None and p_exact >= 0, f"invalid exact Pgen for {s!r}"
+        assert p_1mm   is not None and p_1mm   >= 0, f"invalid 1mm Pgen for {s!r}"
+        assert p_1mm >= p_exact, f"1mm Pgen < exact Pgen for {s!r}"
+        if p_exact > 0:
+            log_exact.append(math.log10(p_exact))
+        if p_1mm > 0:
+            log_1mm.append(math.log10(p_1mm))
+
+    mean_exact = sum(log_exact) / len(log_exact) if log_exact else float("-inf")
+    mean_1mm   = sum(log_1mm)   / len(log_1mm)   if log_1mm   else float("-inf")
+
+    print(f"\n{species} {locus}: exact={mean_exact:.2f}, 1mm={mean_1mm:.2f}")
+
+    assert mean_exact > -25, f"mean log10 Pgen too low for {species} {locus}: {mean_exact}"
+
+
+def test_bulk_pgen_parallel_matches_serial() -> None:
+    model = OlgaModel(locus="TRB", species="human", seed=42)
+    seqs = list(dict.fromkeys(model.generate_sequences(64, seed=123)))[:32]
+
+    exact_serial = model.compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=1)
+    exact_parallel = model.compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=4)
+    one_mm_serial = model.compute_pgen_junction_aa_bulk(seqs[:8], max_mismatches=1, n_jobs=1)
+    one_mm_parallel = model.compute_pgen_junction_aa_bulk(seqs[:8], max_mismatches=1, n_jobs=4)
+
+    assert exact_parallel == exact_serial
+    assert one_mm_parallel == one_mm_serial
+
+
+# ---------------------------------------------------------------------------
+# Parallel-generation benchmark (opt-in via RUN_BENCHMARK=1)
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestParallelGenerationBenchmark:
+    """Compare 1-core vs 4-core generation throughput for TRB CDR3 sequences.
+
+    Run with::
+
+        RUN_BENCHMARK=1 pytest -s tests/test_pgen.py::TestParallelGenerationBenchmark
+    """
+
+    N = 10_000
+
+    @pytest.fixture(scope="class")
+    def trb_model(self):
+        return OlgaModel(locus="TRB", species="human", seed=42)
+
+    def test_single_core_generation(self, trb_model):
+        t0 = time.perf_counter()
+        seqs = trb_model.generate_sequences(self.N)
+        elapsed = time.perf_counter() - t0
+
+        assert len(seqs) == self.N
+        assert all(isinstance(s, str) and s for s in seqs)
+        rate = self.N / elapsed
+        print(f"\n1-core: {self.N:,} seqs in {elapsed:.3f}s  ({rate:,.0f} seqs/s)")
+
+    def test_parallel_4core_generation(self, trb_model):
+        t0 = time.perf_counter()
+        seqs = trb_model.generate_sequences_parallel(self.N, n_jobs=4, seed=42)
+        elapsed = time.perf_counter() - t0
+
+        assert len(seqs) == self.N
+        assert all(isinstance(s, str) and s for s in seqs)
+        rate = self.N / elapsed
+        print(f"\n4-core: {self.N:,} seqs in {elapsed:.3f}s  ({rate:,.0f} seqs/s)")
+
+    def test_speedup_report(self, trb_model):
+        """Print 1-core vs 4-core wall-clock speedup for human-TRB generation."""
+        # single core
+        t1 = time.perf_counter()
+        trb_model.generate_sequences(self.N)
+        t_single = time.perf_counter() - t1
+
+        # 4 cores
+        t4 = time.perf_counter()
+        trb_model.generate_sequences_parallel(self.N, n_jobs=4, seed=42)
+        t_parallel = time.perf_counter() - t4
+
+        speedup = t_single / t_parallel
+        print(
+            f"\nSpeedup: {speedup:.2f}x  "
+            f"(1-core {t_single:.3f}s → 4-core {t_parallel:.3f}s, N={self.N:,})"
+        )
+        # Soft lower bound: parallel must not be catastrophically slower.
+        # On macOS spawn-start adds ~1-2 s overhead; true speedup appears at N ≥ 100k.
+        assert speedup > 0.1, f"4-core generation is >10x slower than 1-core ({speedup:.2f}x)"
+
+    def test_pgen_pool_throughput_and_reuse(self, trb_model):
+        """Benchmark persistent-pool Pgen throughput across two sequential calls.
+
+        Verifies that the persistent pool is reused (second call is not slower
+        than the first by more than 20 %) and that parallel throughput exceeds
+        the minimum sustained rate.  tracemalloc is intentionally omitted to
+        avoid the ~20x overhead it adds to OLGA's allocation-heavy computation.
+        """
+        seqs = trb_model.generate_sequences(300, seed=123)
+
+        # First pass — may include pool creation for n_jobs=4.
+        t0 = time.perf_counter()
+        p1 = trb_model.compute_pgen_junction_aa_bulk(seqs, n_jobs=4)
+        t_first = time.perf_counter() - t0
+
+        # Second pass — pool already warm, should be at least as fast.
+        t0 = time.perf_counter()
+        p2 = trb_model.compute_pgen_junction_aa_bulk(seqs, n_jobs=4)
+        t_second = time.perf_counter() - t0
+
+        throughput = len(seqs) / t_second if t_second > 0 else float("inf")
+        reuse_ratio = t_first / t_second if t_second > 0 else float("inf")
+        print(
+            f"\nPgen pool throughput: first={t_first:.3f}s second={t_second:.3f}s "
+            f"reuse_ratio={reuse_ratio:.2f}x throughput={throughput:.0f} seqs/s"
+        )
+
+        import numpy as np
+        np.testing.assert_allclose(p1, p2, rtol=1e-4, err_msg="Two identical pool runs diverged")
+        # Second pass must not be slower than first by more than 20 % (pool reuse).
+        assert reuse_ratio >= 0.8, f"Pool reuse regression: second pass {1/reuse_ratio:.2f}x slower than first"
+        # Minimum sustained throughput at n_jobs=4.
+        min_throughput = int(os.getenv("MIRPY_BENCH_PGEN_MIN_THROUGHPUT", "200"))
+        assert throughput >= min_throughput, f"Pool throughput too low: {throughput:.0f} seqs/s (expected >= {min_throughput})"

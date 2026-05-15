@@ -1,5 +1,10 @@
 # mirpy
 
+[![PyPI](https://img.shields.io/pypi/v/mirpy-lib)](https://pypi.org/project/mirpy-lib/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Docs](https://img.shields.io/badge/docs-antigenomics.github.io-informational)](https://antigenomics.github.io/mirpy)
+
 ![mirpy logo](assets/mirpy_logo.png)
 
 `mirpy` is a Python library for working with AIRR-seq and immune repertoire data.
@@ -26,17 +31,25 @@ Install from PyPI:
 pip install mirpy-lib
 ```
 
-Install from the repository root:
+Install from source (one-shot):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
 pip install .
 ```
 
-For development:
+Install from source (editable development mode):
 
 ```bash
+git clone https://github.com/antigenomics/mirpy.git
+cd mirpy
+./setup.sh
 pip install -e .
 ```
+
+If you only need the package for project usage, prefer `pip install mirpy-lib`.
+If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 
 ## Main modules
 
@@ -52,11 +65,12 @@ pip install -e .
 ### Load a segment library
 
 ```python
-from mir.common.segments import SegmentLibrary
+from mir.common.gene_library import GeneLibrary
 
-lib = SegmentLibrary.load_default(
-    genes={"TRA", "TRB"},
-    organisms={"HomoSapiens"},
+lib = GeneLibrary.load_default(
+    loci={"TRA", "TRB"},
+    species={"human"},
+    source="imgt",
 )
 ```
 
@@ -69,32 +83,205 @@ the default resource file automatically.
 ```python
 from mir.common.parser import VDJtoolsParser
 
-parser = VDJtoolsParser(lib=lib, sep="\t")
+parser = VDJtoolsParser(sep="\t")
 clonotypes = parser.parse("example.tsv")
 ```
 
 ### Work with repertoires
 
 ```python
-from mir.common.repertoire import Repertoire
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire(clonotypes=clonotypes, gene="TRB")
-print(repertoire.total)
-print(repertoire.number_of_clones)
+repertoire = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
+print(repertoire.duplicate_count)
+print(repertoire.clonotype_count)
+
+# Functional/canonical filtering using IMGT functionality annotations.
+from mir.common.filter import filter_functional, filter_canonical
+from mir.common.gene_library import GeneLibrary
+
+imgt_lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"}, source="imgt")
+functional_rep = filter_functional(repertoire, gene_library=imgt_lib)
+canonical_rep = filter_canonical(repertoire, gene_library=imgt_lib)
 ```
 
 You can also load a repertoire directly from a file:
 
 ```python
-from mir.common.repertoire import Repertoire
 from mir.common.parser import VDJtoolsParser
+from mir.common.repertoire import LocusRepertoire
 
-repertoire = Repertoire.load(
-    parser=VDJtoolsParser(lib=lib, sep="\t"),
-    path="example.tsv",
-    gene="TRB",
+repertoire = LocusRepertoire(
+    clonotypes=VDJtoolsParser(sep="\t").parse("example.tsv"),
+    locus="TRB",
 )
 ```
+
+### Pool repertoires across samples
+
+`mirpy` provides pooled repertoires with configurable identity rules.
+
+```python
+from mir.common.pool import pool_samples
+
+# Pool by nucleotide CDR3 + V/J calls.
+pooled_ntvj = pool_samples(
+    [sample_rep_1, sample_rep_2],
+    rule="ntvj",
+    weighted=True,
+)
+
+# Pool an entire dataset by amino-acid CDR3 + V/J and keep contributing sample ids.
+pooled_aavj = pool_samples(
+    dataset,
+    rule="aavj",
+    include_sample_ids=True,
+)
+```
+
+Supported pooling rules:
+
+- `ntvj`: key is `(junction, v_gene, j_gene)`
+- `nt`: key is `(junction,)`
+- `aavj`: key is `(junction_aa, v_gene, j_gene)`
+- `aa`: key is `(junction_aa,)`
+
+For each pooled key, the representative clonotype is selected by frequency
+(`duplicate_count` when `weighted=True`, otherwise row occurrences), while
+`duplicate_count` is reassigned to the total sum over grouped rows. The pooled
+clonotype metadata contains `incidence` (unique samples) and `occurrences`
+(independent rearrangement rows).
+
+### Prototype-based embeddings with TCREMP
+
+`TCREmp` (T-Cell Receptor EMbedding with Prototypes) embeds immune receptor clonotypes
+as distance vectors to a fixed set of prototype clonotypes, enabling rapid downstream
+analysis, dimensionality reduction, and machine learning.
+
+```python
+from mir.embedding.tcremp import TCREmp
+from mir.common.clonotype import Clonotype
+
+# Build a TCREMP model with default prototypes (fast, fixed-gap junction alignment)
+model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, junction_method="fixed_gap")
+
+# Embed clonotypes as distance vectors to all prototypes
+clonotypes = [
+    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+]
+X = model.embed(clonotypes)  # shape: (2, 3000) — float32 array
+
+# Embeddings combine three distance types per prototype: V-germline, J-germline, and junction
+# Column layout: [v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]
+print(X.shape)  # (2, 3000)
+```
+
+For full DP alignment semantics, use `junction_method="biopython"` (slower, ~90x):
+
+```python
+model_bio = TCREmp.from_defaults("human", "TRB", n_prototypes=100, junction_method="biopython")
+```
+
+For custom prototypes:
+
+```python
+model_custom = TCREmp.from_file("prototypes.tsv", species="human", locus="TRB")
+```
+
+Paired-chain embedding uses the same idea, but concatenates the TRA and TRB
+embeddings for each `PairedClonotype`:
+
+```python
+from mir.common.parser import VDJdbFullPairedParser
+from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
+from mir.common.single_cell_repair import impute_missing_chains
+from mir.embedding.tcremp import PairedTCREmp
+
+parser = VDJdbFullPairedParser()
+
+# Keep only complete TRA/TRB rows.
+strict_df, strict_meta = parser.parse_cell_clonotypes_file(
+    "vdjdb_full.txt.gz",
+    species="HomoSapiens",
+    include_incomplete=False,
+)
+strict_sample = build_tenx_sample_from_cell_clonotypes(
+    strict_df,
+    sample_id="vdjdb_full_human_strict",
+    barcode_metadata=strict_meta,
+)
+
+# Or keep incomplete rows and impute the missing chain before pairing.
+impute_df, impute_meta = parser.parse_cell_clonotypes_file(
+    "vdjdb_full.txt.gz",
+    species="HomoSapiens",
+    include_incomplete=True,
+)
+imputed_df = impute_missing_chains(impute_df)
+imputed_sample = build_tenx_sample_from_cell_clonotypes(
+    imputed_df,
+    sample_id="vdjdb_full_human_imputed",
+    barcode_metadata=impute_meta,
+)
+
+paired_model = PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=500)
+paired_clonotypes = imputed_sample.paired_locus_repertoires["TRA_TRB"].paired_clonotypes
+X_pair = paired_model.embed(paired_clonotypes)
+```
+
+The VDJdb full parser uses one synthetic barcode per source row and stores the
+row id plus antigen/MHC annotations in
+`sample.single_cell_repertoire.barcode_metadata`. A paired analysis notebook is
+available at `notebooks/tcremp_vdjdb_analysis_paired.ipynb`.
+
+Key features:
+
+- **Distance formula**: `d(a, b) = s(a,a) + s(b,b) − 2·s(a,b)` ensures metric properties.
+- **Smart `n_jobs` auto-switch**: with `n_jobs=None` (default), TCREmp chooses `1` or
+    `os.cpu_count()` based on workload `len(clonotypes) * n_prototypes`.
+- **Pre-computed germline distances**: V/J distances are cached for O(1) lookup.
+- **Biologically interpretable**: Each embedding dimension corresponds to distance to a specific prototype.
+
+`n_jobs` behavior:
+
+- `n_jobs=None` (default): auto policy based on workload threshold.
+- `n_jobs=1`: force serial execution.
+- `n_jobs>1`: force explicit worker count.
+
+In auto mode, BioPython junction alignment stays serial because thread overhead
+usually dominates for that backend.
+
+Why threshold is not based on clonotypes alone:
+
+- Parallel splitting is done on the input clonotype list (query axis).
+- However, each query is scored against all prototypes in the C backend.
+- So total work is still proportional to `n_clonotypes * n_prototypes`, and both
+    terms matter for the auto-switch decision.
+
+Default method guidance:
+
+- `fixed_gap` remains the default because it is substantially faster and is the
+    intended production embedding backend.
+- `biopython` can be used when full dynamic-programming semantics are required,
+    but no repository benchmark currently shows a consistent downstream quality
+    gain that justifies making it the default.
+- End-to-end embedding pipelines may show smaller speedups (for example 3-4x)
+    than raw pairwise core-kernel comparisons due to non-alignment overhead.
+
+### Repertoire internals and lazy tabular backend
+
+`LocusRepertoire` supports three internal representations:
+
+- eager clonotype list (`clonotypes`),
+- lazy column bundles (`_pending_cols`) for fast parser paths,
+- Polars table (`_polars_table`) for tabular I/O and grouped operations.
+
+When a repertoire is built from a Python clonotype list, no Polars table is
+created up front. The table is generated lazily on first `to_polars()` call and
+cached for reuse. Count properties (`clonotype_count`, `duplicate_count`) stay
+fast and avoid full materialization when lazy columns or Polars data are
+available.
 
 ### Mask and match sequences
 
@@ -122,8 +309,10 @@ assert matches_aa_reduced(aa, mask(reduced, 3, AA_MASK))
 ## Resources
 
 - Example notebooks are available in [notebooks/](https://github.com/antigenomics/mirpy/tree/main/notebooks).
-- Source files for the API documentation are stored in [docs/](docs/).
-- After GitHub Pages is enabled for the repository, the documentation site will be rebuilt automatically on each push to `main`.
+- API and module/function documentation: [https://antigenomics.github.io/mirpy/modules.html](https://antigenomics.github.io/mirpy/modules.html)
+- Notebook gallery in docs: [https://antigenomics.github.io/mirpy/examples.html](https://antigenomics.github.io/mirpy/examples.html)
+- Docs source tree: [docs/](docs/)
+- Agent skill guide for LLM-assisted workflows (Claude, GitHub Copilot, similar agents): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 
 ## Project status
 

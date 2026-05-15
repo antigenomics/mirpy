@@ -17,10 +17,10 @@ from tests.conftest import skip_benchmarks
 from mir.basic import token_tables_pl as plmod
 from mir.basic.token_tables import (
     Kmer,
-    Rearrangement,
     summarize_annotations,
     summarize_rearrangements,
 )
+from mir.common.clonotype import Clonotype
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +50,17 @@ def _row(
     )
 
 
-def _rows_to_rearrangements(rows: list[dict]) -> list[Rearrangement]:
+def _rows_to_rearrangements(rows: list[dict]) -> list[Clonotype]:
     return [
-        Rearrangement(d["locus"], d["id"], d["v_gene"], d["c_gene"],
-                      d["junction_aa"], d["duplicate_count"])
+        Clonotype(
+            sequence_id=str(d["id"]),
+            locus=d["locus"],
+            v_gene=d["v_gene"],
+            c_gene=d["c_gene"],
+            junction_aa=d["junction_aa"],
+            duplicate_count=d["duplicate_count"],
+            _validate=False,
+        )
         for d in rows
     ]
 
@@ -117,6 +124,19 @@ class TestSummarizeByGenePl:
         tra = s.filter((pl.col("locus") == "TRA") & (pl.col("kmer_seq") == "CASS"))
         assert trb["rearrangement_count"][0] == 1 and trb["duplicate_count"][0] == 1
         assert tra["rearrangement_count"][0] == 1 and tra["duplicate_count"][0] == 4
+
+    def test_chunked_matches_full(self):
+        rows = [_row("CASSLAP", id=i, duplicate_count=1 + (i % 3)) for i in range(1, 17)]
+        df = _make_pl_df(rows)
+        full = (
+            plmod.summarize_by_gene(plmod.expand_kmers(df, k=3))
+            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+        )
+        chunked = (
+            plmod.summarize_by_gene_chunked(df, k=3, chunk_size=5)
+            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+        )
+        assert chunked.to_dicts() == full.to_dicts()
 
 
 class TestSummarizeByPosPl:
@@ -272,11 +292,11 @@ class TestBenchmarkImplementations:
     def olga_data(self):
         from mir.basic.pgen import OlgaModel
 
-        model = OlgaModel(chain="TRB")
+        model = OlgaModel(locus="TRB")
         seqs = model.generate_sequences_with_meta(self.N, pgens=False)
         dicts = [
             _row(
-                rec["cdr3"],
+                rec["junction_aa"],
                 id=i,
                 locus="TRB",
                 v_gene=rec["v_gene"].split("*")[0],

@@ -13,6 +13,9 @@ Functions
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable, Iterator
+
 from mir.basic.mirseq import (
     tokenize_bytes as _c_tokenize_bytes,
     tokenize_str as _c_tokenize_str,
@@ -20,6 +23,29 @@ from mir.basic.mirseq import (
     tokenize_gapped_str as _c_tokenize_gapped_str,
 )
 from mir.basic.alphabets import Seq
+
+
+def trim_sequence(seq: str, trim_first: int = 0, trim_last: int = 0) -> str:
+    """Trim a sequence by removing leading and trailing residues.
+
+    Returns an empty string when trimming removes the full sequence.
+    """
+    if not (trim_first or trim_last):
+        return seq
+    if trim_first >= len(seq):
+        return ""
+    end = len(seq) - trim_last if trim_last else len(seq)
+    if trim_first >= end:
+        return ""
+    return seq[trim_first:end]
+
+
+def count_tokens_str(seqs: Iterable[Seq], k: int) -> dict[str, int]:
+    """Count overlapping k-mers across an iterable of sequences."""
+    counts: Counter[str] = Counter()
+    for seq in seqs:
+        counts.update(_c_tokenize_str(seq, k))
+    return dict(counts)
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +70,12 @@ def tokenize(seq: Seq, k: int) -> list[bytes]:
 def tokenize_str(seq: Seq, k: int) -> list[str]:
     """Like :func:`tokenize` but returns ``list[str]``."""
     return _c_tokenize_str(seq, k)
+
+
+def tokenize_with_positions(seq: Seq, k: int) -> Iterator[tuple[bytes, int]]:
+    """Yield plain k-mers paired with 0-based start positions."""
+    for pos, token in enumerate(_c_tokenize_bytes(seq, k)):
+        yield token, pos
 
 
 # ---------------------------------------------------------------------------
@@ -77,3 +109,18 @@ def tokenize_gapped_str(seq: Seq, k: int, mask_char: str) -> list[str]:
         mask_char: Single-character mask string (e.g. ``"X"``).
     """
     return _c_tokenize_gapped_str(seq, k, ord(mask_char))
+
+
+def tokenize_gapped_with_positions(
+    seq: Seq,
+    k: int,
+    mask_byte: int,
+) -> Iterator[tuple[bytes, int]]:
+    """Yield gapped k-mers paired with window start positions."""
+    raw = _c_tokenize_gapped_bytes(seq, k, mask_byte)
+    window_count = len(seq) - k + 1
+    idx = 0
+    for pos in range(window_count):
+        for _ in range(k):
+            yield raw[idx], pos
+            idx += 1
