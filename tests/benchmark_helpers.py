@@ -92,7 +92,7 @@ def synthetic_control_repertoire(
         seed=42,
         chunk_size=100_000,
         progress=True,
-    )
+    ).to_pandas()
 
     clonotypes = [
         _mk_clonotype(
@@ -126,7 +126,7 @@ def real_control_repertoire(
     locus: str = "TRB",
     limit: int | None = None,
 ) -> LocusRepertoire:
-    df = manager.ensure_and_load_control_df("real", species, locus)
+    df = manager.ensure_and_load_control_df("real", species, locus).to_pandas()
     cap = limit if limit is not None else real_control_limit()
     if cap < len(df):
         df = df.sample(n=cap, random_state=42).reset_index(drop=True)

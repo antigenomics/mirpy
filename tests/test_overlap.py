@@ -18,6 +18,7 @@ Benchmark tests (``RUN_BENCHMARK=1``)
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import time
 
 import pytest
@@ -420,7 +421,8 @@ class TestOverlapSpeed:
         elapsed = time.perf_counter() - t0
         print(f"\n1mm    overlap compact ({self.N_REF} ref × {self.N_QUERY} query): "
               f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
-        assert elapsed < 0.05
+        max_s = float(os.getenv("MIRPY_BENCH_OVERLAP_1MM_MAX_S", "0.05"))
+        assert elapsed < max_s, f"compact 1mm overlap took {elapsed*1e3:.1f}ms > {max_s*1e3:.0f}ms cap"
 
     # --- 1mm finds more matches with strict lower bound ---
 

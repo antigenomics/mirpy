@@ -6,6 +6,7 @@ Tests for OlgaModel across all nine built-in models.
 Mean log10 Pgen for each model is printed for reference.
 """
 import math
+import os
 import time
 
 import pytest
@@ -215,5 +216,6 @@ class TestParallelGenerationBenchmark:
         np.testing.assert_allclose(p1, p2, rtol=1e-4, err_msg="Two identical pool runs diverged")
         # Second pass must not be slower than first by more than 20 % (pool reuse).
         assert reuse_ratio >= 0.8, f"Pool reuse regression: second pass {1/reuse_ratio:.2f}x slower than first"
-        # Minimum sustained throughput at n_jobs=4: 200 seqs/s.
-        assert throughput >= 200, f"Pool throughput too low: {throughput:.0f} seqs/s (expected >= 200)"
+        # Minimum sustained throughput at n_jobs=4.
+        min_throughput = int(os.getenv("MIRPY_BENCH_PGEN_MIN_THROUGHPUT", "200"))
+        assert throughput >= min_throughput, f"Pool throughput too low: {throughput:.0f} seqs/s (expected >= {min_throughput})"

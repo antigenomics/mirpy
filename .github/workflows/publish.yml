@@ -48,7 +48,8 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-latest
+          - macos-13       # Intel x86_64
+          - macos-latest   # Apple Silicon arm64
 
     steps:
       - name: Check out repository
@@ -57,8 +58,12 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.23.3
         env:
-          CIBW_BUILD: cp311-* cp312-* cp313-*
-          CIBW_SKIP: "*-musllinux_*"
+          CIBW_BUILD: "cp311-* cp312-* cp313-*"
+          # Skip 32-bit targets — not needed for a scientific library.
+          # Skip musl (Alpine) Linux — heavy scipy/numpy stack builds poorly there.
+          CIBW_SKIP: "*-musllinux_* *-manylinux_i686 *-win32"
+          # Verify the compiled extension loads correctly after each wheel build.
+          CIBW_TEST_COMMAND: "python -c \"import mir; print('mirpy-lib OK')\""
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
@@ -72,8 +77,10 @@ jobs:
       - build-sdist
       - build-wheels
     runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       contents: read
+      id-token: write  # required for OIDC trusted publishing
 
     steps:
       - name: Download distributions
@@ -84,9 +91,7 @@ jobs:
           path: dist/
 
       - name: List distributions
-        run: ls -R dist
+        run: ls -R dist/
 
       - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

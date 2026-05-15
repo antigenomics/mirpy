@@ -404,7 +404,8 @@ class TestVDJBetMockBenchmark:
             f"\n50 mocks (ref=20, pool=20k): "
             f"elapsed={elapsed*1000:.1f}ms  peak={peak/(1024**2):.2f}MiB"
         )
-        assert elapsed < 10.0
+        max_s = float(os.getenv("MIRPY_BENCH_VDJBET_MOCK_MAX_S", "10.0"))
+        assert elapsed < max_s, f"50 mocks took {elapsed:.2f}s > cap {max_s:.2f}s"
 
     def test_distribution_closeness(self, ref, pool) -> None:
         """Mock log2-Pgen distributions must be statistically close to reference.
@@ -717,7 +718,7 @@ class TestYFVQ1F1:
 
             t1 = time.perf_counter()
             analysis = VDJBetOverlapAnalysis(llw_ref, pool=pool, n_mocks=n_mocks, seed=42, n_jobs=4)
-            scored = score_samples_dataframe(analysis, samples, progress_every=0)
+            scored = score_samples_dataframe(analysis, samples, progress_every=0).to_pandas()
             d0 = self._score_summary_from_row(scored.loc[scored["day"] == 0].iloc[0])
             d15 = self._score_summary_from_row(scored.loc[scored["day"] == 15].iloc[0])
             t_score = time.perf_counter() - t1
