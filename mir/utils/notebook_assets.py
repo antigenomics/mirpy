@@ -165,3 +165,17 @@ def find_airr_benchmark_dcode_10x_vdj_v1_donor(
             f"Could not find 10x_vdj_v1 donor {donor_id!r} under {dcode_root}"
         )
     return all_contig[0], consensus[0]
+
+
+def find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix(
+    dataset_root: Path,
+    donor_id: str,
+) -> Path:
+    """Return donor-specific dcode 10x_vdj_v1 binarized CITE-seq matrix path."""
+    dcode_root = dataset_root / "dcode"
+    matrices = sorted(dcode_root.glob(f"*{donor_id}*_binarized_matrix.csv.gz"))
+    if not matrices:
+        raise FileNotFoundError(
+            f"Could not find 10x_vdj_v1 donor matrix {donor_id!r} under {dcode_root}"
+        )
+    return matrices[0]

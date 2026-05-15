@@ -16,7 +16,10 @@ from mir.common.single_cell import (
     PairedClonotype,
     PairedLocusRepertoire,
     SingleCellRepertoire,
+    load_10x_vdj_v1_citeseq_sample,
+    parse_dcode_binarized_matrix,
     load_10x_vdj_v1_sample,
+    validate_citeseq_binders_against_vdjdb_10x,
 )
 from tests.prepare_airr_benchmark_data import ensure_test_data
 
@@ -418,3 +421,61 @@ def test_no_sample_mismatch_warning_when_junctions_agree(tmp_path: Path) -> None
         _warnings.simplefilter("error", UserWarning)
         sample = load_10x_vdj_v1_sample(cp, ap, sample_id="s_ok")
     assert sample.paired_locus_repertoires["TRA_TRB"].clonotype_count == 1
+
+
+def test_parse_dcode_binarized_matrix_extracts_binder_columns() -> None:
+    ensure_test_data(force=False, verbose=False)
+    matrix_path = (
+        Path(__file__).resolve().parents[1]
+        / "airr_benchmark"
+        / "dcode"
+        / "vdj_v1_hs_aggregated_donor1_binarized_matrix.csv.gz"
+    )
+    if not matrix_path.exists():
+        pytest.skip("donor1 binarized matrix missing")
+
+    matrix, binder_cols = parse_dcode_binarized_matrix(matrix_path)
+    assert matrix.height > 0
+    assert "barcode" in matrix.columns
+    assert binder_cols.height > 0
+    assert {"column", "hla", "antigen.epitope", "antigen.gene", "antigen.species", "is_binder"}.issubset(
+        set(binder_cols.columns)
+    )
+    assert binder_cols.filter(pl.col("is_binder") == "1").height > 0
+
+
+@pytest.mark.integration
+def test_load_10x_vdj_v1_citeseq_sample_and_validate_vdjdb_10x() -> None:
+    ensure_test_data(force=False, verbose=False)
+    root = Path(__file__).resolve().parents[1] / "airr_benchmark"
+    dcode_root = root / "dcode"
+    vdjdb_path = root / "vdjdb" / "vdjdb-2025-12-29" / "vdjdb_full.txt.gz"
+    if not dcode_root.exists() or not vdjdb_path.exists():
+        pytest.skip("required AIRR benchmark assets are missing")
+
+    all_contig = dcode_root / "vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz"
+    consensus = dcode_root / "vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz"
+    matrix = dcode_root / "vdj_v1_hs_aggregated_donor1_binarized_matrix.csv.gz"
+    if not (all_contig.exists() and consensus.exists() and matrix.exists()):
+        pytest.skip("donor1 10x/citeseq files are missing")
+
+    sample = load_10x_vdj_v1_citeseq_sample(
+        consensus_annotations_path=consensus,
+        all_contig_annotations_path=all_contig,
+        binarized_matrix_path=matrix,
+        sample_id="donor1",
+    )
+    assert sample.paired_repertoire.loaded_cell_count > 0
+    assert sample.cite_seq_matrix.height > 0
+    assert sample.cite_seq_binder_columns.height > 0
+
+    missing = validate_citeseq_binders_against_vdjdb_10x(
+        sample.cite_seq_binder_columns,
+        vdjdb_path,
+    )
+    expected_residual = {
+        ("A0201", "CLGGLLTMV"),
+        ("A0201", "LLMGTLGIVC"),
+    }
+    observed = {(row["hla"], row["antigen.epitope"]) for row in missing.to_dicts()}
+    assert observed.issubset(expected_residual)

@@ -160,6 +160,41 @@ Notebook examples:
 * ``notebooks/single_cell_pairing_analysis.ipynb``: raw vs imputed vs cleanup pairing graphs
    plus TRA/TRB stage heatmaps.
 
+Single-Cell 10x + CITE-seq Loading
+----------------------------------
+
+For dcode 10x workflows with donor-specific ``*_binarized_matrix.csv.gz`` files,
+use ``SingleCellSample`` to keep paired repertoires and CITE-seq labels together.
+
+.. code-block:: python
+
+   from mir.common.single_cell import (
+      load_10x_vdj_v1_citeseq_sample,
+      validate_citeseq_binders_against_vdjdb_10x,
+   )
+
+   sample = load_10x_vdj_v1_citeseq_sample(
+      consensus_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
+      all_contig_annotations_path="dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
+      binarized_matrix_path="dcode/vdj_v1_hs_aggregated_donor1_binarized_matrix.csv.gz",
+      sample_id="donor1",
+   )
+
+   print(sample.paired_repertoire.loaded_cell_count)
+   print(sample.cite_seq_matrix.height)
+   print(sample.cite_seq_binder_columns.height)
+
+   missing = validate_citeseq_binders_against_vdjdb_10x(
+      sample.cite_seq_binder_columns,
+      "vdjdb_full.txt.gz",
+   )
+   print(missing)
+
+Notebook example:
+
+* ``notebooks/tcremp_10xdcode_analysis.ipynb``: donor-wide 10x+CITE-seq sanity checks
+  and donor1 paired TCREmp diagnostics (polars-only preprocessing).
+
 Paired TCREmp From VDJdb Full
 -----------------------------
 
@@ -235,6 +270,7 @@ and concordance with scirpy loading behavior.
 
    env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
    env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_repair_benchmark.py -s -x
+   env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_citeseq_benchmark.py -s -x
    env RUN_BENCHMARK=1 python -m pytest tests/test_tcremp_vdjdb_benchmark.py -s -x
 
 The benchmark suite asserts:

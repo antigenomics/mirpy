@@ -444,6 +444,44 @@ Key behavior:
 - `SingleCellRepertoire` keeps barcode -> pair_id links separate for future
   multimodal integration.
 
+## 11.1 Single-Cell 10x + CITE-seq Integration
+
+Use `load_10x_vdj_v1_citeseq_sample` when a donor has both 10x VDJ files and
+an accompanying `*_binarized_matrix.csv.gz` CITE-seq matrix.
+
+```python
+from mir.common.single_cell import (
+    load_10x_vdj_v1_citeseq_sample,
+    validate_citeseq_binders_against_vdjdb_10x,
+)
+
+sample = load_10x_vdj_v1_citeseq_sample(
+    consensus_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_consensus_annotations.csv.gz",
+    all_contig_annotations_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_all_contig_annotations.csv.gz",
+    binarized_matrix_path="airr_benchmark/dcode/vdj_v1_hs_aggregated_donor1_binarized_matrix.csv.gz",
+    sample_id="vdj_v1_hs_aggregated_donor1",
+)
+
+print(sample.paired_repertoire.loaded_cell_count)
+print(sample.cite_seq_matrix.height)
+print(sample.cite_seq_binder_columns.height)
+
+missing = validate_citeseq_binders_against_vdjdb_10x(
+    sample.cite_seq_binder_columns,
+    "airr_benchmark/vdjdb/vdjdb-2025-12-29/vdjdb_full.txt.gz",
+)
+print(missing)
+```
+
+Notes:
+
+- `SingleCellSample` packages the paired repertoire with CITE-seq matrix and
+  parsed binder metadata (`column`, `hla`, `antigen.epitope`, `is_binder`).
+- The VDJdb 10x sanity check normalizes HLA formatting and compares
+  `(HLA, epitope)` targets against rows whose `reference.id` contains `10x`.
+- Current dcode donors have two consistent residual unmatched targets
+  (`CLGGLLTMV`, `LLMGTLGIVC`) that are tracked in tests.
+
 ## 12. 10x Benchmark And scirpy Concordance
 
 Use the dedicated benchmark test module for speed, memory, and parity checks on
@@ -452,6 +490,7 @@ AIRR benchmark donors:
 ```bash
 env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_10x_benchmark.py -s -x
 env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_repair_benchmark.py -s -x
+env RUN_BENCHMARK=1 python -m pytest tests/test_single_cell_citeseq_benchmark.py -s -x
 env RUN_BENCHMARK=1 python -m pytest tests/test_tcremp_vdjdb_benchmark.py -s -x
 ```
 

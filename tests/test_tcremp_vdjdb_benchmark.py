@@ -13,21 +13,13 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
-from sklearn.cluster import DBSCAN
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler, normalize as l2normalize
 
 from mir.common.clonotype import Clonotype
 from mir.common.parser import VDJdbFullPairedParser, VDJdbSlimParser
 from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
 from mir.common.single_cell_repair import impute_missing_chains
 from mir.embedding.tcremp import PairedTCREmp, TCREmp
-
-try:
-    from kneed import KneeLocator
-except Exception:  # pragma: no cover - fallback path only
-    KneeLocator = None
+from mir.utils.embedding_diagnostics import analyze_embedding_dbscan
 
 skip_benchmarks = pytest.mark.skipif(
     not os.getenv("RUN_BENCHMARK"), reason="set RUN_BENCHMARK=1 to run"
@@ -74,63 +66,16 @@ def _balanced_subset(
     return pl.concat([x for x in selected_parts if x.height > 0], how="vertical")
 
 
-def _kneedle_eps(X_pca: np.ndarray, k: int = 4) -> tuple[np.ndarray, float]:
-    nn = NearestNeighbors(n_neighbors=k, metric="euclidean")
-    nn.fit(X_pca)
-    dists, _ = nn.kneighbors(X_pca)
-    kth = np.sort(dists[:, -1])
-    eps_floor = float(np.quantile(kth, 0.10))
-    eps_cap = float(np.quantile(kth, 0.40))
-    if KneeLocator is None:
-        return kth, eps_floor
-    knee = KneeLocator(
-        np.arange(len(kth)),
-        kth,
-        curve="convex",
-        direction="increasing",
-        interp_method="polynomial",
-    )
-    if knee.knee is None:
-        return kth, eps_floor
-    eps = min(float(kth[knee.knee]), eps_cap)
-    return kth, max(eps, eps_floor)
-
-
 def _cluster_metrics(X_raw: np.ndarray, labels: np.ndarray) -> dict[str, float | int]:
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X_raw)
-    pca_full = PCA(random_state=SEED).fit(X_scaled)
-    cum = np.cumsum(pca_full.explained_variance_ratio_)
-    n_comp = int(np.searchsorted(cum, 0.90)) + 1
-    X_pca = l2normalize(PCA(n_components=n_comp, random_state=SEED).fit_transform(X_scaled))
-    kth, eps = _kneedle_eps(X_pca)
-    clusters = DBSCAN(eps=eps, min_samples=3, metric="euclidean", n_jobs=-1).fit_predict(X_pca)
-
-    mask = clusters != -1
-    retained_labels = labels[mask]
-    cluster_ids = np.unique(clusters[mask])
-
-    if len(cluster_ids) == 0:
-        purity = 0.0
-        consistency = 0.0
-    else:
-        per_cluster_purity = []
-        for cid in cluster_ids:
-            cl_labels = retained_labels[clusters[mask] == cid]
-            uniq, counts = np.unique(cl_labels, return_counts=True)
-            dominant = float(counts.max() / counts.sum())
-            per_cluster_purity.append(dominant)
-        purity = float(np.mean(per_cluster_purity))
-        consistency = float(np.mean(np.array(per_cluster_purity) >= 0.70))
-
+    metrics = analyze_embedding_dbscan(X_raw, labels, seed=SEED)
     return {
-        "n_comp": n_comp,
-        "eps": float(eps),
-        "n_clusters": int(len(cluster_ids)),
-        "retention": float(mask.mean()),
-        "purity": purity,
-        "consistency": consistency,
-        "median_4nn": float(np.median(kth)),
+        "n_comp": int(metrics["n_comp"]),
+        "eps": float(metrics["eps"]),
+        "n_clusters": int(metrics["n_clusters"]),
+        "retention": float(metrics["retention"]),
+        "purity": float(metrics["purity"]),
+        "consistency": float(metrics["consistency"]),
+        "median_4nn": float(metrics["median_4nn"]),
     }
 
 

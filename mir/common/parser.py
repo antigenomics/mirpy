@@ -778,6 +778,8 @@ class VDJdbFullPairedParser:
         "antigen.epitope",
         "antigen.gene",
         "antigen.species",
+        "reference.id",
+        "method.identification",
     )
     _CELL_SCHEMA = {
         "sample_id": pl.Utf8,
@@ -801,6 +803,8 @@ class VDJdbFullPairedParser:
         "antigen.epitope": pl.Utf8,
         "antigen.gene": pl.Utf8,
         "antigen.species": pl.Utf8,
+        "reference.id": pl.Utf8,
+        "method.identification": pl.Utf8,
     }
 
     @staticmethod
@@ -820,6 +824,8 @@ class VDJdbFullPairedParser:
             "antigen.epitope": self._clean_field(row, "antigen.epitope"),
             "antigen.gene": self._clean_field(row, "antigen.gene"),
             "antigen.species": self._clean_field(row, "antigen.species"),
+            "reference.id": self._clean_field(row, "reference.id"),
+            "method.identification": self._clean_field(row, "method.identification"),
         }
 
     def _build_chain_row(
