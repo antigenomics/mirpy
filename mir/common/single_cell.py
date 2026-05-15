@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
+import re
 
 import polars as pl
 
@@ -69,6 +70,24 @@ class SingleCellRepertoire:
             row.update({key: meta.get(key, "") for key in keys})
             rows.append(row)
         return pl.DataFrame(rows)
+
+
+@dataclass(slots=True)
+class SingleCellSample:
+    """Container joining paired-chain repertoire data with CITE-seq measurements."""
+
+    sample_id: str
+    paired_repertoire: PairedRepertoire
+    cite_seq_matrix: pl.DataFrame
+    cite_seq_binder_columns: pl.DataFrame
+
+    def to_polars(self) -> pl.DataFrame:
+        """Return CITE-seq matrix as a polars table."""
+        return self.cite_seq_matrix
+
+    def binder_columns_to_polars(self) -> pl.DataFrame:
+        """Return parsed binder/tetramer column metadata as a polars table."""
+        return self.cite_seq_binder_columns
 
 
 class _LazyClonotypeIndex:
@@ -230,11 +249,66 @@ def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
         "antigen.epitope",
         "antigen.gene",
         "antigen.species",
+        "reference.id",
+        "method.identification",
     ):
         value = str(row.get(key) or "").strip()
         if value:
             clonotype.clone_metadata[key] = value
     return clonotype
+
+
+def _parse_citeseq_column(column_name: str) -> dict[str, str] | None:
+    """Parse a dcode CITE-seq tetramer column into HLA/epitope metadata."""
+    binder = column_name.endswith("_binder")
+    core = column_name[:-7] if binder else column_name
+    parts = core.split("_")
+    if len(parts) < 4:
+        return None
+
+    hla = parts[0]
+    epitope = parts[1]
+    if not re.match(r"^(?:[A-Z]{1,2}\d{4}|NR\([A-Z0-9*:-]+\))$", hla):
+        return None
+    if not re.match(r"^[A-Z]{6,15}$", epitope):
+        return None
+
+    antigen_species = parts[-1]
+    antigen_gene = "_".join(parts[2:-1])
+    if not antigen_gene:
+        return None
+
+    return {
+        "column": column_name,
+        "hla": hla,
+        "antigen.epitope": epitope,
+        "antigen.gene": antigen_gene,
+        "antigen.species": antigen_species,
+        "is_binder": "1" if binder else "0",
+    }
+
+
+def parse_dcode_binarized_matrix(
+    binarized_matrix_path: str | Path,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Load a dcode CITE-seq binarized matrix and parsed tetramer column metadata."""
+    matrix = pl.read_csv(Path(binarized_matrix_path), null_values=["", "NA"])
+    parsed = [_parse_citeseq_column(c) for c in matrix.columns]
+    parsed = [x for x in parsed if x is not None]
+    if not parsed:
+        binder_cols = pl.DataFrame(
+            schema={
+                "column": pl.Utf8,
+                "hla": pl.Utf8,
+                "antigen.epitope": pl.Utf8,
+                "antigen.gene": pl.Utf8,
+                "antigen.species": pl.Utf8,
+                "is_binder": pl.Utf8,
+            }
+        )
+    else:
+        binder_cols = pl.DataFrame(parsed)
+    return matrix, binder_cols
 
 
 def build_tenx_sample_from_cell_clonotypes(
@@ -356,6 +430,31 @@ def load_10x_vdj_v1_sample(
     return build_tenx_sample_from_cell_clonotypes(cell_df, sample_id=sample_id)
 
 
+def load_10x_vdj_v1_citeseq_sample(
+    consensus_annotations_path: str | Path,
+    all_contig_annotations_path: str | Path,
+    binarized_matrix_path: str | Path,
+    sample_id: str = "",
+    *,
+    check_is_cell: bool = True,
+) -> SingleCellSample:
+    """Load one 10x VDJ sample with paired repertoire and dcode CITE-seq matrix."""
+    paired = load_10x_vdj_v1_sample(
+        consensus_annotations_path=consensus_annotations_path,
+        all_contig_annotations_path=all_contig_annotations_path,
+        sample_id=sample_id,
+        check_is_cell=check_is_cell,
+    )
+    matrix, binder_cols = parse_dcode_binarized_matrix(binarized_matrix_path)
+    out_sample_id = sample_id or paired.sample_id
+    return SingleCellSample(
+        sample_id=out_sample_id,
+        paired_repertoire=paired,
+        cite_seq_matrix=matrix,
+        cite_seq_binder_columns=binder_cols,
+    )
+
+
 # Backward-compatible function alias for older code paths.
 build_tenx_donor_from_cell_clonotypes = build_tenx_sample_from_cell_clonotypes
 
@@ -374,3 +473,54 @@ def load_10x_vdj_v1_donor(
         sample_id=donor_id,
         check_is_cell=check_is_cell,
     )
+
+
+def validate_citeseq_binders_against_vdjdb_10x(
+    binder_columns: pl.DataFrame,
+    vdjdb_full_path: str | Path,
+) -> pl.DataFrame:
+    """Return binder entries missing from VDJdb rows that reference 10x experiments."""
+    def _normalize_hla(code: str) -> str:
+        token = code.strip()
+        nr_match = re.match(r"^NR\(([A-Z])(\d{4})\)$", token)
+        if nr_match:
+            locus, digits = nr_match.groups()
+            return f"HLA-{locus}*{digits[:2]}:{digits[2:]}"
+        direct_match = re.match(r"^([A-Z])(\d{4})$", token)
+        if direct_match:
+            locus, digits = direct_match.groups()
+            return f"HLA-{locus}*{digits[:2]}:{digits[2:]}"
+        return token
+
+    if binder_columns.height == 0:
+        return pl.DataFrame(
+            schema={
+                "column": pl.Utf8,
+                "hla": pl.Utf8,
+                "antigen.epitope": pl.Utf8,
+                "antigen.gene": pl.Utf8,
+                "antigen.species": pl.Utf8,
+            }
+        )
+
+    vdjdb = pl.read_csv(vdjdb_full_path, separator="\t", null_values=["", "NA"], ignore_errors=True)
+    vdjdb_10x = vdjdb.filter(
+        pl.col("reference.id").cast(pl.Utf8).str.to_lowercase().str.contains("10x")
+    ).select(["mhc.a", "antigen.epitope"]).with_columns(
+        pl.col("mhc.a").map_elements(_normalize_hla, return_dtype=pl.Utf8).alias("hla_norm")
+    )
+
+    expected = binder_columns.select(
+        ["column", "hla", "antigen.epitope", "antigen.gene", "antigen.species"]
+    ).filter(pl.col("antigen.species") != "NC").with_columns(
+        pl.col("hla").map_elements(_normalize_hla, return_dtype=pl.Utf8).alias("hla_norm")
+    )
+
+    missing = expected.join(
+        vdjdb_10x,
+        on=["hla_norm", "antigen.epitope"],
+        how="anti",
+    ).select(["column", "hla", "antigen.epitope", "antigen.gene", "antigen.species"]).unique(
+        subset=["hla", "antigen.epitope", "antigen.gene", "antigen.species"]
+    )
+    return missing.sort(["hla", "antigen.epitope"])

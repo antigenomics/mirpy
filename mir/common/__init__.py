@@ -14,10 +14,13 @@ from .single_cell import (
 	PairedClonotype,
 	PairedLocusRepertoire,
 	SingleCellRepertoire,
+	SingleCellSample,
 	build_tenx_sample_from_cell_clonotypes,
 	build_tenx_donor_from_cell_clonotypes,
 	load_10x_vdj_v1_sample,
 	load_10x_vdj_v1_donor,
+	load_10x_vdj_v1_citeseq_sample,
+	validate_citeseq_binders_against_vdjdb_10x,
 )
 from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes, load_10x_vdj_v1_cell_clonotypes_donor
 from .single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
@@ -48,10 +51,13 @@ __all__ = [
 	'PairedClonotype',
 	'PairedLocusRepertoire',
 	'SingleCellRepertoire',
+	'SingleCellSample',
 	'build_tenx_sample_from_cell_clonotypes',
 	'build_tenx_donor_from_cell_clonotypes',
 	'load_10x_vdj_v1_sample',
 	'load_10x_vdj_v1_donor',
+	'load_10x_vdj_v1_citeseq_sample',
+	'validate_citeseq_binders_against_vdjdb_10x',
 	'load_10x_vdj_v1_cell_clonotypes',
 	'load_10x_vdj_v1_cell_clonotypes_donor',
 	'cleanup_cell_clonotypes',
