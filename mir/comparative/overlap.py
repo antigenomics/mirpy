@@ -37,9 +37,10 @@ from __future__ import annotations
 import math
 import multiprocessing
 import os
+import weakref
 import warnings
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 _MP_CTX = multiprocessing.get_context("spawn")
 
@@ -65,15 +66,25 @@ _noncoding_warning_count = 0
 
 @dataclass(slots=True)
 class _PreparedTarget:
-    rep_obj: object
+    rep_ref: weakref.ReferenceType | None
     qi2: dict[tuple[str, str, str], int]
     keys2: list[tuple[str, str, str]]
     dc2: list[int]
     total_dc2: int
     trie: object | None
+    simpson_d2: float
 
 
 _PAIRWISE_TARGET_CACHE: dict[tuple[int, str, str, int, bool, bool], _PreparedTarget] = {}
+_PAIRWISE_TARGET_CACHE_MAX = max(0, int(os.getenv("MIRPY_OVERLAP_TARGET_CACHE_SIZE", "8")))
+
+
+def clear_pairwise_target_cache() -> None:
+    """Clear prepared-target cache used by :func:`pairwise_overlap`.
+
+    In long-lived notebook sessions this can release multiple GB of memory.
+    """
+    _PAIRWISE_TARGET_CACHE.clear()
 
 # Clonotype key: (junction_aa, v_base, j_base).  Gene fields are "" when
 # the corresponding match requirement is disabled.
@@ -524,7 +535,7 @@ def compute_overlaps(
     allow_1mm: bool = False,
     target_n: int | None = None,
     target_dc: int | None = None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> list[OverlapCounts]:
     """Compute :func:`count_overlap` for every key set in *reference_key_sets*.
 
@@ -555,6 +566,8 @@ def compute_overlaps(
     list[OverlapCounts]
         One :class:`OverlapCounts` per key set, in the same order.
     """
+    n_jobs = _n_jobs_resolve(n_jobs)
+
     # Process startup on macOS can dominate runtime for small exact-match batches.
     estimated_keys = sum(len(keys) for keys in reference_key_sets)
     should_run_serial = (
@@ -619,21 +632,6 @@ class PairwiseOverlapResult:
     mode: str
     is_approximate: bool
 
-    @property
-    def d_metric(self) -> float:
-        """Backward-compatible alias for ``d_similarity``."""
-        return self.d_similarity
-
-    @property
-    def f_metric(self) -> float:
-        """Backward-compatible alias for ``f_similarity``."""
-        return self.f_similarity
-
-    @property
-    def f2_metric(self) -> float:
-        """Backward-compatible alias for ``f2_similarity``."""
-        return self.f2_similarity
-
     def as_dict(self) -> dict:
         """Return all fields as a plain ``dict``."""
         return {
@@ -647,10 +645,6 @@ class PairwiseOverlapResult:
             "morisita_horn": self.morisita_horn,
             "correlation": self.correlation,
             "f2_similarity": self.f2_similarity,
-            # Compatibility keys for existing notebooks/tests.
-            "d_metric": self.d_similarity,
-            "f_metric": self.f_similarity,
-            "f2_metric": self.f2_similarity,
             "mode": self.mode, "is_approximate": self.is_approximate,
         }
 
@@ -693,17 +687,22 @@ def _empty_pairwise(n1: int, n2: int, mode: str, is_approx: bool) -> PairwiseOve
 def _compute_exact_pairwise(
     qi1: dict[_Key, int],
     qi2: dict[_Key, int],
+    *,
+    total_dc1: int | None = None,
+    total_dc2: int | None = None,
+    D1: float | None = None,
+    D2: float | None = None,
 ) -> PairwiseOverlapResult:
     """Exact 1:1 matching — all metrics defined."""
     n1, n2 = len(qi1), len(qi2)
     if n1 == 0 or n2 == 0:
         return _empty_pairwise(n1, n2, "exact", False)
 
-    total_dc1 = sum(qi1.values()) or 1
-    total_dc2 = sum(qi2.values()) or 1
+    total_dc1 = (sum(qi1.values()) or 1) if total_dc1 is None else total_dc1
+    total_dc2 = (sum(qi2.values()) or 1) if total_dc2 is None else total_dc2
 
-    D1 = _simpson_lambda(list(qi1.values()), total_dc1)
-    D2 = _simpson_lambda(list(qi2.values()), total_dc2)
+    D1 = _simpson_lambda(list(qi1.values()), total_dc1) if D1 is None else D1
+    D2 = _simpson_lambda(list(qi2.values()), total_dc2) if D2 is None else D2
 
     shared = qi1.keys() & qi2.keys()
     n12 = len(shared)
@@ -1011,7 +1010,7 @@ def pairwise_overlap(
     match_v: bool = True,
     match_j: bool = True,
     overlap_space: str | None = None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> PairwiseOverlapResult:
     """Compute pairwise overlap metrics between two repertoires.
 
@@ -1063,7 +1062,11 @@ def pairwise_overlap(
 
     cache_key = (id(rep2), overlap_space, metric, threshold, match_v, match_j)
     prepared_target = _PAIRWISE_TARGET_CACHE.get(cache_key)
-    if prepared_target is not None and prepared_target.rep_obj is not rep2:
+    if (
+        prepared_target is not None
+        and prepared_target.rep_ref is not None
+        and prepared_target.rep_ref() is not rep2
+    ):
         prepared_target = None
         _PAIRWISE_TARGET_CACHE.pop(cache_key, None)
     if prepared_target is None:
@@ -1088,21 +1091,38 @@ def pairwise_overlap(
             except Exception:
                 trie = None
 
+        rep_ref = None
+        try:
+            rep_ref = weakref.ref(rep2)
+        except TypeError:
+            rep_ref = None
+
         prepared_target = _PreparedTarget(
-            rep_obj=rep2,
+            rep_ref=rep_ref,
             qi2=qi2,
             keys2=keys2,
             dc2=dc2,
             total_dc2=total_dc2,
             trie=trie,
+            simpson_d2=_simpson_lambda(dc2, total_dc2),
         )
-        # Keep cache bounded.
-        if len(_PAIRWISE_TARGET_CACHE) >= 32:
-            _PAIRWISE_TARGET_CACHE.pop(next(iter(_PAIRWISE_TARGET_CACHE)))
-        _PAIRWISE_TARGET_CACHE[cache_key] = prepared_target
+        # Keep cache bounded or disabled (size 0).
+        if _PAIRWISE_TARGET_CACHE_MAX > 0 and rep_ref is not None:
+            while len(_PAIRWISE_TARGET_CACHE) >= _PAIRWISE_TARGET_CACHE_MAX:
+                _PAIRWISE_TARGET_CACHE.pop(next(iter(_PAIRWISE_TARGET_CACHE)))
+            _PAIRWISE_TARGET_CACHE[cache_key] = prepared_target
 
     if metric == "exact" or threshold == 0:
-        return _compute_exact_pairwise(qi1, prepared_target.qi2)
+        total_dc1 = sum(qi1.values()) or 1
+        D1 = _simpson_lambda(list(qi1.values()), total_dc1)
+        return _compute_exact_pairwise(
+            qi1,
+            prepared_target.qi2,
+            total_dc1=total_dc1,
+            total_dc2=prepared_target.total_dc2,
+            D1=D1,
+            D2=prepared_target.simpson_d2,
+        )
     return _compute_trie_pairwise(
         qi1,
         prepared_target.qi2,
@@ -1148,7 +1168,7 @@ def pairwise_overlap_matrix(
     match_v: bool = True,
     match_j: bool = True,
     overlap_space: str | None = None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> "pandas.DataFrame":
     """Compute all pairwise overlap metrics for a list of repertoires.
 
@@ -1236,3 +1256,5 @@ def pairwise_overlap_matrix(
         rows.append({"sample_id_1": ids[i], "sample_id_2": ids[j], **d})
 
     return pd.DataFrame(rows)
+
+

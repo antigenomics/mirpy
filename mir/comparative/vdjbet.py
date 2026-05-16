@@ -88,6 +88,20 @@ def _log2_pgen_bin(log2_pgen: float) -> int:
     return round(log2_pgen)
 
 
+def _resolve_n_jobs(n_jobs: int) -> int:
+    if n_jobs == -1:
+        try:
+            import psutil
+            n = psutil.cpu_count(logical=False)
+            if n:
+                return n
+        except Exception:
+            pass
+        import os
+        return os.cpu_count() or 1
+    return max(1, int(n_jobs))
+
+
 def compute_pgen_histogram(
     clonotypes: Sequence[Clonotype],
     model: OlgaModel,
@@ -176,7 +190,7 @@ class PgenBinPool:
         self,
         locus: str,
         n: int = 1_000_000,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
@@ -206,7 +220,7 @@ class PgenBinPool:
         control_type: str,
         species: str = "human",
         n: int | None = None,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
@@ -215,6 +229,7 @@ class PgenBinPool:
         control_kwargs: dict | None = None,
     ) -> "PgenBinPool":
         """Build pool from managed controls (synthetic or real)."""
+        n_jobs = _resolve_n_jobs(n_jobs)
         manager = control_manager or ControlManager()
         kwargs = dict(control_kwargs or {})
         if control_type.strip().lower() == "synthetic":
@@ -253,13 +268,14 @@ class PgenBinPool:
         locus: str,
         species: str = "human",
         n: int | None = None,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
         pgen_adjustment=None,
     ) -> "PgenBinPool":
         """Build pool directly from control repertoire rows with Pgen recomputation."""
+        n_jobs = _resolve_n_jobs(n_jobs)
         df = control_df
         if n is not None and n > 0:
             n_int = int(n)
@@ -512,13 +528,14 @@ def _compute_ref_bins(
     pool: PgenBinPool,
     *,
     pgen_adjustment=None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> dict[int, int]:
     """Compute winsorized log2-Pgen bin counts for *reference*.
 
     Bins are clamped to [pool.floor_bin, pool.ceil_bin] so every reference
     clonotype contributes even if its Pgen is extremely low.
     """
+    n_jobs = _resolve_n_jobs(n_jobs)
     locus = _resolve_locus(reference)
     hist: dict[int, int] = defaultdict(int)
     unique_aas = list(dict.fromkeys(clone.junction_aa for clone in reference.clonotypes))
@@ -591,7 +608,7 @@ class VDJBetOverlapAnalysis:
         pool: "PgenBinPool | None" = None,
         n_mocks: int = 200,
         pool_size: int = 100_000,
-        n_jobs: int = 1,
+        n_jobs: int = -1,
         seed: int = 42,
         pgen_adjustment=None,
         # Legacy compat — silently accepted but not used:
@@ -604,7 +621,7 @@ class VDJBetOverlapAnalysis:
     ) -> None:
         self._reference = reference
         self._n_mocks = n_mocks
-        self._n_jobs = n_jobs
+        self._n_jobs = _resolve_n_jobs(n_jobs)
         self._seed = seed
         self._pgen_adjustment = pgen_adjustment
 
@@ -614,7 +631,7 @@ class VDJBetOverlapAnalysis:
             pool = PgenBinPool(
                 locus,
                 n=pool_size,
-                n_jobs=n_jobs,
+                n_jobs=self._n_jobs,
                 seed=seed,
                 pgen_adjustment=pgen_adjustment,
             )
