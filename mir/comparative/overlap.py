@@ -34,9 +34,11 @@ API
 
 from __future__ import annotations
 
+import math
 import multiprocessing
+import os
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _MP_CTX = multiprocessing.get_context("spawn")
 
@@ -491,3 +493,567 @@ def compute_overlaps(
             reference_key_sets,
             chunksize=chunksize,
         ))
+
+
+# ---------------------------------------------------------------------------
+# Pairwise sample overlap — result dataclass
+# ---------------------------------------------------------------------------
+
+_nan = float("nan")
+
+
+@dataclass
+class PairwiseOverlapResult:
+    """Pairwise overlap metrics between two :class:`~mir.common.repertoire.LocusRepertoire` objects.
+
+    For exact matching every metric is well-defined. For approximate matching
+    (hamming or levenshtein threshold > 0), a clonotype in sample 1 may match
+    multiple clonotypes in sample 2 (many-to-many). In that case
+    ``correlation`` and ``f2_metric`` are set to ``nan``; all other metrics
+    use symmetric counts (``n1_matched``, ``n2_matched``) or marginal
+    frequencies of the matched clones.
+
+    Attributes
+    ----------
+    n1 : int
+        Unique clonotypes in sample 1.
+    n2 : int
+        Unique clonotypes in sample 2.
+    n1_matched : int
+        Clonotypes in sample 1 with at least one match in sample 2.
+    n2_matched : int
+        Clonotypes in sample 2 with at least one match from sample 1.
+    f1_overlap : float
+        Total frequency (sum of normalized duplicate counts) of matched
+        clonotypes in sample 1.
+    f2_overlap : float
+        Total frequency of matched clonotypes in sample 2.
+    jaccard : float
+        Jaccard similarity = n12 / (n1 + n2 − n12).  For exact matching,
+        n12 = n1_matched.  For approximate matching, n12 is the geometric
+        mean sqrt(n1_matched × n2_matched) to enforce symmetry.
+    d_metric : float
+        D-metric = n12 / sqrt(n1 × n2).  Same n12 convention as Jaccard.
+    f_metric : float
+        F-metric = sqrt(f1_overlap × f2_overlap).
+    morisita_horn : float
+        Morisita-Horn index = 2 Σ(p_i q_i) / (D1 + D2) where D1, D2 are
+        Simpson's lambda for each sample.  For approximate matching the
+        numerator sums over all matched (i, j) pairs, which may slightly
+        overestimate the index when many-to-many matches occur.
+    correlation : float
+        Pearson correlation of paired overlap frequencies.  ``nan`` for
+        approximate matching or when fewer than 2 overlap clonotypes.
+    f2_metric : float
+        F2-metric = Σ sqrt(f1_i × f2_i) over matched clone pairs.
+        ``nan`` for approximate matching.
+    mode : str
+        Matching mode: ``"exact"``, ``"hamming:N"``, or ``"levenshtein:N"``.
+    is_approximate : bool
+        ``True`` when threshold > 0 (many-to-many matching).
+    """
+
+    n1: int
+    n2: int
+    n1_matched: int
+    n2_matched: int
+    f1_overlap: float
+    f2_overlap: float
+    jaccard: float
+    d_metric: float
+    f_metric: float
+    morisita_horn: float
+    correlation: float
+    f2_metric: float
+    mode: str
+    is_approximate: bool
+
+    def as_dict(self) -> dict:
+        """Return all fields as a plain ``dict``."""
+        return {
+            "n1": self.n1, "n2": self.n2,
+            "n1_matched": self.n1_matched, "n2_matched": self.n2_matched,
+            "f1_overlap": self.f1_overlap, "f2_overlap": self.f2_overlap,
+            "jaccard": self.jaccard, "d_metric": self.d_metric,
+            "f_metric": self.f_metric, "morisita_horn": self.morisita_horn,
+            "correlation": self.correlation, "f2_metric": self.f2_metric,
+            "mode": self.mode, "is_approximate": self.is_approximate,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers for pairwise metrics
+# ---------------------------------------------------------------------------
+
+def _n_jobs_resolve(n_jobs: int) -> int:
+    """Resolve ``-1`` to all physical cores; clamp to ≥ 1."""
+    if n_jobs == -1:
+        try:
+            import psutil
+            n = psutil.cpu_count(logical=False)
+            if n:
+                return n
+        except ImportError:
+            pass
+        return os.cpu_count() or 1
+    return max(1, n_jobs)
+
+
+def _simpson_lambda(dc_values: list[int], total: int) -> float:
+    """Σ(dc_i / total)² — Simpson's diversity index."""
+    if total == 0:
+        return 0.0
+    return sum((dc / total) ** 2 for dc in dc_values)
+
+
+def _empty_pairwise(n1: int, n2: int, mode: str, is_approx: bool) -> PairwiseOverlapResult:
+    return PairwiseOverlapResult(
+        n1=n1, n2=n2, n1_matched=0, n2_matched=0,
+        f1_overlap=0.0, f2_overlap=0.0,
+        jaccard=0.0, d_metric=0.0, f_metric=0.0,
+        morisita_horn=0.0, correlation=_nan, f2_metric=_nan,
+        mode=mode, is_approximate=is_approx,
+    )
+
+
+def _compute_exact_pairwise(
+    qi1: dict[_Key, int],
+    qi2: dict[_Key, int],
+) -> PairwiseOverlapResult:
+    """Exact 1:1 matching — all metrics defined."""
+    n1, n2 = len(qi1), len(qi2)
+    if n1 == 0 or n2 == 0:
+        return _empty_pairwise(n1, n2, "exact", False)
+
+    total_dc1 = sum(qi1.values()) or 1
+    total_dc2 = sum(qi2.values()) or 1
+
+    D1 = _simpson_lambda(list(qi1.values()), total_dc1)
+    D2 = _simpson_lambda(list(qi2.values()), total_dc2)
+
+    shared = qi1.keys() & qi2.keys()
+    n12 = len(shared)
+
+    if n12 == 0:
+        return _empty_pairwise(n1, n2, "exact", False)
+
+    ov_f1 = [qi1[k] / total_dc1 for k in shared]
+    ov_f2 = [qi2[k] / total_dc2 for k in shared]
+
+    f1_overlap = sum(ov_f1)
+    f2_overlap = sum(ov_f2)
+
+    jaccard = n12 / (n1 + n2 - n12)
+    d_metric = n12 / math.sqrt(n1 * n2)
+    f_metric = math.sqrt(f1_overlap * f2_overlap)
+    f2_metric_val = sum(math.sqrt(a * b) for a, b in zip(ov_f1, ov_f2))
+
+    mh_num = 2.0 * sum(a * b for a, b in zip(ov_f1, ov_f2))
+    morisita_horn = mh_num / (D1 + D2) if (D1 + D2) > 0 else _nan
+
+    if n12 >= 2:
+        from scipy.stats import pearsonr
+        try:
+            r, _ = pearsonr(ov_f1, ov_f2)
+            correlation = float(r) if not math.isnan(r) else _nan
+        except Exception:
+            correlation = _nan
+    else:
+        correlation = _nan
+
+    return PairwiseOverlapResult(
+        n1=n1, n2=n2, n1_matched=n12, n2_matched=n12,
+        f1_overlap=f1_overlap, f2_overlap=f2_overlap,
+        jaccard=jaccard, d_metric=d_metric, f_metric=f_metric,
+        morisita_horn=morisita_horn, correlation=correlation, f2_metric=f2_metric_val,
+        mode="exact", is_approximate=False,
+    )
+
+
+def _trie_search_serial(
+    keys1: list[_Key],
+    dc1: list[int],
+    total_dc1: int,
+    trie: object,
+    v2: list[str],
+    j2: list[str],
+    dc2: list[int],
+    total_dc2: int,
+    max_sub: int,
+    max_ins: int,
+    max_del: int,
+    max_edits: int,
+) -> tuple[set[int], set[int], int, float]:
+    """Search all s1 clones against a pre-built s2 trie.
+
+    Returns ``(s1_matched_idx, s2_matched_idx, dc1_matched_total, mh_pairs_sum)``.
+    """
+    s1_matched: set[int] = set()
+    s2_matched: set[int] = set()
+    dc1_matched = 0
+    mh_sum = 0.0
+
+    for i1, ((jaa, v, j), dc) in enumerate(zip(keys1, dc1)):
+        v_filter = v or None
+        j_filter = j or None
+        try:
+            hits = trie.SearchIndices(
+                query=jaa,
+                maxSubstitution=max_sub,
+                maxInsertion=max_ins,
+                maxDeletion=max_del,
+                maxEdits=max_edits,
+                vGeneFilter=v_filter,
+                jGeneFilter=j_filter,
+            )
+        except Exception:
+            continue
+
+        any_hit = False
+        p_i = dc / total_dc1
+        for hit in hits:
+            i2 = hit_index(hit)
+            if not any_hit:
+                s1_matched.add(i1)
+                dc1_matched += dc
+                any_hit = True
+            s2_matched.add(i2)
+            mh_sum += p_i * (dc2[i2] / total_dc2)
+
+    return s1_matched, s2_matched, dc1_matched, mh_sum
+
+
+# ---------------------------------------------------------------------------
+# Parallel trie search — within a single pair (chunk workers)
+# ---------------------------------------------------------------------------
+
+_PW_TRIE_STATE: dict = {}
+
+
+def _pw_trie_worker_init(
+    jaa2: list[str],
+    v2: list[str],
+    j2: list[str],
+    dc2: list[int],
+    total_dc1: int,
+    total_dc2: int,
+    limits: tuple[int, int, int, int],
+) -> None:
+    global _PW_TRIE_STATE
+    from tcrtrie import Trie as _Trie
+    _PW_TRIE_STATE = {
+        "trie": _Trie(sequences=jaa2, vGenes=v2, jGenes=j2),
+        "v2": v2, "j2": j2, "dc2": dc2,
+        "total_dc1": total_dc1, "total_dc2": total_dc2,
+        "limits": limits,
+    }
+
+
+def _pw_trie_worker_call(
+    chunk: list[tuple[int, str, str, str, int]],
+) -> tuple[list[int], list[int], int, float]:
+    """Process a chunk of s1 clones. Returns (i1_matched, i2_matched, dc1_matched, mh_sum)."""
+    st = _PW_TRIE_STATE
+    trie = st["trie"]
+    v2, j2, dc2 = st["v2"], st["j2"], st["dc2"]
+    total_dc1, total_dc2 = st["total_dc1"], st["total_dc2"]
+    max_sub, max_ins, max_del, max_edits = st["limits"]
+
+    s1_matched: set[int] = set()
+    s2_matched: set[int] = set()
+    dc1_matched = 0
+    mh_sum = 0.0
+
+    for i1_global, jaa, v, j, dc in chunk:
+        v_filter = v or None
+        j_filter = j or None
+        try:
+            hits = trie.SearchIndices(
+                query=jaa,
+                maxSubstitution=max_sub,
+                maxInsertion=max_ins,
+                maxDeletion=max_del,
+                maxEdits=max_edits,
+                vGeneFilter=v_filter,
+                jGeneFilter=j_filter,
+            )
+        except Exception:
+            continue
+
+        any_hit = False
+        p_i = dc / total_dc1
+        for hit in hits:
+            i2 = hit_index(hit)
+            if not any_hit:
+                s1_matched.add(i1_global)
+                dc1_matched += dc
+                any_hit = True
+            s2_matched.add(i2)
+            mh_sum += p_i * (dc2[i2] / total_dc2)
+
+    return list(s1_matched), list(s2_matched), dc1_matched, mh_sum
+
+
+def _compute_trie_pairwise(
+    qi1: dict[_Key, int],
+    qi2: dict[_Key, int],
+    *,
+    metric: str,
+    threshold: int,
+    n_jobs: int = 1,
+) -> PairwiseOverlapResult:
+    """Approximate pairwise overlap via tcrtrie.
+
+    Builds the trie from *qi2* and searches all clones from *qi1* against it.
+    Returns ``n1_matched`` (qi1 clones with ≥ 1 hit) and ``n2_matched``
+    (qi2 clones hit by ≥ 1 qi1 clone) independently for symmetric metrics.
+    """
+    mode = f"{metric}:{threshold}"
+    n1, n2 = len(qi1), len(qi2)
+
+    if n1 == 0 or n2 == 0 or Trie is None:
+        return _empty_pairwise(n1, n2, mode, True)
+
+    keys2 = list(qi2.keys())
+    jaa2 = [k[0] for k in keys2]
+    v2 = [k[1] for k in keys2]
+    j2 = [k[2] for k in keys2]
+    dc2 = [qi2[k] for k in keys2]
+    total_dc2 = sum(dc2) or 1
+
+    keys1 = list(qi1.keys())
+    dc1 = [qi1[k] for k in keys1]
+    total_dc1 = sum(dc1) or 1
+
+    limits = search_limits(metric, threshold)
+
+    try:
+        trie = Trie(sequences=jaa2, vGenes=v2, jGenes=j2)
+    except Exception:
+        return _empty_pairwise(n1, n2, mode, True)
+
+    if n_jobs == 1:
+        s1_idx, s2_idx, dc1_matched, mh_sum = _trie_search_serial(
+            keys1, dc1, total_dc1, trie, v2, j2, dc2, total_dc2, *limits,
+        )
+        del trie  # free before spawning (not needed here but consistent)
+    else:
+        del trie  # rebuilt inside each worker via initializer
+        chunk_size = max(1, len(keys1) // n_jobs)
+        chunks = [
+            [(i, keys1[i][0], keys1[i][1], keys1[i][2], dc1[i])
+             for i in range(start, min(start + chunk_size, len(keys1)))]
+            for start in range(0, len(keys1), chunk_size)
+        ]
+        with ProcessPoolExecutor(
+            max_workers=n_jobs,
+            mp_context=_MP_CTX,
+            initializer=_pw_trie_worker_init,
+            initargs=(jaa2, v2, j2, dc2, total_dc1, total_dc2, limits),
+        ) as pool:
+            partial = list(pool.map(_pw_trie_worker_call, chunks))
+
+        s1_idx: set[int] = set()
+        s2_idx: set[int] = set()
+        dc1_matched = 0
+        mh_sum = 0.0
+        for i1_list, i2_list, dc1m, mh in partial:
+            s1_idx.update(i1_list)
+            s2_idx.update(i2_list)
+            dc1_matched += dc1m
+            mh_sum += mh
+        s2_idx = s2_idx  # keep as set
+
+    n1_matched = len(s1_idx)
+    n2_matched = len(s2_idx)
+
+    if n1_matched == 0:
+        return _empty_pairwise(n1, n2, mode, True)
+
+    f1_overlap = dc1_matched / total_dc1
+    f2_overlap = sum(dc2[i] for i in s2_idx) / total_dc2
+
+    # Symmetric n12 via geometric mean
+    n12_eff = math.sqrt(n1_matched * n2_matched)
+    denom = n1 + n2 - n12_eff
+    jaccard = n12_eff / denom if denom > 0 else 0.0
+    d_metric = n12_eff / math.sqrt(n1 * n2)
+    f_metric = math.sqrt(f1_overlap * f2_overlap)
+
+    D1 = _simpson_lambda(dc1, total_dc1)
+    D2 = _simpson_lambda(dc2, total_dc2)
+    morisita_horn = 2.0 * mh_sum / (D1 + D2) if (D1 + D2) > 0 else _nan
+
+    return PairwiseOverlapResult(
+        n1=n1, n2=n2, n1_matched=n1_matched, n2_matched=n2_matched,
+        f1_overlap=f1_overlap, f2_overlap=f2_overlap,
+        jaccard=jaccard, d_metric=d_metric, f_metric=f_metric,
+        morisita_horn=morisita_horn, correlation=_nan, f2_metric=_nan,
+        mode=mode, is_approximate=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public pairwise overlap API
+# ---------------------------------------------------------------------------
+
+def pairwise_overlap(
+    rep1: LocusRepertoire,
+    rep2: LocusRepertoire,
+    *,
+    metric: str = "exact",
+    threshold: int = 0,
+    match_v: bool = True,
+    match_j: bool = True,
+    n_jobs: int = 1,
+) -> PairwiseOverlapResult:
+    """Compute pairwise overlap metrics between two repertoires.
+
+    Parameters
+    ----------
+    rep1, rep2 :
+        Repertoires to compare.
+    metric :
+        ``"exact"`` (default), ``"hamming"``, or ``"levenshtein"``.
+        ``"exact"`` ignores *threshold*.
+    threshold :
+        Maximum edit distance (substitutions for hamming, any edit for
+        levenshtein).  ``0`` is equivalent to ``metric="exact"``.
+    match_v, match_j :
+        When ``False``, the corresponding gene is ignored for matching.
+    n_jobs :
+        Worker processes for parallel trie search within this pair.
+        ``-1`` → all physical cores.  ``1`` (default) → serial.
+
+    Returns
+    -------
+    PairwiseOverlapResult
+        All overlap metrics.  See :class:`PairwiseOverlapResult` for details.
+
+    Examples
+    --------
+    >>> result = pairwise_overlap(rep1, rep2)
+    >>> result.f_metric
+    0.0123
+    >>> result = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+    >>> result.d_metric
+    0.045
+    """
+    n_jobs = _n_jobs_resolve(n_jobs)
+    qi1 = make_query_index(rep1, match_v=match_v, match_j=match_j)
+    qi2 = make_query_index(rep2, match_v=match_v, match_j=match_j)
+
+    if metric == "exact" or threshold == 0:
+        return _compute_exact_pairwise(qi1, qi2)
+    return _compute_trie_pairwise(qi1, qi2, metric=metric, threshold=threshold, n_jobs=n_jobs)
+
+
+# ---------------------------------------------------------------------------
+# Parallel pairwise matrix — worker state
+# ---------------------------------------------------------------------------
+
+_MATRIX_QI_LIST: list | None = None
+_MATRIX_DISPATCH_PARAMS: dict | None = None
+
+
+def _matrix_worker_init(qi_list: list, params: dict) -> None:
+    global _MATRIX_QI_LIST, _MATRIX_DISPATCH_PARAMS
+    _MATRIX_QI_LIST = qi_list
+    _MATRIX_DISPATCH_PARAMS = params
+
+
+def _matrix_worker_call(pair: tuple[int, int]) -> dict:
+    i, j = pair
+    qi1 = _MATRIX_QI_LIST[i]
+    qi2 = _MATRIX_QI_LIST[j]
+    p = _MATRIX_DISPATCH_PARAMS
+    if p["metric"] == "exact" or p["threshold"] == 0:
+        r = _compute_exact_pairwise(qi1, qi2)
+    else:
+        r = _compute_trie_pairwise(qi1, qi2, metric=p["metric"], threshold=p["threshold"])
+    return r.as_dict()
+
+
+def pairwise_overlap_matrix(
+    repertoires: list[LocusRepertoire],
+    sample_ids: list[str] | None = None,
+    *,
+    metric: str = "exact",
+    threshold: int = 0,
+    match_v: bool = True,
+    match_j: bool = True,
+    n_jobs: int = 1,
+) -> "pandas.DataFrame":
+    """Compute all pairwise overlap metrics for a list of repertoires.
+
+    Parameters
+    ----------
+    repertoires :
+        List of :class:`~mir.common.repertoire.LocusRepertoire` objects.
+    sample_ids :
+        Optional sample identifiers (same length as *repertoires*).
+        Defaults to ``"s0"``, ``"s1"``, … when ``None``.
+    metric :
+        ``"exact"``, ``"hamming"``, or ``"levenshtein"``.
+    threshold :
+        Edit-distance threshold (0 = exact).
+    match_v, match_j :
+        Gene-matching flags passed through to :func:`pairwise_overlap`.
+    n_jobs :
+        Parallel worker processes.  ``-1`` → all physical cores.
+        Parallelism is across *pairs* (not within a single pair).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Long-format table with one row per ordered pair (i, j) with i < j,
+        columns: ``sample_id_1``, ``sample_id_2``, then all
+        :class:`PairwiseOverlapResult` metric fields.
+
+    Examples
+    --------
+    >>> df = pairwise_overlap_matrix(reps, sample_ids=ids, n_jobs=-1)
+    >>> dist = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+    """
+    import pandas as pd
+
+    n = len(repertoires)
+    if n < 2:
+        raise ValueError("Need at least 2 repertoires for a pairwise matrix.")
+
+    ids = sample_ids if sample_ids is not None else [f"s{i}" for i in range(n)]
+    if len(ids) != n:
+        raise ValueError("sample_ids length must match repertoires length.")
+
+    n_jobs = _n_jobs_resolve(n_jobs)
+
+    # Serialize all repertoires to plain dicts once (picklable for workers).
+    qi_list = [make_query_index(r, match_v=match_v, match_j=match_j) for r in repertoires]
+
+    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    params = {"metric": metric, "threshold": threshold}
+
+    if n_jobs == 1 or len(pairs) <= 1:
+        results_raw = []
+        for i, j in pairs:
+            if metric == "exact" or threshold == 0:
+                r = _compute_exact_pairwise(qi_list[i], qi_list[j])
+            else:
+                r = _compute_trie_pairwise(qi_list[i], qi_list[j], metric=metric, threshold=threshold)
+            results_raw.append((i, j, r.as_dict()))
+    else:
+        chunksize = max(1, len(pairs) // (n_jobs * 4))
+        with ProcessPoolExecutor(
+            max_workers=n_jobs,
+            mp_context=_MP_CTX,
+            initializer=_matrix_worker_init,
+            initargs=(qi_list, params),
+        ) as pool:
+            raw_dicts = list(pool.map(_matrix_worker_call, pairs, chunksize=chunksize))
+        results_raw = [(i, j, d) for (i, j), d in zip(pairs, raw_dicts)]
+
+    rows = []
+    for i, j, d in results_raw:
+        rows.append({"sample_id_1": ids[i], "sample_id_2": ids[j], **d})
+
+    return pd.DataFrame(rows)

@@ -676,6 +676,102 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
+## 15.5. Pairwise Sample Overlap Metrics
+
+Use `pairwise_overlap` for a single pair and `pairwise_overlap_matrix` for all
+N×(N−1)/2 pairs across a cohort.  Both functions live in
+`mir.comparative.overlap` and are re-exported from `mir.comparative`.
+
+### Single pair
+
+```python
+from mir.comparative.overlap import pairwise_overlap
+
+# Exact matching
+r = pairwise_overlap(rep1, rep2)
+
+# Approximate matching — Hamming distance 1 (1 substitution)
+r_h1 = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+
+# Approximate matching — Levenshtein distance 1 (any single edit)
+r_l1 = pairwise_overlap(rep1, rep2, metric="levenshtein", threshold=1)
+
+print(r.jaccard, r.d_metric, r.f_metric, r.morisita_horn)
+print(r.f2_metric, r.correlation)  # nan for approximate matching
+```
+
+`PairwiseOverlapResult` fields:
+
+| Field | Description |
+|---|---|
+| `n1`, `n2` | unique clonotypes in each sample |
+| `n1_matched`, `n2_matched` | clones with ≥1 match in the other sample |
+| `f1_overlap`, `f2_overlap` | total frequency of matched clones |
+| `jaccard` | n12 / (n1 + n2 − n12) |
+| `d_metric` | n12 / sqrt(n1 × n2) |
+| `f_metric` | sqrt(f1_overlap × f2_overlap) |
+| `morisita_horn` | 2 Σ(p_i q_i) / (D1 + D2) |
+| `correlation` | Pearson r of overlap frequencies (NaN for approximate) |
+| `f2_metric` | Σ sqrt(p_i × q_i) over matched pairs (NaN for approximate) |
+| `mode` | "exact", "hamming:N", "levenshtein:N" |
+| `is_approximate` | True when threshold > 0 |
+
+For approximate matching (threshold > 0), `correlation` and `f2_metric` are
+`nan`; Jaccard and D-metric use the geometric mean of `n1_matched` and
+`n2_matched` for symmetry.
+
+### Pairwise matrix (cohort)
+
+```python
+from mir.comparative.overlap import pairwise_overlap_matrix
+
+# Returns a long-format DataFrame with one row per ordered pair (i < j)
+df = pairwise_overlap_matrix(
+    reps,
+    sample_ids=ids,        # optional list of string IDs
+    metric="exact",        # or "hamming" / "levenshtein"
+    threshold=0,
+    n_jobs=-1,             # -1 = all physical cores
+)
+
+# Pivot to symmetric NxN matrix of a single metric
+pivot = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+```
+
+### Dissimilarity for UMAP / clustering
+
+```python
+import numpy as np
+from umap import UMAP
+
+f_vals = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+f_mat = f_vals.to_numpy()
+# Symmetrize and fill self-distance
+n = len(reps)
+dissim = np.zeros((n, n))
+dissim[np.triu_indices(n, 1)] = 1.0 - f_mat[np.triu_indices(n, 1)]
+dissim += dissim.T  # symmetric
+
+embedding = UMAP(n_components=2, metric="precomputed", random_state=42).fit_transform(dissim)
+```
+
+Dissimilarity conventions:
+- **D-metric**: `max(D) − D`
+- **F-metric**: `1 − F`
+
+### Parallel workers (`n_jobs`)
+
+- `n_jobs=1` (default): serial — fast for small repertoires
+- `n_jobs=-1`: all physical cores (uses `psutil.cpu_count(logical=False)`)
+- In `pairwise_overlap`: parallelises trie search within a single pair (chunk workers)
+- In `pairwise_overlap_matrix`: parallelises across pairs (matrix workers)
+
+### VDJBet harmonisation
+
+The existing `count_overlap` / `compute_overlaps` / `make_reference_keys` /
+`make_query_index` API used by `VDJBetOverlapAnalysis` is unchanged.
+`pairwise_overlap` builds on top of the same `make_query_index` primitive.
+
 ## 16. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
