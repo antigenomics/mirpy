@@ -407,7 +407,7 @@ Operational notes:
 - Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
 - `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, bounded-kneedle eps selection, DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
 
-## 10. ALICE Enrichment
+## 11. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 
@@ -460,7 +460,7 @@ Key behavior notes:
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
 
-## 11. Single-Cell 10x Paired Chains
+## 12. Single-Cell 10x Paired Chains
 
 Use `load_10x_vdj_v1_sample` to assemble paired-chain objects from 10x v1 sample
 files where consensus annotations define clonotypes and all-contig annotations
@@ -489,7 +489,7 @@ Key behavior:
 - `SingleCellRepertoire` keeps barcode -> pair_id links separate for future
   multimodal integration.
 
-## 11.1 Single-Cell 10x + CITE-seq Integration
+## 12.1 Single-Cell 10x + CITE-seq Integration
 
 Use `load_10x_vdj_v1_citeseq_sample` when a donor has both 10x VDJ files and
 an accompanying `*_binarized_matrix.csv.gz` CITE-seq matrix.
@@ -531,7 +531,7 @@ Notes:
   kneedle/eps plots, UMAP projections colored by epitope, and per-epitope
   precision/recall/F1 support tables.
 
-## 12. 10x Benchmark And scirpy Concordance
+## 13. 10x Benchmark And scirpy Concordance
 
 Use the dedicated benchmark test module for speed, memory, and parity checks on
 AIRR benchmark donors:
@@ -550,7 +550,7 @@ This suite validates:
 - mirpy vs scirpy TRA/TRB quadrant concordance on dominant patterns,
 - speed/memory competitiveness relative to scirpy on the same donor.
 
-## 13. Single-Cell Parsing, Repair, And Pairing Graphs
+## 14. Single-Cell Parsing, Repair, And Pairing Graphs
 
 Use the parser-first API when you need to apply cleanup or imputation before
 assembling sample paired-clonotype objects.
@@ -601,7 +601,7 @@ Repair behavior summary:
 - `consistency_only_on_synthetic_slave=True` limits consistency enforcement to
   synthetic slaves; set `False` to enforce consistency on all slave chains.
 
-## 14. TCRNET Enrichment
+## 15. TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
 
@@ -665,7 +665,7 @@ Key behavior notes:
 - Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
 - `n_jobs=-1` is the default and uses all physical cores; set `n_jobs=1` for serial profiling.
 
-## 15. GLIPH-Style K-mer Enrichment (binomial)
+## 16. GLIPH-Style K-mer Enrichment (binomial)
 
 For GLIPH-like motif workflows, prefer repertoire-first extraction and reuse
 one shared unnormalized control background across studies.
@@ -722,7 +722,7 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
-## 15.5. Pairwise Sample Overlap Metrics
+## 16.5. Pairwise Sample Overlap Metrics
 
 Use `pairwise_overlap` for a single pair and `pairwise_overlap_matrix` for all
 N×(N−1)/2 pairs across a cohort.  Both functions live in
@@ -754,6 +754,7 @@ print(r.f2_similarity, r.correlation)  # nan for approximate matching
 | `n1_matched`, `n2_matched` | clones with ≥1 match in the other sample |
 | `f1_overlap`, `f2_overlap` | total frequency of matched clones |
 | `jaccard` | n12 / (n1 + n2 − n12) |
+| `szymkiewicz_simpson` | min(n1_matched, n2_matched) / min(n1, n2) |
 | `d_similarity` | n12 / sqrt(n1 × n2) |
 | `f_similarity` | sqrt(f1_overlap × f2_overlap) |
 | `morisita_horn` | 2 Σ(p_i q_i) / (D1 + D2) |
@@ -761,6 +762,8 @@ print(r.f2_similarity, r.correlation)  # nan for approximate matching
 | `f2_similarity` | Σ sqrt(p_i × q_i) over matched pairs (NaN for approximate) |
 | `mode` | "exact", "hamming:N", "levenshtein:N" |
 | `is_approximate` | True when threshold > 0 |
+
+Use `result.as_dict()` to convert all fields to a plain `dict` for DataFrame construction.
 
 For approximate matching (threshold > 0), `correlation` and `f2_similarity` are
 `nan`; Jaccard and D-metric use the geometric mean of `n1_matched` and
@@ -818,7 +821,7 @@ The existing `count_overlap` / `compute_overlaps` / `make_reference_keys` /
 `make_query_index` API used by `VDJBetOverlapAnalysis` is unchanged.
 `pairwise_overlap` builds on top of the same `make_query_index` primitive.
 
-## 16. Pgen And VDJBet Workflows
+## 17. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
 with `PgenGeneUsageAdjustment` and `VDJBetOverlapAnalysis` for overlap tests.
@@ -844,8 +847,9 @@ result = analysis.score(query_rep, match_v=True, match_j=True)
 - `OlgaModel.gen_model` exposes the underlying `GenerativeModelVDJ/VJ` for direct access to model marginals (`PV`, `PDJ`, `PVJ`).
 - For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
 - Typical throughput (single-core exact): ~135 seqs/s for TRB; 1mm: ~8 seqs/s. True scaling with `n_jobs=8`: ~900 seqs/s exact.
+- **Lifecycle**: call `model.close()` when done, or use `with OlgaModel(...) as model:` to guarantee pool teardown and avoid lingering worker processes.
 
-## 16.1 VDJBet YF Shortcuts (reusable workflow API)
+## 17.1 VDJBet YF Shortcuts (reusable workflow API)
 
 Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
 copying large notebook blocks:
@@ -903,7 +907,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 17. Plotting Standards (publication-ready)
+## 18. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
@@ -962,7 +966,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 18. SampleRepertoire Construction
+## 19. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever
@@ -988,11 +992,11 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 19. TCREMP Embeddings
+## 20. TCREMP Embeddings
 
 Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
 against a fixed set of prototype clonotypes.  Each clonotype is represented as
-`[v_1, j_1, cdr3_1, ..., v_K, j_K, cdr3_K]` where triplets correspond to the K
+`[v_1, j_1, junc_1, ..., v_K, j_K, junc_K]` where triplets correspond to the K
 prototypes and distances use BLOSUM62: `d(a,b) = s(a,a) + s(b,b) − 2·s(a,b)`.
 
 ```python
@@ -1003,8 +1007,8 @@ from mir.common.clonotype import Clonotype
 model = TCREmp.from_defaults(
     species="human",
     locus="TRB",
-    n_prototypes=1000,       # first 1 000 of 10 000 bundled prototypes
-    cdr3_method="fixed_gap", # or "biopython" for full DP alignment
+    n_prototypes=1000,          # first 1 000 of 10 000 bundled prototypes
+    junction_method="fixed_gap", # or "biopython" for full DP alignment
 )
 
 # Embed a list of Clonotype objects
@@ -1076,7 +1080,7 @@ Embedding quality (R² between sequence-space and latent-space distances, 1000×
 Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
 variability is the strongest single predictor of embedding distance.
 
-## 20. Practical Defaults
+## 21. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.
