@@ -258,6 +258,51 @@ $$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
 
 This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
 
+## 10. Pairwise Overlap Workflows
+
+Use `pairwise_overlap` and `pairwise_overlap_matrix` from
+`mir.comparative.overlap`.
+
+```python
+from mir.comparative.overlap import pairwise_overlap, pairwise_overlap_matrix
+
+# One pair
+r = pairwise_overlap(
+  rep_a,
+  rep_b,
+  overlap_space="aavj",   # one of: ntvj, nt, aavj, aa
+  metric="hamming",       # exact | hamming | levenshtein
+  threshold=1,
+)
+
+# All pairs
+df = pairwise_overlap_matrix(
+  reps,
+  sample_ids=sample_ids,
+  overlap_space="aavj",
+  metric="exact",
+  threshold=0,
+  n_jobs=-1,
+)
+```
+
+Operational notes:
+
+- Approximate matching (`threshold > 0`) is supported only for `aa` and `aavj` overlap spaces.
+- In amino-acid overlap spaces, non-coding clonotypes are excluded from overlap matching.
+- Similarity outputs are primary (`f_similarity`, `d_similarity`, `f2_similarity`).
+- Use metric transforms only when distance-like inputs are required:
+  - `f_metric = 1 - f_similarity`
+  - `d_metric = 1 / d_similarity` (for `d_similarity > 0`)
+- For repeated sample-vs-fixed-target calls, `pairwise_overlap` reuses target-side prepared data internally, which avoids repeated trie setup.
+- For a single pair, forcing many workers can be slower due to process startup; use `n_jobs=1` unless the query side is very large.
+
+Notebook analysis guidance:
+
+- Keep heavy transformations in Polars; convert to pandas only for table display.
+- For cohort embedding, use distance-like matrices (for example from `f_metric`/`d_metric`) as precomputed dissimilarities in UMAP/MDS.
+- For diversity-vs-age comparisons in aging notebooks, prefer a fixed-depth subsample that most donors satisfy (for example 250k reads).
+
 **Parallelization**: TCREmp supports workload-aware `n_jobs` auto selection:
 - `n_jobs=None` (default): auto-switch based on `len(clonotypes) * n_prototypes`
   between serial (`1`) and `os.cpu_count()`

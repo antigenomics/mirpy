@@ -37,11 +37,14 @@ from __future__ import annotations
 import math
 import multiprocessing
 import os
+import warnings
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 
 _MP_CTX = multiprocessing.get_context("spawn")
 
+from mir.basic.alphabets import AA_STANDARD_CHARS
+from mir.basic.mirseq_compat import is_coding as is_coding_aa
 from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
@@ -52,8 +55,25 @@ try:
 except Exception:  # pragma: no cover - optional runtime dependency guard
     Trie = None
 
-# Standard 20 amino acids used for 1-mismatch expansion.
-_AA20 = "ACDEFGHIKLMNPQRSTVWY"
+_VALID_OVERLAP_SPACES = {"ntvj", "nt", "aavj", "aa"}
+_AA_OVERLAP_SPACES = {"aavj", "aa"}
+# Backward-compatible alias used by tests and external callers.
+_AA20 = AA_STANDARD_CHARS
+_MAX_NONCODING_WARNINGS = 10
+_noncoding_warning_count = 0
+
+
+@dataclass(slots=True)
+class _PreparedTarget:
+    rep_obj: object
+    qi2: dict[tuple[str, str, str], int]
+    keys2: list[tuple[str, str, str]]
+    dc2: list[int]
+    total_dc2: int
+    trie: object | None
+
+
+_PAIRWISE_TARGET_CACHE: dict[tuple[int, str, str, int, bool, bool], _PreparedTarget] = {}
 
 # Clonotype key: (junction_aa, v_base, j_base).  Gene fields are "" when
 # the corresponding match requirement is disabled.
@@ -66,22 +86,7 @@ _Key = tuple[str, str, str]
 
 @dataclass
 class OverlapCounts:
-    """Clonotype and cell overlap between a query and a reference set.
-
-    Attributes
-    ----------
-    n : int
-        Number of unique query clonotypes that match at least one reference
-        clonotype.
-    dc : int
-        Sum of ``duplicate_count`` for the matching query clonotypes.
-    n_normalized : float, optional
-        Normalized count: ``n`` divided by target repertoire clonotype count.
-        Only set when target_n is provided to the overlap function.
-    dc_normalized : float, optional
-        Normalized duplicate_count: ``dc`` divided by target repertoire
-        total duplicate_count. Only set when target_dc is provided.
-    """
+    """Clonotype overlap summary between query and reference sets."""
 
     n: int
     dc: int
@@ -131,22 +136,64 @@ def _gene_base(gene: str) -> str:
     return allele_to_major(gene)
 
 
-def _clonotype_key(
-    clone: Clonotype,
+def _resolve_overlap_space(
+    overlap_space: str | None,
     *,
-    match_v: bool = True,
-    match_j: bool = True,
-) -> _Key:
-    """Return a ``(junction_aa, v_base, j_base)`` key for *clone*.
+    match_v: bool,
+    match_j: bool,
+) -> str:
+    if overlap_space is None:
+        if match_v and match_j:
+            return "aavj"
+        if not match_v and not match_j:
+            return "aa"
+        # Preserve legacy behavior for asymmetric match flags.
+        return "aavj"
+    if overlap_space not in _VALID_OVERLAP_SPACES:
+        raise ValueError(
+            f"overlap_space must be one of {sorted(_VALID_OVERLAP_SPACES)}; got {overlap_space!r}"
+        )
+    return overlap_space
 
-    When *match_v* or *match_j* is ``False``, the corresponding field is
-    set to ``""`` so that overlap matching ignores that gene.
-    """
-    return (
-        clone.junction_aa,
-        _gene_base(clone.v_gene) if match_v else "",
-        _gene_base(clone.j_gene) if match_j else "",
+
+def _allow_mismatches(overlap_space: str, metric: str, threshold: int) -> None:
+    if threshold <= 0 or metric == "exact":
+        return
+    if overlap_space not in _AA_OVERLAP_SPACES:
+        raise ValueError(
+            "Approximate overlap is only supported for overlap_space='aa' or 'aavj'. "
+            f"Got overlap_space={overlap_space!r}, metric={metric!r}, threshold={threshold}."
+        )
+
+
+def _emit_noncoding_warning(dropped: int, context: str) -> None:
+    global _noncoding_warning_count
+    if dropped <= 0 or _noncoding_warning_count >= _MAX_NONCODING_WARNINGS:
+        return
+
+    remaining = _MAX_NONCODING_WARNINGS - _noncoding_warning_count
+    warn_now = min(remaining, 1)
+    if warn_now <= 0:
+        return
+
+    suffix = ""
+    if _noncoding_warning_count + warn_now >= _MAX_NONCODING_WARNINGS:
+        suffix = " Further non-coding overlap warnings are suppressed."
+    warnings.warn(
+        f"Excluded {dropped} non-coding clonotypes from amino-acid overlap ({context})." + suffix,
+        RuntimeWarning,
+        stacklevel=2,
     )
+    _noncoding_warning_count += warn_now
+
+
+def _sequence_for_space(
+    clone: Clonotype,
+    overlap_space: str,
+) -> str:
+    if overlap_space in _AA_OVERLAP_SPACES:
+        return clone.junction_aa
+    return clone.junction
 
 
 def _count_overlap_1mm_trie(
@@ -236,7 +283,7 @@ def expand_1mm(seq: str) -> list[str]:
     for i, orig in enumerate(seq):
         prefix = seq[:i]
         suffix = seq[i + 1:]
-        for aa in _AA20:
+        for aa in AA_STANDARD_CHARS:
             if aa != orig:
                 result.append(prefix + aa + suffix)
     return result
@@ -248,6 +295,7 @@ def make_reference_keys(
     allow_1mm: bool = False,
     match_v: bool = True,
     match_j: bool = True,
+    overlap_space: str | None = None,
 ) -> frozenset[_Key]:
     """Build a ``frozenset`` of ``(junction_aa, v_base, j_base)`` keys.
 
@@ -266,41 +314,61 @@ def make_reference_keys(
         When ``False``, V-gene is ignored (key field set to ``""``).
     match_j:
         When ``False``, J-gene is ignored (key field set to ``""``).
+    overlap_space:
+        Explicit key space: ``"ntvj"``, ``"nt"``, ``"aavj"``, or ``"aa"``.
+        When ``None``, legacy ``match_v/match_j`` behavior is used.
 
     Returns
     -------
     frozenset
         One key per unique (possibly expanded) clonotype entry.
     """
+    overlap_space = _resolve_overlap_space(overlap_space, match_v=match_v, match_j=match_j)
+    use_v = overlap_space in {"ntvj", "aavj"}
+    use_j = overlap_space in {"ntvj", "aavj"}
+    use_aa = overlap_space in _AA_OVERLAP_SPACES
+
     keys: set[_Key] = set()
+    dropped_noncoding = 0
 
     pending = getattr(repertoire, "_pending_cols", None)
     if pending is not None:
+        junctions = pending.get("junctions", [])
         junction_aas = pending.get("junction_aas", [])
         v_genes = pending.get("v_genes", [])
         j_genes = pending.get("j_genes", [])
-        for jaa, v_gene, j_gene in zip(junction_aas, v_genes, j_genes):
-            if not jaa:
+        for jnt, jaa, v_gene, j_gene in zip(junctions, junction_aas, v_genes, j_genes):
+            seq = jaa if use_aa else jnt
+            if not seq:
                 continue
-            v = _gene_base(v_gene) if match_v else ""
-            j = _gene_base(j_gene) if match_j else ""
-            if allow_1mm:
-                for variant in expand_1mm(jaa):
+            if use_aa and not is_coding_aa(seq):
+                dropped_noncoding += 1
+                continue
+            v = _gene_base(v_gene) if use_v else ""
+            j = _gene_base(j_gene) if use_j else ""
+            if allow_1mm and use_aa:
+                for variant in expand_1mm(seq):
                     keys.add((variant, v, j))
             else:
-                keys.add((jaa, v, j))
+                keys.add((seq, v, j))
+        _emit_noncoding_warning(dropped_noncoding, context=f"reference:{overlap_space}")
         return frozenset(keys)
 
     for c in repertoire.clonotypes:
-        if not c.junction_aa:
+        seq = _sequence_for_space(c, overlap_space)
+        if not seq:
             continue
-        v = _gene_base(c.v_gene) if match_v else ""
-        j = _gene_base(c.j_gene) if match_j else ""
-        if allow_1mm:
-            for variant in expand_1mm(c.junction_aa):
+        if use_aa and not c.is_coding():
+            dropped_noncoding += 1
+            continue
+        v = _gene_base(c.v_gene) if use_v else ""
+        j = _gene_base(c.j_gene) if use_j else ""
+        if allow_1mm and use_aa:
+            for variant in expand_1mm(seq):
                 keys.add((variant, v, j))
         else:
-            keys.add((c.junction_aa, v, j))
+            keys.add((seq, v, j))
+    _emit_noncoding_warning(dropped_noncoding, context=f"reference:{overlap_space}")
     return frozenset(keys)
 
 
@@ -309,6 +377,7 @@ def make_query_index(
     *,
     match_v: bool = True,
     match_j: bool = True,
+    overlap_space: str | None = None,
 ) -> dict[_Key, int]:
     """Build a ``{(junction_aa, v_base, j_base): duplicate_count}`` index.
 
@@ -323,36 +392,60 @@ def make_query_index(
         When ``False``, V-gene is ignored (key field set to ``""``).
     match_j:
         When ``False``, J-gene is ignored (key field set to ``""``).
+    overlap_space:
+        Explicit key space: ``"ntvj"``, ``"nt"``, ``"aavj"``, or ``"aa"``.
+        When ``None``, legacy ``match_v/match_j`` behavior is used.
 
     Returns
     -------
     dict
         Maps each unique clonotype key to its total ``duplicate_count``.
     """
+    overlap_space = _resolve_overlap_space(overlap_space, match_v=match_v, match_j=match_j)
+    use_v = overlap_space in {"ntvj", "aavj"}
+    use_j = overlap_space in {"ntvj", "aavj"}
+    use_aa = overlap_space in _AA_OVERLAP_SPACES
+
     index: dict[_Key, int] = {}
+    dropped_noncoding = 0
 
     pending = getattr(repertoire, "_pending_cols", None)
     if pending is not None:
+        junctions = pending.get("junctions", [])
         junction_aas = pending.get("junction_aas", [])
         v_genes = pending.get("v_genes", [])
         j_genes = pending.get("j_genes", [])
         dups = pending.get("dup_counts", [])
-        for jaa, v_gene, j_gene, dc in zip(junction_aas, v_genes, j_genes, dups):
-            if not jaa:
+        for jnt, jaa, v_gene, j_gene, dc in zip(junctions, junction_aas, v_genes, j_genes, dups):
+            seq = jaa if use_aa else jnt
+            if not seq:
+                continue
+            if use_aa and not is_coding_aa(seq):
+                dropped_noncoding += 1
                 continue
             key = (
-                jaa,
-                _gene_base(v_gene) if match_v else "",
-                _gene_base(j_gene) if match_j else "",
+                seq,
+                _gene_base(v_gene) if use_v else "",
+                _gene_base(j_gene) if use_j else "",
             )
             index[key] = index.get(key, 0) + int(dc or 0)
+        _emit_noncoding_warning(dropped_noncoding, context=f"query:{overlap_space}")
         return index
 
     for c in repertoire.clonotypes:
-        if not c.junction_aa:
+        seq = _sequence_for_space(c, overlap_space)
+        if not seq:
             continue
-        key = _clonotype_key(c, match_v=match_v, match_j=match_j)
+        if use_aa and not c.is_coding():
+            dropped_noncoding += 1
+            continue
+        key = (
+            seq,
+            _gene_base(c.v_gene) if use_v else "",
+            _gene_base(c.j_gene) if use_j else "",
+        )
         index[key] = index.get(key, 0) + c.duplicate_count
+    _emit_noncoding_warning(dropped_noncoding, context=f"query:{overlap_space}")
     return index
 
 
@@ -504,53 +597,10 @@ _nan = float("nan")
 
 @dataclass
 class PairwiseOverlapResult:
-    """Pairwise overlap metrics between two :class:`~mir.common.repertoire.LocusRepertoire` objects.
+    """Pairwise overlap metrics between two repertoires.
 
-    For exact matching every metric is well-defined. For approximate matching
-    (hamming or levenshtein threshold > 0), a clonotype in sample 1 may match
-    multiple clonotypes in sample 2 (many-to-many). In that case
-    ``correlation`` and ``f2_metric`` are set to ``nan``; all other metrics
-    use symmetric counts (``n1_matched``, ``n2_matched``) or marginal
-    frequencies of the matched clones.
-
-    Attributes
-    ----------
-    n1 : int
-        Unique clonotypes in sample 1.
-    n2 : int
-        Unique clonotypes in sample 2.
-    n1_matched : int
-        Clonotypes in sample 1 with at least one match in sample 2.
-    n2_matched : int
-        Clonotypes in sample 2 with at least one match from sample 1.
-    f1_overlap : float
-        Total frequency (sum of normalized duplicate counts) of matched
-        clonotypes in sample 1.
-    f2_overlap : float
-        Total frequency of matched clonotypes in sample 2.
-    jaccard : float
-        Jaccard similarity = n12 / (n1 + n2 − n12).  For exact matching,
-        n12 = n1_matched.  For approximate matching, n12 is the geometric
-        mean sqrt(n1_matched × n2_matched) to enforce symmetry.
-    d_metric : float
-        D-metric = n12 / sqrt(n1 × n2).  Same n12 convention as Jaccard.
-    f_metric : float
-        F-metric = sqrt(f1_overlap × f2_overlap).
-    morisita_horn : float
-        Morisita-Horn index = 2 Σ(p_i q_i) / (D1 + D2) where D1, D2 are
-        Simpson's lambda for each sample.  For approximate matching the
-        numerator sums over all matched (i, j) pairs, which may slightly
-        overestimate the index when many-to-many matches occur.
-    correlation : float
-        Pearson correlation of paired overlap frequencies.  ``nan`` for
-        approximate matching or when fewer than 2 overlap clonotypes.
-    f2_metric : float
-        F2-metric = Σ sqrt(f1_i × f2_i) over matched clone pairs.
-        ``nan`` for approximate matching.
-    mode : str
-        Matching mode: ``"exact"``, ``"hamming:N"``, or ``"levenshtein:N"``.
-    is_approximate : bool
-        ``True`` when threshold > 0 (many-to-many matching).
+    In approximate modes (Hamming/Levenshtein with threshold > 0), matching is
+    many-to-many and ``correlation`` / ``f2_similarity`` are reported as ``nan``.
     """
 
     n1: int
@@ -560,13 +610,29 @@ class PairwiseOverlapResult:
     f1_overlap: float
     f2_overlap: float
     jaccard: float
-    d_metric: float
-    f_metric: float
+    szymkiewicz_simpson: float
+    d_similarity: float
+    f_similarity: float
     morisita_horn: float
     correlation: float
-    f2_metric: float
+    f2_similarity: float
     mode: str
     is_approximate: bool
+
+    @property
+    def d_metric(self) -> float:
+        """Backward-compatible alias for ``d_similarity``."""
+        return self.d_similarity
+
+    @property
+    def f_metric(self) -> float:
+        """Backward-compatible alias for ``f_similarity``."""
+        return self.f_similarity
+
+    @property
+    def f2_metric(self) -> float:
+        """Backward-compatible alias for ``f2_similarity``."""
+        return self.f2_similarity
 
     def as_dict(self) -> dict:
         """Return all fields as a plain ``dict``."""
@@ -574,9 +640,17 @@ class PairwiseOverlapResult:
             "n1": self.n1, "n2": self.n2,
             "n1_matched": self.n1_matched, "n2_matched": self.n2_matched,
             "f1_overlap": self.f1_overlap, "f2_overlap": self.f2_overlap,
-            "jaccard": self.jaccard, "d_metric": self.d_metric,
-            "f_metric": self.f_metric, "morisita_horn": self.morisita_horn,
-            "correlation": self.correlation, "f2_metric": self.f2_metric,
+            "jaccard": self.jaccard,
+            "szymkiewicz_simpson": self.szymkiewicz_simpson,
+            "d_similarity": self.d_similarity,
+            "f_similarity": self.f_similarity,
+            "morisita_horn": self.morisita_horn,
+            "correlation": self.correlation,
+            "f2_similarity": self.f2_similarity,
+            # Compatibility keys for existing notebooks/tests.
+            "d_metric": self.d_similarity,
+            "f_metric": self.f_similarity,
+            "f2_metric": self.f2_similarity,
             "mode": self.mode, "is_approximate": self.is_approximate,
         }
 
@@ -610,8 +684,8 @@ def _empty_pairwise(n1: int, n2: int, mode: str, is_approx: bool) -> PairwiseOve
     return PairwiseOverlapResult(
         n1=n1, n2=n2, n1_matched=0, n2_matched=0,
         f1_overlap=0.0, f2_overlap=0.0,
-        jaccard=0.0, d_metric=0.0, f_metric=0.0,
-        morisita_horn=0.0, correlation=_nan, f2_metric=_nan,
+        jaccard=0.0, szymkiewicz_simpson=0.0, d_similarity=0.0, f_similarity=0.0,
+        morisita_horn=0.0, correlation=_nan, f2_similarity=_nan,
         mode=mode, is_approximate=is_approx,
     )
 
@@ -644,9 +718,10 @@ def _compute_exact_pairwise(
     f2_overlap = sum(ov_f2)
 
     jaccard = n12 / (n1 + n2 - n12)
-    d_metric = n12 / math.sqrt(n1 * n2)
-    f_metric = math.sqrt(f1_overlap * f2_overlap)
-    f2_metric_val = sum(math.sqrt(a * b) for a, b in zip(ov_f1, ov_f2))
+    d_similarity = n12 / math.sqrt(n1 * n2)
+    f_similarity = math.sqrt(f1_overlap * f2_overlap)
+    f2_similarity = sum(math.sqrt(a * b) for a, b in zip(ov_f1, ov_f2))
+    szymkiewicz_simpson = n12 / min(n1, n2)
 
     mh_num = 2.0 * sum(a * b for a, b in zip(ov_f1, ov_f2))
     morisita_horn = mh_num / (D1 + D2) if (D1 + D2) > 0 else _nan
@@ -654,8 +729,12 @@ def _compute_exact_pairwise(
     if n12 >= 2:
         from scipy.stats import pearsonr
         try:
-            r, _ = pearsonr(ov_f1, ov_f2)
-            correlation = float(r) if not math.isnan(r) else _nan
+            # Avoid scipy ConstantInputWarning spam on degenerate vectors.
+            if max(ov_f1) == min(ov_f1) or max(ov_f2) == min(ov_f2):
+                correlation = _nan
+            else:
+                r, _ = pearsonr(ov_f1, ov_f2)
+                correlation = float(r) if not math.isnan(r) else _nan
         except Exception:
             correlation = _nan
     else:
@@ -664,8 +743,13 @@ def _compute_exact_pairwise(
     return PairwiseOverlapResult(
         n1=n1, n2=n2, n1_matched=n12, n2_matched=n12,
         f1_overlap=f1_overlap, f2_overlap=f2_overlap,
-        jaccard=jaccard, d_metric=d_metric, f_metric=f_metric,
-        morisita_horn=morisita_horn, correlation=correlation, f2_metric=f2_metric_val,
+        jaccard=jaccard,
+        szymkiewicz_simpson=szymkiewicz_simpson,
+        d_similarity=d_similarity,
+        f_similarity=f_similarity,
+        morisita_horn=morisita_horn,
+        correlation=correlation,
+        f2_similarity=f2_similarity,
         mode="exact", is_approximate=False,
     )
 
@@ -801,6 +885,7 @@ def _compute_trie_pairwise(
     metric: str,
     threshold: int,
     n_jobs: int = 1,
+    prepared_target: _PreparedTarget | None = None,
 ) -> PairwiseOverlapResult:
     """Approximate pairwise overlap via tcrtrie.
 
@@ -814,12 +899,25 @@ def _compute_trie_pairwise(
     if n1 == 0 or n2 == 0 or Trie is None:
         return _empty_pairwise(n1, n2, mode, True)
 
-    keys2 = list(qi2.keys())
-    jaa2 = [k[0] for k in keys2]
-    v2 = [k[1] for k in keys2]
-    j2 = [k[2] for k in keys2]
-    dc2 = [qi2[k] for k in keys2]
-    total_dc2 = sum(dc2) or 1
+    if prepared_target is not None:
+        keys2 = prepared_target.keys2
+        jaa2 = [k[0] for k in keys2]
+        v2 = [k[1] for k in keys2]
+        j2 = [k[2] for k in keys2]
+        dc2 = prepared_target.dc2
+        total_dc2 = prepared_target.total_dc2
+        trie = prepared_target.trie
+    else:
+        keys2 = list(qi2.keys())
+        jaa2 = [k[0] for k in keys2]
+        v2 = [k[1] for k in keys2]
+        j2 = [k[2] for k in keys2]
+        dc2 = [qi2[k] for k in keys2]
+        total_dc2 = sum(dc2) or 1
+        try:
+            trie = Trie(sequences=jaa2, vGenes=v2, jGenes=j2)
+        except Exception:
+            return _empty_pairwise(n1, n2, mode, True)
 
     keys1 = list(qi1.keys())
     dc1 = [qi1[k] for k in keys1]
@@ -827,18 +925,19 @@ def _compute_trie_pairwise(
 
     limits = search_limits(metric, threshold)
 
-    try:
-        trie = Trie(sequences=jaa2, vGenes=v2, jGenes=j2)
-    except Exception:
-        return _empty_pairwise(n1, n2, mode, True)
+    # Process startup can dominate runtime for modest query sizes.
+    if n_jobs > 1 and len(keys1) < 50_000:
+        n_jobs = 1
 
     if n_jobs == 1:
         s1_idx, s2_idx, dc1_matched, mh_sum = _trie_search_serial(
             keys1, dc1, total_dc1, trie, v2, j2, dc2, total_dc2, *limits,
         )
-        del trie  # free before spawning (not needed here but consistent)
+        if prepared_target is None:
+            del trie  # free before spawning (not needed here but consistent)
     else:
-        del trie  # rebuilt inside each worker via initializer
+        if prepared_target is None:
+            del trie  # rebuilt inside each worker via initializer
         chunk_size = max(1, len(keys1) // n_jobs)
         chunks = [
             [(i, keys1[i][0], keys1[i][1], keys1[i][2], dc1[i])
@@ -877,8 +976,9 @@ def _compute_trie_pairwise(
     n12_eff = math.sqrt(n1_matched * n2_matched)
     denom = n1 + n2 - n12_eff
     jaccard = n12_eff / denom if denom > 0 else 0.0
-    d_metric = n12_eff / math.sqrt(n1 * n2)
-    f_metric = math.sqrt(f1_overlap * f2_overlap)
+    d_similarity = n12_eff / math.sqrt(n1 * n2)
+    f_similarity = math.sqrt(f1_overlap * f2_overlap)
+    szymkiewicz_simpson = min(n1_matched, n2_matched) / min(n1, n2)
 
     D1 = _simpson_lambda(dc1, total_dc1)
     D2 = _simpson_lambda(dc2, total_dc2)
@@ -887,8 +987,13 @@ def _compute_trie_pairwise(
     return PairwiseOverlapResult(
         n1=n1, n2=n2, n1_matched=n1_matched, n2_matched=n2_matched,
         f1_overlap=f1_overlap, f2_overlap=f2_overlap,
-        jaccard=jaccard, d_metric=d_metric, f_metric=f_metric,
-        morisita_horn=morisita_horn, correlation=_nan, f2_metric=_nan,
+        jaccard=jaccard,
+        szymkiewicz_simpson=szymkiewicz_simpson,
+        d_similarity=d_similarity,
+        f_similarity=f_similarity,
+        morisita_horn=morisita_horn,
+        correlation=_nan,
+        f2_similarity=_nan,
         mode=mode, is_approximate=True,
     )
 
@@ -905,6 +1010,7 @@ def pairwise_overlap(
     threshold: int = 0,
     match_v: bool = True,
     match_j: bool = True,
+    overlap_space: str | None = None,
     n_jobs: int = 1,
 ) -> PairwiseOverlapResult:
     """Compute pairwise overlap metrics between two repertoires.
@@ -921,6 +1027,11 @@ def pairwise_overlap(
         levenshtein).  ``0`` is equivalent to ``metric="exact"``.
     match_v, match_j :
         When ``False``, the corresponding gene is ignored for matching.
+    overlap_space :
+        Identity space: ``"ntvj"``, ``"nt"``, ``"aavj"``, or ``"aa"``.
+        When set, this overrides legacy ``match_v/match_j`` matching semantics.
+        Approximate matching (``threshold > 0``) is allowed only for
+        ``"aa"`` and ``"aavj"``.
     n_jobs :
         Worker processes for parallel trie search within this pair.
         ``-1`` → all physical cores.  ``1`` (default) → serial.
@@ -933,19 +1044,73 @@ def pairwise_overlap(
     Examples
     --------
     >>> result = pairwise_overlap(rep1, rep2)
-    >>> result.f_metric
+    >>> result.f_similarity
     0.0123
     >>> result = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
-    >>> result.d_metric
+    >>> result.d_similarity
     0.045
     """
+    overlap_space = _resolve_overlap_space(overlap_space, match_v=match_v, match_j=match_j)
+    _allow_mismatches(overlap_space, metric, threshold)
+
     n_jobs = _n_jobs_resolve(n_jobs)
-    qi1 = make_query_index(rep1, match_v=match_v, match_j=match_j)
-    qi2 = make_query_index(rep2, match_v=match_v, match_j=match_j)
+    qi1 = make_query_index(
+        rep1,
+        match_v=match_v,
+        match_j=match_j,
+        overlap_space=overlap_space,
+    )
+
+    cache_key = (id(rep2), overlap_space, metric, threshold, match_v, match_j)
+    prepared_target = _PAIRWISE_TARGET_CACHE.get(cache_key)
+    if prepared_target is not None and prepared_target.rep_obj is not rep2:
+        prepared_target = None
+        _PAIRWISE_TARGET_CACHE.pop(cache_key, None)
+    if prepared_target is None:
+        qi2 = make_query_index(
+            rep2,
+            match_v=match_v,
+            match_j=match_j,
+            overlap_space=overlap_space,
+        )
+        keys2 = list(qi2.keys())
+        dc2 = [qi2[k] for k in keys2]
+        total_dc2 = sum(dc2) or 1
+
+        trie = None
+        if metric != "exact" and threshold > 0 and qi2 and Trie is not None:
+            try:
+                trie = Trie(
+                    sequences=[k[0] for k in keys2],
+                    vGenes=[k[1] for k in keys2],
+                    jGenes=[k[2] for k in keys2],
+                )
+            except Exception:
+                trie = None
+
+        prepared_target = _PreparedTarget(
+            rep_obj=rep2,
+            qi2=qi2,
+            keys2=keys2,
+            dc2=dc2,
+            total_dc2=total_dc2,
+            trie=trie,
+        )
+        # Keep cache bounded.
+        if len(_PAIRWISE_TARGET_CACHE) >= 32:
+            _PAIRWISE_TARGET_CACHE.pop(next(iter(_PAIRWISE_TARGET_CACHE)))
+        _PAIRWISE_TARGET_CACHE[cache_key] = prepared_target
 
     if metric == "exact" or threshold == 0:
-        return _compute_exact_pairwise(qi1, qi2)
-    return _compute_trie_pairwise(qi1, qi2, metric=metric, threshold=threshold, n_jobs=n_jobs)
+        return _compute_exact_pairwise(qi1, prepared_target.qi2)
+    return _compute_trie_pairwise(
+        qi1,
+        prepared_target.qi2,
+        metric=metric,
+        threshold=threshold,
+        n_jobs=n_jobs,
+        prepared_target=prepared_target,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -982,6 +1147,7 @@ def pairwise_overlap_matrix(
     threshold: int = 0,
     match_v: bool = True,
     match_j: bool = True,
+    overlap_space: str | None = None,
     n_jobs: int = 1,
 ) -> "pandas.DataFrame":
     """Compute all pairwise overlap metrics for a list of repertoires.
@@ -999,6 +1165,9 @@ def pairwise_overlap_matrix(
         Edit-distance threshold (0 = exact).
     match_v, match_j :
         Gene-matching flags passed through to :func:`pairwise_overlap`.
+    overlap_space :
+        Identity space: ``"ntvj"``, ``"nt"``, ``"aavj"``, or ``"aa"``.
+        Approximate matching is supported only for ``"aa"``/``"aavj"``.
     n_jobs :
         Parallel worker processes.  ``-1`` → all physical cores.
         Parallelism is across *pairs* (not within a single pair).
@@ -1013,7 +1182,7 @@ def pairwise_overlap_matrix(
     Examples
     --------
     >>> df = pairwise_overlap_matrix(reps, sample_ids=ids, n_jobs=-1)
-    >>> dist = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+    >>> dist = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_similarity")
     """
     import pandas as pd
 
@@ -1025,10 +1194,20 @@ def pairwise_overlap_matrix(
     if len(ids) != n:
         raise ValueError("sample_ids length must match repertoires length.")
 
+    overlap_space = _resolve_overlap_space(overlap_space, match_v=match_v, match_j=match_j)
+    _allow_mismatches(overlap_space, metric, threshold)
     n_jobs = _n_jobs_resolve(n_jobs)
 
     # Serialize all repertoires to plain dicts once (picklable for workers).
-    qi_list = [make_query_index(r, match_v=match_v, match_j=match_j) for r in repertoires]
+    qi_list = [
+        make_query_index(
+            r,
+            match_v=match_v,
+            match_j=match_j,
+            overlap_space=overlap_space,
+        )
+        for r in repertoires
+    ]
 
     pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
     params = {"metric": metric, "threshold": threshold}

@@ -432,19 +432,6 @@ class OverlapResult:
 
     Produced by :meth:`VDJBetOverlapAnalysis.score`.  Per-mock distributions
     are stored so the object is self-contained; z/p-scores are computed lazily.
-
-    Attributes
-    ----------
-    n_total, dc_total:
-        Total unique clonotypes and total duplicate count in the query.
-    n, dc:
-        Unique clonotypes and cells overlapping the reference.
-    mock_n, mock_dc:
-        Per-mock overlap counts (length == n_mocks).
-    allow_1mm:
-        Whether 1-substitution CDR3 matching was used.
-    match_v, match_j:
-        Whether V-gene / J-gene matching was required.
     """
 
     n_total: int
