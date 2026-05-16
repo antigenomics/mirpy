@@ -1,6 +1,11 @@
 '''Repertoire/clonotype lists matching, comparison and overlap'''
 # from .match import DenseMatcher
 
+from mir.comparative.overlap import (
+    PairwiseOverlapResult,
+    pairwise_overlap,
+    pairwise_overlap_matrix,
+)
 from mir.comparative.vdjbet import (
 	OverlapResult,
 	PgenBinPool,
@@ -20,6 +25,9 @@ from mir.comparative.vdjbet_workflow import (
 )
 
 __all__ = [
+	"PairwiseOverlapResult",
+	"pairwise_overlap",
+	"pairwise_overlap_matrix",
 	"OverlapResult",
 	"PgenBinPool",
 	"VDJBetOverlapAnalysis",

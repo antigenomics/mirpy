@@ -57,7 +57,7 @@ If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 - `mir.distances`: aligners, search, graph-based utilities
 - `mir.basic`: diversity, sampling, segment usage, pgen helpers
 - `mir.embedding`: repertoire and prototype embeddings
-- `mir.comparative`: overlap, matching, TCRnet-style comparisons
+- `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
 - `mir.biomarkers`: enrichment and biomarker detection utilities
 
 ## Quick start
