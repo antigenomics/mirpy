@@ -87,6 +87,53 @@ Typical Workflow
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
 
+Pairwise Overlap Spaces
+-----------------------
+
+``mir.comparative.overlap`` supports four identity spaces:
+
+* ``"ntvj"``: nucleotide CDR3 + V + J
+* ``"nt"``: nucleotide CDR3 only
+* ``"aavj"``: amino-acid CDR3 + V + J
+* ``"aa"``: amino-acid CDR3 only
+
+Only amino-acid spaces (``"aa"`` and ``"aavj"``) support approximate
+matching (Hamming/Levenshtein with ``threshold > 0``).
+
+.. code-block:: python
+
+   from mir.comparative.overlap import pairwise_overlap
+
+   # Exact nucleotide+V+J overlap
+   r_ntvj = pairwise_overlap(rep_a, rep_b, overlap_space="ntvj")
+
+   # Approximate amino-acid overlap (1 mismatch)
+   r_aa_1mm = pairwise_overlap(
+      rep_a,
+      rep_b,
+      overlap_space="aavj",
+      metric="hamming",
+      threshold=1,
+   )
+
+The pairwise API reports similarity-centric outputs:
+
+* ``f_similarity``
+* ``d_similarity``
+* ``f2_similarity``
+* ``jaccard``
+* ``szymkiewicz_simpson``
+* ``morisita_horn``
+
+Use distance-like conversions only where required by downstream methods (for
+example UMAP/MDS with precomputed dissimilarities):
+
+* ``f_metric = 1 - f_similarity``
+* ``d_metric = 1 / d_similarity`` (for ``d_similarity > 0``)
+
+In amino-acid overlap spaces, non-coding clonotypes are excluded from overlap
+matching and reported with bounded warnings.
+
 Single-Cell 10x Paired-Chain Loading
 ------------------------------------
 

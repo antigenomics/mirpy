@@ -52,12 +52,14 @@ def _make_rep(
     v_gene: str = "TRBV12-3*01",
     j_gene: str = "TRBJ2-2*01",
     locus: str = "TRB",
+    junctions: list[str] | None = None,
 ) -> LocusRepertoire:
     clones = [
         Clonotype(
             sequence_id=str(i),
             locus=locus,
             junction_aa=jaa,
+            junction=(junctions[i] if junctions is not None else ""),
             v_gene=v_gene,
             j_gene=j_gene,
             duplicate_count=i + 1,
@@ -368,6 +370,60 @@ class TestOverlapSpeed:
     @pytest.fixture(scope="class")
     def ref_rep(self):
         return _make_synthetic_rep(self.N_REF)
+
+
+    class TestPairwiseOverlapSpaces:
+        """Sanity checks for overlap spaces and non-coding handling."""
+
+        def test_exact_spaces_identical(self) -> None:
+            rep = _make_rep(
+                ["CASSF", "CASSY", "CASSW"],
+                junctions=["TGTGCC", "TGTGCA", "TGTGCG"],
+            )
+
+            for overlap_space in ("ntvj", "nt", "aavj", "aa"):
+                r = pairwise_overlap(rep, rep, overlap_space=overlap_space)
+                assert r.n1_matched == 3
+                assert r.n2_matched == 3
+                assert r.jaccard == pytest.approx(1.0)
+
+        def test_nt_spaces_forbid_mismatch(self) -> None:
+            rep1 = _make_rep(["CASSF"], junctions=["TGTGCC"])
+            rep2 = _make_rep(["CASSF"], junctions=["TGTGCC"])
+
+            with pytest.raises(ValueError):
+                pairwise_overlap(rep1, rep2, overlap_space="nt", metric="hamming", threshold=1)
+
+            with pytest.raises(ValueError):
+                pairwise_overlap(rep1, rep2, overlap_space="ntvj", metric="levenshtein", threshold=1)
+
+        def test_noncoding_excluded_from_aa_overlap(self) -> None:
+            rep1 = _make_rep(
+                ["CASSF", "CAS*F", "CAS~F", "CAS_F"],
+                junctions=["A", "B", "C", "D"],
+            )
+            rep2 = _make_rep(
+                ["CASSF", "CAS*F", "CAS~F", "CAS_F"],
+                junctions=["A", "B", "C", "D"],
+            )
+
+            r_aa = pairwise_overlap(rep1, rep2, overlap_space="aa")
+            r_nt = pairwise_overlap(rep1, rep2, overlap_space="nt")
+
+            assert r_aa.n1_matched == 1
+            assert r_nt.n1_matched == 4
+
+        def test_sample_vs_downsample_sanity(self) -> None:
+            rep = _make_rep(
+                ["CASSF", "CASSY", "CASSW", "CASRG", "CASST"],
+                junctions=["AAA", "AAT", "AAC", "AAG", "ATA"],
+            )
+            downsample = LocusRepertoire(clonotypes=rep.clonotypes[:3], locus="TRB")
+
+            for overlap_space in ("ntvj", "nt", "aavj", "aa"):
+                r = pairwise_overlap(rep, downsample, overlap_space=overlap_space)
+                assert r.n2_matched == 3
+                assert r.n1_matched == 3
 
     @pytest.fixture(scope="class")
     def query_rep(self):
