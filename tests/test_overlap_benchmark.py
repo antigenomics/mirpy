@@ -32,7 +32,11 @@ import pytest
 
 from mir.common.parser import VDJtoolsParser
 from mir.common.repertoire import LocusRepertoire
-from mir.comparative.overlap import pairwise_overlap, pairwise_overlap_matrix
+from mir.comparative.overlap import (
+    pairwise_overlap,
+    pairwise_overlap_matrix,
+)
+from tests.benchmark_helpers import estimate_many_vs_many_runtime, many_vs_many_sample_overlap
 from tests.conftest import skip_benchmarks
 
 # ---------------------------------------------------------------------------
@@ -135,8 +139,8 @@ class TestPairwiseOverlapBenchmark:
         rep_a, rep_b, na, nb = rep_pair
         self._header(na, nb, rep_a, rep_b)
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=1)
-        print(f"\n[exact  serial ] n1_matched={r.n1_matched:,}  D={r.d_metric:.4f}  "
-              f"F={r.f_metric:.4f}  J={r.jaccard:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+        print(f"\n[exact  serial ] n1_matched={r.n1_matched:,}  D={r.d_similarity:.4f}  "
+              f"F={r.f_similarity:.4f}  J={r.jaccard:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
         assert r.n1_matched >= 0
 
     def test_exact_parallel(self, rep_pair) -> None:
@@ -147,14 +151,14 @@ class TestPairwiseOverlapBenchmark:
               f"parallel={elapsed_p*1e3:.1f} ms  {peak_mb:.0f} MB")
         # Results must match
         assert r_s.n1_matched == r_p.n1_matched
-        assert abs(r_s.d_metric - r_p.d_metric) < 1e-9
+        assert abs(r_s.d_similarity - r_p.d_similarity) < 1e-9
 
     def test_hamming1_serial(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=1)
         r_exact = pairwise_overlap(rep_a, rep_b, metric="exact", threshold=0)
         print(f"\n[ham:1  serial ] n1_matched={r.n1_matched:,} (exact={r_exact.n1_matched:,})  "
-              f"D={r.d_metric:.4f}  F={r.f_metric:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+              f"D={r.d_similarity:.4f}  F={r.f_similarity:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
         assert r.n1_matched >= r_exact.n1_matched
 
     def test_hamming1_parallel(self, rep_pair) -> None:
@@ -169,7 +173,7 @@ class TestPairwiseOverlapBenchmark:
         rep_a, rep_b, na, nb = rep_pair
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=1)
         print(f"\n[lev:1  serial ] n1_matched={r.n1_matched:,}  "
-              f"D={r.d_metric:.4f}  F={r.f_metric:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+              f"D={r.d_similarity:.4f}  F={r.f_similarity:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
         assert r.n1_matched >= 0
 
     def test_levenshtein1_parallel(self, rep_pair) -> None:
@@ -196,8 +200,8 @@ class TestPairwiseOverlapBenchmark:
                     continue  # skip duplicate if N_JOBS == 1
                 label = f"{metric}:{threshold}"
                 elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric=metric, threshold=threshold, n_jobs=n_jobs)
-                print(f"{label:<20} {n_jobs:>5} {r.n1_matched:>12,} {r.d_metric:>8.4f} "
-                      f"{r.f_metric:>8.4f} {elapsed*1e3:>12.1f} {peak_mb:>10.0f}")
+                print(f"{label:<20} {n_jobs:>5} {r.n1_matched:>12,} {r.d_similarity:>8.4f} "
+                      f"{r.f_similarity:>8.4f} {elapsed*1e3:>12.1f} {peak_mb:>10.0f}")
         assert True  # formatting test, always passes
 
 
@@ -282,3 +286,95 @@ class TestPairwiseMatrixBenchmark:
         print(f"\n[lev:1  matrix n={len(reps)} n_jobs={self.N_JOBS}] "
               f"{n_pairs} pairs  {elapsed:.2f}s  {peak/1024**2:.0f} MB")
         assert len(df) == n_pairs
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestManyVsManyPilotBenchmark:
+    """Pilot-based runtime benchmark for many-vs-many helper.
+
+    Uses a subset of samples to estimate full matrix runtime and validates that
+    a small exact run completes in meaningful time.
+    """
+
+    N_JOBS = int(os.getenv("MIRPY_BENCH_OVERLAP_N_JOBS", "4"))
+
+    @pytest.fixture(scope="class")
+    def aging_reps_small(self) -> tuple[list[LocusRepertoire], list[str]]:
+        import csv
+
+        meta_path = _VDJTOOLS_LITE / "metadata_aging.txt"
+        if not meta_path.exists():
+            meta_path = _ASSETS_REPS / "metadata_aging.txt"
+        if not meta_path.exists():
+            pytest.skip("metadata_aging.txt not found.")
+
+        parser = VDJtoolsParser(sep="\t")
+        reps, ids = [], []
+        with open(meta_path) as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                fname = row.get("file_name") or row.get("#file_name")
+                if not fname:
+                    continue
+                candidates = [fname, f"{fname}.gz", fname.replace(".txt", ".txt.gz")]
+                found = None
+                for base_dir in (_VDJTOOLS_LITE, _ASSETS_REPS):
+                    for cand in candidates:
+                        p = base_dir / cand
+                        if p.exists():
+                            found = p
+                            break
+                    if found is not None:
+                        break
+                if found is None:
+                    continue
+                clones = parser.parse(str(found))
+                reps.append(LocusRepertoire(clonotypes=clones, locus="TRB"))
+                ids.append(row.get("sample_id", found.stem))
+                if len(reps) >= 16:
+                    break
+
+        if len(reps) < 8:
+            pytest.skip(f"Loaded only {len(reps)} repertoires; need >= 8 for pilot benchmark.")
+
+        print(f"\nLoaded {len(reps)} repertoires for pilot benchmark")
+        return reps, ids
+
+    def test_pilot_estimate_and_exact_subset_runtime(self, aging_reps_small) -> None:
+        reps, ids = aging_reps_small
+
+        est = estimate_many_vs_many_runtime(
+            reps,
+            metric="exact",
+            threshold=0,
+            overlap_space="aavj",
+            n_jobs=self.N_JOBS,
+            pilot_sample_count=8,
+        )
+
+        print(
+            "\n[pilot estimate exact] "
+            f"pilot_pairs={est['pilot_pairs']} pilot_s={est['pilot_seconds']:.2f} "
+            f"s_per_pair={est['seconds_per_pair']:.4f} est_full_s={est['estimated_total_seconds']:.2f}"
+        )
+
+        t0 = time.perf_counter()
+        df = many_vs_many_sample_overlap(
+            reps,
+            sample_ids=ids,
+            metric="exact",
+            threshold=0,
+            overlap_space="aavj",
+            n_jobs=self.N_JOBS,
+        )
+        elapsed = time.perf_counter() - t0
+        expected_pairs = len(reps) * (len(reps) - 1) // 2
+
+        print(
+            f"[many-vs-many exact subset] pairs={expected_pairs} elapsed={elapsed:.2f}s "
+            f"n_jobs_effective={int(df['n_jobs_effective'].iloc[0])}"
+        )
+
+        assert len(df) == expected_pairs
+        assert elapsed < 600, f"subset many-vs-many exact took too long: {elapsed:.2f}s"

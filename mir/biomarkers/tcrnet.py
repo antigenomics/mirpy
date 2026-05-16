@@ -51,6 +51,19 @@ PValueMode = t.Literal["binomial", "beta-binomial"]
 _PVALUE_PARALLEL_MIN_CLONOTYPES = 256
 
 
+def _resolve_n_jobs(n_jobs: int) -> int:
+    if n_jobs == -1:
+        try:
+            import psutil
+            n = psutil.cpu_count(logical=False)
+            if n:
+                return n
+        except Exception:
+            pass
+        return os.cpu_count() or 1
+    return max(1, int(n_jobs))
+
+
 @dataclass(frozen=True)
 class TcrnetParams:
     """TCRNET parameter bundle."""
@@ -300,7 +313,7 @@ def compute_tcrnet(
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     as_table: bool = True,
-    n_jobs: int = 4,
+    n_jobs: int = -1,
 ) -> TcrnetResult | LocusRepertoire | SampleRepertoire:
     """Compute TCRNET-like enrichment, write clonotype metadata, and optionally return a table.
 
@@ -315,6 +328,7 @@ def compute_tcrnet(
         pvalue_mode=pvalue_mode,
     )
     params.validate()
+    n_jobs = _resolve_n_jobs(n_jobs)
     match_v, match_j = match_flags(norm_match_mode)
 
     query_loci = iter_loci(repertoire)
@@ -426,7 +440,7 @@ def add_tcrnet_metadata(
     pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
-    n_jobs: int = 4,
+    n_jobs: int = -1,
 ) -> LocusRepertoire | SampleRepertoire:
     """Compute TCRNET stats and write them into clonotype metadata in-place."""
     return t.cast(

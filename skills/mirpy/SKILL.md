@@ -153,8 +153,8 @@ from mir.basic.token_tables import filter_token_table, tokenize_clonotypes
 from mir.graph.token_graph import build_token_graph
 
 # Edit-distance graph (Hamming or Levenshtein on junction_aa)
-stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=4)
-graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=4)
+stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=-1)
+graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=-1)
 
 # Token graph filtered to RS-bearing 3-mers
 table    = tokenize_clonotypes(rep.clonotypes, k=3)
@@ -623,7 +623,7 @@ result = compute_tcrnet(
     pvalue_mode="binomial",            # "binomial" | "beta-binomial"
     pseudocount=1.0,                   # added to control m and M (Laplace smoothing)
     normalize_control_vj_usage=False,  # resample control to match sample V/J usage
-    n_jobs=4,
+    n_jobs=-1,
 )
 
 # result.table columns:
@@ -650,7 +650,7 @@ rep = add_tcrnet_metadata(
     match_mode="vj",
     pvalue_mode="binomial",
     pseudocount=1.0,
-    n_jobs=4,
+    n_jobs=-1,
 )
 # Metadata keys: tcrnet_n, tcrnet_N, tcrnet_m, tcrnet_M,
 #                tcrnet_sample_density, tcrnet_control_density,
@@ -663,6 +663,7 @@ Key behavior notes:
 - Control pseudocount (`pseudocount`, default 1.0) is added to both `m` and `M` — equivalent to inserting one virtual match in the control.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus.
 - Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
+- `n_jobs=-1` is the default and uses all physical cores; set `n_jobs=1` for serial profiling.
 
 ## 15. GLIPH-Style K-mer Enrichment (binomial)
 
@@ -741,8 +742,8 @@ r_h1 = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
 # Approximate matching — Levenshtein distance 1 (any single edit)
 r_l1 = pairwise_overlap(rep1, rep2, metric="levenshtein", threshold=1)
 
-print(r.jaccard, r.d_metric, r.f_metric, r.morisita_horn)
-print(r.f2_metric, r.correlation)  # nan for approximate matching
+print(r.jaccard, r.d_similarity, r.f_similarity, r.morisita_horn)
+print(r.f2_similarity, r.correlation)  # nan for approximate matching
 ```
 
 `PairwiseOverlapResult` fields:
@@ -753,15 +754,15 @@ print(r.f2_metric, r.correlation)  # nan for approximate matching
 | `n1_matched`, `n2_matched` | clones with ≥1 match in the other sample |
 | `f1_overlap`, `f2_overlap` | total frequency of matched clones |
 | `jaccard` | n12 / (n1 + n2 − n12) |
-| `d_metric` | n12 / sqrt(n1 × n2) |
-| `f_metric` | sqrt(f1_overlap × f2_overlap) |
+| `d_similarity` | n12 / sqrt(n1 × n2) |
+| `f_similarity` | sqrt(f1_overlap × f2_overlap) |
 | `morisita_horn` | 2 Σ(p_i q_i) / (D1 + D2) |
 | `correlation` | Pearson r of overlap frequencies (NaN for approximate) |
-| `f2_metric` | Σ sqrt(p_i × q_i) over matched pairs (NaN for approximate) |
+| `f2_similarity` | Σ sqrt(p_i × q_i) over matched pairs (NaN for approximate) |
 | `mode` | "exact", "hamming:N", "levenshtein:N" |
 | `is_approximate` | True when threshold > 0 |
 
-For approximate matching (threshold > 0), `correlation` and `f2_metric` are
+For approximate matching (threshold > 0), `correlation` and `f2_similarity` are
 `nan`; Jaccard and D-metric use the geometric mean of `n1_matched` and
 `n2_matched` for symmetry.
 
@@ -780,7 +781,7 @@ df = pairwise_overlap_matrix(
 )
 
 # Pivot to symmetric NxN matrix of a single metric
-pivot = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+pivot = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_similarity")
 ```
 
 ### Dissimilarity for UMAP / clustering
@@ -789,7 +790,7 @@ pivot = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
 import numpy as np
 from umap import UMAP
 
-f_vals = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_metric")
+f_vals = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_similarity")
 f_mat = f_vals.to_numpy()
 # Symmetrize and fill self-distance
 n = len(reps)
@@ -806,8 +807,8 @@ Dissimilarity conventions:
 
 ### Parallel workers (`n_jobs`)
 
-- `n_jobs=1` (default): serial — fast for small repertoires
-- `n_jobs=-1`: all physical cores (uses `psutil.cpu_count(logical=False)`)
+- `n_jobs=-1` (default): all physical cores (uses `psutil.cpu_count(logical=False)`)
+- `n_jobs=1`: serial — useful for deterministic profiling
 - In `pairwise_overlap`: parallelises trie search within a single pair (chunk workers)
 - In `pairwise_overlap_matrix`: parallelises across pairs (matrix workers)
 
@@ -830,7 +831,7 @@ from mir.comparative.vdjbet import PgenBinPool, VDJBetOverlapAnalysis
 model = OlgaModel(locus="TRB", seed=42)
 target_gu = GeneUsage.from_repertoire(rep)
 adjustment = PgenGeneUsageAdjustment(target_gu, seed=42)
-pool = PgenBinPool("TRB", n=100_000, n_jobs=4, seed=42, pgen_adjustment=adjustment)
+pool = PgenBinPool("TRB", n=100_000, n_jobs=-1, seed=42, pgen_adjustment=adjustment)
 analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```

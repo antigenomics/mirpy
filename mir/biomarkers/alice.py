@@ -55,6 +55,7 @@ PgenMode = t.Literal["exact", "1mm"]
 _PGEN_PARALLEL_MIN_UNIQUE = 256
 _PVALUE_PARALLEL_MIN_CLONOTYPES = 256
 _OLGA_MODEL_CACHE: dict[tuple[str, str, int | None, type], OlgaModel] = {}
+_OLGA_MODEL_CACHE_MAX = max(0, int(os.getenv("MIRPY_ALICE_MODEL_CACHE_SIZE", "4")))
 
 
 AlicePValueMode = t.Literal["poisson", "negative-binomial"]
@@ -93,8 +94,16 @@ def _get_cached_olga_model(*, locus: str, species: str, random_seed: int | None)
     model = _OLGA_MODEL_CACHE.get(key)
     if model is None:
         model = OlgaModel(locus=locus, species=species, seed=random_seed)
-        _OLGA_MODEL_CACHE[key] = model
+        if _OLGA_MODEL_CACHE_MAX > 0:
+            while len(_OLGA_MODEL_CACHE) >= _OLGA_MODEL_CACHE_MAX:
+                _OLGA_MODEL_CACHE.pop(next(iter(_OLGA_MODEL_CACHE)))
+            _OLGA_MODEL_CACHE[key] = model
     return model
+
+
+def clear_olga_model_cache() -> None:
+    """Clear cached OLGA models used by ALICE helpers."""
+    _OLGA_MODEL_CACHE.clear()
 
 
 def _compute_pgen_raw_by_junction_aa(
