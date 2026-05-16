@@ -52,8 +52,9 @@ Clonotype
 ~~~~~~~~~
 
 The smallest unit is a clonotype. Parsers convert rows from tabular repertoire
-formats into ``ClonotypeAA`` or ``ClonotypeNT`` objects with sequence and
-annotation fields attached.
+formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
+``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
+coordinates.
 
 Repertoire
 ~~~~~~~~~~

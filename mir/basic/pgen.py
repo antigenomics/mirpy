@@ -236,6 +236,21 @@ class OlgaModel:
         self._pgen_pool: Pool | None = None
         self._pgen_pool_n_jobs: int = 0
 
+    def close(self) -> None:
+        """Terminate the persistent worker pool and release its resources.
+
+        Call this explicitly when the model will no longer be used.  The
+        pool is also closed on garbage collection, but explicit teardown is
+        safer and avoids relying on CPython's reference-counting finalizer.
+        """
+        self._close_pool()
+
+    def __enter__(self) -> "OlgaModel":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._close_pool()
+
     def __del__(self) -> None:
         self._close_pool()
 
