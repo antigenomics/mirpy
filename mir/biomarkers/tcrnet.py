@@ -374,7 +374,14 @@ def compute_tcrnet(
         locus_ctrl = control_stats.get(locus, {})
 
         metrics_by_sid: dict[str, tuple[int, int, int, int, float, float, float, float]] = {}
-        if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
+        executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
+        should_parallelize_pvalues = (
+            n_jobs > 1 and (
+                len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES
+                or executor_mode == "thread"
+            )
+        )
+        if should_parallelize_pvalues:
             batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
             batches = [
                 qrep.clonotypes[start : start + batch_size]
@@ -384,7 +391,6 @@ def compute_tcrnet(
                 (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount)
                 for batch in batches
             ]
-            executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
             if executor_mode == "thread":
                 with ThreadPoolExecutor(max_workers=n_jobs) as executor:
                     metric_chunks = list(executor.map(_compute_tcrnet_metrics_batch_from_args, batch_args))
