@@ -21,7 +21,7 @@ Parsing And Repertoire Basics
 
 **gene_usage_correction** — Batch-correct V/J gene usage across donors and derive PCA/UMAP embeddings.
 
-**diversity_analysis** — Reproduce diversity and rarefaction figures, including MS vs healthy cohort comparisons.
+**diversity_analysis** — Reproduce diversity tables, rarefaction, coverage, Hill curves, and MS vs healthy cohort comparisons.
 
 Graph And Sequence Analysis
 ============================
