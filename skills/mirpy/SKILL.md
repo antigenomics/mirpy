@@ -339,6 +339,13 @@ Operational notes:
   chain_summary = paired_repertoire.diversity_by_locus()       # TRA/TRB/... per-locus
   sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to paired repertoire
   ```
+
+  Notebook workflow:
+
+  - `notebooks/diversity_analysis.ipynb` now includes a polished donor summary
+    table with age, abundance, diversity, and per-group mean ± SD rows.
+  - The notebook also shows publication-style shaded rarefaction, coverage, and
+    Hill curves for Healthy vs MS donors.
 - For repeated sample-vs-fixed-target calls, `pairwise_overlap` reuses target-side prepared data internally, which avoids repeated trie setup.
 - For a single pair, forcing many workers can be slower due to process startup; use `n_jobs=1` unless the query side is very large.
 

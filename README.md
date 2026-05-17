@@ -18,6 +18,10 @@ It provides building blocks for:
 
 The package is designed as a reusable toolkit rather than a single pipeline.
 
+For a full diversity workflow, see `notebooks/diversity_analysis.ipynb`, which
+includes donor-level tables, rarefaction and coverage curves, Hill profiles,
+and Healthy vs MS cohort comparisons.
+
 ## Installation
 
 Requirements:
@@ -59,6 +63,8 @@ If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 - `mir.embedding`: repertoire and prototype embeddings
 - `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
 - `mir.biomarkers`: enrichment and biomarker detection utilities
+- `notebooks/diversity_analysis.ipynb`: diversity summary tables, rarefaction,
+  Hill curves, and cohort comparisons for Healthy vs MS donors
 
 ## Quick start
 
