@@ -88,6 +88,85 @@ Typical Workflow
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
 
+Diversity Analysis APIs
+-----------------------
+
+mirpy now provides native diversity summaries, Hill curves, and
+rarefaction/coverage curves for locus, sample, paired, and single-cell objects.
+
+Metric summary (VDJtools-compatible)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``diversity(...)`` returns:
+
+* ``abundance``: total counts in the selected counting mode
+* ``diversity``: number of unique clonotypes (or paired clonotypes)
+* ``singletons`` / ``doubletons``
+* ``expanded``: clonotypes above 0.1%
+* ``hyperexpanded``: clonotypes above 1%
+* ``chao1``
+* ``gini_simpson``
+* ``shannon``
+
+.. code-block:: python
+
+   # Locus-level diversity (default: duplicate_count)
+   trb_summary = sample["TRB"].diversity()
+
+   # Optional count mode based on UMI counts
+   trb_summary_umi = sample["TRB"].diversity(count_field="umi_count")
+
+   # Sample-level per-locus diversity table
+   per_locus = sample.diversity(per_locus=True)
+
+Single-cell defaults and per-locus behavior
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For single-cell paired data, count mode defaults to ``barcode_count``
+(unique barcodes per clonotype or pair).
+
+.. code-block:: python
+
+   # Paired-clonotype summaries per locus pair (TRA_TRB, TRG_TRD, ...)
+   pair_level = paired_repertoire.diversity()
+
+   # Per-chain-locus summaries (TRA, TRB, ...)
+   chain_level = paired_repertoire.diversity_by_locus()
+
+   # SingleCellSample delegates to the paired repertoire
+   sc_per_locus = single_cell_sample.diversity(per_locus=True)
+
+Hill diversity profiles
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # Locus-level Hill profile
+   trb_hill = sample["TRB"].hill_curve()
+
+   # Sample-level per-locus Hill curves
+   sample_hill = sample.hill_curve(per_locus=True)
+
+   # Single-cell per-chain-locus Hill curves (barcode_count default)
+   sc_hill = single_cell_sample.hill_curve(per_locus=True)
+
+Rarefaction and sample coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Rarefaction uses abundance-table computations with NumPy/SciPy kernels and
+returns both richness and sample-coverage estimates with confidence bounds.
+
+.. code-block:: python
+
+   # Rarefaction for one locus
+   trb_rare = sample["TRB"].rarefaction_curve(m_steps=[100, 500, 1000, 5000])
+
+   # Per-locus rarefaction for a sample
+   sample_rare = sample.rarefaction_curve(per_locus=True)
+
+   # Single-cell per-chain-locus rarefaction (barcode_count default)
+   sc_rare = single_cell_sample.rarefaction_curve(per_locus=True)
+
 Pairwise Overlap Spaces
 -----------------------
 

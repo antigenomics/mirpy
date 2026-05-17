@@ -10,6 +10,7 @@ import re
 import polars as pl
 
 from mir.common.clonotype import Clonotype
+from mir.common.diversity import CountField, DiversitySummary, hill_curve, rarefaction_curve, summarize_counts
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.single_cell_parser import LOCUS_PAIR_TO_LOCI, load_10x_vdj_v1_cell_clonotypes
 
@@ -40,6 +41,27 @@ class PairedLocusRepertoire:
     @property
     def clonotype_count(self) -> int:
         return len(self.paired_clonotypes)
+
+    def diversity(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> DiversitySummary:
+        """Compute paired-clonotype diversity summary for one locus family."""
+        if count_field == "barcode_count":
+            raise ValueError("barcode_count requires barcode->pair mapping; use PairedRepertoire.diversity")
+
+        counts = [
+            int(getattr(p.clonotype1, count_field, 0) or 0) + int(getattr(p.clonotype2, count_field, 0) or 0)
+            for p in self.paired_clonotypes
+        ]
+        return summarize_counts(
+            counts,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
 
 
 @dataclass(slots=True)
@@ -89,6 +111,72 @@ class SingleCellSample:
         """Return parsed binder/tetramer column metadata as a polars table."""
         return self.cite_seq_binder_columns
 
+    def diversity(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus: bool = True,
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> dict[str, DiversitySummary] | DiversitySummary:
+        """Compute diversity summaries from the paired repertoire component."""
+        if per_locus:
+            return self.paired_repertoire.diversity_by_locus(
+                count_field=count_field,
+                expanded_threshold=expanded_threshold,
+                hyperexpanded_threshold=hyperexpanded_threshold,
+            )
+        return self.paired_repertoire.diversity(
+            count_field=count_field,
+            per_locus_pair=False,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+
+    def hill_curve(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus: bool = True,
+        q_values: list[float] | None = None,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute Hill curves from the paired repertoire component."""
+        if per_locus:
+            return self.paired_repertoire.hill_curve_by_locus(
+                count_field=count_field,
+                q_values=q_values,
+            )
+        return self.paired_repertoire.hill_curve(
+            count_field=count_field,
+            per_locus_pair=False,
+            q_values=q_values,
+        )
+
+    def rarefaction_curve(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus: bool = True,
+        m_steps: list[int] | None = None,
+        include_exact: bool = True,
+        confidence: float = 0.95,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute rarefaction/coverage curves from the paired repertoire component."""
+        if per_locus:
+            return self.paired_repertoire.rarefaction_curve_by_locus(
+                count_field=count_field,
+                m_steps=m_steps,
+                include_exact=include_exact,
+                confidence=confidence,
+            )
+        return self.paired_repertoire.rarefaction_curve(
+            count_field=count_field,
+            per_locus_pair=False,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
+
 
 class _LazyClonotypeIndex:
     """Lazy clonotype lookup keyed by (locus, sequence_id)."""
@@ -125,6 +213,176 @@ class PairedRepertoire:
     @property
     def clonotype_count(self) -> int:
         return self.loaded_clonotype_count
+
+    def _pair_barcodes(self) -> dict[str, set[str]]:
+        by_pair: dict[str, set[str]] = {}
+        for barcode, pair_id in self.single_cell_repertoire.barcode_pair_ids:
+            by_pair.setdefault(pair_id, set()).add(barcode)
+        return by_pair
+
+    def _pair_counts(self, locus_pair: str, count_field: CountField) -> list[int]:
+        pairs = self.paired_locus_repertoires.get(locus_pair)
+        if pairs is None:
+            return []
+
+        if count_field == "barcode_count":
+            by_pair = self._pair_barcodes()
+            return [len(by_pair.get(p.pair_id, set())) for p in pairs.paired_clonotypes]
+
+        return [
+            int(getattr(p.clonotype1, count_field, 0) or 0) + int(getattr(p.clonotype2, count_field, 0) or 0)
+            for p in pairs.paired_clonotypes
+        ]
+
+    def _chain_counts_by_locus(self, count_field: CountField) -> dict[str, list[int]]:
+        if count_field != "barcode_count":
+            sample = self.to_sample_repertoire()
+            return {
+                locus: [int(getattr(c, count_field, 0) or 0) for c in lr.clonotypes]
+                for locus, lr in sample.loci.items()
+            }
+
+        by_pair = self._pair_barcodes()
+        by_locus_seq: dict[tuple[str, str], set[str]] = {}
+        for pair_rep in self.paired_locus_repertoires.values():
+            for pair in pair_rep.paired_clonotypes:
+                bset = by_pair.get(pair.pair_id, set())
+                if not bset:
+                    continue
+                for clonotype in (pair.clonotype1, pair.clonotype2):
+                    key = (clonotype.locus, clonotype.sequence_id)
+                    by_locus_seq.setdefault(key, set()).update(bset)
+
+        per_locus: dict[str, list[int]] = {}
+        for (locus, _), barcodes in by_locus_seq.items():
+            per_locus.setdefault(locus, []).append(len(barcodes))
+        return per_locus
+
+    def diversity(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus_pair: bool = True,
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> dict[str, DiversitySummary] | DiversitySummary:
+        """Compute paired-clonotype diversity summaries."""
+        if per_locus_pair:
+            return {
+                locus_pair: summarize_counts(
+                    self._pair_counts(locus_pair, count_field),
+                    expanded_threshold=expanded_threshold,
+                    hyperexpanded_threshold=hyperexpanded_threshold,
+                )
+                for locus_pair in self.paired_locus_repertoires
+            }
+
+        pooled: list[int] = []
+        for locus_pair in self.paired_locus_repertoires:
+            pooled.extend(self._pair_counts(locus_pair, count_field))
+        return summarize_counts(
+            pooled,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+
+    def diversity_by_locus(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> dict[str, DiversitySummary]:
+        """Compute per-chain-locus diversity summaries for single-cell data."""
+        by_locus = self._chain_counts_by_locus(count_field=count_field)
+        return {
+            locus: summarize_counts(
+                counts,
+                expanded_threshold=expanded_threshold,
+                hyperexpanded_threshold=hyperexpanded_threshold,
+            )
+            for locus, counts in by_locus.items()
+        }
+
+    def hill_curve(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus_pair: bool = True,
+        q_values: list[float] | None = None,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute Hill diversity curves for paired-clonotype repertoires."""
+        if per_locus_pair:
+            return {
+                locus_pair: hill_curve(self._pair_counts(locus_pair, count_field), q_values=q_values)
+                for locus_pair in self.paired_locus_repertoires
+            }
+
+        pooled: list[int] = []
+        for locus_pair in self.paired_locus_repertoires:
+            pooled.extend(self._pair_counts(locus_pair, count_field))
+        return hill_curve(pooled, q_values=q_values)
+
+    def hill_curve_by_locus(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        q_values: list[float] | None = None,
+    ) -> dict[str, pl.DataFrame]:
+        """Compute per-chain-locus Hill curves for single-cell data."""
+        by_locus = self._chain_counts_by_locus(count_field=count_field)
+        return {locus: hill_curve(counts, q_values=q_values) for locus, counts in by_locus.items()}
+
+    def rarefaction_curve(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        per_locus_pair: bool = True,
+        m_steps: list[int] | None = None,
+        include_exact: bool = True,
+        confidence: float = 0.95,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute paired-clonotype rarefaction and sample-coverage curves."""
+        if per_locus_pair:
+            return {
+                locus_pair: rarefaction_curve(
+                    self._pair_counts(locus_pair, count_field),
+                    m_steps=m_steps,
+                    include_exact=include_exact,
+                    confidence=confidence,
+                )
+                for locus_pair in self.paired_locus_repertoires
+            }
+
+        pooled: list[int] = []
+        for locus_pair in self.paired_locus_repertoires:
+            pooled.extend(self._pair_counts(locus_pair, count_field))
+        return rarefaction_curve(
+            pooled,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
+
+    def rarefaction_curve_by_locus(
+        self,
+        *,
+        count_field: CountField = "barcode_count",
+        m_steps: list[int] | None = None,
+        include_exact: bool = True,
+        confidence: float = 0.95,
+    ) -> dict[str, pl.DataFrame]:
+        """Compute per-chain-locus rarefaction and coverage curves."""
+        by_locus = self._chain_counts_by_locus(count_field=count_field)
+        return {
+            locus: rarefaction_curve(
+                counts,
+                m_steps=m_steps,
+                include_exact=include_exact,
+                confidence=confidence,
+            )
+            for locus, counts in by_locus.items()
+        }
 
     def to_sample_repertoire(self) -> SampleRepertoire:
         """Collapse paired representation into plain per-locus repertoires."""

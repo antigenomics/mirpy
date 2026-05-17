@@ -24,6 +24,16 @@ from .single_cell import (
 )
 from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes, load_10x_vdj_v1_cell_clonotypes_donor
 from .single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
+from .diversity import (
+	CountField,
+	DiversitySummary,
+	RarefactionResult,
+	build_abundance_table,
+	hill_curve,
+	rarefaction_curve,
+	summarize_counts,
+	summaries_to_polars,
+)
 from .parser import VDJdbFullPairedParser
 from mir.graph.single_cell_pairing import PairingGraph, build_pairing_graph
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
@@ -62,6 +72,14 @@ __all__ = [
 	'load_10x_vdj_v1_cell_clonotypes_donor',
 	'cleanup_cell_clonotypes',
 	'impute_missing_chains',
+	'CountField',
+	'DiversitySummary',
+	'RarefactionResult',
+	'build_abundance_table',
+	'hill_curve',
+	'rarefaction_curve',
+	'summarize_counts',
+	'summaries_to_polars',
 	'VDJdbFullPairedParser',
 	'PairingGraph',
 	'build_pairing_graph',

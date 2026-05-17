@@ -13,12 +13,15 @@ Parsing And Repertoire Basics
    parsing_example
    sample_repertoire_overview
    gene_usage_correction
+   diversity_analysis
 
 **parsing_example** — Parse VDJdb, AIRR, and VDJtools files into repertoire objects.
 
 **sample_repertoire_overview** — Load a multi-locus SRA cohort and inspect coverage statistics.
 
 **gene_usage_correction** — Batch-correct V/J gene usage across donors and derive PCA/UMAP embeddings.
+
+**diversity_analysis** — Reproduce diversity and rarefaction figures, including MS vs healthy cohort comparisons.
 
 Graph And Sequence Analysis
 ============================
