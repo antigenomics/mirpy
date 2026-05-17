@@ -42,6 +42,8 @@ import warnings
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
+import numpy as np
+
 _MP_CTX = multiprocessing.get_context("spawn")
 
 from mir.basic.alphabets import AA_STANDARD_CHARS
@@ -50,6 +52,13 @@ from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
 from mir.graph._trie_utils import hit_index, search_limits
+from mir.utils.shared_memory import (
+    SharedArraySpec,
+    attach_shared_array,
+    close_unlink_many,
+    create_shared_array,
+    fixed_bytes_array,
+)
 
 try:
     from tcrtrie import Trie
@@ -814,21 +823,33 @@ _PW_TRIE_STATE: dict = {}
 
 
 def _pw_trie_worker_init(
-    jaa2: list[str],
-    v2: list[str],
-    j2: list[str],
-    dc2: list[int],
+    jaa2_spec: SharedArraySpec,
+    v2_spec: SharedArraySpec,
+    j2_spec: SharedArraySpec,
+    dc2_spec: SharedArraySpec,
     total_dc1: int,
     total_dc2: int,
     limits: tuple[int, int, int, int],
 ) -> None:
     global _PW_TRIE_STATE
     from tcrtrie import Trie as _Trie
+
+    jaa2_arr, jaa2_shm = attach_shared_array(jaa2_spec)
+    v2_arr, v2_shm = attach_shared_array(v2_spec)
+    j2_arr, j2_shm = attach_shared_array(j2_spec)
+    dc2_arr, dc2_shm = attach_shared_array(dc2_spec)
+
+    jaa2 = np.char.decode(jaa2_arr, "ascii").tolist()
+    v2 = np.char.decode(v2_arr, "ascii").tolist()
+    j2 = np.char.decode(j2_arr, "ascii").tolist()
+    dc2 = dc2_arr.tolist()
+
     _PW_TRIE_STATE = {
         "trie": _Trie(sequences=jaa2, vGenes=v2, jGenes=j2),
         "v2": v2, "j2": j2, "dc2": dc2,
         "total_dc1": total_dc1, "total_dc2": total_dc2,
         "limits": limits,
+        "shm_handles": (jaa2_shm, v2_shm, j2_shm, dc2_shm),
     }
 
 
@@ -943,13 +964,27 @@ def _compute_trie_pairwise(
              for i in range(start, min(start + chunk_size, len(keys1)))]
             for start in range(0, len(keys1), chunk_size)
         ]
-        with ProcessPoolExecutor(
-            max_workers=n_jobs,
-            mp_context=_MP_CTX,
-            initializer=_pw_trie_worker_init,
-            initargs=(jaa2, v2, j2, dc2, total_dc1, total_dc2, limits),
-        ) as pool:
-            partial = list(pool.map(_pw_trie_worker_call, chunks))
+
+        shared_handles = []
+        try:
+            jaa2_spec, jaa2_shm = create_shared_array(fixed_bytes_array(jaa2))
+            shared_handles.append(jaa2_shm)
+            v2_spec, v2_shm = create_shared_array(fixed_bytes_array(v2))
+            shared_handles.append(v2_shm)
+            j2_spec, j2_shm = create_shared_array(fixed_bytes_array(j2))
+            shared_handles.append(j2_shm)
+            dc2_spec, dc2_shm = create_shared_array(np.asarray(dc2, dtype=np.int64))
+            shared_handles.append(dc2_shm)
+
+            with ProcessPoolExecutor(
+                max_workers=n_jobs,
+                mp_context=_MP_CTX,
+                initializer=_pw_trie_worker_init,
+                initargs=(jaa2_spec, v2_spec, j2_spec, dc2_spec, total_dc1, total_dc2, limits),
+            ) as pool:
+                partial = list(pool.map(_pw_trie_worker_call, chunks))
+        finally:
+            close_unlink_many(shared_handles)
 
         s1_idx: set[int] = set()
         s2_idx: set[int] = set()
