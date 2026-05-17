@@ -55,6 +55,22 @@ pip install -e .
 If you only need the package for project usage, prefer `pip install mirpy-lib`.
 If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 
+## Copilot Agent Workflow
+
+This repository ships a dedicated Copilot custom agent and a companion prompt for notebook-first mirpy analysis:
+
+- Agent: `.github/agents/mirpy-analysis.agent.md`
+- Companion prompt: `.github/prompts/mirpy-analysis.prompt.md`
+
+Use the companion prompt from chat (`/mirpy-analysis`) to provide:
+
+- input data paths (AIRR/VDJtools/Adaptive or other parser-supported formats),
+- optional metadata schema/path,
+- workflow definition and/or hypotheses to test.
+
+The agent creates dedicated notebook(s), installs/validates dependencies, executes cells sequentially, and reports outcomes.
+For large datasets, it benchmarks small chunks first, estimates full runtime/memory, and asks before full runs expected to exceed ~10-15 min on 4-8 cores or ~12-16 GB RAM.
+
 ## Main modules
 
 - `mir.common`: clonotypes, repertoires, parsers, segment libraries

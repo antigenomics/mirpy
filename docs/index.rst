@@ -109,6 +109,7 @@ Explore next
 ============
 
 * :doc:`getting-started` for the shortest path from install to first parsed repertoire
+* :doc:`getting-started` for the repo Copilot agent and companion prompt (`/mirpy-analysis`)
 * :doc:`examples` for the full notebook gallery published from the repository
 * :doc:`modules` for API documentation generated from the current codebase
 * `GitHub repository <https://github.com/antigenomics/mirpy>`_ for source browsing and notebooks
