@@ -24,11 +24,13 @@ MIRPY_BENCH_OVERLAP_SAMPLE_B
 from __future__ import annotations
 
 import os
+import threading
 import time
 import tracemalloc
 from pathlib import Path
 
 import pytest
+import psutil
 
 from mir.common.parser import VDJtoolsParser
 from mir.common.repertoire import LocusRepertoire
@@ -75,6 +77,34 @@ def _load_rep(path: Path) -> LocusRepertoire:
 def _peak_mb() -> str:
     _, peak = tracemalloc.get_traced_memory()
     return f"{peak / 1024 ** 2:.1f} MB"
+
+
+def _measure_peak_rss_mb(fn) -> float:
+    proc = psutil.Process()
+    rss_before = proc.memory_info().rss
+    peak_rss = rss_before
+    stop = threading.Event()
+
+    def sampler() -> None:
+        nonlocal peak_rss
+        while not stop.is_set():
+            try:
+                rss = proc.memory_info().rss
+                if rss > peak_rss:
+                    peak_rss = rss
+            except Exception:
+                pass
+            time.sleep(0.05)
+
+    thread = threading.Thread(target=sampler, daemon=True)
+    thread.start()
+    try:
+        fn()
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+    return max(0.0, (peak_rss - rss_before) / 1024 ** 2)
 
 
 # ---------------------------------------------------------------------------
@@ -139,16 +169,27 @@ class TestPairwiseOverlapBenchmark:
         rep_a, rep_b, na, nb = rep_pair
         self._header(na, nb, rep_a, rep_b)
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=1)
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=1)
+        )
         print(f"\n[exact  serial ] n1_matched={r.n1_matched:,}  D={r.d_similarity:.4f}  "
               f"F={r.f_similarity:.4f}  J={r.jaccard:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_mb < 4_500
         assert r.n1_matched >= 0
 
     def test_exact_parallel(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed_s, _, r_s = self._time_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=1)
         elapsed_p, peak_mb, r_p = self._time_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=self.N_JOBS)
+        rss_delta_s = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=1)
+        )
+        rss_delta_p = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="exact", threshold=0, n_jobs=self.N_JOBS)
+        )
         print(f"\n[exact  parallel n_jobs={self.N_JOBS}] serial={elapsed_s*1e3:.1f} ms  "
               f"parallel={elapsed_p*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_p <= rss_delta_s * 1.25 + 250
         # Results must match
         assert r_s.n1_matched == r_p.n1_matched
         assert abs(r_s.d_similarity - r_p.d_similarity) < 1e-9
@@ -156,32 +197,54 @@ class TestPairwiseOverlapBenchmark:
     def test_hamming1_serial(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=1)
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=1)
+        )
         r_exact = pairwise_overlap(rep_a, rep_b, metric="exact", threshold=0)
         print(f"\n[ham:1  serial ] n1_matched={r.n1_matched:,} (exact={r_exact.n1_matched:,})  "
               f"D={r.d_similarity:.4f}  F={r.f_similarity:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_mb < 4_500
         assert r.n1_matched >= r_exact.n1_matched
 
     def test_hamming1_parallel(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed_s, _, r_s = self._time_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=1)
         elapsed_p, peak_mb, r_p = self._time_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=self.N_JOBS)
+        rss_delta_s = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=1)
+        )
+        rss_delta_p = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="hamming", threshold=1, n_jobs=self.N_JOBS)
+        )
         print(f"\n[ham:1  parallel n_jobs={self.N_JOBS}] serial={elapsed_s*1e3:.1f} ms  "
               f"parallel={elapsed_p*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_p <= rss_delta_s * 1.25 + 250
         assert r_s.n1_matched == r_p.n1_matched
 
     def test_levenshtein1_serial(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed, peak_mb, r = self._time_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=1)
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=1)
+        )
         print(f"\n[lev:1  serial ] n1_matched={r.n1_matched:,}  "
               f"D={r.d_similarity:.4f}  F={r.f_similarity:.4f}  {elapsed*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_mb < 4_500
         assert r.n1_matched >= 0
 
     def test_levenshtein1_parallel(self, rep_pair) -> None:
         rep_a, rep_b, na, nb = rep_pair
         elapsed_s, _, r_s = self._time_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=1)
         elapsed_p, peak_mb, r_p = self._time_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=self.N_JOBS)
+        rss_delta_s = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=1)
+        )
+        rss_delta_p = _measure_peak_rss_mb(
+            lambda: pairwise_overlap(rep_a, rep_b, metric="levenshtein", threshold=1, n_jobs=self.N_JOBS)
+        )
         print(f"\n[lev:1  parallel n_jobs={self.N_JOBS}] serial={elapsed_s*1e3:.1f} ms  "
               f"parallel={elapsed_p*1e3:.1f} ms  {peak_mb:.0f} MB")
+        assert rss_delta_p <= rss_delta_s * 1.25 + 250
         assert r_s.n1_matched == r_p.n1_matched
 
     def test_summary_table(self, rep_pair) -> None:
@@ -256,9 +319,13 @@ class TestPairwiseMatrixBenchmark:
         elapsed = time.perf_counter() - t0
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap_matrix(reps, sample_ids=ids, metric="exact", n_jobs=self.N_JOBS)
+        )
         n_pairs = len(reps) * (len(reps) - 1) // 2
         print(f"\n[exact  matrix n={len(reps)} n_jobs={self.N_JOBS}] "
               f"{n_pairs} pairs  {elapsed:.2f}s  {peak/1024**2:.0f} MB")
+        assert rss_delta_mb < 5_000
         assert len(df) == n_pairs
 
     def test_matrix_hamming1_parallel(self, aging_reps) -> None:
@@ -269,9 +336,13 @@ class TestPairwiseMatrixBenchmark:
         elapsed = time.perf_counter() - t0
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap_matrix(reps, sample_ids=ids, metric="hamming", threshold=1, n_jobs=self.N_JOBS)
+        )
         n_pairs = len(reps) * (len(reps) - 1) // 2
         print(f"\n[ham:1  matrix n={len(reps)} n_jobs={self.N_JOBS}] "
               f"{n_pairs} pairs  {elapsed:.2f}s  {peak/1024**2:.0f} MB")
+        assert rss_delta_mb < 5_000
         assert len(df) == n_pairs
 
     def test_matrix_levenshtein1_parallel(self, aging_reps) -> None:
@@ -282,9 +353,13 @@ class TestPairwiseMatrixBenchmark:
         elapsed = time.perf_counter() - t0
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
+        rss_delta_mb = _measure_peak_rss_mb(
+            lambda: pairwise_overlap_matrix(reps, sample_ids=ids, metric="levenshtein", threshold=1, n_jobs=self.N_JOBS)
+        )
         n_pairs = len(reps) * (len(reps) - 1) // 2
         print(f"\n[lev:1  matrix n={len(reps)} n_jobs={self.N_JOBS}] "
               f"{n_pairs} pairs  {elapsed:.2f}s  {peak/1024**2:.0f} MB")
+        assert rss_delta_mb < 5_000
         assert len(df) == n_pairs
 
 

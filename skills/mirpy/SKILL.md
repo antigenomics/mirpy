@@ -170,6 +170,8 @@ Notes:
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
 - `compute_neighborhood_stats` and `build_edit_distance_graph` use multiprocess workers when `n_jobs > 1` for true multi-core execution.
 
+For donor-vs-pool overlap workflows, use `many_vs_pool_overlap()` when scoring a sequence of repertoires against one pooled reference. It keeps the pooled worker state shared across batches and avoids repeating per-sample setup in hotspot notebooks such as `aging_analysis.ipynb`.
+
 ## 8. Control Repertoires
 
 Use `ControlManager` to build or load synthetic and real controls.

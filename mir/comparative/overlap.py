@@ -30,6 +30,9 @@ API
   ``duplicate_count`` with optional normalization.  Returns an :class:`OverlapCounts`.
 * :func:`compute_overlaps` — batch :func:`count_overlap` over a list of
   reference key sets, optionally dispatched across multiple processes.
+* :func:`many_vs_pool_overlap` — score many query repertoires against one pool
+    with worker reuse so a large pool is prepared once per process rather than
+    once per sample.
 """
 
 from __future__ import annotations
@@ -113,6 +116,15 @@ class OverlapCounts:
     n_normalized: float | None = None
     dc_normalized: float | None = None
 
+    def as_dict(self) -> dict:
+        """Return the overlap counts as a plain ``dict``."""
+        return {
+            "n": self.n,
+            "dc": self.dc,
+            "n_normalized": self.n_normalized,
+            "dc_normalized": self.dc_normalized,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Module-level state shared with ProcessPoolExecutor worker processes.
@@ -122,6 +134,44 @@ _worker_qi: dict | None = None
 _worker_1mm: bool = False
 _worker_target_n: int | None = None
 _worker_target_dc: int | None = None
+
+_mvp_pool_keys: frozenset[_Key] | None = None
+_mvp_pool_qi: dict[_Key, int] | None = None
+_mvp_pool_trie: object | None = None
+_mvp_pool_metric: str | None = None
+_mvp_pool_threshold: int | None = None
+_mvp_pool_total_dc: int | None = None
+_mvp_pool_simpson_d2: float | None = None
+
+
+def _prepare_target(
+    qi2: dict[_Key, int],
+    *,
+    metric: str = "exact",
+    threshold: int = 0,
+) -> _PreparedTarget:
+    keys2 = list(qi2.keys())
+    dc2 = [qi2[k] for k in keys2]
+    total_dc2 = sum(dc2) or 1
+
+    trie = None
+    if metric != "exact" and threshold > 0 and qi2 and Trie is not None:
+        try:
+            trie = Trie(sequences=[k[0] for k in keys2], vGenes=[k[1] for k in keys2], jGenes=[k[2] for k in keys2])
+        except Exception:
+            trie = None
+
+    rep_ref = None
+    _prepared = _PreparedTarget(
+        rep_ref=rep_ref,
+        qi2=qi2,
+        keys2=keys2,
+        dc2=dc2,
+        total_dc2=total_dc2,
+        trie=trie,
+        simpson_d2=_simpson_lambda(dc2, total_dc2),
+    )
+    return _prepared
 
 
 def _overlap_worker_init(
@@ -145,6 +195,73 @@ def _overlap_worker_call(ref_keys: frozenset[_Key]) -> OverlapCounts:
         target_n=_worker_target_n,
         target_dc=_worker_target_dc,
     )
+
+
+def _many_vs_pool_worker_init_from_specs(
+    seq_spec: SharedArraySpec,
+    v_spec: SharedArraySpec,
+    j_spec: SharedArraySpec,
+    dc_spec: SharedArraySpec,
+    metric: str,
+    threshold: int,
+) -> None:
+    global _mvp_pool_keys, _mvp_pool_qi, _mvp_pool_trie, _mvp_pool_metric, _mvp_pool_threshold, _mvp_pool_total_dc, _mvp_pool_simpson_d2
+    seq_arr, seq_shm = attach_shared_array(seq_spec)
+    v_arr, v_shm = attach_shared_array(v_spec)
+    j_arr, j_shm = attach_shared_array(j_spec)
+    dc_arr, dc_shm = attach_shared_array(dc_spec)
+
+    seqs = np.char.decode(seq_arr, "ascii").tolist()
+    vs = np.char.decode(v_arr, "ascii").tolist()
+    js = np.char.decode(j_arr, "ascii").tolist()
+    dcs = dc_arr.tolist()
+    keys = list(zip(seqs, vs, js, strict=False))
+    pool_qi = {k: int(dc) for k, dc in zip(keys, dcs, strict=False)}
+    prepared = _prepare_target(pool_qi, metric=metric, threshold=threshold)
+
+    _mvp_pool_keys = frozenset(keys)
+    _mvp_pool_qi = pool_qi
+    _mvp_pool_trie = prepared.trie
+    _mvp_pool_metric = metric
+    _mvp_pool_threshold = threshold
+    _mvp_pool_total_dc = prepared.total_dc2
+    _mvp_pool_simpson_d2 = prepared.simpson_d2
+    _ = (seq_shm, v_shm, j_shm, dc_shm)
+
+
+def _many_vs_pool_worker_call(batch: list[tuple[str, int | None, dict[_Key, int]]]) -> list[dict]:
+    if _mvp_pool_keys is None or _mvp_pool_qi is None:
+        raise RuntimeError("many-vs-pool worker not initialized")
+
+    rows: list[dict] = []
+    pool_keys = _mvp_pool_keys
+    pool_qi = _mvp_pool_qi
+
+    for sample_id, age, query_index in batch:
+        if _mvp_pool_metric == "exact" or (_mvp_pool_threshold or 0) == 0:
+            result = count_overlap(pool_keys, query_index, allow_1mm=False)
+        else:
+            assert pool_qi is not None
+            result = _compute_trie_pairwise(
+                query_index,
+                pool_qi,
+                metric=_mvp_pool_metric or "hamming",
+                threshold=int(_mvp_pool_threshold or 0),
+                prepared_target=_PreparedTarget(
+                    rep_ref=None,
+                    qi2=pool_qi,
+                    keys2=list(pool_keys),
+                    dc2=[1] * len(pool_keys),
+                    total_dc2=_mvp_pool_total_dc or len(pool_keys),
+                    trie=_mvp_pool_trie,
+                    simpson_d2=_mvp_pool_simpson_d2 or 0.0,
+                ),
+                n_jobs=1,
+            )
+
+        row = {"sample_id": sample_id, "age": age, **result.as_dict()}
+        rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -608,6 +725,118 @@ def compute_overlaps(
             reference_key_sets,
             chunksize=chunksize,
         ))
+
+
+def many_vs_pool_overlap(
+    repertoires: list[LocusRepertoire],
+    pool_repertoire: LocusRepertoire,
+    sample_ids: list[str] | None = None,
+    ages: list[int] | None = None,
+    *,
+    metric: str = "exact",
+    threshold: int = 0,
+    match_v: bool = True,
+    match_j: bool = True,
+    overlap_space: str | None = None,
+    n_jobs: int = -1,
+    batch_size: int | None = None,
+) -> "pandas.DataFrame":
+    """Compute overlap of many query repertoires against one shared pool.
+
+    The pool is prepared once per worker process and reused across all query
+    batches, which avoids repeatedly rebuilding the same large target trie for
+    per-sample donor-vs-pool analyses.
+
+    Parameters
+    ----------
+    repertoires:
+        Query repertoires to score against the pool.
+    pool_repertoire:
+        Shared reference / pool repertoire.
+    sample_ids:
+        Optional sample identifiers aligned to *repertoires*.
+    ages:
+        Optional age metadata aligned to *repertoires*.
+    metric, threshold, match_v, match_j, overlap_space, n_jobs:
+        Same semantics as :func:`pairwise_overlap`.
+    batch_size:
+        Number of query repertoires per worker task.  Larger batches reduce
+        scheduler overhead when the pool is large.
+    """
+    import pandas as pd
+
+    n = len(repertoires)
+    if n < 1:
+        return pd.DataFrame(columns=["sample_id", "age", *OverlapCounts(0, 0).as_dict().keys()])
+
+    ids = sample_ids if sample_ids is not None else [f"s{i}" for i in range(n)]
+    if len(ids) != n:
+        raise ValueError("sample_ids length must match repertoires length.")
+    if ages is not None and len(ages) != n:
+        raise ValueError("ages length must match repertoires length.")
+
+    overlap_space = _resolve_overlap_space(overlap_space, match_v=match_v, match_j=match_j)
+    _allow_mismatches(overlap_space, metric, threshold)
+    n_jobs = _n_jobs_resolve(n_jobs)
+
+    pool_qi = make_query_index(
+        pool_repertoire,
+        match_v=match_v,
+        match_j=match_j,
+        overlap_space=overlap_space,
+    )
+
+    query_items: list[tuple[str, int | None, dict[_Key, int]]] = []
+    for idx, rep in enumerate(repertoires):
+        query_items.append((ids[idx], None if ages is None else int(ages[idx]), make_query_index(rep, match_v=match_v, match_j=match_j, overlap_space=overlap_space)))
+
+    if n_jobs == 1 or len(query_items) <= 1:
+        rows: list[dict] = []
+        prepared_pool = _prepare_target(pool_qi, metric=metric, threshold=threshold)
+        pool_keys = frozenset(pool_qi.keys())
+        for sample_id, age, query_index in query_items:
+            if metric == "exact" or threshold == 0:
+                result = count_overlap(pool_keys, query_index, allow_1mm=False)
+            else:
+                result = _compute_trie_pairwise(
+                    query_index,
+                    pool_qi,
+                    metric=metric,
+                    threshold=threshold,
+                    prepared_target=prepared_pool,
+                    n_jobs=1,
+                )
+            rows.append({"sample_id": sample_id, "age": age, **result.as_dict()})
+        return pd.DataFrame(rows)
+
+    if batch_size is None:
+        batch_size = max(1, len(query_items) // (n_jobs * 4))
+
+    seqs = fixed_bytes_array([k[0] for k in pool_qi])
+    vs = fixed_bytes_array([k[1] for k in pool_qi])
+    js = fixed_bytes_array([k[2] for k in pool_qi])
+    dc = np.asarray([pool_qi[k] for k in pool_qi], dtype=np.int64)
+
+    seq_spec, seq_shm = create_shared_array(seqs)
+    v_spec, v_shm = create_shared_array(vs)
+    j_spec, j_shm = create_shared_array(js)
+    dc_spec, dc_shm = create_shared_array(dc)
+
+    rows: list[dict] = []
+    batches = [query_items[start : start + batch_size] for start in range(0, len(query_items), batch_size)]
+    try:
+        with ProcessPoolExecutor(
+            max_workers=n_jobs,
+            mp_context=_MP_CTX,
+            initializer=_many_vs_pool_worker_init_from_specs,
+            initargs=(seq_spec, v_spec, j_spec, dc_spec, metric, threshold),
+        ) as pool:
+            for batch_rows in pool.map(_many_vs_pool_worker_call, batches):
+                rows.extend(batch_rows)
+    finally:
+        close_unlink_many([seq_shm, v_shm, j_shm, dc_shm])
+
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------

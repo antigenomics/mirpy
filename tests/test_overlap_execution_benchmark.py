@@ -9,10 +9,12 @@ Run with:
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
 import pytest
+import psutil
 
 from mir.common.parser import VDJtoolsParser
 from mir.common.repertoire import LocusRepertoire
@@ -64,6 +66,34 @@ def _load_subset(max_samples: int = 8) -> tuple[list[LocusRepertoire], list[str]
     return reps, sample_ids, ages
 
 
+def _peak_rss_delta_mb(fn) -> float:
+    proc = psutil.Process()
+    rss_before = proc.memory_info().rss
+    peak_rss = rss_before
+    stop = threading.Event()
+
+    def sampler() -> None:
+        nonlocal peak_rss
+        while not stop.is_set():
+            try:
+                rss = proc.memory_info().rss
+                if rss > peak_rss:
+                    peak_rss = rss
+            except Exception:
+                pass
+            time.sleep(0.05)
+
+    thread = threading.Thread(target=sampler, daemon=True)
+    thread.start()
+    try:
+        fn()
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+    return max(0.0, (peak_rss - rss_before) / 1024 ** 2)
+
+
 @skip_benchmarks
 @pytest.mark.benchmark
 class TestOverlapExecutionBenchmark:
@@ -87,6 +117,16 @@ class TestOverlapExecutionBenchmark:
             n_jobs=1,
         )
         t_pairs = time.perf_counter() - t0
+        rss_pairs = _peak_rss_delta_mb(
+            lambda: many_vs_many_sample_overlap(
+                reps,
+                sample_ids=sample_ids,
+                metric="exact",
+                threshold=0,
+                overlap_space="aavj",
+                n_jobs=1,
+            )
+        )
         per_pair_s = t_pairs / max(1, subset_pairs)
         extrapolated_full_pairs_s = per_pair_s * full_pairs
 
@@ -103,6 +143,18 @@ class TestOverlapExecutionBenchmark:
             n_jobs=1,
         )
         t_pool = time.perf_counter() - t0
+        rss_pool = _peak_rss_delta_mb(
+            lambda: many_vs_pool_sample_overlap(
+                reps,
+                pool,
+                sample_ids=sample_ids,
+                ages=ages,
+                metric="exact",
+                threshold=0,
+                overlap_space="aavj",
+                n_jobs=1,
+            )
+        )
         per_sample_pool_s = t_pool / max(1, n)
         extrapolated_full_pool_s = per_sample_pool_s * full_n
 
@@ -112,9 +164,13 @@ class TestOverlapExecutionBenchmark:
         print(f"extrapolated full many-vs-many (79 donors): {extrapolated_full_pairs_s/60:.2f} min")
         print(f"many-vs-pool exact: {t_pool:.2f}s total, {per_sample_pool_s:.4f}s per sample")
         print(f"extrapolated full many-vs-pool (79 donors): {extrapolated_full_pool_s:.2f}s")
+        print(f"peak RSS delta many-vs-many exact: {rss_pairs:.0f} MB")
+        print(f"peak RSS delta many-vs-pool exact: {rss_pool:.0f} MB")
 
         assert len(df_pairs) == subset_pairs
         assert len(df_pool) == n
+        assert rss_pairs < 5_000
+        assert rss_pool < 5_000
 
     def test_thread_parallel_subset(self) -> None:
         reps, sample_ids, _ = _load_subset(max_samples=8)
@@ -129,7 +185,18 @@ class TestOverlapExecutionBenchmark:
             n_jobs=4,
         )
         elapsed = time.perf_counter() - t0
+        rss_delta = _peak_rss_delta_mb(
+            lambda: many_vs_many_sample_overlap(
+                reps,
+                sample_ids=sample_ids,
+                metric="exact",
+                threshold=0,
+                overlap_space="aavj",
+                n_jobs=4,
+            )
+        )
         print("\nthread-parallel many-vs-many subset")
         print(f"rows={len(df)} elapsed={elapsed:.2f}s effective_jobs={int(df['n_jobs_effective'].iloc[0])}")
 
         assert len(df) == len(reps) * (len(reps) - 1) // 2
+        assert rss_delta < 5_000

@@ -13,7 +13,7 @@ from mir.common.alleles import allele_to_major
 from mir.common.clonotype import Clonotype
 from mir.common.control import ControlManager
 from mir.common.repertoire import LocusRepertoire
-from mir.comparative.overlap import pairwise_overlap
+from mir.comparative.overlap import many_vs_pool_overlap, pairwise_overlap
 
 ASSETS = Path(__file__).parent / "assets"
 GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
@@ -212,28 +212,16 @@ def many_vs_pool_sample_overlap(
     n_jobs: int = -1,
 ) -> pd.DataFrame:
     """Test-only helper: overlap of each sample against a pooled repertoire."""
-    n = len(repertoires)
-    ids = sample_ids if sample_ids is not None else [f"s{i}" for i in range(n)]
-    if len(ids) != n:
-        raise ValueError("sample_ids length must match repertoires length.")
-    if ages is not None and len(ages) != n:
-        raise ValueError("ages length must match repertoires length.")
-
-    rows: list[dict] = []
-    for idx, rep in enumerate(repertoires):
-        r = pairwise_overlap(
-            rep,
-            pool_repertoire,
-            metric=metric,
-            threshold=threshold,
-            overlap_space=overlap_space,
-            n_jobs=n_jobs,
-        )
-        row = {"sample_id": ids[idx], **r.as_dict()}
-        if ages is not None:
-            row["age"] = int(ages[idx])
-        rows.append(row)
-    return pd.DataFrame(rows)
+    return many_vs_pool_overlap(
+        repertoires,
+        pool_repertoire,
+        sample_ids=sample_ids,
+        ages=ages,
+        metric=metric,
+        threshold=threshold,
+        overlap_space=overlap_space,
+        n_jobs=n_jobs,
+    )
 
 
 def estimate_many_vs_many_runtime(
