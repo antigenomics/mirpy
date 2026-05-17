@@ -61,6 +61,16 @@ Biomarker Detection
 
 **vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
 
+Aging And Cohort Overlap
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   aging_analysis
+
+**aging_analysis** — Donor-vs-pool overlap trends across aging, using the shared-worker many-vs-pool overlap path for faster repeated scoring.
+
 TCREmp Embeddings
 ==================
 
