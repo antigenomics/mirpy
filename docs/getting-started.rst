@@ -43,6 +43,25 @@ Useful Links
 * Notebook source directory: https://github.com/antigenomics/mirpy/tree/main/notebooks
 * LLM agent skill guide: https://github.com/antigenomics/mirpy/blob/main/skills/mirpy/SKILL.md
 
+Copilot Agent And Prompt
+------------------------
+
+The repository includes a dedicated custom agent and companion prompt for
+mirpy-backed notebook analysis workflows.
+
+* Agent file: ``.github/agents/mirpy-analysis.agent.md``
+* Prompt file: ``.github/prompts/mirpy-analysis.prompt.md``
+
+In chat, invoke ``/mirpy-analysis`` and provide:
+
+* input data path(s) or instructions to obtain public/control data,
+* optional metadata path/schema,
+* workflow steps or one/more hypotheses to test.
+
+The agent then creates and executes dedicated notebook(s), and for large data
+first runs benchmark chunks to estimate full runtime and peak memory before
+requesting confirmation for expensive runs.
+
 Core Concepts
 -------------
 
