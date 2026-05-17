@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 from mir.biomarkers.tcrnet import compute_tcrnet
@@ -200,11 +201,11 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
     assert result.table.equals(serial.table)
 
     df = result.table
-    hits = df[
-        (df["junction_aa"].str.contains("GILG", na=False))
-        & (df["n_neighbors"] >= 10)
-        & (df["p_value"] < 0.03)
-    ]
+    hits = df.filter(
+        pl.col("junction_aa").str.contains("GILG").fill_null(False)
+        & (pl.col("n_neighbors") >= 10)
+        & (pl.col("p_value") < 0.03)
+    )
 
     with capsys.disabled():
         print("\n" + "=" * 72)
@@ -217,7 +218,7 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
             print(f"speedup: {elapsed_serial / elapsed:.2f}x")
         print(f"motif-enriched hits: {len(hits)}")
         print("Top rows:")
-        print(df.head(10).to_string(index=False))
+        print(df.head(10))
         print("=" * 72)
 
     assert len(df) == len(target_rep.clonotypes)
@@ -308,7 +309,7 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
     )
     elapsed = time.perf_counter() - t0
 
-    table = _tcrnet_table_with_counts(target, result.table)
+    table = _tcrnet_table_with_counts(target, result.table.to_pandas())
     dedup = table.drop_duplicates(["cdr3aa", "v_gene", "j_gene"]).copy()
 
     # High-confidence donor-enriched clonotypes versus real control.

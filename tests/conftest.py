@@ -12,7 +12,7 @@ from tests.prepare_airr_benchmark_data import ensure_test_data
 # ---------------------------------------------------------------------------
 
 BENCHMARK_MEMORY_LIMIT_BYTES = int(
-    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_GB", "8")
+    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_GB", "16")
 ) * 1024 ** 3
 
 # very_slow_benchmark tests may use more memory (e.g., full real control builds/loads

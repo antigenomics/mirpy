@@ -55,6 +55,7 @@ def _diagnose_synth_record(rec_path: Path, df_rows: int) -> tuple[int, int]:
 @skip_benchmarks
 @pytest.mark.benchmark
 @pytest.mark.slow_benchmark
+@pytest.mark.very_slow_benchmark
 def test_synthetic_control_generation_small_matrix(capsys, tmp_path: Path) -> None:
     """Generate 1e4 and 1e5 synthetic controls in separate timed steps.
 

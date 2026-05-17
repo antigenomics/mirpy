@@ -246,8 +246,8 @@ class PgenBinPool:
             presample_cap = max(int(n) * 20, 200_000)
             if presample_cap < len(control_df):
                 control_df = control_df.sample(
-                    n=presample_cap, replace=False, random_state=seed
-                ).reset_index(drop=True)
+                    n=presample_cap, with_replacement=False, seed=seed
+                )
         return cls.from_control_df(
             control_df,
             locus=locus,
@@ -281,29 +281,21 @@ class PgenBinPool:
             n_int = int(n)
             if len(df) > n_int:
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(
-                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
-                    )
-                    df = df.sample(
-                        n=n_int,
-                        with_replacement=False,
-                        seed=seed,
-                        weights=weights.tolist(),
-                    )
+                    w = np.clip(df["duplicate_count"].cast(float).to_numpy(), 1.0, None)
+                    probs = w / w.sum()
+                    idx = np.random.default_rng(seed).choice(len(df), size=n_int, replace=False, p=probs)
+                    df = df[idx]
                 else:
                     df = df.sample(n=n_int, with_replacement=False, seed=seed)
             elif len(df) > 0 and len(df) < n_int:
-                weights = None
+                rng = np.random.default_rng(seed)
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(
-                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
-                    )
-                df = df.sample(
-                    n=n_int,
-                    with_replacement=True,
-                    seed=seed,
-                    weights=weights.tolist() if weights is not None else None,
-                )
+                    w = np.clip(df["duplicate_count"].cast(float).to_numpy(), 1.0, None)
+                    probs = w / w.sum()
+                    idx = rng.choice(len(df), size=n_int, replace=True, p=probs)
+                else:
+                    idx = rng.choice(len(df), size=n_int, replace=True)
+                df = df[idx]
 
         records = compute_control_pgen_records(
             df,
