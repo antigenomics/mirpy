@@ -9,11 +9,14 @@ from __future__ import annotations
 import random
 import time
 import os
+import threading
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
+import psutil
 
 from mir.biomarkers.tcrnet import compute_tcrnet
 from mir.common.clonotype import Clonotype
@@ -143,6 +146,34 @@ def _clone(sid: str, aa: str, *, v: str = "TRBV5-1*01", j: str = "TRBJ2-7*01") -
     )
 
 
+def _peak_rss_delta_mb(fn) -> tuple[object, float]:
+    proc = psutil.Process()
+    rss_before = proc.memory_info().rss
+    peak_rss = rss_before
+    stop = threading.Event()
+
+    def sampler() -> None:
+        nonlocal peak_rss
+        while not stop.is_set():
+            try:
+                rss = proc.memory_info().rss
+                if rss > peak_rss:
+                    peak_rss = rss
+            except Exception:
+                pass
+            time.sleep(0.05)
+
+    thread = threading.Thread(target=sampler, daemon=True)
+    thread.start()
+    try:
+        result = fn()
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+    return result, max(0.0, (peak_rss - rss_before) / 1024 ** 2)
+
+
 @skip_benchmarks
 def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> None:
     rng = random.Random(42)
@@ -184,6 +215,17 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
         n_jobs=1,
     )
     elapsed_serial = time.perf_counter() - t0
+    _, rss_serial = _peak_rss_delta_mb(
+        lambda: compute_tcrnet(
+            target_rep,
+            control=control_rep,
+            metric="hamming",
+            threshold=1,
+            match_mode="vj",
+            pvalue_mode="beta-binomial",
+            n_jobs=1,
+        )
+    )
 
     t0 = time.perf_counter()
     result = compute_tcrnet(
@@ -196,15 +238,26 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
         n_jobs=4,
     )
     elapsed = time.perf_counter() - t0
+    _, rss_parallel = _peak_rss_delta_mb(
+        lambda: compute_tcrnet(
+            target_rep,
+            control=control_rep,
+            metric="hamming",
+            threshold=1,
+            match_mode="vj",
+            pvalue_mode="beta-binomial",
+            n_jobs=4,
+        )
+    )
 
     assert result.table.equals(serial.table)
 
     df = result.table
-    hits = df[
-        (df["junction_aa"].str.contains("GILG", na=False))
-        & (df["n_neighbors"] >= 10)
-        & (df["p_value"] < 0.03)
-    ]
+    hits = df.filter(
+        pl.col("junction_aa").str.contains("GILG").fill_null(False)
+        & (pl.col("n_neighbors") >= 10)
+        & (pl.col("p_value") < 0.03)
+    )
 
     with capsys.disabled():
         print("\n" + "=" * 72)
@@ -213,15 +266,18 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
         print(f"control size: {len(control_rep.clonotypes)}")
         print(f"runtime serial(1): {elapsed_serial:.3f}s")
         print(f"runtime parallel(4): {elapsed:.3f}s")
+        print(f"peak RSS delta serial(1): {rss_serial:.1f} MB")
+        print(f"peak RSS delta parallel(4): {rss_parallel:.1f} MB")
         if elapsed > 0:
             print(f"speedup: {elapsed_serial / elapsed:.2f}x")
         print(f"motif-enriched hits: {len(hits)}")
         print("Top rows:")
-        print(df.head(10).to_string(index=False))
+        print(df.head(10))
         print("=" * 72)
 
     assert len(df) == len(target_rep.clonotypes)
     assert len(hits) >= 1
+    assert rss_parallel <= rss_serial * 1.25 + 250
 
     max_s = benchmark_max_seconds(default=120.0)
     assert elapsed < max_s
@@ -254,6 +310,17 @@ def test_tcrnet_runtime_gilg_vs_synthetic_1m(capsys) -> None:
         n_jobs=1,
     )
     elapsed_serial = time.perf_counter() - t0
+    _, rss_serial = _peak_rss_delta_mb(
+        lambda: compute_tcrnet(
+            target,
+            control=control,
+            metric="hamming",
+            threshold=1,
+            match_mode="none",
+            pvalue_mode="binomial",
+            n_jobs=1,
+        )
+    )
 
     t0 = time.perf_counter()
     parallel = compute_tcrnet(
@@ -266,6 +333,17 @@ def test_tcrnet_runtime_gilg_vs_synthetic_1m(capsys) -> None:
         n_jobs=4,
     )
     elapsed_parallel = time.perf_counter() - t0
+    _, rss_parallel = _peak_rss_delta_mb(
+        lambda: compute_tcrnet(
+            target,
+            control=control,
+            metric="hamming",
+            threshold=1,
+            match_mode="none",
+            pvalue_mode="binomial",
+            n_jobs=4,
+        )
+    )
 
     assert parallel.table.equals(serial.table)
 
@@ -276,12 +354,15 @@ def test_tcrnet_runtime_gilg_vs_synthetic_1m(capsys) -> None:
         print(f"control size: {len(control.clonotypes)} (requested n={n_control})")
         print(f"runtime serial(1): {elapsed_serial:.3f}s")
         print(f"runtime parallel(4): {elapsed_parallel:.3f}s")
+        print(f"peak RSS delta serial(1): {rss_serial:.1f} MB")
+        print(f"peak RSS delta parallel(4): {rss_parallel:.1f} MB")
         if elapsed_parallel > 0:
             print(f"speedup: {elapsed_serial / elapsed_parallel:.2f}x")
         print("=" * 72)
 
     max_s = benchmark_max_seconds(default=600.0)
     assert elapsed_parallel < max_s
+    assert rss_parallel <= rss_serial * 1.25 + 250
 
 
 @skip_benchmarks
@@ -307,8 +388,19 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
         n_jobs=4,
     )
     elapsed = time.perf_counter() - t0
+    _, rss_delta = _peak_rss_delta_mb(
+        lambda: compute_tcrnet(
+            target,
+            control=control,
+            metric="hamming",
+            threshold=1,
+            match_mode="vj",
+            pvalue_mode="binomial",
+            n_jobs=4,
+        )
+    )
 
-    table = _tcrnet_table_with_counts(target, result.table)
+    table = _tcrnet_table_with_counts(target, result.table.to_pandas())
     dedup = table.drop_duplicates(["cdr3aa", "v_gene", "j_gene"]).copy()
 
     # High-confidence donor-enriched clonotypes versus real control.
@@ -384,6 +476,7 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
     assert enriched_overlap_fraction >= 0.05
     assert largest_component >= 10
     assert n_components_ge5 >= 1
+    assert rss_delta < 5_000
 
     max_s = benchmark_max_seconds(default=900.0)
     assert elapsed < max_s

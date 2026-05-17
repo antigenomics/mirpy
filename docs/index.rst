@@ -4,7 +4,8 @@ mirpy documentation
 .. raw:: html
 
    <div class="mirpy-intro">
-     <img class="mirpy-intro__logo" src="_static/mirpy_logo.png" alt="mirpy logo" />
+     <img class="mirpy-intro__logo mirpy-intro__logo--light" src="_static/mirpy_logo.png" alt="mirpy logo" />
+     <img class="mirpy-intro__logo mirpy-intro__logo--dark" src="_static/mirpy_logo_dark.png" alt="mirpy logo" />
      <div>
        <p class="mirpy-intro__eyebrow">AIRR-seq toolkit</p>
        <p class="mirpy-intro__lead">
@@ -109,6 +110,7 @@ Explore next
 ============
 
 * :doc:`getting-started` for the shortest path from install to first parsed repertoire
+* :doc:`getting-started` for the repo Copilot agent and companion prompt (`/mirpy-analysis`)
 * :doc:`examples` for the full notebook gallery published from the repository
 * :doc:`modules` for API documentation generated from the current codebase
 * `GitHub repository <https://github.com/antigenomics/mirpy>`_ for source browsing and notebooks

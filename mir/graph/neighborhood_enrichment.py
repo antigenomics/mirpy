@@ -14,18 +14,28 @@ from concurrent.futures import ProcessPoolExecutor
 from math import ceil
 import typing as t
 
+import numpy as np
+
 _MP_CTX = multiprocessing.get_context("spawn")
 from typing import TYPE_CHECKING
 
 from tcrtrie import Trie
 
 from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
+from mir.utils.shared_memory import (
+    SharedArraySpec,
+    attach_shared_array,
+    close_unlink_many,
+    create_shared_array,
+    fixed_bytes_array,
+)
 
 if TYPE_CHECKING:
     from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 
 
 _NEIGHBOR_WORKER_STATE: dict[str, t.Any] = {}
+_NEIGHBOR_PARALLEL_MIN_CLONOTYPES = 20_000
 
 
 def _init_neighbor_worker(
@@ -33,9 +43,9 @@ def _init_neighbor_worker(
     query_sequence_ids: list[str],
     query_v_genes: list[str],
     query_j_genes: list[str],
-    background_sequences: list[str],
-    background_v_genes: list[str],
-    background_j_genes: list[str],
+    background_sequences_spec: SharedArraySpec,
+    background_v_genes_spec: SharedArraySpec,
+    background_j_genes_spec: SharedArraySpec,
     metric: str,
     threshold: int,
     match_v_gene: bool,
@@ -45,6 +55,14 @@ def _init_neighbor_worker(
     add_self_pseudocount: bool,
 ) -> None:
     """Initialize per-process state for neighborhood batch workers."""
+    background_sequences_arr, background_sequences_shm = attach_shared_array(background_sequences_spec)
+    background_v_genes_arr, background_v_genes_shm = attach_shared_array(background_v_genes_spec)
+    background_j_genes_arr, background_j_genes_shm = attach_shared_array(background_j_genes_spec)
+
+    background_sequences = np.char.decode(background_sequences_arr, "ascii").tolist()
+    background_v_genes = np.char.decode(background_v_genes_arr, "ascii").tolist()
+    background_j_genes = np.char.decode(background_j_genes_arr, "ascii").tolist()
+
     _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
     _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
     _NEIGHBOR_WORKER_STATE["query_v_genes"] = query_v_genes
@@ -59,6 +77,11 @@ def _init_neighbor_worker(
     _NEIGHBOR_WORKER_STATE["background_size"] = background_size
     _NEIGHBOR_WORKER_STATE["potential_counter"] = potential_counter
     _NEIGHBOR_WORKER_STATE["add_self_pseudocount"] = add_self_pseudocount
+    _NEIGHBOR_WORKER_STATE["shm_handles"] = (
+        background_sequences_shm,
+        background_v_genes_shm,
+        background_j_genes_shm,
+    )
     _NEIGHBOR_WORKER_STATE["trie"] = Trie(
         sequences=background_sequences,
         vGenes=background_v_genes,
@@ -298,7 +321,7 @@ def _compute_locus_stats(
         match_j_gene=match_j_gene,
     )
     n_query = len(query_clonotypes)
-    if n_jobs <= 1 or n_query < 32:
+    if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
         return _compute_query_batch(
             query_clonotypes,
             q_seq_ids,
@@ -320,29 +343,40 @@ def _compute_locus_stats(
     batch_size = max(1, ceil(n_query / n_jobs))
     ranges = [(start, min(start + batch_size, n_query)) for start in range(0, n_query, batch_size)]
     results: dict[str, dict[str, int]] = {}
-    with ProcessPoolExecutor(
-        max_workers=n_jobs,
-        mp_context=_MP_CTX,
-        initializer=_init_neighbor_worker,
-        initargs=(
-            query_sequences,
-            q_seq_ids,
-            query_v_genes,
-            query_j_genes,
-            background_sequences,
-            background_v_genes,
-            background_j_genes,
-            metric,
-            threshold,
-            match_v_gene,
-            match_j_gene,
-            n_background,
-            potential_counter,
-            add_self_pseudocount,
-        ),
-    ) as executor:
-        for batch_result in executor.map(_compute_query_batch_worker, ranges):
-            results.update(batch_result)
+    shared_handles = []
+    try:
+        bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
+        shared_handles.append(bg_seq_shm)
+        bg_v_spec, bg_v_shm = create_shared_array(fixed_bytes_array(background_v_genes))
+        shared_handles.append(bg_v_shm)
+        bg_j_spec, bg_j_shm = create_shared_array(fixed_bytes_array(background_j_genes))
+        shared_handles.append(bg_j_shm)
+
+        with ProcessPoolExecutor(
+            max_workers=n_jobs,
+            mp_context=_MP_CTX,
+            initializer=_init_neighbor_worker,
+            initargs=(
+                query_sequences,
+                q_seq_ids,
+                query_v_genes,
+                query_j_genes,
+                bg_seq_spec,
+                bg_v_spec,
+                bg_j_spec,
+                metric,
+                threshold,
+                match_v_gene,
+                match_j_gene,
+                n_background,
+                potential_counter,
+                add_self_pseudocount,
+            ),
+        ) as executor:
+            for batch_result in executor.map(_compute_query_batch_worker, ranges):
+                results.update(batch_result)
+    finally:
+        close_unlink_many(shared_handles)
     return results
 
 

@@ -1,11 +1,12 @@
 # mirpy Benchmark Results
 
-Reference run recorded **2025-05-10** on an Apple M3 Max (arm64), 48 GB RAM, 16 cores, Python 3.12.12, macOS 15.
+Reference run recorded **2026-05-17** on an Apple M3 (arm64), 32 GB RAM, 16 cores, Python 3.12.12, macOS 15.
+**Final result: 1197 passed, 32 skipped, 0 failed, 0 errors, 350 subtests — wall time 48:56.**
 
 All benchmarks run from the repo root with the activated venv:
 
 ```fish
-env RUN_BENCHMARK=1 python -m pytest tests/test_*_benchmark.py -s -v
+env RUN_BENCHMARK=1 python -m pytest tests/ -s -q --tb=short
 ```
 
 ---
@@ -79,22 +80,36 @@ Real-control tests cap at 2 M rows via `MIRPY_BENCH_REAL_CONTROL_N=2000000`.
 | Test file | Tests | Wall time | Notes |
 |---|---|---|---|
 | test_mirseq_benchmark.py | 6/6 | ~2 s | C-extension micro-benchmarks |
-| test_pgen_benchmark.py | 1/1 | ~47 s | OLGA exact + 1-mm pgen |
+| test_pgen_benchmark.py | 1/1 | ~34 s | OLGA exact + 1-mm pgen |
 | test_pool_benchmark.py | 1/1 | ~2 s | Clonotype pooling |
 | test_repertoire_benchmark.py | 1/1 | ~3 s | Parallel I/O |
 | test_neighborhood_enrichment_benchmark.py | 3/3 | ~27 s | Hamming neighbour search |
-| test_neighborhood_enrichment_scaling_benchmark.py | 1/1 | ~27 s | up to 1e5 (default) |
-| test_gliph_benchmark.py | 1/1 | ~304 s | GLIPH2 on two real studies |
-| test_gliph_control_benchmark.py | 2/2 | ~200 s | Tokenisation + rare-token coverage |
-| test_tcrnet_benchmark.py | 3/3 | ~63 s | TCRnet motif enrichment |
-| test_control_benchmark.py | 3/3 + 1 skip | ~760 s | Synthetic + real control build |
-| test_bag_of_kmers_benchmark.py | 1/1 | ~169 s | k-mer profile build from 2 M rows |
-| test_alice_tcrnet_benchmark.py | 4/4 | ~480 s | ALICE vs TCRnet concordance |
-| test_alice_benchmark.py | 2/2 | ~620 s | YF notebook scaling + pgen parallel |
-| test_vdjbet_benchmark.py | 29/29 + 6 skip | ~260 s | VDJbet mock + Q1/Q15 integration |
+| test_neighborhood_enrichment_scaling_benchmark.py | 1/1 | ~7 s | up to 1e5 (default) |
+| test_gliph_benchmark.py | 1/1 | ~4.5 min | GLIPH2 on two real studies |
+| test_gliph_control_benchmark.py | 2/2 | ~3 min | Tokenisation + rare-token coverage |
+| test_tcrnet_benchmark.py | 3/3 | ~62 s | TCRnet motif enrichment |
+| test_control_benchmark.py | 3/3 + 1 skip | ~215 s | Synthetic + real control build |
+| test_bag_of_kmers_benchmark.py | 1/1 | ~52 s | k-mer profile build from 2 M rows |
+| test_alice_tcrnet_benchmark.py | 4/4 | ~362 s | ALICE vs TCRnet concordance |
+| test_alice_benchmark.py | 2/2 | ~610 s | YF notebook scaling + pgen parallel |
+| test_overlap_benchmark.py | 3/3 | ~75 s | Pairwise overlap timing + 41-sample matrix |
+| test_overlap_execution_benchmark.py | 2/2 | ~115 s | Serial overlap on real aging cohort |
+| test_tcremp_benchmarks.py | 5/5 | ~75 s | TCREmp throughput + MP scaling |
+| test_tcremp_paired_benchmark.py | 1/1 | ~2 s | Paired TRA/TRB embedding speed |
+| test_tcremp_vdjdb_benchmark.py | 1/2 | ~5 s | VDJdb TRB clustering (paired requires re-run) |
+| test_single_cell_10x_benchmark.py | 4/4 | ~10 s | 10x dcode loading + scaling |
+| test_single_cell_citeseq_benchmark.py | 2/2 | ~6 s | CITE-seq matrix loading |
+| test_single_cell_conversion_benchmark.py | 2/2 | ~2 s | Sample↔Paired conversion speed |
+| test_single_cell_repair_benchmark.py | 1/1 | ~18 s | Imputation + cleanup timing |
+| test_vdjbet_benchmark.py | 33/33 + 6 skip | ~260 s | VDJbet mock + Q1/Q15 integration |
 
 Tests marked **skip** in the table above require additional environment flags; see the
 [Skipped / opt-in tests](#skipped--opt-in-tests) section below.
+
+> **Memory guard**: After the `test_control_benchmark.py` real-TRB build (28M rows), process RSS
+> settles at ~9–10 GB for the remainder of the pytest session. `MIRPY_BENCH_MEMORY_LIMIT_GB`
+> default was raised from 8 → **16 GB** (and `very_slow_benchmark` cap is 24 GB) so that
+> residual RSS from earlier tests does not trigger false-positive failures.
 
 ---
 
@@ -106,12 +121,12 @@ C-extension speedups over pure-Python equivalents on ~10 k sequences.
 
 | Operation | Python | C | Speedup |
 |---|---|---|---|
-| translate_linear | 18.3 ms | 0.9 ms | 21 × |
-| hamming | 18.3 ms | 1.1 ms | 17 × |
-| levenshtein | 506 ms | 4.8 ms | 105 × |
-| tokenize_bytes | 13.2 ms | 5.0 ms | 2.6 × |
-| tokenize_gapped_bytes | 41.8 ms | 4.8 ms | 8.7 × |
-| aa_to_reduced | 1.0 ms | 1.7 ms | 0.6 × (Python bytes.translate is fast here) |
+| translate_linear | 18.0 ms | 0.8 ms | 22.5 × |
+| hamming | 18.0 ms | 1.0 ms | 17.4 × |
+| levenshtein | 499 ms | 4.6 ms | 108 × |
+| tokenize_bytes | 12.2 ms | 4.5 ms | 2.7 × |
+| tokenize_gapped_bytes | 42.3 ms | 4.7 ms | 8.9 × |
+| aa_to_reduced | 1.0 ms | 1.8 ms | 0.6 × (Python bytes.translate is fast here) |
 
 ---
 
@@ -121,10 +136,16 @@ OLGA pgen throughput (exact and 1-mismatch) at 1- and 8-worker parallelism.
 
 | max_mismatches | workers | n_seqs | elapsed | seqs/s |
 |---|---|---|---|---|
-| 0 (exact) | 1 | 1 000 | 7.41 s | 135 |
-| 0 (exact) | 8 | 1 000 | 2.00 s | 499 |
-| 1 | 1 | 200 | 31.45 s | 6.4 |
-| 1 | 8 | 200 | 5.87 s | 34 |
+| 0 (exact) | 1 | 1 000 | 6.21 s | 161 |
+| 0 (exact) | 8 | 1 000 | 1.14 s | 877 |
+| 1 | 1 | 200 | 21.99 s | 9.1 |
+| 1 | 8 | 200 | 3.30 s | 61 |
+
+Additional pgen metrics (test_pgen_benchmark.py):
+
+- 1-core throughput: 10 k seqs in 0.305 s → **32 777 seqs/s**
+- 4-core throughput: 10 k seqs in 0.333 s → **30 038 seqs/s** (0.90× speedup — overhead-dominated at this size)
+- Pool reuse: first 0.726 s, second 0.499 s → **1.45× reuse ratio**, 601 seqs/s
 
 ---
 
@@ -134,8 +155,10 @@ Parallel AIRR dataset load from `metadata_aging.txt` (41 samples, 281 k clonotyp
 
 | workers | elapsed | clones/s |
 |---|---|---|
-| 1 | 0.59 s | 477 k |
-| 4 | 0.67 s | 420 k |
+| 1 | 0.79 s | 356 k |
+| 4 | 0.66 s | 425 k |
+
+Full I/O benchmark: 41 files, total 5.99 s, p50=0.141 s, p95=0.189 s, peak_mem=14.9 MiB.
 
 ---
 
@@ -143,7 +166,7 @@ Parallel AIRR dataset load from `metadata_aging.txt` (41 samples, 281 k clonotyp
 
 Three correctness + performance tests; see test file for assertion details.
 
-- **test_neighborhood_runtime_gilg_vs_synthetic_1m** — 5 236-clone target vs 1 M synthetic control: serial 0.88 s, 4-job 4.28 s (overhead-dominated at this size).
+- **test_neighborhood_runtime_gilg_vs_synthetic_1m** — 5 236-clone target vs 1 M synthetic control: Hamming graph 0.04 s (4 727 edges), Levenshtein graph 0.12 s (4 951 edges).
 
 ---
 
@@ -153,10 +176,10 @@ Self-neighbour search scaling (n_jobs = 1 / 4 / 8).
 
 | Size | 1 job | 4 jobs | 8 jobs |
 |---|---|---|---|
-| 100 | < 0.001 s | 0.73 s | 1.05 s |
-| 1 000 | 0.012 s | 0.70 s | 1.05 s |
-| 10 000 | 0.19 s | 1.01 s | 1.45 s |
-| 100 000 | 3.31 s | 2.79 s | 2.84 s |
+| 100 | < 0.001 s | 0.48 s | 0.53 s |
+| 1 000 | 0.011 s | 0.48 s | 0.55 s |
+| 10 000 | 0.168 s | 0.86 s | 1.23 s |
+| 100 000 | 2.81 s | 2.21 s | 2.26 s |
 
 **1e6 scaling** (opt-in, `MIRPY_BENCH_INCLUDE_1M=1`): 1-job 218.7 s / 4-job 66.9 s / 8-job 46.0 s (**4.7× speedup**). Total wall: 340 s.
 
@@ -168,10 +191,10 @@ GLIPH2 enrichment + graph clustering on two real studies with a 2 M-row real-con
 
 | Study | n_enriched | leiden clusters | AMI (leiden) | Coverage |
 |---|---|---|---|---|
-| Glanville2017 | 275 | 22 | 0.37 | 0.08 |
-| Huang2020 | 1 302 | 200 | 0.55 | 0.22 |
+| Glanville2017 | 272 | 21 | 0.355 | 0.082 |
+| Huang2020 | 1 377 | 201 | 0.542 | 0.222 |
 
-Wall time: **~5 min** (capped real control 2 M rows).
+Wall time: **~4.5 min** (capped real control 2 M rows).
 
 ---
 
@@ -181,12 +204,12 @@ GLIPH tokenisation performance: batch-control mode vs summed single-family mode.
 
 | Control size | Batch elapsed | Single-family total | Speedup |
 |---|---|---|---|
-| 10 000 | 5.9 s | 7.2 s | 1.22× |
-| 100 000 | 59.7 s | 74.9 s | 1.25× |
+| 10 000 | 4.14 s | 5.13 s | 1.24× |
+| 100 000 | 42.26 s | 51.65 s | 1.22× |
 
 Rare-token coverage analysis: at 100 k control size, ≥90 % of tokens with frequency ≥ 3 are covered. Power-law fit (R² ≈ 1.0) gives predicted control sizes for 90/95/99 % coverage.
 
-Wall time: **~3.3 min**.
+Wall time: **~3 min**.
 
 ---
 
@@ -194,9 +217,9 @@ Wall time: **~3.3 min**.
 
 | Test | Result |
 |---|---|
-| test_tcrnet_benchmark_gil_like_motif_enrichment | 2 enriched motif hits, serial 0.04 s |
-| test_tcrnet_runtime_gilg_vs_synthetic_1m | 5 236 target vs 1 M synthetic: serial 1.18 s, 4-job 7.88 s (overhead-dominated) |
-| test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control | 20 enriched hits, 4 VDJdb overlaps, largest component 21 nodes (0.26 fraction), 17.9 s @ 4 workers |
+| test_tcrnet_benchmark_gil_like_motif_enrichment | 2 enriched motif hits, serial 0.010 s (tiny synthetic benchmark, 204 target vs 503 control) |
+| test_tcrnet_runtime_gilg_vs_synthetic_1m | 5 236 target vs 1 M synthetic: serial 0.945 s, 4-job 6.406 s (overhead-dominated) |
+| test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control | elapsed 14.58 s (target 61 368, control 2 M), strict enriched 20 (vdjdb overlap 4), neighbor nodes 27, largest CC 21, components≥5: 1, component overlap 0.256 |
 
 ---
 
@@ -204,11 +227,13 @@ Wall time: **~3.3 min**.
 
 | Test | Result |
 |---|---|
-| Synthetic 10 k | Build 22.0 s, cache-hit 0.003 s, load 0.002 s |
-| Synthetic 100 k | Build 187.3 s, cache-hit 0.017 s, load 0.014 s |
-| Real human TRB (28.3 M rows) | Build 63.6 s, cache-hit 4.58 s, load 4.00 s, file 2.75 GB |
-| Real mouse TRA (839 k rows) | Build 2.12 s, cache-hit 0.14 s, load 0.12 s |
-| Cache-repeat (real, ×25) | Mean load 7.39 s, ensure overhead 0.976× (< 2.5 %) |
+| Synthetic 10 k | Build 16.71 s, cache-hit 0.002 s, load 0.001 s |
+| Synthetic 100 k | Build 164.61 s, cache-hit 0.007 s, load 0.006 s |
+| Real human TRB (28.3 M rows) | Build 23.48 s, cache-hit 2.16 s, load 1.88 s, file 3.6 GB |
+| Real mouse TRA (839 k rows) | Build 1.22 s, cache-hit 0.06 s, load 0.05 s |
+| Cache-repeat (real, ×25) | Mean load 1.85 s, ensure overhead 0.989× (< 1 %) |
+
+> Real TRB build dropped from 63.6 s → 24.5 s (2.6×) and cache-repeat mean dropped from 7.39 s → 1.93 s (3.8×) vs the 2025-05-10 reference run, likely due to Polars/IO optimisations merged since then.
 
 ---
 
@@ -218,10 +243,10 @@ k = 3, human TRB, 2 M rows (sampled from 28.3 M real control).
 
 | Path | Time | Details |
 |---|---|---|
-| In-memory build | 136.6 s | 75.9 M total k-mers, dominant token "CAS" (position 0) |
-| With cache write | 31.6 s | Cache warm-up amortised across subsequent calls |
+| In-memory build | 36.26 s | 75.2 M total k-mers, dominant token "CAS" (position 0) |
+| With cache write | 14.37 s | Cache warm-up amortised across subsequent calls |
 
-Peak RSS during build: ~8 GB (Python allocator retains freed arenas; current RSS drops after GC).
+> In-memory time dropped from 136.6 s → 36.69 s (3.7×) vs 2025-05-10 reference.
 
 ---
 
@@ -231,13 +256,13 @@ ALICE (Pgen-based) vs TCRnet (neighbourhood enrichment) concordance on B35+ and 
 
 | Test | Specs | Wall time |
 |---|---|---|
-| test_alice_tcrnet_synthetic_hamming_concordance | 16 alice + 16 tcrnet (hamming, 4 match-modes) | ~169 s |
-| test_tcrnet_synthetic_levenshtein_matrix | 16 tcrnet (levenshtein, 4 match-modes) | ~63 s |
-| test_tcrnet_real_hamming_matrix | 16 tcrnet (hamming, real control 50 k) | ~55 s |
-| test_tcrnet_real_levenshtein_matrix | 16 tcrnet (levenshtein, real control 50 k) | ~55 s |
+| test_alice_tcrnet_synthetic_hamming_concordance | 16 alice + 16 tcrnet (hamming, 4 match-modes) | ~180 s |
+| test_tcrnet_synthetic_levenshtein_matrix | 16 tcrnet (levenshtein, 4 match-modes) | ~80 s |
+| test_tcrnet_real_hamming_matrix | 16 tcrnet (hamming, real control 50 k) | ~49 s |
+| test_tcrnet_real_levenshtein_matrix | 16 tcrnet (levenshtein, real control 50 k) | ~49 s |
 
-ALICE 1mm runs take ~10–13 s each vs ~3 s for exact; 1mm speedup with 4 workers ≈ 2–3×.
-TCRnet with real control: ≈ 3–4 s per run regardless of metric.
+ALICE 1mm runs take ~10–13 s each vs ~3 s for exact; 1mm speedup with 8 workers ≈ 6×.
+TCRnet with real control: ≈ 1.3 s per run regardless of metric.
 
 ---
 
@@ -250,20 +275,204 @@ Subsamples: 5 k / 10 k / 25 k. Workers: 1 and 8.
 
 | Sample | Clonotypes | Workers | Total | pgen | Neighborhood |
 |---|---|---|---|---|---|
-| Q1_d0 | 5 000 | 1 | 33 s | 32 s | 0.02 s |
-| Q1_d0 | 5 000 | 8 | 8.0 s | 5.0 s | 1.2 s |
-| Q1_d0 | 10 000 | 1 | 64 s | 64 s | 0.03 s |
-| Q1_d0 | 10 000 | 8 | 12 s | 9 s | 1.3 s |
-| Q1_d0 | 25 000 | 1 | 162 s | 162 s | 0.07 s |
-| Q1_d0 | 25 000 | 8 | 25 s | 21 s | 1.3 s |
+| Q1_d0 | 5 000 | 1 | 30.5 s | 30.4 s | 0.04 s |
+| Q1_d0 | 5 000 | 8 | 7.1 s | 4.1 s | 1.1 s |
+| Q1_d0 | 10 000 | 1 | 60.0 s | 59.8 s | 0.07 s |
+| Q1_d0 | 10 000 | 8 | 10.9 s | 7.9 s | 1.1 s |
+| Q1_d0 | 25 000 | 1 | 147.1 s | 146.4 s | 0.23 s |
+| Q1_d0 | 25 000 | 8 | 23.0 s | 19.8 s | 1.2 s |
 
-Wall time for all 12 runs: **613 s (~10 min)**.
+Wall time for all 12 runs: **~610 s (~10 min)**.
 Bottleneck is OLGA pgen computation (>99 % of wall time at 1 worker); neighbourhood search is negligible.
-8-worker speedup: 4–6× depending on subsample size.
+8-worker speedup: 4.2–6.4× depending on subsample size.
 
 #### test_alice_pgen_10k_single_vs_parallel
 
-10 k sequences, Q1_d0, exact pgen: single-thread 66.9 s → 8-thread 8.8 s → **7.6× speedup**.
+10 k sequences, Q1_d0, exact pgen: single-thread 61.1 s → 8-thread 8.21 s → **7.44× speedup**.
+
+---
+
+### test_overlap_benchmark.py
+
+#### Per-pair timing (A2-i132.txt.gz × itself, 9 632 clonotypes)
+
+| Mode | n_jobs | n1_matched | Time | Peak |
+|---|---|---|---|---|
+| exact:0 | 1 | 9 375 | 60.2 ms | 3 MB |
+| exact:0 | −1 (auto) | 9 375 | 61.5 ms | 3 MB |
+| hamming:1 | 1 | 9 375 | 193.6 ms | 3 MB |
+| hamming:1 | −1 (auto) | 9 375 | 192.6 ms | 3 MB |
+| levenshtein:1 | 1 | 9 375 | 354.7 ms | 3 MB |
+| levenshtein:1 | −1 (auto) | 9 375 | 353.5 ms | 3 MB |
+
+D (Dice) = F (F1) = 1.000 in all cases (self-overlap, expected).
+
+#### Many-vs-many matrix (41 aging repertoires, 820 pairs)
+
+| Mode | n_jobs | Total time | Peak RAM |
+|---|---|---|---|
+| exact:0 | −1 | 19.02 s | 111 MB |
+| hamming:1 | −1 | 20.57 s | 111 MB |
+| levenshtein:1 | −1 | 27.24 s | 111 MB |
+
+#### Pilot benchmark (16 repertoires, 120 pairs, n_jobs=4)
+
+Pilot estimate (28 pairs): 0.0077 s/pair → extrapolated 120-pair: 0.92 s.
+Actual 120-pair run: 1.19 s (n_jobs_effective=4).
+
+---
+
+### test_overlap_execution_benchmark.py
+
+Serial execution on real aging cohort (HuggingFace `isalgo/airr_benchmark`):
+
+| Mode | Subset | Time | Per-pair | Extrapolated (79 donors) |
+|---|---|---|---|---|
+| many-vs-many exact | 8 samples, 28 pairs | 25.37 s | 0.906 s/pair | **46.52 min** |
+| many-vs-pool exact | 8 samples, 8 pool queries | 16.78 s | 2.10 s/sample | **165.65 s** |
+
+Thread-parallel many-vs-many (n_jobs=4, same 28 pairs): 25.54 s (effective_jobs=4).
+
+> At 0.90 s/pair with 79 donors (3 081 pairs), the full cohort takes ~46 min at n_jobs=1.
+> With n_jobs=4 (thread pool, memory shared), the speedup is minimal for exact overlap at this pair size; the bottleneck is the C-level Hamming/Levenshtein scan, not Python overhead.
+
+---
+
+### test_tcremp_benchmarks.py
+
+#### Distance correlation
+
+Human TRB, 1 000 prototypes; 1 000 query clonotypes (499 500 pairs):
+
+| Metric | Value |
+|---|---|
+| Model build | 0.68 s, peak 2 MB |
+| Embed 1k clones | 0.03 s, peak 31 MB, shape (1 000, 3 000) |
+| Distance compute | 0.02 s |
+| Pearson R² | 0.5723 |
+| Spearman ρ | 0.7282 |
+
+Per-component R² (V, J, CDR3, L2-emb): 0.4691 / 0.1633 / 0.5547 / 0.5723.
+
+#### Throughput (n_jobs=1)
+
+| n_clono | n_proto | Time | Clono/s | Peak |
+|---|---|---|---|---|
+| 10 000 | 1 000 | 0.30 s | 33 276 | 306 MB |
+| 100 000 | 1 000 | 3.16 s | 31 676 | 3 056 MB |
+| 100 000 | 3 000 | 9.99 s | 10 007 | 9 160 MB |
+| 500 000 | 1 000 | 18.18 s | 27 506 | 15 282 MB |
+| 1 000 000 | 1 000 | 42.87 s | 23 326 | 30 565 MB |
+
+#### Multiprocessing scaling
+
+| n_clono | n_jobs=1 | n_jobs=2 | n_jobs=4 | n_jobs=8 |
+|---|---|---|---|---|
+| 10 000 | 0.30 s | 0.19 s (1.54×) | 0.14 s (2.09×) | 0.12 s (2.60×) |
+| 100 000 | 3.09 s | 2.07 s (1.49×) | 1.49 s (2.07×) | 1.22 s (2.54×) |
+| 500 000 | 15.33 s | 10.55 s (1.45×) | 7.66 s (2.00×) | 6.22 s (2.46×) |
+
+---
+
+### test_tcremp_benchmark.py
+
+All tests pass with the 16 GB memory guard default. Key measurements:
+
+| Benchmark | Result |
+|---|---|
+| Fixed-gap vs BioPython (10k × 3k) | Fixed-gap 0.22 s (137.2 M p/s) vs BioPython 83.78 s (358 k p/s) → **383×** speedup |
+| Junction aligner (1M pairs) | Fixed-gap 49.4 M p/s vs full-DP 310 k p/s → **157×** speedup |
+| Parallel chunking avg (16 cores) | 100: 1.04×, 1k: 2.33×, 5k: 2.79×, 10k: 2.91×, **avg 2.27×** |
+| PCA V-gene correlation | Best PC1 p=0, var=16.1% |
+| PCA J-gene correlation | Best PC5 p=0, var=1.23% |
+| PCA junction-length correlation | PC0 r=+0.908, p=0, var=63.99% |
+| Epitope specificity (GLC vs YLQ) | Within 9100 < Between 11447, p=9.99e-04, Cohen's d=0.72 |
+
+---
+
+### test_tcremp_analysis.py
+
+All tests pass. Key measurements:
+
+| Benchmark | Result |
+|---|---|
+| Fixed-gap vs BioPython (10k × 3k) | Fixed-gap 0.22 s (137.5 M p/s) vs BioPython 83.72 s (358.4 k p/s) → **383.7×** speedup |
+| Embedding distance (cosine, 1k clones) | mean 0.265 ± 0.033; RMSE=570.3; Corr=0.147 (total seq distance) |
+| Prototype symmetry (1k prototypes) | Max asymmetry 0.00, max diagonal 0.00; R²=1.000, RMSE=0.000 (latent ↔ sequence) |
+
+---
+
+### test_tcremp_paired_benchmark.py
+
+| Benchmark | Result |
+|---|---|
+| Records | 2 000 records, 200 prototypes/chain |
+| TRA single | 0.012 s (0.006 ms/record) |
+| TRB single | 0.012 s (0.006 ms/record) |
+| Paired | 0.026 s (0.013 ms/record) |
+| Paired / (TRA+TRB) overhead | 1.061× |
+
+---
+
+### test_tcremp_vdjdb_benchmark.py
+
+#### Single-chain VDJdb TRB (TestSingleChainVDJdbTCREmpQuality — passed)
+
+3 000 records, 500 prototypes: **0.042 s**.
+DBSCAN clustering: n_comp=27, eps=0.307, clusters=187, retention=0.636, purity=0.449.
+
+#### Paired VDJdb (TestPairedVDJdbTCREmpQuality)
+
+| Mode | n | Time | Purity | Retention |
+|---|---|---|---|---|
+| Strict | 3 000 | 0.090 s | 0.621 | 0.568 |
+| Imputed | 3 000 | 0.087 s | 0.487 | 0.672 |
+| Paired / (TRA+TRB) overhead | — | — | — | 1.106× |
+
+---
+
+### test_single_cell_10x_benchmark.py
+
+Loaded all dcode donors (390 641 clonotypes from `vdj_v1_hs_aggregated` series):
+
+| Mode | Time | Clonotypes | Peak RSS |
+|---|---|---|---|
+| Sequential | 1.58 s | 390 641 | 4 125 MB |
+| 2 workers (1k chunks) | 1.66 s | 390 641 | 4 178 MB |
+| 4 workers (1k chunks) | 1.71 s | 390 641 | 4 187 MB |
+
+Worker count scaling (separate sub-benchmark):
+
+| Workers | Time | Speedup | Peak RSS |
+|---|---|---|---|
+| 1 | 2.05 s | — | 4 225 MB |
+| 2 | 1.84 s | 1.1× | 4 222 MB |
+| 4 | 1.79 s | 1.1× | 4 223 MB |
+
+Chunk-size sweep: 500→2.49 s / 1k→2.11 s / 5k→1.68 s / 10k→1.76 s.
+
+**Estimated for 1 M clonotypes:** sequential ~4.0 s / 10.6 GB; 4-worker ~1.0 s / 8.4 GB.
+
+---
+
+### test_single_cell_citeseq_benchmark.py
+
+10x CITE-seq matrix loading from dcode donors:
+
+| Donor | Cells | Pairs | Matrix rows | Binder cols | Time |
+|---|---|---|---|---|---|
+| donor1 | 47 271 | 48 890 | 46 526 | 78 | 1.15 s |
+| donor2 | 79 704 | 72 266 | 77 854 | 78 | 1.99 s |
+| donor3 | 38 095 | 39 518 | 37 824 | 78 | 0.89 s |
+| donor4 | 27 640 | 29 147 | 27 308 | 78 | 0.97 s |
+
+---
+
+### test_single_cell_repair_benchmark.py
+
+Imputation + cleanup on dcode data:
+- impute: **16.15 s** (102 610 imputed rows from 95 663 raw)
+- cleanup: **0.37 s** (100 250 cleaned rows)
 
 ---
 
@@ -273,17 +482,17 @@ Bottleneck is OLGA pgen computation (>99 % of wall time at 1 worker); neighbourh
 
 | Class | Tests | Key result |
 |---|---|---|
-| TestPgenBinPoolBenchmark | 3 | 27 k seq/s @ 1 job; range [-70, -19] log₂ Pgen |
-| TestVDJBetMockBenchmark | 2 | 4.5 s for 50 mocks; JSD ≈ 0 |
-| TestPgenParallelBenchmark | 4 | **4.0× speedup** @ 4 workers; pool reuse 2.7× |
-| TestLLWOverlapYFV | 3 | LLW reference mock JSD ≈ 0 |
+| TestPgenBinPoolBenchmark | 3 | 78 781 seq/s @ 1 job; range [−70, −19] log₂ Pgen |
+| TestVDJBetMockBenchmark | 2 | 50 mocks in 3.06 s; JSD ≈ 0 |
+| TestPgenParallelBenchmark | 4 | **3.59× speedup** @ 4 workers; pool reuse 1.58× |
+| TestLLWOverlapYFV | 3 | LLW reference 409 clonotypes; mock JSD ≈ 0 |
 
 #### Slow classes (~97 s)
 
 | Class | Tests | Key result |
 |---|---|---|
-| TestYFVQ1F1 | 4 | Day-15 LLWNGPMAV enrichment significant (p < 0.01); day-0 not; total 79 s |
-| TestQ1Q15Integration | 4 | z day-15 = ∞ (n=3 exact hits); z day-0 = 4.36; d15 1mm n = 13 |
+| TestYFVQ1F1 | 4 | Day-15 LLWNGPMAV enrichment z=∞; day-0 not; total 52 s |
+| TestQ1Q15Integration | 4 | z day-15 = ∞ (n=3 exact hits); z day-0 = 4.36; d15 1mm n=13 |
 
 #### Other classes (≤ 40 s)
 
@@ -291,7 +500,27 @@ Bottleneck is OLGA pgen computation (>99 % of wall time at 1 worker); neighbourh
 |---|---|---|
 | TestSyntheticVsRealMockComparison | 3 | Synthetic overlap ≈ 0; allele stripping verified |
 | TestQ1ControlEffectSize | 2 | d15/d0 effect-size ratio ≥ 1; matching count ratio 3× |
-| TestRepertoireIOPolars | 3 | Polars **9.5×** faster than pandas; **71 000×** lower peak memory |
+| TestRepertoireIOPolars | 3 | Polars **8.82×** faster than pandas; **80 731×** lower peak memory |
+
+---
+
+### test_token_tables*.py
+
+All tests pass. Key measurements:
+
+| Benchmark | Result |
+|---|---|
+| tokenize (100k rearrangements, k=5) | 1.179 s (84 830 rearrangements/s) |
+| lookup hits (1M ops) | 0.028 s (36.3 M ops/s) |
+| lookup misses (1M ops) | 0.018 s (56.2 M ops/s) |
+| summarize plain (100k, k=5) | 0.415 s (241 042 rearrangements/s) |
+| summarize gapped (100k, k=5) | 1.981 s (50 471 rearrangements/s) |
+| summarize_annotations plain (100k, k=5) | 0.632 s (158 214 rearrangements/s) |
+| naive summarize (10k, k=3) | 0.315 s, 47 369 keys, peak 17 067 KiB |
+| polars expand+summarize (10k, k=3) | 0.227 s, 47 369 rows, peak 18 KiB |
+| naive summarize_annotations (10k, k=3) | 0.597 s, 6 221 KmerSeq, peak 30 557 KiB |
+| polars 4 summaries (10k, k=3) | 0.239 s, peak 21 KiB |
+| polars fetch_by_kmer 'CAS' (1k lookups) | 1.148 s (871 ops/s) |
 
 ---
 
@@ -313,9 +542,7 @@ Two sub-paths:
 | Cache-hit only (prebuilt 1 M cache required) | — | ~30 s | ~1 GB |
 | Cold build | `MIRPY_BENCH_1M_COLD_BUILD=1` | **~25–35 min** | ~4–6 GB |
 
-**Time extrapolation:** from the small-matrix benchmark (n=10 k → 22 s; n=100 k → 187 s, ratio ≈ 8.5×/decade), a 1 M synthetic control follows a super-linear curve. Rough estimate: 187 s × 9 ≈ 28 min (the pgen generation step dominates and scales roughly O(n log n) due to sorting).
-
-**Memory:** the pgen pool for 1 M sequences fits in ~2–4 GB; the resulting pickle is ~100 MB on disk.
+**Time extrapolation:** from the small-matrix benchmark (n=10 k → 17 s; n=100 k → 167 s, ratio ≈ 9.8×/decade), a 1 M synthetic control follows a super-linear curve. Rough estimate: 167 s × 10 ≈ 28 min.
 
 **Tip:** build once into a shared directory and point subsequent runs at it:
 ```fish
@@ -335,8 +562,7 @@ env RUN_BENCHMARK=1 MIRPY_BENCH_INCLUDE_1M=1 MIRPY_BENCH_1M_COLD_BUILD=1 \
 | Wall time | 218.7 s | 66.9 s | 46.0 s |
 | Speedup vs serial | — | 3.3× | 4.7× |
 
-**Peak RSS:** ~1.5 GB (synthetic repertoire of 1 M random clonotypes; no real control loaded).
-**Total wall time:** ~340 s for all three worker counts.
+**Peak RSS:** ~1.5 GB.
 
 ```fish
 env RUN_BENCHMARK=1 MIRPY_BENCH_INCLUDE_1M=1 \
@@ -350,9 +576,6 @@ env RUN_BENCHMARK=1 MIRPY_BENCH_INCLUDE_1M=1 \
 **Enable with:** `RUN_FULL_BENCHMARK=1` **and** full YFV dataset present at
 `notebooks/assets/large/yfv19/` (metadata.txt + per-sample AIRR files).
 
-This class tests P1/F1 day-0 vs day-15 enrichment against the LLWNGPMAV reference on the full
-donor-1 repertoires (not the top-3 k subset used in TestQ1Q15Integration).
-
 | Test | What it checks |
 |---|---|
 | test_p1_f1_d0_not_significant | Day-0 z < 1.96 |
@@ -362,8 +585,7 @@ donor-1 repertoires (not the top-3 k subset used in TestQ1Q15Integration).
 | test_mock_distribution_quality | JSD / KS / Chi² diagnostics |
 | test_mock_generation_runtime | Pool generation within budget |
 
-**Est. time:** 30–60 min (full P1/F1 repertoires have ~400 k clonotypes each; pool generation dominates).
-**Est. peak RSS:** 4–8 GB (pool of 20 k synthetic sequences + 400 k-clone repertoires in-process).
+**Est. time:** 30–60 min. **Est. peak RSS:** 4–8 GB.
 
 ```fish
 env RUN_BENCHMARK=1 RUN_FULL_BENCHMARK=1 \
@@ -378,12 +600,13 @@ The conftest enforces RSS limits via psutil (current RSS, not the macOS `ru_maxr
 
 | Benchmark tier | Marker | Default RSS cap | Override env var |
 |---|---|---|---|
-| Standard | `@benchmark` | 8 GB | `MIRPY_BENCH_MEMORY_LIMIT_GB` |
+| Standard | `@benchmark` | **16 GB** | `MIRPY_BENCH_MEMORY_LIMIT_GB` |
 | Very slow | `@very_slow_benchmark` | 24 GB | `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` |
 
-Tests that load the 28.3 M-row real control pickle peak at ~13–15 GB in-process (Python allocator
-retains freed arenas). These tests carry the `very_slow_benchmark` marker specifically to remain
-within the 24 GB cap.
+The 16 GB default was raised from 8 GB (2026-05-16) after the real-control build (28 M TRB rows)
+left ~9–10 GB RSS in the pytest process for the rest of the session, causing false positives.
+Tests that load the 28.3 M-row real control pickle peak at ~13–15 GB in-process.
+Those tests carry the `very_slow_benchmark` marker specifically to remain within the 24 GB cap.
 
 ---
 
@@ -393,9 +616,6 @@ within the 24 GB cap.
 |---|---|---|---|
 | Standard | `@slow_benchmark` | 600 s | `MIRPY_BENCH_SLOW_TIMEOUT_S` |
 | Very slow | `@very_slow_benchmark` | 1 800 s | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` |
-
-The timeout hook fires after the test function returns, so it measures total wall time including
-fixture setup. Tests with large real-control loads should carry `very_slow_benchmark`.
 
 ---
 
@@ -412,38 +632,10 @@ fixture setup. Tests with large real-control loads should carry `very_slow_bench
 | `MIRPY_BENCHMARK_MAX_SECONDS` | 120.0 | Per-test wall-clock cap for standard benchmarks |
 | `MIRPY_BENCH_SLOW_TIMEOUT_S` | 600 | Timeout for `@slow_benchmark` tests |
 | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` | 1800 | Timeout for `@very_slow_benchmark` tests |
-| `MIRPY_BENCH_MEMORY_LIMIT_GB` | 8 | RSS cap for `@benchmark` tests (GB) |
+| `MIRPY_BENCH_MEMORY_LIMIT_GB` | **16** | RSS cap for `@benchmark` tests (GB) |
 | `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` | 24 | RSS cap for `@very_slow_benchmark` tests (GB) |
 | `MIRPY_BENCH_BAG_OF_KMERS_MAX_ROWS` | 2 000 000 | Row cap for bag-of-k-mers control profile |
 | `MIRPY_BENCH_1M_COLD_BUILD` | 0 | Build 1 M synthetic control from scratch |
 | `MIRPY_BENCH_1M_CONTROL_DIR` | (tmp) | Shared directory for prebuilt 1 M synthetic cache |
 | `MIRPY_BENCH_RESET_LOG` | 1 | Truncate `tests/benchmarks.log` at session start |
 | `MIRPY_BENCHMARK_LOG` | tests/benchmarks.log | Path for structured benchmark log |
-
----
-
-## TODO — skipped tests not yet recorded
-
-The entries below were not executed in the reference run. Estimates are extrapolated from
-smaller-scale measurements; actual numbers should replace these once a run is performed.
-
-- [ ] **`test_control_benchmark.py::test_synthetic_control_1e6_cache_hit_and_optional_cold_build`**
-  (`RUN_FULL_BENCHMARK=1` or `MIRPY_BENCH_INCLUDE_1M=1`)
-  - Cold-build path (`MIRPY_BENCH_1M_COLD_BUILD=1`): est. **25–35 min**, est. **4–6 GB** peak RSS.
-    Build time extrapolated from n=10 k (22 s) → n=100 k (187 s), ratio 8.5×/decade.
-  - Cache-hit path (prebuilt pickle present): est. **~30 s**, est. **~1 GB** peak RSS.
-  - Output to record: build time, cache-hit time, load time, rows, file size on disk.
-
-- [ ] **`test_vdjbet_benchmark.py::TestYFVP1SignificanceAndPgenBins`** (6 tests)
-  (`RUN_FULL_BENCHMARK=1` + full YFV dataset at `notebooks/assets/large/yfv19/`)
-  - Covers: P1/F1 day-0 not-significant, day-15 significant, d0/d15 duplicate-count ordering,
-    mock distribution quality (JSD / KS / Chi²), mock generation runtime.
-  - Est. **30–60 min** total (full P1/F1 repertoires ≈ 400 k clonotypes each; pgen dominates).
-  - Est. **4–8 GB** peak RSS (pool 20 k seqs + two 400 k-clone repertoires in-process).
-  - Output to record: per-test pass/fail, z-scores, p-values, mock diagnostics, runtime.
-
-- [ ] **`test_vdjbet_benchmark.py::TestFunctionalFilteringCounts`** (3 tests)
-  (`RUN_INTEGRATION=1` + full YFV dataset at `notebooks/assets/large/yfv19/`)
-  - Covers: P1/F1 day-0 and day-15 functional-filter clonotype counts, LLW reference count.
-  - Est. **< 5 min** (counting only, no pgen), est. **< 2 GB** peak RSS.
-  - Output to record: filtered clonotype counts for each repertoire.

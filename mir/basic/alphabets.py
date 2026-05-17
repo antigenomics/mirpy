@@ -62,6 +62,7 @@ def make_alphabet(chars: str) -> bytes:
 
 NT_CHARS = "ATGCN"
 AA_CHARS = "ACDEFGHIKLMNPQRSTVWY*_X"
+AA_STANDARD_CHARS = AA_CHARS[:20]
 REDUCED_AA_CHARS = "lbmcshGFPWYX*_"
 
 NT_ALPHABET: bytes = make_alphabet(NT_CHARS)

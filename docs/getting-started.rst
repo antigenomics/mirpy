@@ -43,6 +43,25 @@ Useful Links
 * Notebook source directory: https://github.com/antigenomics/mirpy/tree/main/notebooks
 * LLM agent skill guide: https://github.com/antigenomics/mirpy/blob/main/skills/mirpy/SKILL.md
 
+Copilot Agent And Prompt
+------------------------
+
+The repository includes a dedicated custom agent and companion prompt for
+mirpy-backed notebook analysis workflows.
+
+* Agent file: ``.github/agents/mirpy-analysis.agent.md``
+* Prompt file: ``.github/prompts/mirpy-analysis.prompt.md``
+
+In chat, invoke ``/mirpy-analysis`` and provide:
+
+* input data path(s) or instructions to obtain public/control data,
+* optional metadata path/schema,
+* workflow steps or one/more hypotheses to test.
+
+The agent then creates and executes dedicated notebook(s), and for large data
+first runs benchmark chunks to estimate full runtime and peak memory before
+requesting confirmation for expensive runs.
+
 Core Concepts
 -------------
 
@@ -52,8 +71,9 @@ Clonotype
 ~~~~~~~~~
 
 The smallest unit is a clonotype. Parsers convert rows from tabular repertoire
-formats into ``ClonotypeAA`` or ``ClonotypeNT`` objects with sequence and
-annotation fields attached.
+formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
+``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
+coordinates.
 
 Repertoire
 ~~~~~~~~~~
@@ -86,6 +106,136 @@ Typical Workflow
 2. Wrap clonotypes into a ``LocusRepertoire``, ``SampleRepertoire``, or ``RepertoireDataset``.
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
+
+Diversity Analysis APIs
+-----------------------
+
+mirpy now provides native diversity summaries, Hill curves, and
+rarefaction/coverage curves for locus, sample, paired, and single-cell objects.
+
+Metric summary (VDJtools-compatible)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``diversity(...)`` returns:
+
+* ``abundance``: total counts in the selected counting mode
+* ``diversity``: number of unique clonotypes (or paired clonotypes)
+* ``singletons`` / ``doubletons``
+* ``expanded``: clonotypes above 0.1%
+* ``hyperexpanded``: clonotypes above 1%
+* ``chao1``
+* ``gini_simpson``
+* ``shannon``
+
+.. code-block:: python
+
+   # Locus-level diversity (default: duplicate_count)
+   trb_summary = sample["TRB"].diversity()
+
+   # Optional count mode based on UMI counts
+   trb_summary_umi = sample["TRB"].diversity(count_field="umi_count")
+
+   # Sample-level per-locus diversity table
+   per_locus = sample.diversity(per_locus=True)
+
+Single-cell defaults and per-locus behavior
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For single-cell paired data, count mode defaults to ``barcode_count``
+(unique barcodes per clonotype or pair).
+
+.. code-block:: python
+
+   # Paired-clonotype summaries per locus pair (TRA_TRB, TRG_TRD, ...)
+   pair_level = paired_repertoire.diversity()
+
+   # Per-chain-locus summaries (TRA, TRB, ...)
+   chain_level = paired_repertoire.diversity_by_locus()
+
+   # SingleCellSample delegates to the paired repertoire
+   sc_per_locus = single_cell_sample.diversity(per_locus=True)
+
+Hill diversity profiles
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # Locus-level Hill profile
+   trb_hill = sample["TRB"].hill_curve()
+
+   # Sample-level per-locus Hill curves
+   sample_hill = sample.hill_curve(per_locus=True)
+
+   # Single-cell per-chain-locus Hill curves (barcode_count default)
+   sc_hill = single_cell_sample.hill_curve(per_locus=True)
+
+Rarefaction and sample coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Rarefaction uses abundance-table computations with NumPy/SciPy kernels and
+returns both richness and sample-coverage estimates with confidence bounds.
+
+.. code-block:: python
+
+   # Rarefaction for one locus
+   trb_rare = sample["TRB"].rarefaction_curve(m_steps=[100, 500, 1000, 5000])
+
+   # Per-locus rarefaction for a sample
+   sample_rare = sample.rarefaction_curve(per_locus=True)
+
+   # Single-cell per-chain-locus rarefaction (barcode_count default)
+   sc_rare = single_cell_sample.rarefaction_curve(per_locus=True)
+
+Pairwise Overlap Spaces
+-----------------------
+
+``mir.comparative.overlap`` supports four identity spaces:
+
+* ``"ntvj"``: nucleotide CDR3 + V + J
+* ``"nt"``: nucleotide CDR3 only
+* ``"aavj"``: amino-acid CDR3 + V + J
+* ``"aa"``: amino-acid CDR3 only
+
+Only amino-acid spaces (``"aa"`` and ``"aavj"``) support approximate
+matching (Hamming/Levenshtein with ``threshold > 0``).
+
+.. code-block:: python
+
+   from mir.comparative.overlap import pairwise_overlap
+
+   # Exact nucleotide+V+J overlap
+   r_ntvj = pairwise_overlap(rep_a, rep_b, overlap_space="ntvj")
+
+   # Approximate amino-acid overlap (1 mismatch)
+   r_aa_1mm = pairwise_overlap(
+      rep_a,
+      rep_b,
+      overlap_space="aavj",
+      metric="hamming",
+      threshold=1,
+      n_jobs=-1,
+   )
+
+By default, overlap APIs use all physical CPU cores (``n_jobs=-1``). Pass
+``n_jobs=1`` for deterministic single-core timing.
+
+The pairwise API reports similarity-centric outputs:
+
+* ``f_similarity``
+* ``d_similarity``
+* ``f2_similarity``
+* ``jaccard``
+* ``szymkiewicz_simpson``
+* ``morisita_horn``
+
+Use distance-like conversions only where required by downstream methods (for
+example UMAP/MDS with precomputed dissimilarities):
+
+* ``f_metric = 1 - f_similarity``
+* ``d_metric = 1 / d_similarity`` (for ``d_similarity > 0``)
+
+In amino-acid overlap spaces, non-coding clonotypes are excluded from overlap
+matching and reported with bounded warnings.
 
 Single-Cell 10x Paired-Chain Loading
 ------------------------------------
@@ -531,7 +681,7 @@ optional.
       control=control_repertoire,
       metric="hamming",
       threshold=1,
-      n_jobs=4,
+      n_jobs=-1,
       match_mode="none",       # one of: none, v, j, vj
       pvalue_mode="binomial",  # or "beta-binomial"
       pseudocount=1.0,         # added to control m and M before density calculation
@@ -552,7 +702,7 @@ You can also use managed controls directly:
       target_repertoire,
       control_type="real",   # or "synthetic"
       species="human",
-      n_jobs=4,
+      n_jobs=-1,
       normalize_control_vj_usage=True,
       pvalue_mode="beta-binomial",
    )
@@ -563,7 +713,7 @@ You can also add neighborhood stats directly to clonotype metadata:
 
    from mir.graph import add_neighborhood_metadata
 
-   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=4)
+   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=-1)
    # Adds neighborhood_count and neighborhood_potential to each clonotype's metadata
 
 Benchmark Reference

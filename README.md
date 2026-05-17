@@ -18,6 +18,10 @@ It provides building blocks for:
 
 The package is designed as a reusable toolkit rather than a single pipeline.
 
+For a full diversity workflow, see `notebooks/diversity_analysis.ipynb`, which
+includes donor-level tables, rarefaction and coverage curves, Hill profiles,
+and Healthy vs MS cohort comparisons.
+
 ## Installation
 
 Requirements:
@@ -51,14 +55,32 @@ pip install -e .
 If you only need the package for project usage, prefer `pip install mirpy-lib`.
 If you plan to develop or run docs/notebooks locally, use the cloned repo setup.
 
+## Copilot Agent Workflow
+
+This repository ships a dedicated Copilot custom agent and a companion prompt for notebook-first mirpy analysis:
+
+- Agent: `.github/agents/mirpy-analysis.agent.md`
+- Companion prompt: `.github/prompts/mirpy-analysis.prompt.md`
+
+Use the companion prompt from chat (`/mirpy-analysis`) to provide:
+
+- input data paths (AIRR/VDJtools/Adaptive or other parser-supported formats),
+- optional metadata schema/path,
+- workflow definition and/or hypotheses to test.
+
+The agent creates dedicated notebook(s), installs/validates dependencies, executes cells sequentially, and reports outcomes.
+For large datasets, it benchmarks small chunks first, estimates full runtime/memory, and asks before full runs expected to exceed ~10-15 min on 4-8 cores or ~12-16 GB RAM.
+
 ## Main modules
 
 - `mir.common`: clonotypes, repertoires, parsers, segment libraries
 - `mir.distances`: aligners, search, graph-based utilities
 - `mir.basic`: diversity, sampling, segment usage, pgen helpers
 - `mir.embedding`: repertoire and prototype embeddings
-- `mir.comparative`: overlap, matching, TCRnet-style comparisons
+- `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
 - `mir.biomarkers`: enrichment and biomarker detection utilities
+- `notebooks/diversity_analysis.ipynb`: diversity summary tables, rarefaction,
+  Hill curves, and cohort comparisons for Healthy vs MS donors
 
 ## Quick start
 
