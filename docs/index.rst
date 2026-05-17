@@ -4,7 +4,8 @@ mirpy documentation
 .. raw:: html
 
    <div class="mirpy-intro">
-     <img class="mirpy-intro__logo" src="_static/mirpy_logo.png" alt="mirpy logo" />
+     <img class="mirpy-intro__logo mirpy-intro__logo--light" src="_static/mirpy_logo.png" alt="mirpy logo" />
+     <img class="mirpy-intro__logo mirpy-intro__logo--dark" src="_static/mirpy_logo_dark.png" alt="mirpy logo" />
      <div>
        <p class="mirpy-intro__eyebrow">AIRR-seq toolkit</p>
        <p class="mirpy-intro__lead">
