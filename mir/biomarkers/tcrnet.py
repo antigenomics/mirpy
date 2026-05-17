@@ -48,7 +48,7 @@ from mir.common.sampling import resample_to_gene_usage
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
 PValueMode = t.Literal["binomial", "beta-binomial"]
-_PVALUE_PARALLEL_MIN_CLONOTYPES = 256
+_PVALUE_PARALLEL_MIN_CLONOTYPES = 20_000
 
 
 def _resolve_n_jobs(n_jobs: int) -> int:
