@@ -21,6 +21,7 @@ from .embedding_diagnostics import (
     select_eps_kneedle,
 )
 from .stats import bh_fdr
+from .memory_debug import process_memory_snapshot, top_python_processes
 
 __all__ = [
     "ensure_airr_benchmark",
@@ -40,4 +41,6 @@ __all__ = [
     "majority_vote_cluster_predictions",
     "select_eps_kneedle",
     "bh_fdr",
+    "process_memory_snapshot",
+    "top_python_processes",
 ]

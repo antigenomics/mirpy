@@ -68,7 +68,7 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     )
     out = out[out["junction_aa"].str.len() >= 5].copy()
     out = out[out["junction_aa"].str.match(AA_RE)].copy()
-    return deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa"))
+    return deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa")).to_pandas()
 
 
 def _extract_family(df: pd.DataFrame, family: str) -> GliphTokenArtifacts:
@@ -93,7 +93,7 @@ def _comparison_df(sample_art: GliphTokenArtifacts, ctrl_art: GliphTokenArtifact
         test="binom",
         p_adj_method="fdr_bh",
         pseudocount=1,
-    )
+    ).to_pandas().set_index("kmer")
     support = pd.Series(sample_art.clonotype_counts, name="sample_clonotypes")
     df = df.join(support, how="left").fillna({"sample_clonotypes": 0})
     df["sample_clonotypes"] = df["sample_clonotypes"].astype(int)
@@ -202,9 +202,9 @@ def test_gliph_combined_graph_benchmark() -> None:
     # enough diversity for V-usage stratified sampling.
     _ctrl_cap = int(os.getenv("MIRPY_BENCH_REAL_CONTROL_N", str(CONTROL_SAMPLE * 2)))
     if _ctrl_cap < len(_ctrl_raw_full):
-        ctrl_raw = _ctrl_raw_full.sample(n=_ctrl_cap, random_state=42).reset_index(drop=True)
+        ctrl_raw = _ctrl_raw_full.sample(n=_ctrl_cap, seed=42).to_pandas()
     else:
-        ctrl_raw = _ctrl_raw_full
+        ctrl_raw = _ctrl_raw_full.to_pandas()
     del _ctrl_raw_full
     ctrl_all = pd.DataFrame(
         {

@@ -153,8 +153,8 @@ from mir.basic.token_tables import filter_token_table, tokenize_clonotypes
 from mir.graph.token_graph import build_token_graph
 
 # Edit-distance graph (Hamming or Levenshtein on junction_aa)
-stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=4)
-graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=4)
+stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, n_jobs=-1)
+graph = build_edit_distance_graph(rep.clonotypes, metric="levenshtein", threshold=1, n_jobs=-1)
 
 # Token graph filtered to RS-bearing 3-mers
 table    = tokenize_clonotypes(rep.clonotypes, k=3)
@@ -169,6 +169,8 @@ Notes:
 - Trie-backed search is used for edit-distance graphs when available.
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
 - `compute_neighborhood_stats` and `build_edit_distance_graph` use multiprocess workers when `n_jobs > 1` for true multi-core execution.
+
+For donor-vs-pool overlap workflows, use `many_vs_pool_overlap()` when scoring a sequence of repertoires against one pooled reference. It keeps the pooled worker state shared across batches and avoids repeating per-sample setup in hotspot notebooks such as `aging_analysis.ipynb`.
 
 ## 8. Control Repertoires
 
@@ -257,6 +259,103 @@ where `K` is the number of prototypes. All distances use the formula:
 $$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
 
 This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
+
+## 10. Pairwise Overlap Workflows
+
+Use `pairwise_overlap` and `pairwise_overlap_matrix` from
+`mir.comparative.overlap`.
+
+```python
+from mir.comparative.overlap import pairwise_overlap, pairwise_overlap_matrix
+
+# One pair
+r = pairwise_overlap(
+  rep_a,
+  rep_b,
+  overlap_space="aavj",   # one of: ntvj, nt, aavj, aa
+  metric="hamming",       # exact | hamming | levenshtein
+  threshold=1,
+)
+
+# All pairs
+df = pairwise_overlap_matrix(
+  reps,
+  sample_ids=sample_ids,
+  overlap_space="aavj",
+  metric="exact",
+  threshold=0,
+  n_jobs=-1,
+)
+```
+
+Operational notes:
+
+- Approximate matching (`threshold > 0`) is supported only for `aa` and `aavj` overlap spaces.
+- In amino-acid overlap spaces, non-coding clonotypes are excluded from overlap matching.
+- Similarity outputs are primary (`f_similarity`, `d_similarity`, `f2_similarity`).
+- Use metric transforms only when distance-like inputs are required:
+  - `f_metric = 1 - f_similarity`
+  - `d_metric = 1 / d_similarity` (for `d_similarity > 0`)
+
+  ## 11. Diversity Metrics, Hill Curves, And Rarefaction
+
+  Use diversity utilities from `mir.common.diversity` and convenience methods on
+  `LocusRepertoire`, `SampleRepertoire`, `PairedRepertoire`, and
+  `SingleCellSample`.
+
+  ```python
+  from mir.common.diversity import summarize_counts, hill_curve, rarefaction_curve
+
+  summary = summarize_counts([12, 7, 3, 1, 1])
+  hill = hill_curve([12, 7, 3, 1, 1])
+  rare = rarefaction_curve([12, 7, 3, 1, 1], m_steps=[10, 25, 50, 100], include_exact=True)
+  ```
+
+  Available summary fields:
+
+  - `abundance`
+  - `diversity`
+  - `singletons`
+  - `doubletons`
+  - `expanded` (>0.1%)
+  - `hyperexpanded` (>1%)
+  - `chao1`
+  - `gini_simpson`
+  - `shannon`
+
+  Count modes:
+
+  - `duplicate_count` (default for locus/sample repertoires)
+  - `umi_count` (optional)
+  - `barcode_count` (default for paired/single-cell repertoire diversity methods)
+
+  Object-level usage:
+
+  ```python
+  # Locus/sample
+  trb_summary = sample["TRB"].diversity()
+  sample_per_locus = sample.diversity(per_locus=True)
+
+  # Paired and single-cell
+  pair_summary = paired_repertoire.diversity()                 # default barcode_count
+  chain_summary = paired_repertoire.diversity_by_locus()       # TRA/TRB/... per-locus
+  sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to paired repertoire
+  ```
+
+  Notebook workflow:
+
+  - `notebooks/diversity_analysis.ipynb` now includes a polished donor summary
+    table with age, abundance, diversity, and per-group mean ± SD rows.
+  - The notebook also shows publication-style shaded rarefaction, coverage, and
+    Hill curves for Healthy vs MS donors.
+- For repeated sample-vs-fixed-target calls, `pairwise_overlap` reuses target-side prepared data internally, which avoids repeated trie setup.
+- For a single pair, forcing many workers can be slower due to process startup; use `n_jobs=1` unless the query side is very large.
+
+Notebook analysis guidance:
+
+- Keep heavy transformations in Polars; convert to pandas only for table display.
+- For cohort embedding, use distance-like matrices (for example from `f_metric`/`d_metric`) as precomputed dissimilarities in UMAP/MDS.
+- For diversity-vs-age comparisons in aging notebooks, prefer a fixed-depth subsample that most donors satisfy (for example 250k reads).
 
 **Parallelization**: TCREmp supports workload-aware `n_jobs` auto selection:
 - `n_jobs=None` (default): auto-switch based on `len(clonotypes) * n_prototypes`
@@ -362,7 +461,7 @@ Operational notes:
 - Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
 - `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, bounded-kneedle eps selection, DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
 
-## 10. ALICE Enrichment
+## 11. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 
@@ -415,7 +514,7 @@ Key behavior notes:
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
 
-## 11. Single-Cell 10x Paired Chains
+## 12. Single-Cell 10x Paired Chains
 
 Use `load_10x_vdj_v1_sample` to assemble paired-chain objects from 10x v1 sample
 files where consensus annotations define clonotypes and all-contig annotations
@@ -444,7 +543,7 @@ Key behavior:
 - `SingleCellRepertoire` keeps barcode -> pair_id links separate for future
   multimodal integration.
 
-## 11.1 Single-Cell 10x + CITE-seq Integration
+## 12.1 Single-Cell 10x + CITE-seq Integration
 
 Use `load_10x_vdj_v1_citeseq_sample` when a donor has both 10x VDJ files and
 an accompanying `*_binarized_matrix.csv.gz` CITE-seq matrix.
@@ -486,7 +585,7 @@ Notes:
   kneedle/eps plots, UMAP projections colored by epitope, and per-epitope
   precision/recall/F1 support tables.
 
-## 12. 10x Benchmark And scirpy Concordance
+## 13. 10x Benchmark And scirpy Concordance
 
 Use the dedicated benchmark test module for speed, memory, and parity checks on
 AIRR benchmark donors:
@@ -505,7 +604,7 @@ This suite validates:
 - mirpy vs scirpy TRA/TRB quadrant concordance on dominant patterns,
 - speed/memory competitiveness relative to scirpy on the same donor.
 
-## 13. Single-Cell Parsing, Repair, And Pairing Graphs
+## 14. Single-Cell Parsing, Repair, And Pairing Graphs
 
 Use the parser-first API when you need to apply cleanup or imputation before
 assembling sample paired-clonotype objects.
@@ -556,7 +655,7 @@ Repair behavior summary:
 - `consistency_only_on_synthetic_slave=True` limits consistency enforcement to
   synthetic slaves; set `False` to enforce consistency on all slave chains.
 
-## 14. TCRNET Enrichment
+## 15. TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
 
@@ -578,7 +677,7 @@ result = compute_tcrnet(
     pvalue_mode="binomial",            # "binomial" | "beta-binomial"
     pseudocount=1.0,                   # added to control m and M (Laplace smoothing)
     normalize_control_vj_usage=False,  # resample control to match sample V/J usage
-    n_jobs=4,
+    n_jobs=-1,
 )
 
 # result.table columns:
@@ -605,7 +704,7 @@ rep = add_tcrnet_metadata(
     match_mode="vj",
     pvalue_mode="binomial",
     pseudocount=1.0,
-    n_jobs=4,
+    n_jobs=-1,
 )
 # Metadata keys: tcrnet_n, tcrnet_N, tcrnet_m, tcrnet_M,
 #                tcrnet_sample_density, tcrnet_control_density,
@@ -618,8 +717,9 @@ Key behavior notes:
 - Control pseudocount (`pseudocount`, default 1.0) is added to both `m` and `M` — equivalent to inserting one virtual match in the control.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus.
 - Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
+- `n_jobs=-1` is the default and uses all physical cores; set `n_jobs=1` for serial profiling.
 
-## 15. GLIPH-Style K-mer Enrichment (binomial)
+## 16. GLIPH-Style K-mer Enrichment (binomial)
 
 For GLIPH-like motif workflows, prefer repertoire-first extraction and reuse
 one shared unnormalized control background across studies.
@@ -676,7 +776,106 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
-## 16. Pgen And VDJBet Workflows
+## 16.5. Pairwise Sample Overlap Metrics
+
+Use `pairwise_overlap` for a single pair and `pairwise_overlap_matrix` for all
+N×(N−1)/2 pairs across a cohort.  Both functions live in
+`mir.comparative.overlap` and are re-exported from `mir.comparative`.
+
+### Single pair
+
+```python
+from mir.comparative.overlap import pairwise_overlap
+
+# Exact matching
+r = pairwise_overlap(rep1, rep2)
+
+# Approximate matching — Hamming distance 1 (1 substitution)
+r_h1 = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+
+# Approximate matching — Levenshtein distance 1 (any single edit)
+r_l1 = pairwise_overlap(rep1, rep2, metric="levenshtein", threshold=1)
+
+print(r.jaccard, r.d_similarity, r.f_similarity, r.morisita_horn)
+print(r.f2_similarity, r.correlation)  # nan for approximate matching
+```
+
+`PairwiseOverlapResult` fields:
+
+| Field | Description |
+|---|---|
+| `n1`, `n2` | unique clonotypes in each sample |
+| `n1_matched`, `n2_matched` | clones with ≥1 match in the other sample |
+| `f1_overlap`, `f2_overlap` | total frequency of matched clones |
+| `jaccard` | n12 / (n1 + n2 − n12) |
+| `szymkiewicz_simpson` | min(n1_matched, n2_matched) / min(n1, n2) |
+| `d_similarity` | n12 / sqrt(n1 × n2) |
+| `f_similarity` | sqrt(f1_overlap × f2_overlap) |
+| `morisita_horn` | 2 Σ(p_i q_i) / (D1 + D2) |
+| `correlation` | Pearson r of overlap frequencies (NaN for approximate) |
+| `f2_similarity` | Σ sqrt(p_i × q_i) over matched pairs (NaN for approximate) |
+| `mode` | "exact", "hamming:N", "levenshtein:N" |
+| `is_approximate` | True when threshold > 0 |
+
+Use `result.as_dict()` to convert all fields to a plain `dict` for DataFrame construction.
+
+For approximate matching (threshold > 0), `correlation` and `f2_similarity` are
+`nan`; Jaccard and D-metric use the geometric mean of `n1_matched` and
+`n2_matched` for symmetry.
+
+### Pairwise matrix (cohort)
+
+```python
+from mir.comparative.overlap import pairwise_overlap_matrix
+
+# Returns a long-format DataFrame with one row per ordered pair (i < j)
+df = pairwise_overlap_matrix(
+    reps,
+    sample_ids=ids,        # optional list of string IDs
+    metric="exact",        # or "hamming" / "levenshtein"
+    threshold=0,
+    n_jobs=-1,             # -1 = all physical cores
+)
+
+# Pivot to symmetric NxN matrix of a single metric
+pivot = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_similarity")
+```
+
+### Dissimilarity for UMAP / clustering
+
+```python
+import numpy as np
+from umap import UMAP
+
+f_vals = df.pivot(index="sample_id_1", columns="sample_id_2", values="f_similarity")
+f_mat = f_vals.to_numpy()
+# Symmetrize and fill self-distance
+n = len(reps)
+dissim = np.zeros((n, n))
+dissim[np.triu_indices(n, 1)] = 1.0 - f_mat[np.triu_indices(n, 1)]
+dissim += dissim.T  # symmetric
+
+embedding = UMAP(n_components=2, metric="precomputed", random_state=42).fit_transform(dissim)
+```
+
+Dissimilarity conventions:
+- **D-metric**: `max(D) − D`
+- **F-metric**: `1 − F`
+
+### Parallel workers (`n_jobs`)
+
+- `n_jobs=-1` (default): all physical cores (uses `psutil.cpu_count(logical=False)`)
+- `n_jobs=1`: serial — useful for deterministic profiling
+- In `pairwise_overlap`: parallelises trie search within a single pair (chunk workers)
+- In `pairwise_overlap_matrix`: parallelises across pairs (matrix workers)
+
+### VDJBet harmonisation
+
+The existing `count_overlap` / `compute_overlaps` / `make_reference_keys` /
+`make_query_index` API used by `VDJBetOverlapAnalysis` is unchanged.
+`pairwise_overlap` builds on top of the same `make_query_index` primitive.
+
+## 17. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
 with `PgenGeneUsageAdjustment` and `VDJBetOverlapAnalysis` for overlap tests.
@@ -689,7 +888,7 @@ from mir.comparative.vdjbet import PgenBinPool, VDJBetOverlapAnalysis
 model = OlgaModel(locus="TRB", seed=42)
 target_gu = GeneUsage.from_repertoire(rep)
 adjustment = PgenGeneUsageAdjustment(target_gu, seed=42)
-pool = PgenBinPool("TRB", n=100_000, n_jobs=4, seed=42, pgen_adjustment=adjustment)
+pool = PgenBinPool("TRB", n=100_000, n_jobs=-1, seed=42, pgen_adjustment=adjustment)
 analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
@@ -702,8 +901,9 @@ result = analysis.score(query_rep, match_v=True, match_j=True)
 - `OlgaModel.gen_model` exposes the underlying `GenerativeModelVDJ/VJ` for direct access to model marginals (`PV`, `PDJ`, `PVJ`).
 - For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
 - Typical throughput (single-core exact): ~135 seqs/s for TRB; 1mm: ~8 seqs/s. True scaling with `n_jobs=8`: ~900 seqs/s exact.
+- **Lifecycle**: call `model.close()` when done, or use `with OlgaModel(...) as model:` to guarantee pool teardown and avoid lingering worker processes.
 
-## 16.1 VDJBet YF Shortcuts (reusable workflow API)
+## 17.1 VDJBet YF Shortcuts (reusable workflow API)
 
 Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
 copying large notebook blocks:
@@ -761,7 +961,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 17. Plotting Standards (publication-ready)
+## 18. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
@@ -820,7 +1020,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 18. SampleRepertoire Construction
+## 19. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever
@@ -846,11 +1046,11 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 19. TCREMP Embeddings
+## 20. TCREMP Embeddings
 
 Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
 against a fixed set of prototype clonotypes.  Each clonotype is represented as
-`[v_1, j_1, cdr3_1, ..., v_K, j_K, cdr3_K]` where triplets correspond to the K
+`[v_1, j_1, junc_1, ..., v_K, j_K, junc_K]` where triplets correspond to the K
 prototypes and distances use BLOSUM62: `d(a,b) = s(a,a) + s(b,b) − 2·s(a,b)`.
 
 ```python
@@ -861,8 +1061,8 @@ from mir.common.clonotype import Clonotype
 model = TCREmp.from_defaults(
     species="human",
     locus="TRB",
-    n_prototypes=1000,       # first 1 000 of 10 000 bundled prototypes
-    cdr3_method="fixed_gap", # or "biopython" for full DP alignment
+    n_prototypes=1000,          # first 1 000 of 10 000 bundled prototypes
+    junction_method="fixed_gap", # or "biopython" for full DP alignment
 )
 
 # Embed a list of Clonotype objects
@@ -934,7 +1134,7 @@ Embedding quality (R² between sequence-space and latent-space distances, 1000×
 Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
 variability is the strongest single predictor of embedding distance.
 
-## 20. Practical Defaults
+## 21. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

@@ -13,12 +13,15 @@ Parsing And Repertoire Basics
    parsing_example
    sample_repertoire_overview
    gene_usage_correction
+   diversity_analysis
 
 **parsing_example** — Parse VDJdb, AIRR, and VDJtools files into repertoire objects.
 
 **sample_repertoire_overview** — Load a multi-locus SRA cohort and inspect coverage statistics.
 
 **gene_usage_correction** — Batch-correct V/J gene usage across donors and derive PCA/UMAP embeddings.
+
+**diversity_analysis** — Reproduce diversity tables, rarefaction, coverage, Hill curves, and MS vs healthy cohort comparisons.
 
 Graph And Sequence Analysis
 ============================
@@ -57,6 +60,16 @@ Biomarker Detection
 **gliph_analysis** — GLIPH-style multi-family token enrichment and clonotype graph clustering.
 
 **vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
+
+Aging And Cohort Overlap
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   aging_analysis
+
+**aging_analysis** — Donor-vs-pool overlap trends across aging, using the shared-worker many-vs-pool overlap path for faster repeated scoring.
 
 TCREmp Embeddings
 ==================

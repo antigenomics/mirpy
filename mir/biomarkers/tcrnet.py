@@ -48,7 +48,20 @@ from mir.common.sampling import resample_to_gene_usage
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 
 PValueMode = t.Literal["binomial", "beta-binomial"]
-_PVALUE_PARALLEL_MIN_CLONOTYPES = 256
+_PVALUE_PARALLEL_MIN_CLONOTYPES = 20_000
+
+
+def _resolve_n_jobs(n_jobs: int) -> int:
+    if n_jobs == -1:
+        try:
+            import psutil
+            n = psutil.cpu_count(logical=False)
+            if n:
+                return n
+        except Exception:
+            pass
+        return os.cpu_count() or 1
+    return max(1, int(n_jobs))
 
 
 @dataclass(frozen=True)
@@ -300,7 +313,7 @@ def compute_tcrnet(
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     as_table: bool = True,
-    n_jobs: int = 4,
+    n_jobs: int = -1,
 ) -> TcrnetResult | LocusRepertoire | SampleRepertoire:
     """Compute TCRNET-like enrichment, write clonotype metadata, and optionally return a table.
 
@@ -315,6 +328,7 @@ def compute_tcrnet(
         pvalue_mode=pvalue_mode,
     )
     params.validate()
+    n_jobs = _resolve_n_jobs(n_jobs)
     match_v, match_j = match_flags(norm_match_mode)
 
     query_loci = iter_loci(repertoire)
@@ -360,7 +374,14 @@ def compute_tcrnet(
         locus_ctrl = control_stats.get(locus, {})
 
         metrics_by_sid: dict[str, tuple[int, int, int, int, float, float, float, float]] = {}
-        if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
+        executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
+        should_parallelize_pvalues = (
+            n_jobs > 1 and (
+                len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES
+                or executor_mode == "thread"
+            )
+        )
+        if should_parallelize_pvalues:
             batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
             batches = [
                 qrep.clonotypes[start : start + batch_size]
@@ -370,7 +391,6 @@ def compute_tcrnet(
                 (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount)
                 for batch in batches
             ]
-            executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
             if executor_mode == "thread":
                 with ThreadPoolExecutor(max_workers=n_jobs) as executor:
                     metric_chunks = list(executor.map(_compute_tcrnet_metrics_batch_from_args, batch_args))
@@ -426,7 +446,7 @@ def add_tcrnet_metadata(
     pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
-    n_jobs: int = 4,
+    n_jobs: int = -1,
 ) -> LocusRepertoire | SampleRepertoire:
     """Compute TCRNET stats and write them into clonotype metadata in-place."""
     return t.cast(
