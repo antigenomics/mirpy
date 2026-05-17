@@ -294,6 +294,51 @@ Operational notes:
 - Use metric transforms only when distance-like inputs are required:
   - `f_metric = 1 - f_similarity`
   - `d_metric = 1 / d_similarity` (for `d_similarity > 0`)
+
+  ## 11. Diversity Metrics, Hill Curves, And Rarefaction
+
+  Use diversity utilities from `mir.common.diversity` and convenience methods on
+  `LocusRepertoire`, `SampleRepertoire`, `PairedRepertoire`, and
+  `SingleCellSample`.
+
+  ```python
+  from mir.common.diversity import summarize_counts, hill_curve, rarefaction_curve
+
+  summary = summarize_counts([12, 7, 3, 1, 1])
+  hill = hill_curve([12, 7, 3, 1, 1])
+  rare = rarefaction_curve([12, 7, 3, 1, 1], m_steps=[10, 25, 50, 100], include_exact=True)
+  ```
+
+  Available summary fields:
+
+  - `abundance`
+  - `diversity`
+  - `singletons`
+  - `doubletons`
+  - `expanded` (>0.1%)
+  - `hyperexpanded` (>1%)
+  - `chao1`
+  - `gini_simpson`
+  - `shannon`
+
+  Count modes:
+
+  - `duplicate_count` (default for locus/sample repertoires)
+  - `umi_count` (optional)
+  - `barcode_count` (default for paired/single-cell repertoire diversity methods)
+
+  Object-level usage:
+
+  ```python
+  # Locus/sample
+  trb_summary = sample["TRB"].diversity()
+  sample_per_locus = sample.diversity(per_locus=True)
+
+  # Paired and single-cell
+  pair_summary = paired_repertoire.diversity()                 # default barcode_count
+  chain_summary = paired_repertoire.diversity_by_locus()       # TRA/TRB/... per-locus
+  sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to paired repertoire
+  ```
 - For repeated sample-vs-fixed-target calls, `pairwise_overlap` reuses target-side prepared data internally, which avoids repeated trie setup.
 - For a single pair, forcing many workers can be slower due to process startup; use `n_jobs=1` unless the query side is very large.
 

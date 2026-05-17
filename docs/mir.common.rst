@@ -12,6 +12,14 @@ mir.common.clonotype module
    :undoc-members:
    :show-inheritance:
 
+mir.common.diversity module
+---------------------------
+
+.. automodule:: mir.common.diversity
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.filter module
 ------------------------
 
