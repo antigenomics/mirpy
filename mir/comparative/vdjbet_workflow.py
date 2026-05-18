@@ -414,6 +414,7 @@ def build_synthetic_comparison(
     n_jobs: int,
     seed: int,
     df_res_real: pl.DataFrame,
+    sample_n_jobs: int = 1,
 ) -> tuple[PgenBinPool, VDJBetOverlapAnalysis, pl.DataFrame, float, pl.DataFrame]:
     """Build synthetic null, score all samples, and compute scale-factor X."""
     pool_synth = PgenBinPool(
@@ -431,7 +432,7 @@ def build_synthetic_comparison(
         seed=seed,
     )
 
-    df_res_synth = score_samples_dataframe(analysis_synth, samples)
+    df_res_synth = score_samples_dataframe(analysis_synth, samples, sample_n_jobs=sample_n_jobs)
     x_scale = float(
         df_res_real["matched_n_mock_mean"].mean()
         / max(df_res_synth["matched_n_mock_mean"].mean(), 1e-12)
