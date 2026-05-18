@@ -6,7 +6,18 @@ import numpy as np
 import polars as pl
 
 from mir.common.clonotype import Clonotype
-from mir.common.diversity import build_abundance_table, hill_curve, rarefaction_curve, summarize_counts
+from mir.common.diversity import (
+    build_abundance_table,
+    hill_curve,
+    hill_curve_clonotypes,
+    pooled_count_values,
+    rarefaction_curve,
+    rarefaction_curve_clonotypes,
+    summarize_clonotypes,
+    summarize_count_groups,
+    summarize_counts,
+    summarize_loci_clonotypes,
+)
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.single_cell import (
     PairedClonotype,
@@ -64,6 +75,27 @@ def test_locus_repertoire_count_modes() -> None:
     assert dup.abundance == 16
     assert umi.abundance == 7
     assert dup.diversity == umi.diversity == 3
+
+
+def test_function_first_clonotype_and_grouped_apis() -> None:
+    tra = [_clone("a1", "TRA", 3, 2, "CAVR")]
+    trb = [_clone("b1", "TRB", 7, 3, "CASS"), _clone("b2", "TRB", 2, 1, "CASR")]
+
+    direct = summarize_clonotypes(trb, count_field="duplicate_count")
+    per_locus = summarize_loci_clonotypes({"TRA": tra, "TRB": trb}, count_field="duplicate_count")
+    by_group = summarize_count_groups({"groupA": [3, 2, 1], "groupB": [4, 1]})
+    pooled = pooled_count_values({"groupA": [3, 2, 1], "groupB": [4, 1]})
+
+    assert direct.abundance == 9
+    assert per_locus["TRA"].abundance == 3
+    assert per_locus["TRB"].diversity == 2
+    assert by_group["groupA"].abundance == 6
+    assert pooled == [3, 2, 1, 4, 1]
+
+    hill_direct = hill_curve_clonotypes(trb)
+    rare_direct = rarefaction_curve_clonotypes(trb, m_steps=[2, 4, 8], include_exact=True)
+    assert set(hill_direct.columns) == {"q", "hill"}
+    assert "coverage" in rare_direct.columns
 
 
 def test_sample_repertoire_per_locus_metrics() -> None:

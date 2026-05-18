@@ -299,16 +299,24 @@ Operational notes:
 
   ## 11. Diversity Metrics, Hill Curves, And Rarefaction
 
-  Use diversity utilities from `mir.common.diversity` and convenience methods on
-  `LocusRepertoire`, `SampleRepertoire`, `PairedRepertoire`, and
-  `SingleCellSample`.
+  Prefer function-first diversity APIs from `mir.common.diversity`.
+  Repertoire object methods are convenience delegates to the same functions.
 
   ```python
-  from mir.common.diversity import summarize_counts, hill_curve, rarefaction_curve
+  from mir.common.diversity import (
+    summarize_clonotypes,
+    summarize_loci_clonotypes,
+    summarize_count_groups,
+    hill_curve_clonotypes,
+    rarefaction_curve_clonotypes,
+  )
 
-  summary = summarize_counts([12, 7, 3, 1, 1])
-  hill = hill_curve([12, 7, 3, 1, 1])
-  rare = rarefaction_curve([12, 7, 3, 1, 1], m_steps=[10, 25, 50, 100], include_exact=True)
+  summary = summarize_clonotypes(sample["TRB"].clonotypes)
+  per_locus = summarize_loci_clonotypes({locus: rep.clonotypes for locus, rep in sample.loci.items()})
+  pair_level = summarize_count_groups({"TRA_TRB": [2, 1, 1], "TRG_TRD": [1]})
+
+  hill = hill_curve_clonotypes(sample["TRB"].clonotypes)
+  rare = rarefaction_curve_clonotypes(sample["TRB"].clonotypes, m_steps=[10, 25, 50, 100], include_exact=True)
   ```
 
   Available summary fields:
@@ -329,7 +337,7 @@ Operational notes:
   - `umi_count` (optional)
   - `barcode_count` (default for paired/single-cell repertoire diversity methods)
 
-  Object-level usage:
+  Object-level usage (delegates to function-first APIs):
 
   ```python
   # Locus/sample

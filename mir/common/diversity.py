@@ -8,7 +8,7 @@ kernels for fast execution on large abundance vectors.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Iterable, Literal, Sequence
+from typing import Iterable, Literal, Mapping, Sequence
 
 import numpy as np
 import polars as pl
@@ -366,6 +366,164 @@ def counts_from_clonotypes(clonotypes: Sequence[object], count_field: CountField
         raise ValueError("barcode_count requires explicit barcode aggregation from single-cell objects")
     values = [int(getattr(c, count_field, 0) or 0) for c in clonotypes]
     return _as_positive_counts(values)
+
+
+def summarize_clonotypes(
+    clonotypes: Sequence[object],
+    *,
+    count_field: CountField = "duplicate_count",
+    expanded_threshold: float = 1e-3,
+    hyperexpanded_threshold: float = 1e-2,
+) -> DiversitySummary:
+    """Summarize diversity metrics directly from clonotype-like objects."""
+    counts = counts_from_clonotypes(clonotypes, count_field=count_field)
+    return summarize_counts(
+        counts,
+        expanded_threshold=expanded_threshold,
+        hyperexpanded_threshold=hyperexpanded_threshold,
+    )
+
+
+def hill_curve_clonotypes(
+    clonotypes: Sequence[object],
+    *,
+    count_field: CountField = "duplicate_count",
+    q_values: Sequence[float] | np.ndarray | None = None,
+) -> pl.DataFrame:
+    """Compute Hill profile directly from clonotype-like objects."""
+    counts = counts_from_clonotypes(clonotypes, count_field=count_field)
+    return hill_curve(counts, q_values=q_values)
+
+
+def rarefaction_curve_clonotypes(
+    clonotypes: Sequence[object],
+    *,
+    count_field: CountField = "duplicate_count",
+    m_steps: Sequence[int] | None = None,
+    include_exact: bool = True,
+    confidence: float = 0.95,
+) -> pl.DataFrame:
+    """Compute rarefaction/coverage curve directly from clonotype-like objects."""
+    counts = counts_from_clonotypes(clonotypes, count_field=count_field)
+    return rarefaction_curve(
+        counts,
+        m_steps=m_steps,
+        include_exact=include_exact,
+        confidence=confidence,
+    )
+
+
+def summarize_count_groups(
+    count_groups: Mapping[str, Sequence[int] | np.ndarray],
+    *,
+    expanded_threshold: float = 1e-3,
+    hyperexpanded_threshold: float = 1e-2,
+) -> dict[str, DiversitySummary]:
+    """Summarize diversity metrics for each named count group."""
+    return {
+        group: summarize_counts(
+            counts,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+        for group, counts in count_groups.items()
+    }
+
+
+def hill_curve_count_groups(
+    count_groups: Mapping[str, Sequence[int] | np.ndarray],
+    *,
+    q_values: Sequence[float] | np.ndarray | None = None,
+) -> dict[str, pl.DataFrame]:
+    """Compute Hill profiles for each named count group."""
+    return {
+        group: hill_curve(counts, q_values=q_values)
+        for group, counts in count_groups.items()
+    }
+
+
+def rarefaction_curve_count_groups(
+    count_groups: Mapping[str, Sequence[int] | np.ndarray],
+    *,
+    m_steps: Sequence[int] | None = None,
+    include_exact: bool = True,
+    confidence: float = 0.95,
+) -> dict[str, pl.DataFrame]:
+    """Compute rarefaction/coverage curves for each named count group."""
+    return {
+        group: rarefaction_curve(
+            counts,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
+        for group, counts in count_groups.items()
+    }
+
+
+def pooled_count_values(count_groups: Mapping[str, Sequence[int] | np.ndarray]) -> list[int]:
+    """Flatten grouped counts into one pooled positive-count vector."""
+    pooled: list[int] = []
+    for counts in count_groups.values():
+        pooled.extend(int(x) for x in np.asarray(list(counts), dtype=np.int64) if int(x) > 0)
+    return pooled
+
+
+def summarize_loci_clonotypes(
+    loci: Mapping[str, Sequence[object]],
+    *,
+    count_field: CountField = "duplicate_count",
+    expanded_threshold: float = 1e-3,
+    hyperexpanded_threshold: float = 1e-2,
+) -> dict[str, DiversitySummary]:
+    """Summarize diversity metrics for each locus from clonotype groups."""
+    return {
+        locus: summarize_clonotypes(
+            clonotypes,
+            count_field=count_field,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+        for locus, clonotypes in loci.items()
+    }
+
+
+def hill_curve_loci_clonotypes(
+    loci: Mapping[str, Sequence[object]],
+    *,
+    count_field: CountField = "duplicate_count",
+    q_values: Sequence[float] | np.ndarray | None = None,
+) -> dict[str, pl.DataFrame]:
+    """Compute Hill profiles for each locus from clonotype groups."""
+    return {
+        locus: hill_curve_clonotypes(
+            clonotypes,
+            count_field=count_field,
+            q_values=q_values,
+        )
+        for locus, clonotypes in loci.items()
+    }
+
+
+def rarefaction_curve_loci_clonotypes(
+    loci: Mapping[str, Sequence[object]],
+    *,
+    count_field: CountField = "duplicate_count",
+    m_steps: Sequence[int] | None = None,
+    include_exact: bool = True,
+    confidence: float = 0.95,
+) -> dict[str, pl.DataFrame]:
+    """Compute rarefaction/coverage curves for each locus from clonotype groups."""
+    return {
+        locus: rarefaction_curve_clonotypes(
+            clonotypes,
+            count_field=count_field,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
+        for locus, clonotypes in loci.items()
+    }
 
 
 def summaries_to_polars(summaries: dict[str, DiversitySummary]) -> pl.DataFrame:

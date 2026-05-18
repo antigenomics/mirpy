@@ -10,7 +10,17 @@ import re
 import polars as pl
 
 from mir.common.clonotype import Clonotype
-from mir.common.diversity import CountField, DiversitySummary, hill_curve, rarefaction_curve, summarize_counts
+from mir.common.diversity import (
+    CountField,
+    DiversitySummary,
+    hill_curve,
+    hill_curve_count_groups,
+    pooled_count_values,
+    rarefaction_curve,
+    rarefaction_curve_count_groups,
+    summarize_count_groups,
+    summarize_counts,
+)
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.single_cell_parser import LOCUS_PAIR_TO_LOCI, load_10x_vdj_v1_cell_clonotypes
 
@@ -267,21 +277,19 @@ class PairedRepertoire:
         hyperexpanded_threshold: float = 1e-2,
     ) -> dict[str, DiversitySummary] | DiversitySummary:
         """Compute paired-clonotype diversity summaries."""
+        pair_counts = {
+            locus_pair: self._pair_counts(locus_pair, count_field)
+            for locus_pair in self.paired_locus_repertoires
+        }
         if per_locus_pair:
-            return {
-                locus_pair: summarize_counts(
-                    self._pair_counts(locus_pair, count_field),
-                    expanded_threshold=expanded_threshold,
-                    hyperexpanded_threshold=hyperexpanded_threshold,
-                )
-                for locus_pair in self.paired_locus_repertoires
-            }
+            return summarize_count_groups(
+                pair_counts,
+                expanded_threshold=expanded_threshold,
+                hyperexpanded_threshold=hyperexpanded_threshold,
+            )
 
-        pooled: list[int] = []
-        for locus_pair in self.paired_locus_repertoires:
-            pooled.extend(self._pair_counts(locus_pair, count_field))
         return summarize_counts(
-            pooled,
+            pooled_count_values(pair_counts),
             expanded_threshold=expanded_threshold,
             hyperexpanded_threshold=hyperexpanded_threshold,
         )
@@ -294,15 +302,11 @@ class PairedRepertoire:
         hyperexpanded_threshold: float = 1e-2,
     ) -> dict[str, DiversitySummary]:
         """Compute per-chain-locus diversity summaries for single-cell data."""
-        by_locus = self._chain_counts_by_locus(count_field=count_field)
-        return {
-            locus: summarize_counts(
-                counts,
-                expanded_threshold=expanded_threshold,
-                hyperexpanded_threshold=hyperexpanded_threshold,
-            )
-            for locus, counts in by_locus.items()
-        }
+        return summarize_count_groups(
+            self._chain_counts_by_locus(count_field=count_field),
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
 
     def hill_curve(
         self,
@@ -312,16 +316,14 @@ class PairedRepertoire:
         q_values: list[float] | None = None,
     ) -> dict[str, pl.DataFrame] | pl.DataFrame:
         """Compute Hill diversity curves for paired-clonotype repertoires."""
+        pair_counts = {
+            locus_pair: self._pair_counts(locus_pair, count_field)
+            for locus_pair in self.paired_locus_repertoires
+        }
         if per_locus_pair:
-            return {
-                locus_pair: hill_curve(self._pair_counts(locus_pair, count_field), q_values=q_values)
-                for locus_pair in self.paired_locus_repertoires
-            }
+            return hill_curve_count_groups(pair_counts, q_values=q_values)
 
-        pooled: list[int] = []
-        for locus_pair in self.paired_locus_repertoires:
-            pooled.extend(self._pair_counts(locus_pair, count_field))
-        return hill_curve(pooled, q_values=q_values)
+        return hill_curve(pooled_count_values(pair_counts), q_values=q_values)
 
     def hill_curve_by_locus(
         self,
@@ -330,8 +332,10 @@ class PairedRepertoire:
         q_values: list[float] | None = None,
     ) -> dict[str, pl.DataFrame]:
         """Compute per-chain-locus Hill curves for single-cell data."""
-        by_locus = self._chain_counts_by_locus(count_field=count_field)
-        return {locus: hill_curve(counts, q_values=q_values) for locus, counts in by_locus.items()}
+        return hill_curve_count_groups(
+            self._chain_counts_by_locus(count_field=count_field),
+            q_values=q_values,
+        )
 
     def rarefaction_curve(
         self,
@@ -343,22 +347,20 @@ class PairedRepertoire:
         confidence: float = 0.95,
     ) -> dict[str, pl.DataFrame] | pl.DataFrame:
         """Compute paired-clonotype rarefaction and sample-coverage curves."""
+        pair_counts = {
+            locus_pair: self._pair_counts(locus_pair, count_field)
+            for locus_pair in self.paired_locus_repertoires
+        }
         if per_locus_pair:
-            return {
-                locus_pair: rarefaction_curve(
-                    self._pair_counts(locus_pair, count_field),
-                    m_steps=m_steps,
-                    include_exact=include_exact,
-                    confidence=confidence,
-                )
-                for locus_pair in self.paired_locus_repertoires
-            }
+            return rarefaction_curve_count_groups(
+                pair_counts,
+                m_steps=m_steps,
+                include_exact=include_exact,
+                confidence=confidence,
+            )
 
-        pooled: list[int] = []
-        for locus_pair in self.paired_locus_repertoires:
-            pooled.extend(self._pair_counts(locus_pair, count_field))
         return rarefaction_curve(
-            pooled,
+            pooled_count_values(pair_counts),
             m_steps=m_steps,
             include_exact=include_exact,
             confidence=confidence,
@@ -373,16 +375,12 @@ class PairedRepertoire:
         confidence: float = 0.95,
     ) -> dict[str, pl.DataFrame]:
         """Compute per-chain-locus rarefaction and coverage curves."""
-        by_locus = self._chain_counts_by_locus(count_field=count_field)
-        return {
-            locus: rarefaction_curve(
-                counts,
-                m_steps=m_steps,
-                include_exact=include_exact,
-                confidence=confidence,
-            )
-            for locus, counts in by_locus.items()
-        }
+        return rarefaction_curve_count_groups(
+            self._chain_counts_by_locus(count_field=count_field),
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
 
     def to_sample_repertoire(self) -> SampleRepertoire:
         """Collapse paired representation into plain per-locus repertoires."""
