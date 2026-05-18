@@ -18,7 +18,7 @@ the original code.
 
 Reference
 ---------
-Pogorelyy MV, Minervina AA, Touzel MP, et al. Detecting T cell receptors
+Pogorelyy MV, Minervina AA, Shugay M, et al. Detecting T cell receptors
 involved in immune responses from single repertoire snapshots. PLoS Biol.
 2019;17(6):e3000314. doi:10.1371/journal.pbio.3000314. PMID:31194732.
 PubMed: https://pubmed.ncbi.nlm.nih.gov/31194732/
@@ -57,6 +57,11 @@ _PVALUE_PARALLEL_MIN_CLONOTYPES = 256
 _OLGA_MODEL_CACHE: dict[tuple[str, str, int | None, type], OlgaModel] = {}
 _OLGA_MODEL_CACHE_MAX = max(0, int(os.getenv("MIRPY_ALICE_MODEL_CACHE_SIZE", "4")))
 
+# Cross-call Pgen result cache: (locus, species, junction_aa, pgen_mode) → float.
+# Avoids recomputing the same CDR3 across samples in multi-sample workflows.
+_PGEN_RESULT_CACHE: dict[tuple[str, str, str, str], float] = {}
+_PGEN_RESULT_CACHE_MAX = max(0, int(os.getenv("MIRPY_ALICE_PGEN_RESULT_CACHE_SIZE", "1000000")))
+
 
 AlicePValueMode = t.Literal["poisson", "negative-binomial"]
 
@@ -69,6 +74,7 @@ class AliceParams:
     pgen_mode: PgenMode = "exact"
     pvalue_mode: AlicePValueMode = "poisson"
     pseudocount: float = 0.0
+    min_neighbors: int = 2
 
     def validate(self) -> None:
         if self.match_mode not in {"none", "v", "j", "vj"}:
@@ -79,6 +85,8 @@ class AliceParams:
             raise ValueError("pvalue_mode must be 'poisson' or 'negative-binomial'")
         if self.pseudocount < 0:
             raise ValueError("pseudocount must be >= 0")
+        if self.min_neighbors < 0:
+            raise ValueError("min_neighbors must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -106,6 +114,11 @@ def clear_olga_model_cache() -> None:
     _OLGA_MODEL_CACHE.clear()
 
 
+def clear_pgen_result_cache() -> None:
+    """Clear the cross-call Pgen result cache."""
+    _PGEN_RESULT_CACHE.clear()
+
+
 def _compute_pgen_raw_by_junction_aa(
     clonotypes: list[Clonotype],
     *,
@@ -114,20 +127,119 @@ def _compute_pgen_raw_by_junction_aa(
     random_seed: int | None,
     pgen_mode: PgenMode,
     n_jobs: int,
+    locus_stats: dict[str, dict[str, int]] | None = None,
+    min_neighbors: int = 0,
 ) -> dict[str, float]:
+    """Return {junction_aa: pgen} for clonotypes, skipping sequences below min_neighbors.
+
+    When ``locus_stats`` is provided and ``min_neighbors >= 1``, Pgen is only
+    computed for sequences that already have at least ``min_neighbors`` Hamming-1
+    neighbours in the repertoire — these are the only ones that can pass the
+    ALICE cluster-membership test.  All others get an implicit pgen of 0.0
+    (which yields p_value = 1.0).
+
+    Set ``min_neighbors=1`` for a more sensitive search that also computes Pgen
+    for sequences with a single neighbour — useful for rare or ultra-long
+    junction_aa sequences where the neighbourhood is expected to be sparse.
+    """
     if not clonotypes:
         return {}
 
+    # Filter to sequences that can reach min_neighbors; others never pass ALICE.
+    if locus_stats is not None and min_neighbors >= 1:
+        eligible_aas: set[str] = {
+            c.junction_aa
+            for c in clonotypes
+            if locus_stats.get(c.sequence_id, {}).get("neighbor_count", 0) >= min_neighbors
+        }
+        unique_aas = [
+            aa for aa in dict.fromkeys(c.junction_aa for c in clonotypes)
+            if aa in eligible_aas
+        ]
+    else:
+        unique_aas = list(dict.fromkeys(c.junction_aa for c in clonotypes))
+
+    if not unique_aas:
+        return {}
+
+    # Resolve module-level cache first; collect only uncached sequences.
+    result: dict[str, float] = {}
+    uncached: list[str] = []
+    for aa in unique_aas:
+        v = _PGEN_RESULT_CACHE.get((locus, species, aa, pgen_mode))
+        if v is not None:
+            result[aa] = v
+        else:
+            uncached.append(aa)
+
+    if uncached:
+        model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
+        mismatch_budget = 1 if pgen_mode == "1mm" else 0
+        pgen_jobs = n_jobs if (n_jobs > 1 and len(uncached) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
+        pgens = model.compute_pgen_junction_aa_bulk(
+            uncached,
+            max_mismatches=mismatch_budget,
+            n_jobs=pgen_jobs,
+        )
+        for aa, p in zip(uncached, pgens):
+            fp = float(p)
+            result[aa] = fp
+            if _PGEN_RESULT_CACHE_MAX > 0 and len(_PGEN_RESULT_CACHE) < _PGEN_RESULT_CACHE_MAX:
+                _PGEN_RESULT_CACHE[(locus, species, aa, pgen_mode)] = fp
+
+    return result
+
+
+def warm_pgen_cache(
+    clonotypes: list[Clonotype],
+    *,
+    locus: str = "TRB",
+    species: str = "human",
+    pgen_mode: PgenMode = "1mm",
+    n_jobs: int = 4,
+    random_seed: int | None = None,
+) -> int:
+    """Pre-compute and cache Pgen for all unique CDR3s in one parallel batch.
+
+    Call this before a multi-sample ALICE loop with the concatenated clonotypes
+    from ALL samples.  All OLGA computation runs once in a single
+    ``pool.map`` call, maximising worker utilisation and eliminating
+    redundant per-sample recomputation for shared CDR3 sequences.
+
+    Args:
+        clonotypes: Flat list of clonotypes from all samples to be analysed.
+        locus: OLGA locus (e.g. ``"TRB"``).
+        species: ``"human"`` or ``"mouse"``.
+        pgen_mode: ``"exact"`` or ``"1mm"``.
+        n_jobs: Worker processes for OLGA computation.
+        random_seed: OLGA model seed.
+
+    Returns:
+        Number of newly computed Pgen values stored in the cache.
+    """
+    if not clonotypes:
+        return 0
     unique_aas = list(dict.fromkeys(c.junction_aa for c in clonotypes))
+    to_compute = [
+        aa for aa in unique_aas
+        if _PGEN_RESULT_CACHE.get((locus, species, aa, pgen_mode)) is None
+    ]
+    if not to_compute:
+        return 0
     model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
     mismatch_budget = 1 if pgen_mode == "1mm" else 0
-    pgen_jobs = n_jobs if (n_jobs > 1 and len(unique_aas) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
-    pgens = model.compute_pgen_junction_aa_bulk(
-        unique_aas,
+    pgen_jobs = n_jobs if (n_jobs > 1 and len(to_compute) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
+    new_pgens = model.compute_pgen_junction_aa_bulk(
+        to_compute,
         max_mismatches=mismatch_budget,
         n_jobs=pgen_jobs,
     )
-    return {aa: float(p) for aa, p in zip(unique_aas, pgens)}
+    stored = 0
+    for aa, p in zip(to_compute, new_pgens):
+        if _PGEN_RESULT_CACHE_MAX > 0 and len(_PGEN_RESULT_CACHE) < _PGEN_RESULT_CACHE_MAX:
+            _PGEN_RESULT_CACHE[(locus, species, aa, pgen_mode)] = float(p)
+            stored += 1
+    return stored
 
 
 def _fold_enrichment(n: int, N: int, pgen: float) -> float:
@@ -172,7 +284,13 @@ def _compute_alice_metrics_batch(
         stat = locus_stats.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         n = int(stat["neighbor_count"])
         N = int(stat["potential_neighbors"])
-        pgen = float(pgen_raw_by_aa.get(clonotype.junction_aa, 0.0))
+        pgen_opt = pgen_raw_by_aa.get(clonotype.junction_aa)
+        if pgen_opt is None:
+            # Pgen was not computed (sequence below min_neighbors); assign p_value=1.0
+            # so these sequences are never called ALICE hits after BH correction.
+            out.append((n, N, 0.0, 0.0, 0.0, 0.0, 1.0))
+            continue
+        pgen = float(pgen_opt)
 
         n_eff = float(n) + pseudocount
         N_eff = float(N) + pseudocount
@@ -291,6 +409,7 @@ def compute_alice(
     as_table: bool = True,
     pseudocount: float = 0.0,
     pvalue_mode: AlicePValueMode = "poisson",
+    min_neighbors: int = 2,
     n_jobs: int = 4,
 ) -> AliceResult | LocusRepertoire | SampleRepertoire:
     """Compute ALICE enrichment, write clonotype metadata, and optionally return a table.
@@ -298,6 +417,14 @@ def compute_alice(
     Execution order per locus is two-phase:
     1. Compute neighborhood stats (trie search) with ``n_jobs``.
     2. Compute OLGA Pgen values with ``n_jobs``.
+
+    Args:
+        min_neighbors: Sequences with fewer than this many Hamming-1 neighbours
+            are assigned p_value = 1.0 without calling OLGA, dramatically
+            reducing computation on large repertoires.  Default 2 matches the
+            standard ALICE cluster-membership threshold.  Set to 1 for higher
+            sensitivity when searching for rare or ultra-long CDR3 sequences
+            where single-neighbour enrichment is biologically meaningful.
 
     Raw OLGA Pgen is used directly; ``match_mode`` controls which sequences
     are eligible neighbors (same V, same J, or both) but does not trigger
@@ -309,6 +436,7 @@ def compute_alice(
         pgen_mode=pgen_mode,
         pvalue_mode=pvalue_mode,
         pseudocount=pseudocount,
+        min_neighbors=min_neighbors,
     )
     params.validate()
 
@@ -334,6 +462,7 @@ def compute_alice(
             add_background_pseudocount=False,
             n_jobs=n_jobs,
         )
+        locus_stats = self_stats.get(locus, {})
         pgen_raw_by_aa = _compute_pgen_raw_by_junction_aa(
             qrep.clonotypes,
             locus=locus,
@@ -341,9 +470,9 @@ def compute_alice(
             random_seed=random_seed,
             pgen_mode=pgen_mode,
             n_jobs=n_jobs,
+            locus_stats=locus_stats,
+            min_neighbors=min_neighbors,
         )
-
-        locus_stats = self_stats.get(locus, {})
         if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
             batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
             batches = [
@@ -395,6 +524,7 @@ def add_alice_metadata(
     metric: t.Literal["hamming"] = "hamming",
     random_seed: int | None = None,
     metadata_prefix: str = "alice",
+    min_neighbors: int = 2,
     n_jobs: int = 4,
 ) -> LocusRepertoire | SampleRepertoire:
     """Compute ALICE stats and write them into clonotype metadata in-place."""
@@ -411,6 +541,7 @@ def add_alice_metadata(
             random_seed=random_seed,
             metadata_prefix=metadata_prefix,
             as_table=False,
+            min_neighbors=min_neighbors,
             n_jobs=n_jobs,
         ),
     )

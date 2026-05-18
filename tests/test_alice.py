@@ -88,6 +88,7 @@ def test_compute_alice_v_matching_raw_pgen(monkeypatch) -> None:
         rep,
         match_mode="v",
         pgen_mode="exact",
+        min_neighbors=0,
         n_jobs=1,
     )
 
@@ -100,7 +101,7 @@ def test_compute_alice_1mm_mode(monkeypatch) -> None:
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
-    result = compute_alice(rep, pgen_mode="1mm", n_jobs=1)
+    result = compute_alice(rep, pgen_mode="1mm", min_neighbors=0, n_jobs=1)
     row = result.table.row(0, named=True)
     assert float(row["pgen_raw"]) == pytest.approx(0.5)
 
@@ -252,4 +253,42 @@ def test_compute_alice_pseudocount_shifts_expected(monkeypatch) -> None:
 
     # With pseudocount=1.0, expected_neighbors = (N+1)*pgen > N*pgen
     assert float(row_pc["expected_neighbors"]) > float(row_no["expected_neighbors"])
+
+
+def test_compute_alice_min_neighbors_filters_isolated_sequences(monkeypatch) -> None:
+    """Sequences below min_neighbors threshold get p_value=1.0, not 0.0."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    # Single sequence has n_neighbors=1 (only self); below default min_neighbors=2.
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
+    result = compute_alice(rep, pgen_mode="exact", min_neighbors=2, n_jobs=1)
+    row = result.table.row(0, named=True)
+
+    # Filtered sequence must get p_value=1.0 and pgen=0.0, not 0.0/inf due to pgen=0.
+    assert float(row["p_value"]) == pytest.approx(1.0)
+    assert float(row["pgen_raw"]) == pytest.approx(0.0)
+
+
+def test_compute_alice_min_neighbors_zero_computes_all(monkeypatch) -> None:
+    """min_neighbors=0 disables the filter; pgen is computed for every sequence."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
+    result = compute_alice(rep, pgen_mode="exact", min_neighbors=0, n_jobs=1)
+    row = result.table.row(0, named=True)
+
+    assert float(row["pgen_raw"]) == pytest.approx(0.2)
+
+
+def test_compute_alice_min_neighbors_one_includes_single_neighbor(monkeypatch) -> None:
+    """min_neighbors=1 includes sequences with at least one neighbor (including self)."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    # Single sequence has n_neighbors=1 (self); passes min_neighbors=1.
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
+    result = compute_alice(rep, pgen_mode="exact", min_neighbors=1, n_jobs=1)
+    row = result.table.row(0, named=True)
+
+    # Pgen must be computed (not filtered).
+    assert float(row["pgen_raw"]) == pytest.approx(0.2)
 

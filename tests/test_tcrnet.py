@@ -197,6 +197,7 @@ def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:
         threshold=0,
         match_mode="none",
         pvalue_mode="binomial",
+        min_neighbors=0,
         n_jobs=8,
     )
 
