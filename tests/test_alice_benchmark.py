@@ -21,9 +21,11 @@ import pytest
 
 import mir.biomarkers.alice as alice_mod
 from mir.biomarkers.alice import compute_alice
+from mir.basic.pgen import OlgaModel
 from mir.common.filter import filter_functional
 from mir.common.parser import ClonotypeTableParser
 from mir.common.repertoire import LocusRepertoire
+from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
 from mir.utils.stats import bh_fdr
 from tests.benchmark_helpers import benchmark_log_line
 from tests.conftest import benchmark_max_seconds, benchmark_repertoire_workers, benchmark_track_memory, skip_benchmarks
@@ -335,3 +337,100 @@ def test_alice_pgen_10k_single_vs_parallel(capsys) -> None:
         f"Expected ALICE pgen speedup >= {min_speedup:.2f}x for 10k benchmark, got {speedup:.2f}x "
         f"(single={t1:.3f}s parallel={tn:.3f}s workers={n_jobs_parallel})"
     )
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+def test_alice_1mm_pgen_rate_after_neighbor_filter(capsys) -> None:
+    """Benchmark 1mm pgen throughput on sequences passing the min_neighbors=2 filter.
+
+    This test isolates the actual ALICE bottleneck for large TRB repertoires:
+    pgen is only computed for sequences with n_neighbors >= min_neighbors (default 2),
+    which represent the only candidates for ALICE cluster membership.
+
+    Run with:
+        RUN_BENCHMARK=1 pytest -s tests/test_alice_benchmark.py::test_alice_1mm_pgen_rate_after_neighbor_filter
+        MIRPY_ALICE_PGEN_BENCH_FILE=P2_d15.tsv.gz RUN_BENCHMARK=1 pytest -s ...  # larger file
+    """
+    yf_file = YF_DIR / os.getenv("MIRPY_ALICE_PGEN_BENCH_FILE", "Q1_d0.tsv.gz")
+    if not yf_file.exists():
+        pytest.skip(f"Missing YF benchmark file: {yf_file.name}")
+
+    min_neighbors = int(os.getenv("MIRPY_ALICE_BENCH_MIN_NEIGHBORS", "2"))
+    workers = benchmark_repertoire_workers(default="8")
+    n_jobs = max(1, workers[-1])
+    bench_n = int(os.getenv("MIRPY_ALICE_PGEN_BENCH_N", "300"))
+
+    rep = _load_yf_repertoire(yf_file)
+    total_n = rep.clonotype_count
+
+    # Phase 1: trie neighbor density
+    t0 = time.perf_counter()
+    stats = compute_neighborhood_stats_by_locus(
+        rep,
+        background=None,
+        metric="hamming",
+        threshold=1,
+        match_v_gene=True,
+        match_j_gene=True,
+        add_background_pseudocount=False,
+        n_jobs=n_jobs,
+    )
+    trie_s = time.perf_counter() - t0
+    locus_stats = stats.get("TRB", {})
+
+    n_ge1 = sum(1 for v in locus_stats.values() if v.get("neighbor_count", 0) >= 1)
+    n_ge2 = sum(1 for v in locus_stats.values() if v.get("neighbor_count", 0) >= min_neighbors)
+    pct_ge1 = 100.0 * n_ge1 / max(1, total_n)
+    pct_ge2 = 100.0 * n_ge2 / max(1, total_n)
+
+    # Phase 2: collect filtered CDR3s for pgen benchmark
+    filtered_aas = list(dict.fromkeys(
+        c.junction_aa
+        for c in rep.clonotypes
+        if locus_stats.get(c.sequence_id, {}).get("neighbor_count", 0) >= min_neighbors
+    ))
+    if not filtered_aas:
+        pytest.skip(f"No sequences with n_neighbors >= {min_neighbors} in {yf_file.name}")
+
+    bench_seqs = filtered_aas[:min(bench_n, len(filtered_aas))]
+
+    # Phase 3: warm model + pool outside timed window
+    model = OlgaModel(locus="TRB", species="human")
+    model.compute_pgen_junction_aa_bulk(bench_seqs[:1], max_mismatches=1, n_jobs=1)
+    model.compute_pgen_junction_aa_bulk(bench_seqs[:min(50, len(bench_seqs))], max_mismatches=1, n_jobs=n_jobs)
+
+    # Phase 4: timed 1mm pgen on filtered sequences
+    t0 = time.perf_counter()
+    model.compute_pgen_junction_aa_bulk(bench_seqs, max_mismatches=1, n_jobs=n_jobs)
+    pgen_s = time.perf_counter() - t0
+    rate = len(bench_seqs) / max(pgen_s, 1e-9)
+
+    model.close()
+
+    benchmark_log_line(
+        "ALICE_1MM_PGEN_FILTER "
+        f"file={yf_file.name} total={total_n} "
+        f"n_ge1={n_ge1} pct_ge1={pct_ge1:.1f} "
+        f"n_ge{min_neighbors}={n_ge2} pct_ge{min_neighbors}={pct_ge2:.1f} "
+        f"trie_s={trie_s:.3f} bench_n={len(bench_seqs)} "
+        f"pgen_s={pgen_s:.3f} rate_cdr3_per_s={rate:.1f} workers={n_jobs}"
+    )
+
+    with capsys.disabled():
+        print("\n" + "=" * 80)
+        print("ALICE 1mm pgen rate after min_neighbors filter")
+        print(f"  file          : {yf_file.name}  ({total_n:,} functional TRB)")
+        print(f"  trie search   : {trie_s:.1f}s")
+        print(f"  n_neighbors>=1: {n_ge1:,} ({pct_ge1:.1f}%)")
+        print(f"  n_neighbors>={min_neighbors}: {n_ge2:,} ({pct_ge2:.1f}%)")
+        print(f"  unique filtered CDR3s: {len(filtered_aas):,}")
+        print(f"  bench sample  : {len(bench_seqs)} CDR3s, n_jobs={n_jobs}")
+        print(f"  1mm pgen time : {pgen_s:.2f}s  ({rate:.1f} CDR3s/s)")
+        if filtered_aas:
+            eta_s = len(filtered_aas) / max(rate, 0.001)
+            print(f"  ETA this file : {eta_s:.0f}s ({eta_s / 60:.1f} min)")
+        print("=" * 80)
+
+    assert len(filtered_aas) > 0
+    assert rate > 0.0

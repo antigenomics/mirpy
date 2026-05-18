@@ -72,6 +72,7 @@ class TcrnetParams:
     threshold: int = 1
     match_mode: MatchMode = "none"
     pvalue_mode: PValueMode = "binomial"
+    min_neighbors: int = 2
 
     def validate(self) -> None:
         if self.metric not in {"hamming", "levenshtein"}:
@@ -82,6 +83,8 @@ class TcrnetParams:
             raise ValueError("match_mode must be one of: none, v, j, vj")
         if self.pvalue_mode not in {"binomial", "beta-binomial"}:
             raise ValueError("pvalue_mode must be 'binomial' or 'beta-binomial'")
+        if self.min_neighbors < 0:
+            raise ValueError("min_neighbors must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -198,17 +201,30 @@ def _compute_tcrnet_metrics_batch(
     locus_ctrl: dict[str, dict[str, int]],
     pvalue_mode: PValueMode,
     pseudocount: float = 1.0,
+    min_neighbors: int = 0,
 ) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
+    """Compute TCRNET metrics per clonotype.
+
+    Clonotypes with fewer than ``min_neighbors`` sample-side neighbours are
+    assigned p_value = 1.0 and fold_enrichment = 0.0 without computing the
+    statistical test.  Set ``min_neighbors=1`` to also test single-neighbour
+    sequences — useful for rare or ultra-long CDR3s with sparse neighbourhoods.
+    """
     out: list[tuple[str, int, int, int, int, float, float, float, float]] = []
     for clonotype in clonotypes:
         sid = clonotype.sequence_id
         s_stat = locus_self.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
-        c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         n = int(s_stat["neighbor_count"])
         N = int(s_stat["potential_neighbors"])
+        c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         # Add pseudocount to control: virtual clonotype-of-interest inserted into control
         m = int(c_stat["neighbor_count"]) + pseudocount
         M = int(c_stat["potential_neighbors"]) + pseudocount
+        if n < min_neighbors:
+            out.append((sid, n, N, m, M, 1.0, 0.0,
+                        float(n / N) if N > 0 else 0.0,
+                        float(m / M) if M > 0 else 0.0))
+            continue
         p = _p_value(n, N, m, M, pvalue_mode)
         fe = _fold_enrichment(n, N, m, M)
         sample_density = float(n / N) if N > 0 else 0.0
@@ -224,16 +240,18 @@ def _compute_tcrnet_metrics_batch_from_args(
         dict[str, dict[str, int]],
         PValueMode,
         float,
+        int,
     ],
 ) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
     """Pickle-friendly wrapper for process-pool batch execution."""
-    clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount = args
+    clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors = args
     return _compute_tcrnet_metrics_batch(
         clonotypes,
         locus_self=locus_self,
         locus_ctrl=locus_ctrl,
         pvalue_mode=pvalue_mode,
         pseudocount=pseudocount,
+        min_neighbors=min_neighbors,
     )
 
 
@@ -313,12 +331,21 @@ def compute_tcrnet(
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     as_table: bool = True,
+    min_neighbors: int = 2,
     n_jobs: int = -1,
 ) -> TcrnetResult | LocusRepertoire | SampleRepertoire:
     """Compute TCRNET-like enrichment, write clonotype metadata, and optionally return a table.
 
     Either pass an explicit control repertoire (``control=...``) or request a
     managed control via ``control_type`` with :class:`ControlManager`.
+
+    Args:
+        min_neighbors: Clonotypes with fewer sample-side neighbours than this
+            threshold receive p_value = 1.0 without invoking the statistical
+            test, cutting wasted computation on large repertoires.  Default 2
+            matches the standard TCRNET cluster-membership criterion.  Lower to
+            1 for rare or ultra-long CDR3s where single-neighbour enrichment is
+            biologically meaningful.
     """
     norm_match_mode = normalize_match_mode(match_mode)
     params = TcrnetParams(
@@ -326,6 +353,7 @@ def compute_tcrnet(
         threshold=threshold,
         match_mode=norm_match_mode,
         pvalue_mode=pvalue_mode,
+        min_neighbors=min_neighbors,
     )
     params.validate()
     n_jobs = _resolve_n_jobs(n_jobs)
@@ -388,7 +416,7 @@ def compute_tcrnet(
                 for start in range(0, len(qrep.clonotypes), batch_size)
             ]
             batch_args = [
-                (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount)
+                (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors)
                 for batch in batches
             ]
             if executor_mode == "thread":
@@ -408,6 +436,7 @@ def compute_tcrnet(
                 locus_ctrl=locus_ctrl,
                 pvalue_mode=pvalue_mode,
                 pseudocount=pseudocount,
+                min_neighbors=min_neighbors,
             ):
                 metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
 
@@ -446,6 +475,7 @@ def add_tcrnet_metadata(
     pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
+    min_neighbors: int = 2,
     n_jobs: int = -1,
 ) -> LocusRepertoire | SampleRepertoire:
     """Compute TCRNET stats and write them into clonotype metadata in-place."""
@@ -466,6 +496,7 @@ def add_tcrnet_metadata(
             pseudocount=pseudocount,
             random_seed=random_seed,
             metadata_prefix=metadata_prefix,
+            min_neighbors=min_neighbors,
             as_table=False,
             n_jobs=n_jobs,
         )
