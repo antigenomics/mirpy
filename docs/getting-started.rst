@@ -110,8 +110,41 @@ Typical Workflow
 Diversity Analysis APIs
 -----------------------
 
-mirpy now provides native diversity summaries, Hill curves, and
-rarefaction/coverage curves for locus, sample, paired, and single-cell objects.
+mirpy provides function-first diversity APIs in ``mir.common.diversity`` for
+native summaries, Hill curves, and rarefaction/coverage curves. Repertoire
+objects expose convenience methods that delegate to these same functions.
+
+Function-first API
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from mir.common.diversity import (
+      summarize_clonotypes,
+      summarize_loci_clonotypes,
+      hill_curve_clonotypes,
+      rarefaction_curve_clonotypes,
+      summarize_count_groups,
+   )
+
+   # Clonotype list -> one summary
+   trb_summary = summarize_clonotypes(sample["TRB"].clonotypes)
+
+   # Mapping[locus, clonotypes] -> per-locus summaries
+   per_locus = summarize_loci_clonotypes({locus: rep.clonotypes for locus, rep in sample.loci.items()})
+
+   # Curves from raw clonotypes
+   trb_hill = hill_curve_clonotypes(sample["TRB"].clonotypes)
+   trb_rare = rarefaction_curve_clonotypes(sample["TRB"].clonotypes, m_steps=[100, 500, 1000, 5000])
+
+   # Generic grouped-count API (useful for single-cell/pair-level counts)
+   pair_counts = {"TRA_TRB": [2, 1, 1], "TRG_TRD": [1]}
+   pair_summary = summarize_count_groups(pair_counts)
+
+Object convenience methods
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These methods call the same function-level implementation shown above.
 
 Metric summary (VDJtools-compatible)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

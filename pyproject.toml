@@ -36,6 +36,7 @@ dependencies = [
   "numpy",
   "olga",
   "pandas",
+  "pyarrow",
   "polars",
   "pympler",
   "python_igraph",
