@@ -29,8 +29,18 @@ from .diversity import (
 	DiversitySummary,
 	RarefactionResult,
 	build_abundance_table,
+	hill_curve_clonotypes,
+	hill_curve_count_groups,
+	hill_curve_loci_clonotypes,
 	hill_curve,
+	pooled_count_values,
+	rarefaction_curve_clonotypes,
+	rarefaction_curve_count_groups,
+	rarefaction_curve_loci_clonotypes,
 	rarefaction_curve,
+	summarize_clonotypes,
+	summarize_count_groups,
+	summarize_loci_clonotypes,
 	summarize_counts,
 	summaries_to_polars,
 )
@@ -76,21 +86,24 @@ __all__ = [
 	'DiversitySummary',
 	'RarefactionResult',
 	'build_abundance_table',
+	'hill_curve_clonotypes',
+	'hill_curve_count_groups',
+	'hill_curve_loci_clonotypes',
 	'hill_curve',
+	'pooled_count_values',
+	'rarefaction_curve_clonotypes',
+	'rarefaction_curve_count_groups',
+	'rarefaction_curve_loci_clonotypes',
 	'rarefaction_curve',
+	'summarize_clonotypes',
+	'summarize_count_groups',
+	'summarize_loci_clonotypes',
 	'summarize_counts',
 	'summaries_to_polars',
 	'VDJdbFullPairedParser',
 	'PairingGraph',
 	'build_pairing_graph',
 	'compute_batch_corrected_gene_usage',
-	'Segment',
-	'SegmentLibrary',
 ]
-
-# Compatibility aliases for older notebooks/import paths without a dedicated
-# mir.common.segments shim module.
-Segment = GeneEntry
-SegmentLibrary = GeneLibrary
 # from .parser import ClonotypeTableParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser, ImmrepParser
 # from .repertoire import Repertoire, RepertoireDataset

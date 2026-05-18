@@ -22,10 +22,12 @@ from mir.common.clonotype import Clonotype
 from mir.common.diversity import (
     CountField,
     DiversitySummary,
-    counts_from_clonotypes,
-    hill_curve,
-    rarefaction_curve,
-    summarize_counts,
+    hill_curve_clonotypes,
+    hill_curve_loci_clonotypes,
+    rarefaction_curve_clonotypes,
+    rarefaction_curve_loci_clonotypes,
+    summarize_clonotypes,
+    summarize_loci_clonotypes,
 )
 
 
@@ -240,9 +242,9 @@ class LocusRepertoire:
         hyperexpanded_threshold: float = 1e-2,
     ) -> DiversitySummary:
         """Compute diversity summary metrics for this locus repertoire."""
-        counts = counts_from_clonotypes(self.clonotypes, count_field=count_field)
-        return summarize_counts(
-            counts,
+        return summarize_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
             expanded_threshold=expanded_threshold,
             hyperexpanded_threshold=hyperexpanded_threshold,
         )
@@ -254,8 +256,11 @@ class LocusRepertoire:
         q_values: list[float] | None = None,
     ) -> pl.DataFrame:
         """Compute Hill diversity profile for this locus repertoire."""
-        counts = counts_from_clonotypes(self.clonotypes, count_field=count_field)
-        return hill_curve(counts, q_values=q_values)
+        return hill_curve_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
+            q_values=q_values,
+        )
 
     def rarefaction_curve(
         self,
@@ -266,9 +271,9 @@ class LocusRepertoire:
         confidence: float = 0.95,
     ) -> pl.DataFrame:
         """Compute rarefaction/extrapolation and sample-coverage curves."""
-        counts = counts_from_clonotypes(self.clonotypes, count_field=count_field)
-        return rarefaction_curve(
-            counts,
+        return rarefaction_curve_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
             m_steps=m_steps,
             include_exact=include_exact,
             confidence=confidence,
@@ -1159,22 +1164,24 @@ class SampleRepertoire:
         hyperexpanded_threshold: float = 1e-2,
     ) -> dict[str, DiversitySummary] | DiversitySummary:
         """Compute diversity summaries either per locus or pooled across loci."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
         if per_locus:
-            return {
-                locus: lr.diversity(
-                    count_field=count_field,
-                    expanded_threshold=expanded_threshold,
-                    hyperexpanded_threshold=hyperexpanded_threshold,
-                )
-                for locus, lr in self.loci.items()
-            }
+            return summarize_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                expanded_threshold=expanded_threshold,
+                hyperexpanded_threshold=hyperexpanded_threshold,
+            )
 
-        all_clonotypes: list[Clonotype] = []
-        for lr in self.loci.values():
-            all_clonotypes.extend(lr.clonotypes)
-        counts = counts_from_clonotypes(all_clonotypes, count_field=count_field)
-        return summarize_counts(
-            counts,
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return summarize_clonotypes(
+            pooled,
+            count_field=count_field,
             expanded_threshold=expanded_threshold,
             hyperexpanded_threshold=hyperexpanded_threshold,
         )
@@ -1187,17 +1194,25 @@ class SampleRepertoire:
         q_values: list[float] | None = None,
     ) -> dict[str, pl.DataFrame] | pl.DataFrame:
         """Compute Hill diversity profile per locus or pooled."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
         if per_locus:
-            return {
-                locus: lr.hill_curve(count_field=count_field, q_values=q_values)
-                for locus, lr in self.loci.items()
-            }
+            return hill_curve_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                q_values=q_values,
+            )
 
-        all_clonotypes: list[Clonotype] = []
-        for lr in self.loci.values():
-            all_clonotypes.extend(lr.clonotypes)
-        counts = counts_from_clonotypes(all_clonotypes, count_field=count_field)
-        return hill_curve(counts, q_values=q_values)
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return hill_curve_clonotypes(
+            pooled,
+            count_field=count_field,
+            q_values=q_values,
+        )
 
     def rarefaction_curve(
         self,
@@ -1209,23 +1224,25 @@ class SampleRepertoire:
         confidence: float = 0.95,
     ) -> dict[str, pl.DataFrame] | pl.DataFrame:
         """Compute rarefaction/coverage curve per locus or pooled."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
         if per_locus:
-            return {
-                locus: lr.rarefaction_curve(
-                    count_field=count_field,
-                    m_steps=m_steps,
-                    include_exact=include_exact,
-                    confidence=confidence,
-                )
-                for locus, lr in self.loci.items()
-            }
+            return rarefaction_curve_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                m_steps=m_steps,
+                include_exact=include_exact,
+                confidence=confidence,
+            )
 
-        all_clonotypes: list[Clonotype] = []
-        for lr in self.loci.values():
-            all_clonotypes.extend(lr.clonotypes)
-        counts = counts_from_clonotypes(all_clonotypes, count_field=count_field)
-        return rarefaction_curve(
-            counts,
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return rarefaction_curve_clonotypes(
+            pooled,
+            count_field=count_field,
             m_steps=m_steps,
             include_exact=include_exact,
             confidence=confidence,

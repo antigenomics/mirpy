@@ -28,6 +28,7 @@ biopython==1.81
 multipy==0.16
 olga==1.2.4
 pandas==2.0.3
+pyarrow>=15
 polars==1.39.3
 pympler==1.1
 seaborn==0.12.2
