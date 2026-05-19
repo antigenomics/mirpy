@@ -11,7 +11,15 @@ import time
 
 import pytest
 
-from mir.basic.pgen import McPgenPool, OlgaModel, clear_mc_pool_cache, get_or_build_mc_pool
+from mir.basic.pgen import (
+    McPgenPool,
+    OlgaModel,
+    _P_PRODUCTIVE_GENERIC,
+    _P_PRODUCTIVE_TABLE,
+    clear_mc_pool_cache,
+    get_or_build_mc_pool,
+    get_p_productive,
+)
 from tests.conftest import skip_benchmarks
 
 ALL_MODELS = [
@@ -114,6 +122,34 @@ def test_pgen_model(olga_model):
 # ---------------------------------------------------------------------------
 # McPgenPool unit tests
 # ---------------------------------------------------------------------------
+
+def test_get_p_productive_known_entries() -> None:
+    """Calibrated p_productive values are within biologically plausible ranges."""
+    assert 0.05 < get_p_productive("TRB", "human") < 0.50
+    assert 0.05 < get_p_productive("TRA", "human") < 0.50
+    assert 0.05 < get_p_productive("IGH", "human") < 0.50
+    assert 0.05 < get_p_productive("TRB", "mouse") < 0.50
+
+
+def test_get_p_productive_case_insensitive() -> None:
+    assert get_p_productive("trb", "HUMAN") == get_p_productive("TRB", "human")
+
+
+def test_get_p_productive_generic_fallback() -> None:
+    p = get_p_productive("IGM", "zebrafish")
+    assert p == _P_PRODUCTIVE_GENERIC
+    assert 0.05 < p < 0.50
+
+
+def test_p_productive_table_coverage() -> None:
+    """Table must have entries for the 9 calibrated locus/species combinations."""
+    expected = {
+        ("TRA", "human"), ("TRB", "human"), ("TRG", "human"), ("TRD", "human"),
+        ("IGH", "human"), ("IGK", "human"), ("IGL", "human"),
+        ("TRA", "mouse"), ("TRB", "mouse"),
+    }
+    assert expected == set(_P_PRODUCTIVE_TABLE.keys())
+
 
 def test_mc_pool_build_real_attributes() -> None:
     """McPgenPool.build_real sets n_total = len(sequences) and p_productive = 1.0."""

@@ -346,7 +346,7 @@ def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
 
     # High match count for seq 0; low count for seq 1 (triggers OLGA fallback).
     _CASSLGQETQYF_mc_pgen = 5 / 10_000_000  # 5 matches → count=5 ≥ mc_min_count=2
-    _CASSLGQETQFF_mc_pgen = 1 / 10_000_000  # 1 match  → count=1 < mc_min_count=2 → fallback
+    _CASSLGQETQFF_mc_pgen = 1 / 10_000_000  # 1 match  → count=1 < mc_min_count=2 → fallback to OLGA 1mm
     fake_pool = _FakeMcPool({
         "CASSLGQETQYF": _CASSLGQETQYF_mc_pgen,
         "CASSLGQETQFF": _CASSLGQETQFF_mc_pgen,
@@ -367,8 +367,29 @@ def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
 
     # seq 0: MC count=5 ≥ 2 → uses MC pgen
     assert float(row0["pgen_raw"]) == pytest.approx(_CASSLGQETQYF_mc_pgen, rel=0.01)
-    # seq 1: MC count=1 < 2 → falls back to OLGA exact (0.1 from _FakeOlgaModel)
-    assert float(row1["pgen_raw"]) == pytest.approx(0.1, rel=0.01)
+    # seq 1: MC count=1 < 2 → falls back to OLGA 1mm (0.4 from _FakeOlgaModel)
+    assert float(row1["pgen_raw"]) == pytest.approx(0.4, rel=0.01)
+
+
+def test_compute_alice_mc_fallback_is_1mm_not_exact(monkeypatch) -> None:
+    """MC fallback for sparse sequences uses OLGA 1mm Pgen, not exact Pgen.
+
+    With exact fallback, sparse sequences would get artificially small λ
+    (underestimating enrichment).  With 1mm fallback they use the same λ scale
+    as pool-covered sequences.
+    _FakeOlgaModel returns 0.1 for exact and 0.4 for 1mm on CASSLGQETQFF.
+    """
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+    # Empty pool → every sequence falls back to OLGA
+    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: _FakeMcPool({}))
+
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQFF")], locus="TRB")
+    result = compute_alice(rep, pgen_mode="mc", min_neighbors=0, mc_min_count=2, n_jobs=1)
+    row = result.table.row(0, named=True)
+
+    assert float(row["pgen_raw"]) == pytest.approx(0.4, rel=0.01), (
+        "MC fallback must use OLGA 1mm Pgen (0.4), not exact (0.1)"
+    )
 
 
 def test_compute_alice_mc_mode_invalid_n_pool(monkeypatch) -> None:
@@ -399,4 +420,74 @@ def test_alice_tcrnet_equivalence_note() -> None:
     assert hasattr(_compute_alice, "__call__")
     # Both expose a table with enrichment statistics — verified structurally
     # in their respective test modules.
+
+
+def test_alice_hit_clusters_vgene_restriction() -> None:
+    """V-gene restriction prevents cross-family merges; same-family 1mm seqs cluster."""
+    import pandas as pd
+    from mir.biomarkers.alice import alice_hit_clusters
+
+    hits = pd.DataFrame({
+        "junction_aa": [
+            "CASSVGLYSTDTQYF",  # TRBV9 — motif
+            "CASSVGLFSTDTQYF",  # TRBV9 — motif (1mm from above)
+            "CASSVGVYSTDTQYF",  # TRBV9 — 1mm from first
+            "CASSXXXXXAAAAAA",  # TRBV5-1 — different V, isolated
+        ],
+        "v_gene": ["TRBV9*01", "TRBV9*01", "TRBV9*01", "TRBV5-1*01"],
+        "q_value": [1e-10, 1e-8, 1e-7, 1e-6],
+    })
+    result = alice_hit_clusters(hits)
+    assert "cluster_id" in result.columns
+
+    sizes = result.groupby("cluster_id").size()
+    assert sizes.max() == 3, f"expected TRBV9 trio in one cluster, got {sizes.tolist()}"
+    assert sizes.min() == 1, "expected TRBV5-1 as singleton"
+
+    # All three TRBV9 sequences share the same cluster_id
+    trbv9_ids = result[result["v_gene"] == "TRBV9*01"]["cluster_id"].unique()
+    assert len(trbv9_ids) == 1, "TRBV9 sequences must be in the same cluster"
+
+    # TRBV5-1 sequence is in a different cluster
+    trbv5_id = result[result["v_gene"] == "TRBV5-1*01"]["cluster_id"].iloc[0]
+    assert trbv5_id != trbv9_ids[0], "TRBV5-1 must not merge with TRBV9 cluster"
+
+
+def test_alice_hit_clusters_non_enriched_neighbors() -> None:
+    """non_enriched_neighbors=True adds 1mm non-hit neighbors from full_df."""
+    import pandas as pd
+    from mir.biomarkers.alice import alice_hit_clusters
+
+    hits = pd.DataFrame({
+        "junction_aa": ["CASSVGLYSTDTQYF"],
+        "v_gene": ["TRBV9*01"],
+        "q_value": [1e-10],
+    })
+    full = pd.DataFrame({
+        "junction_aa": [
+            "CASSVGLYSTDTQYF",  # the hit itself — should not be added twice
+            "CASSVGLFSTDTQYF",  # 1mm TRBV9 neighbor — should be added
+            "CASSDIFFERENTXXX",  # far away — should not be added
+        ],
+        "v_gene": ["TRBV9*01", "TRBV9*01", "TRBV9*01"],
+        "q_value": [1e-10, 1.0, 1.0],
+    })
+    result = alice_hit_clusters(hits, full_df=full, non_enriched_neighbors=True)
+    assert "is_hit" in result.columns
+    assert len(result) == 2, f"expected hit + 1 neighbor, got {len(result)}"
+    assert result[result["is_hit"]].shape[0] == 1
+    assert result[~result["is_hit"]]["junction_aa"].iloc[0] == "CASSVGLFSTDTQYF"
+
+    # Both rows must share the same cluster_id
+    assert result["cluster_id"].nunique() == 1
+
+
+def test_alice_hit_clusters_requires_full_df_for_neighbors() -> None:
+    """Raises ValueError when non_enriched_neighbors=True but full_df is None."""
+    import pandas as pd
+    from mir.biomarkers.alice import alice_hit_clusters
+
+    hits = pd.DataFrame({"junction_aa": ["CASSLGQETQYF"], "v_gene": ["TRBV5-1*01"]})
+    with pytest.raises(ValueError, match="full_df"):
+        alice_hit_clusters(hits, non_enriched_neighbors=True)
 

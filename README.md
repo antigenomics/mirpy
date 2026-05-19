@@ -78,9 +78,30 @@ For large datasets, it benchmarks small chunks first, estimates full runtime/mem
 - `mir.basic`: diversity, sampling, segment usage, pgen helpers
 - `mir.embedding`: repertoire and prototype embeddings
 - `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
-- `mir.biomarkers`: enrichment and biomarker detection utilities
+- `mir.biomarkers`: enrichment and biomarker detection utilities — ALICE, TCRNET, GLIPH
 - `notebooks/diversity_analysis.ipynb`: diversity summary tables, rarefaction,
   Hill curves, and cohort comparisons for Healthy vs MS donors
+
+### ALICE and TCRNET
+
+Both modules detect antigen-driven CDR3 clusters, but differ in how they model the background:
+
+| Feature | ALICE | TCRNET |
+| --- | --- | --- |
+| Background model | OLGA Pgen (analytical or MC pool) | Any MC control — real or synthetic |
+| Pgen calls | OLGA 1mm Pgen (10M pool + fallback) | **None** |
+| V/J restriction | `match_mode="vj"` (default `"none"`) | `match_mode="vj"` or via real control |
+| Statistics | Poisson | Binomial / Beta-Binomial |
+| Selection correction | `q_factor` | `q_factor` (needed for synthetic controls) |
+
+**ALICE** ([`mir.biomarkers.alice`](mir/biomarkers/alice.py)) implements the Pogorelyy et al. *PLoS Biol.* 2019
+Poisson enrichment test.  Our implementation uses a 10M-sequence MC pool by default (the paper uses 100M) and
+falls back to OLGA analytical 1mm Pgen for rare sequences.  Use `pgen_mode="mc"` for all production runs.
+
+**TCRNET** ([`mir.biomarkers.tcrnet`](mir/biomarkers/tcrnet.py)) is a purely MC-control algorithm — no Pgen
+calls.  When used with a real control it captures V/J bias automatically.  Pass `q_factor ≈ 3–5` when using
+a synthetic OLGA pool to correct for the pre-thymic selection deficit.  TCRNET with a 100M synthetic pool,
+`match_mode="vj"`, and `q_factor=Q` is statistically equivalent to the original ALICE paper.
 
 ## Quick start
 

@@ -171,11 +171,18 @@ class TestMcPgenBenchmark:
             n_jobs=_N_JOBS, seed=_SEED, skip_ends=_SKIP_ENDS,
         )
         t1 = time.perf_counter()
+        elapsed = t1 - t0
         print(
-            f"  TRB pool built in {t1-t0:.1f}s  "
+            f"  TRB pool built in {elapsed:.1f}s  "
             f"(p_productive={pool.p_productive:.3f}, "
             f"unique={len(pool._unique_seqs):,})",
             flush=True,
+        )
+        # Build-time budget: 25s for 500K CI run, 90s for 10M full run (8 workers, Apple M3)
+        budget = 90 if _BENCH_N >= 10_000_000 else 25
+        assert elapsed < budget, (
+            f"TRB pool build took {elapsed:.1f}s; expected < {budget}s "
+            f"(n={_BENCH_N:,}, {_N_JOBS} workers)"
         )
         return pool
 
@@ -188,10 +195,16 @@ class TestMcPgenBenchmark:
             n_jobs=_N_JOBS, seed=_SEED, skip_ends=_SKIP_ENDS,
         )
         t1 = time.perf_counter()
+        elapsed = t1 - t0
         print(
-            f"  TRA pool built in {t1-t0:.1f}s  "
+            f"  TRA pool built in {elapsed:.1f}s  "
             f"(p_productive={pool.p_productive:.3f})",
             flush=True,
+        )
+        budget = 90 if _BENCH_N >= 10_000_000 else 25
+        assert elapsed < budget, (
+            f"TRA pool build took {elapsed:.1f}s; expected < {budget}s "
+            f"(n={_BENCH_N:,}, {_N_JOBS} workers)"
         )
         return pool
 
@@ -233,20 +246,40 @@ class TestMcPgenBenchmark:
         mc_1mm = trb_pool.pgen_1mm_bulk(queries, n_jobs=_N_JOBS)
         t_mc_1mm = time.perf_counter() - t0
 
+        speedup_exact = t_olga / max(t_mc_exact, 1e-6)
+        speedup_1mm = t_olga / max(t_mc_1mm, 1e-6)
         print(f"\n  TRB benchmark  n={len(queries)}, pool={_BENCH_N:,}")
         print(f"  OLGA exact     : {t_olga:.2f}s  ({len(queries)/t_olga:.0f} seq/s)")
-        print(f"  MC exact       : {t_mc_exact:.3f}s  ({len(queries)/t_mc_exact:.0f} seq/s)  speedup={t_olga/t_mc_exact:.0f}x")
-        print(f"  MC 1mm         : {t_mc_1mm:.3f}s  ({len(queries)/t_mc_1mm:.0f} seq/s)  speedup={t_olga/t_mc_1mm:.0f}x")
+        print(f"  MC exact       : {t_mc_exact:.3f}s  ({len(queries)/t_mc_exact:.0f} seq/s)  speedup={speedup_exact:.0f}x")
+        print(f"  MC 1mm         : {t_mc_1mm:.3f}s  ({len(queries)/t_mc_1mm:.0f} seq/s)  speedup={speedup_1mm:.0f}x")
         _print_stats("MC exact vs OLGA", mc_exact, olga_pgens, trb_pool.n_total)
         _print_stats("MC 1mm vs OLGA", mc_1mm, olga_pgens, trb_pool.n_total)
 
         r_exact, rmse_exact = _log10_corr_and_rmse(mc_exact, olga_pgens)
         r_1mm, _ = _log10_corr_and_rmse(mc_1mm, olga_pgens)
 
-        # Loose bounds for 500K pool — tighter at 10M
-        assert r_exact > 0.5 or sum(p > 0 for p in mc_exact) / len(mc_exact) > 0.2, (
-            "MC exact pgen should correlate with OLGA for covered sequences"
+        # tcrtrie batch query is always faster than serial OLGA (even at 500K pool)
+        assert speedup_1mm >= 5.0, (
+            f"MC 1mm speedup {speedup_1mm:.1f}x vs OLGA; expected ≥5x (pool={_BENCH_N:,})"
         )
+        if _BENCH_N >= 10_000_000:
+            # At 10M pool the tcrtrie search dominates, not OLGA model init overhead
+            assert speedup_1mm >= 50.0, (
+                f"At 10M pool, MC 1mm speedup {speedup_1mm:.1f}x; expected ≥50x"
+            )
+            # Near-complete coverage and strong correlation at 10M
+            covered_1mm = sum(1 for p in mc_1mm if p > 0) / len(mc_1mm)
+            assert covered_1mm >= 0.85, (
+                f"MC 1mm coverage at 10M: {covered_1mm:.1%}; expected ≥85%"
+            )
+            assert r_1mm > 0.85, (
+                f"MC 1mm r(log10) at 10M: {r_1mm:.3f}; expected >0.85"
+            )
+        else:
+            # 500K pool: loose bounds only
+            assert r_exact > 0.5 or sum(p > 0 for p in mc_exact) / len(mc_exact) > 0.2, (
+                "MC exact pgen should correlate with OLGA for covered sequences"
+            )
 
     def test_tra_synthetic_pool_accuracy(self, tra_model, tra_pool, tra_queries) -> None:
         """Compare synthetic MC pgen to OLGA analytical pgen for TRA."""
@@ -260,10 +293,15 @@ class TestMcPgenBenchmark:
         mc_1mm = tra_pool.pgen_1mm_bulk(queries, n_jobs=_N_JOBS)
         t_mc = time.perf_counter() - t0
 
+        speedup_1mm = t_olga / max(t_mc, 1e-6)
         print(f"\n  TRA benchmark  n={len(queries)}, pool={_BENCH_N:,}")
         print(f"  OLGA exact     : {t_olga:.2f}s  ({len(queries)/t_olga:.0f} seq/s)")
-        print(f"  MC 1mm         : {t_mc:.3f}s  ({len(queries)/t_mc:.0f} seq/s)  speedup={t_olga/t_mc:.0f}x")
+        print(f"  MC 1mm         : {t_mc:.3f}s  ({len(queries)/t_mc:.0f} seq/s)  speedup={speedup_1mm:.0f}x")
         _print_stats("MC 1mm vs OLGA (TRA)", mc_1mm, olga_pgens, tra_pool.n_total)
+
+        assert speedup_1mm >= 5.0, (
+            f"TRA MC 1mm speedup {speedup_1mm:.1f}x vs OLGA; expected ≥5x (pool={_BENCH_N:,})"
+        )
 
     # ------------------------------------------------------------------
     # Q-factor analysis (real vs synthetic)

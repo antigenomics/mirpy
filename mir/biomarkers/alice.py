@@ -4,13 +4,48 @@ ALICE computes neighborhood counts in a repertoire (self-background) and
 compares observed counts to the expectation from sequence generation
 probability (Pgen):
 
-- Neighborhood fold enrichment: ``n / (N * pgen)``
-- P-value: ``P(X >= n)`` where ``X ~ Poisson(N * pgen)``
+- Neighborhood fold enrichment: ``n / (N × pgen_1mm)``
+- P-value: ``P(X >= n)`` where ``X ~ Poisson(N × pgen_1mm)``
 
 ``match_mode`` controls which sequences are eligible neighbors:
 ``"v"`` restricts to the same V gene, ``"j"`` to the same J gene,
 ``"vj"`` to both.  Raw OLGA Pgen is used directly without synthetic-control
 gene-usage conditioning.
+
+Differences from the original ALICE paper
+------------------------------------------
+The original paper (Pogorelyy et al. *PLoS Biol.* 2019) uses:
+
+* A **100-million** sequence synthetic MC pool to estimate ``pgen_1mm``.
+  This implementation uses a **10-million** pool by default
+  (``mc_n_pool=10_000_000``) and falls back to OLGA analytical 1mm Pgen for
+  sequences with fewer than ``mc_min_count=2`` pool matches, so rare sequences
+  use the same λ scale as pool-covered ones.
+* **V+J gene matching** (``match_mode="vj"``) as the default neighbor
+  restriction.  Here ``match_mode`` defaults to ``"none"``; set it to
+  ``"vj"`` to reproduce the paper's V+J restriction.
+
+Relationship to TCRNET
+-----------------------
+ALICE (Poisson, ``λ = N × pgen_1mm``) and TCRNET (Binomial, ``p = m/M``)
+converge when the MC pool is large.  TCRNET is the more general formulation:
+
+* TCRNET uses **any** MC control (real repertoire or synthetic pool) and makes
+  no OLGA Pgen calls at all.  When a real control is used it naturally captures
+  V/J gene usage bias.
+* ALICE uses the synthetic pool only as a Pgen estimator, falling back to OLGA
+  for sparse sequences.
+
+To reproduce original ALICE behavior using TCRNET (V+J matching, 100M pool,
+selection-corrected)::
+
+    compute_tcrnet(
+        rep,
+        control=McPgenPool.build_synthetic(100_000_000, locus="TRB").as_locus_repertoire(),
+        match_mode="vj",
+        pvalue_mode="binomial",
+        q_factor=3.0,   # thymic-selection correction; estimate from real vs OLGA pgen ratio
+    )
 
 This module is a highly customized MIR implementation inspired by ideas
 described in the ALICE paper, not a literal line-by-line reimplementation of
@@ -73,15 +108,15 @@ class AliceParams:
     When ``pgen_mode="mc"``, a Monte-Carlo pool of *mc_n_pool* productive
     sequences is generated once and cached.  Pgen is estimated by counting
     exact + inner-1mm matches in that pool.  Sequences with fewer than
-    *mc_min_count* matches fall back to OLGA analytical exact Pgen so that
-    rare sequences are still scored correctly.
+    *mc_min_count* matches fall back to OLGA analytical 1mm Pgen so that
+    rare sequences are scored on the same scale as the rest.
     """
 
     match_mode: MatchMode = "none"
     pgen_mode: PgenMode = "exact"
     pvalue_mode: AlicePValueMode = "poisson"
     pseudocount: float = 0.0
-    min_neighbors: int = 3
+    min_neighbors: int = 2
     q_factor: float = 1.0
     mc_n_pool: int = 10_000_000
     mc_seed: int = 42
@@ -191,12 +226,11 @@ def _compute_pgen_raw_by_junction_aa(
     are absent from the returned dict, causing ``_compute_alice_metrics_batch``
     to assign ``p_value = 1.0`` without calling OLGA.
 
-    **Exact pre-screen for 1mm mode**: When ``pgen_mode='1mm'``, exact pgen is
-    computed first for all eligible sequences.  Because ``1mm_pgen ≥ exact_pgen``
-    always holds, a sequence with ``n ≤ N × exact_pgen`` cannot be enriched under
-    1mm pgen either.  Such sequences are excluded from the expensive 1mm OLGA
-    calls and receive ``p_value = 1.0``.  This pre-screen is *lossless*: no true
-    ALICE hits are skipped.
+    **MC mode**: Queries the synthetic pool for 1mm neighbourhood pgen.
+    Sequences with fewer than *mc_min_count* pool matches fall back to OLGA
+    analytical 1mm Pgen so that sparse sequences use the same λ scale.
+
+    **1mm mode**: Calls OLGA 1mm Pgen directly for all eligible sequences.
 
     **Cross-call cache**: Computed pgen values are stored in the module-level
     ``_PGEN_RESULT_CACHE`` keyed by ``(locus, species, junction_aa, pgen_mode)``
@@ -205,8 +239,8 @@ def _compute_pgen_raw_by_junction_aa(
 
     Note:
         ``neighbor_count`` includes the sequence itself (self is always a
-        Hamming-0 neighbour).  ``min_neighbors=3`` therefore requires the sequence
-        plus at least two additional Hamming-1 neighbours in the repertoire.
+        Hamming-0 neighbour).  ``min_neighbors=2`` therefore requires the sequence
+        plus at least one additional Hamming-1 neighbour in the repertoire.
     """
     if not clonotypes:
         return {}
@@ -236,9 +270,9 @@ def _compute_pgen_raw_by_junction_aa(
         )
 
     # ── MC mode ──────────────────────────────────────────────────────────────
-    # Use a large synthetic pool for fast Pgen estimation via match counting.
-    # Falls back to OLGA analytical exact Pgen for sequences with too few MC
-    # matches to give a reliable estimate.
+    # Estimate 1mm neighbourhood pgen via match counting in a synthetic pool.
+    # Sequences with < mc_min_count pool matches fall back to OLGA 1mm Pgen
+    # so that sparse sequences use the same λ scale as pool-covered ones.
     if pgen_mode == "mc":
         from mir.basic.pgen import get_or_build_mc_pool
         from mir.basic.pgen import _PGEN_1MM_SKIP_ENDS as _skip_ends
@@ -252,57 +286,26 @@ def _compute_pgen_raw_by_junction_aa(
         )
         mc_pgens = pool.pgen_1mm_bulk(unique_aas, n_jobs=n_jobs)
 
-        # Identify sequences with insufficient MC matches for reliable estimation
         needs_olga: list[str] = []
         mc_map: dict[str, float] = {}
         for aa, mp in zip(unique_aas, mc_pgens):
-            count = int(round(mp * pool.n_total))
-            if count >= mc_min_count:
+            if int(round(mp * pool.n_total)) >= mc_min_count:
                 mc_map[aa] = mp
             else:
                 needs_olga.append(aa)
 
         if needs_olga:
-            olga_pgens = _bulk_pgen(
+            mc_map.update(_bulk_pgen(
                 needs_olga,
                 locus=locus, species=species, random_seed=random_seed,
-                pgen_mode="exact", n_jobs=n_jobs,
-            )
-            mc_map.update(olga_pgens)
+                pgen_mode="1mm", n_jobs=n_jobs,
+            ))
 
         return mc_map
 
-    # ── Step 2 (1mm only): exact pre-screen ──────────────────────────────────
-    # Compute exact pgen for all eligible aas, then only run the expensive 1mm
-    # computation for sequences where n > N * exact_pgen (i.e., at least some
-    # enrichment signal even under the weaker exact pgen).
-    exact_pgens = _bulk_pgen(
-        unique_aas,
-        locus=locus, species=species, random_seed=random_seed,
-        pgen_mode="exact", n_jobs=n_jobs,
-    )
-
-    # Build a per-aa max-fold indicator: True if any clonotype with this aa
-    # shows n > N * exact_pgen.
-    needs_1mm: set[str] = set()
-    for c in clonotypes:
-        aa = c.junction_aa
-        ep = exact_pgens.get(aa)
-        if ep is None:
-            continue
-        stat = (locus_stats or {}).get(c.sequence_id, {})
-        n = int(stat.get("neighbor_count", 0))
-        N = int(stat.get("potential_neighbors", 0))
-        if n > N * ep:
-            needs_1mm.add(aa)
-
-    if not needs_1mm:
-        return {}
-
-    # ── Step 3: compute 1mm pgen only for pre-screen-passing sequences ────────
-    needs_1mm_list = [aa for aa in unique_aas if aa in needs_1mm]
+    # ── 1mm mode ──────────────────────────────────────────────────────────────
     return _bulk_pgen(
-        needs_1mm_list,
+        unique_aas,
         locus=locus, species=species, random_seed=random_seed,
         pgen_mode="1mm", n_jobs=n_jobs,
     )
@@ -480,6 +483,138 @@ _ALICE_TABLE_SCHEMA: dict[str, type] = {
 }
 
 
+def alice_hit_clusters(
+    hits_df: "pd.DataFrame",
+    full_df: "pd.DataFrame | None" = None,
+    *,
+    non_enriched_neighbors: bool = False,
+) -> "pd.DataFrame":
+    """Cluster ALICE hits into connected components via V-gene-restricted 1mm CDR3 edges.
+
+    Nodes are ALICE hits (rows from an ALICE result table filtered by q_value and
+    n_neighbors).  An edge exists between two nodes when their CDR3 amino acid
+    sequences differ by exactly one position **and** they share the same V-gene
+    family (e.g. ``TRBV9*01`` → ``TRBV9``).  V-gene restriction prevents spurious
+    transitive merges across unrelated gene families.
+
+    Connected components are labelled with an integer ``cluster_id`` column.
+    Singletons (no 1mm same-V neighbour among other hits) each receive a unique id.
+
+    Args:
+        hits_df: DataFrame of ALICE hits — must contain ``junction_aa`` and
+            ``v_gene`` columns.
+        full_df: Full ALICE result table for the same sample(s), required when
+            ``non_enriched_neighbors=True``.  May contain non-hit sequences.
+        non_enriched_neighbors: When ``True``, every non-enriched sequence in
+            ``full_df`` that is 1mm (same V-gene) from any hit is added to that
+            hit's cluster.  ``full_df`` must be provided.
+
+    Returns:
+        DataFrame equal to ``hits_df`` (plus non-enriched neighbors when
+        ``non_enriched_neighbors=True``) with an added integer ``cluster_id``
+        column.  Rows from ``hits_df`` carry ``is_hit=True``; added neighbors
+        carry ``is_hit=False``.
+
+    Raises:
+        ValueError: If ``non_enriched_neighbors=True`` but ``full_df`` is ``None``.
+    """
+    import pandas as pd
+
+    if non_enriched_neighbors and full_df is None:
+        raise ValueError("full_df must be provided when non_enriched_neighbors=True")
+
+    if hits_df.empty:
+        result = hits_df.copy()
+        if non_enriched_neighbors:
+            result = result.assign(is_hit=pd.array([], dtype=bool))
+        return result.assign(cluster_id=pd.array([], dtype="int64"))
+
+    def _vfam(v: str) -> str:
+        return v.split("*")[0] if v else ""
+
+    has_v = "v_gene" in hits_df.columns
+
+    def _uf(rows: list[tuple[str, str]]) -> list[int]:
+        n = len(rows)
+        idx_by: dict[tuple[str, str], list[int]] = {}
+        for i, (c, v) in enumerate(rows):
+            idx_by.setdefault((c, _vfam(v)), []).append(i)
+
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i, (cdr3, v) in enumerate(rows):
+            vf = _vfam(v)
+            for pos in range(len(cdr3)):
+                o = cdr3[pos]
+                for aa in "ACDEFGHIKLMNPQRSTVWY":
+                    if aa != o:
+                        for j in idx_by.get((cdr3[:pos] + aa + cdr3[pos + 1:], vf), []):
+                            if j > i:
+                                parent[find(i)] = find(j)
+
+        rm: dict[int, int] = {}
+        ids = []
+        for i in range(n):
+            r = find(i)
+            if r not in rm:
+                rm[r] = len(rm)
+            ids.append(rm[r])
+        return ids
+
+    if non_enriched_neighbors:
+        assert full_df is not None
+        if has_v:
+            hit_keys: set = set(
+                zip(hits_df["junction_aa"], hits_df["v_gene"].map(_vfam))
+            )
+        else:
+            hit_keys = set(hits_df["junction_aa"])
+
+        neighbor_rows = []
+        for _, row in full_df.iterrows():
+            cdr3 = str(row.get("junction_aa", ""))
+            vf = _vfam(str(row.get("v_gene", ""))) if has_v else ""
+            key: tuple | str = (cdr3, vf) if has_v else cdr3
+            if key in hit_keys:
+                continue
+            found = False
+            for pos in range(len(cdr3)):
+                o = cdr3[pos]
+                for aa in "ACDEFGHIKLMNPQRSTVWY":
+                    if aa != o:
+                        nbr = cdr3[:pos] + aa + cdr3[pos + 1:]
+                        nbr_key: tuple | str = (nbr, vf) if has_v else nbr
+                        if nbr_key in hit_keys:
+                            neighbor_rows.append(row.to_dict())
+                            found = True
+                            break
+                if found:
+                    break
+
+        if neighbor_rows:
+            neighbor_df = pd.DataFrame(neighbor_rows).assign(is_hit=False)
+            combined = pd.concat(
+                [hits_df.assign(is_hit=True), neighbor_df], ignore_index=True
+            )
+        else:
+            combined = hits_df.assign(is_hit=True)
+    else:
+        combined = hits_df
+
+    if has_v:
+        rows_for_uf = list(zip(combined["junction_aa"], combined["v_gene"]))
+    else:
+        rows_for_uf = [(c, "") for c in combined["junction_aa"]]
+
+    return combined.assign(cluster_id=_uf(rows_for_uf))
+
+
 def alice_table(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
@@ -531,7 +666,7 @@ def compute_alice(
     as_table: bool = True,
     pseudocount: float = 0.0,
     pvalue_mode: AlicePValueMode = "poisson",
-    min_neighbors: int = 3,
+    min_neighbors: int = 2,
     q_factor: float = 1.0,
     mc_n_pool: int = 10_000_000,
     mc_seed: int = 42,
@@ -545,19 +680,19 @@ def compute_alice(
     2. Compute Pgen values with ``n_jobs``.
 
     Args:
-        min_neighbors: Minimum ``neighbor_count`` (self + additional Hamming-1
-            neighbours) a sequence must have before pgen is computed for it.
-            The default of 3 requires at least two Hamming-1 neighbours beyond
-            self.  Sequences below this threshold get ``p_value = 1.0`` without
-            any OLGA calls.
+        min_neighbors: Minimum ``neighbor_count`` (self + Hamming-1 neighbours)
+            a sequence must have before pgen is computed.  The default of 2
+            requires self plus at least one additional Hamming-1 neighbour.
+            Sequences below this threshold get ``p_value = 1.0`` without any
+            OLGA calls.
         pgen_mode: ``"exact"`` uses OLGA analytical Pgen.  ``"1mm"`` sums Pgen
-            over all inner Hamming-1 variants.  ``"mc"`` uses a large synthetic
-            MC pool for fast estimation, falling back to OLGA exact for rare
-            sequences (< *mc_min_count* pool matches).
+            over the Hamming-1 neighbourhood.  ``"mc"`` estimates the same 1mm
+            pgen via a large synthetic pool, falling back to OLGA 1mm Pgen for
+            sequences with fewer than *mc_min_count* pool matches.
         mc_n_pool: Synthetic pool size for ``pgen_mode="mc"`` (default 10M).
         mc_seed: OLGA seed for pool generation.
         mc_min_count: Minimum pool-match count for MC Pgen; sequences below
-            this threshold use OLGA exact Pgen instead.
+            this threshold fall back to OLGA 1mm Pgen.
 
     Raw OLGA Pgen is used directly; ``match_mode`` controls which sequences
     are eligible neighbors but does not trigger gene-usage conditioning.
@@ -664,7 +799,7 @@ def add_alice_metadata(
     metric: t.Literal["hamming"] = "hamming",
     random_seed: int | None = None,
     metadata_prefix: str = "alice",
-    min_neighbors: int = 3,
+    min_neighbors: int = 2,
     q_factor: float = 1.0,
     mc_n_pool: int = 10_000_000,
     mc_seed: int = 42,
