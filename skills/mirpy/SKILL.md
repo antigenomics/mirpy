@@ -484,12 +484,12 @@ result = compute_alice(
     pgen_mode="exact",    # "exact" | "1mm" | "mc"  — see notes below
     pvalue_mode="poisson",         # "poisson" | "negative-binomial"
     pseudocount=0.0,               # added to n and N before p-value computation
-    min_neighbors=3,               # sequences with fewer neighbors get p_value=1.0
+    min_neighbors=2,               # sequences with fewer neighbors get p_value=1.0
     q_factor=1.0,                  # thymic-selection correction multiplier (λ = N × pgen × Q)
     # MC mode options (only used when pgen_mode="mc"):
     mc_n_pool=10_000_000,          # synthetic pool size (built once, cached)
     mc_seed=42,
-    mc_min_count=2,                # min pool matches to use MC pgen (else OLGA exact fallback)
+    mc_min_count=2,                # min pool matches to use MC pgen (else OLGA 1mm fallback)
     n_jobs=8,
 )
 
@@ -524,32 +524,82 @@ rep = add_alice_metadata(
 
 | Mode    | Speed         | Accuracy                   | Notes |
 |---------|---------------|----------------------------|-------|
-| `exact` | Fast (7ms/seq) | OLGA analytical exact Pgen | Default; good for `min_neighbors≥3` |
+| `exact` | Fast (7ms/seq) | OLGA analytical exact Pgen | Default; underestimates λ for ALICE — use `"1mm"` or `"mc"` |
 | `1mm`   | Slow (70ms/seq) | Sums Pgen over 1mm neighbors | Best sensitivity; use skip_ends=2 (env `MIRPY_PGEN_1MM_SKIP_ENDS=2`) |
 | `mc`    | Very fast after pool build | MC match counting + OLGA fallback | Pool built once, cached; 100–1000× faster than OLGA per sample |
+
+**ALICE runtime scaling (TRB, `min_neighbors=2`, `n_jobs=8`):**
+
+Pgen is computed only for sequences that pass the `min_neighbors` filter (~1–5% of clonotypes).
+
+| Dataset size | `"exact"` wall time | `"1mm"` wall time | `"mc"` wall time (after pool) |
+|---|---|---|---|
+| 1 K clonotypes | < 1 s | < 5 s | < 1 s |
+| 10 K clonotypes | 1–3 s | 5–30 s | < 1 s |
+| 100 K clonotypes | 3–15 s | 30–150 s | 1–5 s |
+| 1 M clonotypes | 15–90 s | 2–15 min | 5–30 s |
+
+First `"mc"` call builds the 10 M pool (37 s, 8 workers, human TRB); all subsequent samples reuse it from cache.  Use `"mc"` for all production runs (paper-correct 1mm pgen approximation, ~100× faster than `"1mm"` after pool build).  `"exact"` underestimates λ and inflates hit counts — not recommended for ALICE.
 
 **`pgen_mode="mc"` details:**
 - Generates `mc_n_pool` productive sequences on first call (37s for 10M TRB, 8 workers).
 - Pool cached in `mir.basic.pgen._MC_POOL_CACHE` keyed by `(locus, species, n_pool, seed, skip_ends)`.
 - Pgen estimate: `pgen_mc = n_1mm_matches / n_total_rearrangements` (includes non-productive rejection count).
-- Sequences with `< mc_min_count` pool matches fall back to OLGA analytical exact Pgen.
+- Sequences with `< mc_min_count` pool matches fall back to OLGA analytical 1mm Pgen (same λ scale).
 - Fold-error vs OLGA at count≥2: ~1.5× (1M pool) / ~1.45× (10M pool).
 - Call `mir.basic.pgen.clear_mc_pool_cache()` to release pool memory.
 
+**Differences from the original paper:**
+- Paper uses **100 M** sequences; this implementation uses **10 M** (`mc_n_pool`) and falls back to
+  OLGA analytical 1mm Pgen for sequences with < 2 pool matches.
+- Paper defaults to **V+J matching** (`match_mode="vj"`); this implementation defaults to `"none"`.
+- Paper's exact pre-screen (`n ≤ N × pgen_exact → skip 1mm`) has been removed — it filtered 0 sequences
+  in practice on large repertoires (371 K clonotypes: 100% pass rate, 32 s wasted).
+
 **ALICE / TCRNET relationship:**
-`pgen_mode="mc"` makes ALICE equivalent to TCRNET with a large synthetic control:
-- TCRNET counts Hamming-1 neighbors in a real/synthetic control and uses a binomial p-value.
-- ALICE-MC does the same count but converts to an absolute Pgen estimate, enabling Poisson statistics
-  and seamless fallback to analytical OLGA Pgen for rare sequences.
+ALICE (Poisson, λ = N × pgen_1mm) and TCRNET (Binomial, p = m/M) converge in the limit of a large pool:
+- TCRNET is purely MC-control — no OLGA Pgen calls. Works with real or synthetic controls. When used with
+  a real control it naturally captures V/J bias without conditioning.
+- ALICE uses OLGA Pgen with optional MC estimation. Falls back to analytical Pgen for sparse sequences.
+- To reproduce the original ALICE paper using TCRNET: `match_mode="vj"`, 100 M synthetic pool, `q_factor=Q`.
+- See section 15 (TCRNET) for full ALICE-as-TCRNET recipe.
 
 Key behavior notes:
 
-- `min_neighbors=3` requires a sequence + at least 2 Hamming-1 neighbours (default). Isolated sequences get `p_value=1.0` without OLGA computation.
+- `min_neighbors=2` requires a sequence + at least 1 Hamming-1 neighbour (default). Isolated sequences get `p_value=1.0` without OLGA computation.
 - `q_factor` multiplies λ = N × pgen × Q. Calibrate from real data: `Q ≈ median(pgen_real / pgen_olga)` for functional sequences.
 - P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`).
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before frequency filtering).
 - For multi-sample workflows, pre-warm the OLGA cache with `warm_pgen_cache(all_clonotypes, ...)` before the per-sample loop.
+
+**Cluster analysis — `alice_hit_clusters`:**
+
+```python
+from mir.biomarkers.alice import alice_hit_clusters
+
+# Default: cluster ALICE hits only (V-gene-restricted 1mm CDR3 edges)
+hits_clustered = alice_hit_clusters(hits_df)
+
+# Expand clusters with 1mm non-enriched neighbors from the full repertoire table
+hits_expanded = alice_hit_clusters(hits_df, full_df=full_table, non_enriched_neighbors=True)
+```
+
+- **V-gene restriction**: edges only between sequences sharing the same V-gene family (`TRBV9*01` → `TRBV9`). Without this, transitive chains across different V families merge unrelated clusters into one giant component.
+- `non_enriched_neighbors=True`: any non-hit sequence from `full_df` that is 1mm (same V-gene) from any hit is added to that hit's cluster. Useful for visualising the halo of non-enriched neighbours.
+- Returns `hits_df` (plus non-enriched neighbors when applicable) with `cluster_id` (int) and `is_hit` (bool) columns added.
+- **Joint B27+ analysis pattern** (AS dataset from Pogorelyy 2019): pool deduplicated hits from all B27+ donors, cluster, verify CASSVGL[YF]STDTQYF (TRBV9 TRBJ2-3) is rank-1 cluster (size 58 in published data); B27- donor has 0 motif sequences.
+
+```python
+# Pool B27+ hits, deduplicate per donor to avoid nucleotide-variant inflation
+b27_hits = pd.concat([
+    as_alice_hits[d].drop_duplicates(subset=["junction_aa", "v_gene"]).assign(donor_id=d)
+    for d in b27_pos_ids
+], ignore_index=True)
+clustered = alice_hit_clusters(b27_hits)
+sizes = clustered.groupby("cluster_id").size().sort_values(ascending=False)
+# sizes.index[0] is the motif cluster for AS B27+ data
+```
 
 ## 12. Single-Cell 10x Paired Chains
 
@@ -696,8 +746,11 @@ Repair behavior summary:
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
 
-TCRNET compares sample neighborhoods to a control (real or synthetic) using
-binomial or beta-binomial statistics.
+TCRNET is a **purely MC-control** enrichment algorithm — no OLGA Pgen is computed
+at any stage.  It counts Hamming/Levenshtein-1 neighbors of each query CDR3 in a
+provided control repertoire (real or synthetic) and tests whether the sample
+neighborhood density exceeds the control background using a binomial (or
+beta-binomial) model.
 
 ```python
 from mir.biomarkers.tcrnet import compute_tcrnet, TcrnetParams, TcrnetResult
@@ -713,6 +766,7 @@ result = compute_tcrnet(
     match_mode="vj",                   # "none" | "v" | "j" | "vj"
     pvalue_mode="binomial",            # "binomial" | "beta-binomial"
     pseudocount=1.0,                   # added to control m and M (Laplace smoothing)
+    q_factor=1.0,                      # selection correction for synthetic controls (see below)
     normalize_control_vj_usage=False,  # resample control to match sample V/J usage
     n_jobs=-1,
 )
@@ -720,12 +774,12 @@ result = compute_tcrnet(
 # result.table columns:
 #   sequence_id, locus, junction_aa, v_gene, j_gene,
 #   n_neighbors, N_possible,
-#   m_control_neighbors, M_control_possible,
-#   sample_density, control_density,
+#   m_control_neighbors (raw), M_control_possible,
+#   sample_density, control_density (q-adjusted),
 #   fold_enrichment, p_value, q_value
 
-# Filter at FDR < 0.05
-hits = result.table[result.table["q_value"] < 0.05]
+# Filter at FDR < 0.001 (paper-correct threshold)
+hits = result.table[result.table["q_value"] < 0.001]
 ```
 
 Metadata-first variant:
@@ -741,20 +795,71 @@ rep = add_tcrnet_metadata(
     match_mode="vj",
     pvalue_mode="binomial",
     pseudocount=1.0,
+    q_factor=1.0,
     n_jobs=-1,
 )
-# Metadata keys: tcrnet_n, tcrnet_N, tcrnet_m, tcrnet_M,
-#                tcrnet_sample_density, tcrnet_control_density,
+# Metadata keys: tcrnet_n, tcrnet_N, tcrnet_m (raw), tcrnet_M,
+#                tcrnet_sample_density, tcrnet_control_density (q-adjusted),
 #                tcrnet_fold, tcrnet_p_value, tcrnet_q_value
 ```
 
-Key behavior notes:
+**Key behavior notes:**
 
-- p-value: `P(X >= n) where X ~ Binomial(N, (m+pc)/(M+pc))` (binomial mode). `beta-binomial` is overdispersed alternative using `BetaBinom(N, alpha=m+pc, beta=(M-m)+pc)`.
-- Control pseudocount (`pseudocount`, default 1.0) is added to both `m` and `M` — equivalent to inserting one virtual match in the control.
-- `q_value` in the output table is BH-corrected over all clonotypes in the locus.
-- Use `normalize_control_vj_usage=True` to match control V/J gene usage distribution to the sample via resampling.
-- `n_jobs=-1` is the default and uses all physical cores; set `n_jobs=1` for serial profiling.
+- p-value: `P(X >= n) where X ~ Binomial(N, q_factor × (m+pc)/(M+pc))`. `beta-binomial` uses `BetaBinom(N, alpha=m+pc, beta=(M-m)+pc)`.
+- Raw `m` and `M` (including pseudocount) are stored in metadata; `q_factor` is applied only when computing `p_value`, `fold_enrichment`, and `control_density`.
+- Control pseudocount (`pseudocount`, default 1.0) adds one virtual neighbor match to avoid zero-division.
+- `q_value` is BH-corrected over all clonotypes in the locus.
+- `n_jobs=-1` uses all physical cores.
+
+**`q_factor` — selection correction for synthetic controls:**
+
+OLGA synthetic sequences are drawn from the *recombination* model (pre-thymic
+selection).  Their neighborhood density is systematically lower than a
+post-selection real repertoire by a factor Q ≈ 3–5 for human TRB.  Without
+correction the enrichment test is too liberal (inflates hits).
+
+Estimate Q from a real control sample:
+```python
+from mir.basic.pgen import McPgenPool, OlgaModel
+import numpy as np, math
+
+model = OlgaModel(locus="TRB", species="human")
+olga_pgens = model.compute_pgen_junction_aa_bulk(test_seqs, max_mismatches=0, n_jobs=8)
+real_pool  = McPgenPool.build_real(control_seqs, locus="TRB")
+real_pgens = real_pool.pgen_1mm_bulk(test_seqs, n_jobs=8)
+
+q_samples = [rp / op for rp, op in zip(real_pgens, olga_pgens) if rp > 0 and op > 0]
+Q = float(np.median(q_samples))   # typical value: 3–5 for human TRB
+```
+
+Then pass `q_factor=Q` to `compute_tcrnet` when using a synthetic control.
+Leave `q_factor=1.0` (default) for real controls.
+
+**TCRNET as original ALICE (V+J+1mm, 100M pool):**
+```python
+from mir.basic.pgen import McPgenPool
+pool = McPgenPool.build_synthetic(100_000_000, locus="TRB", n_jobs=8)
+# Convert pool to LocusRepertoire — use the pool's unique sequences as control
+result = compute_tcrnet(
+    rep,
+    control=LocusRepertoire([Clonotype(...) for s in pool._unique_seqs], locus="TRB"),
+    match_mode="vj",       # V+J gene restriction (as in original paper)
+    pvalue_mode="binomial",
+    q_factor=Q,            # thymic-selection correction
+)
+```
+This is statistically equivalent to `compute_alice(rep, pgen_mode="mc", mc_n_pool=100_000_000, match_mode="vj", q_factor=Q)`.
+
+**TCRNET vs ALICE summary:**
+
+| | TCRNET | ALICE |
+|---|---|---|
+| Background | Any MC control (real or synthetic) | OLGA Pgen (via MC pool or analytical) |
+| V/J bias | Captured via real control or `normalize_control_vj_usage` | Via `match_mode` parameter |
+| Pgen calls | None | OLGA 1mm Pgen (or 10M MC approximation) |
+| Statistics | Binomial / Beta-Binomial | Poisson |
+| Selection correction | `q_factor` (explicit) | `q_factor` (explicit) |
+| Default control | Must be provided explicitly | Synthetic OLGA pool |
 
 ## 16. GLIPH-Style K-mer Enrichment (binomial)
 
@@ -936,16 +1041,35 @@ result = analysis.score(query_rep, match_v=True, match_j=True)
 control pool, using tcrtrie for fast Hamming-1 neighbor search.  It is the backbone of
 `pgen_mode="mc"` in ALICE.
 
-```python
-from mir.basic.pgen import McPgenPool, get_or_build_mc_pool, clear_mc_pool_cache
+**`p_productive` calibration constants** (calibrated at N=30,000; stored in `_P_PRODUCTIVE_TABLE`):
 
-# Build a synthetic pool (tracks non-productive rejections for correct normalisation)
+| Locus | human | mouse |
+|-------|-------|-------|
+| TRA | 0.2891 | 0.3147 |
+| TRB | 0.2441 | 0.2704 |
+| TRG | 0.2709 | — |
+| TRD | 0.2572 | — |
+| IGH | 0.1281 | — |
+| IGK | 0.2798 | — |
+| IGL | 0.2917 | — |
+| other | 0.20 (generic fallback) | |
+
+```python
+from mir.basic.pgen import (
+    McPgenPool, get_or_build_mc_pool, clear_mc_pool_cache, get_p_productive,
+)
+
+# Look up calibrated p_productive for a locus/species
+p = get_p_productive("TRB", "human")   # → 0.2441 (generic fallback 0.20 for unknowns)
+
+# Build a synthetic pool (uses p_productive table; ~2x faster than counting rejections)
 pool = McPgenPool.build_synthetic(
     10_000_000, locus="TRB", species="human", n_jobs=8, seed=42, skip_ends=2,
+    use_p_productive_table=True,   # default; set False to count actual rejections
 )
 # pool.n_productive   = M (productive sequences)
 # pool.n_total        = M + K (all rearrangement attempts, including non-productive)
-# pool.p_productive   ≈ 0.15–0.25 for human TRB
+# pool.p_productive   = M / n_total (fraction of productive events)
 
 # Bulk Pgen estimation
 pgens_exact = pool.pgen_exact_bulk(cdr3_list)          # O(1) per seq via Counter
