@@ -72,7 +72,7 @@ class TcrnetParams:
     threshold: int = 1
     match_mode: MatchMode = "none"
     pvalue_mode: PValueMode = "binomial"
-    min_neighbors: int = 2
+    min_neighbors: int = 3
 
     def validate(self) -> None:
         if self.metric not in {"hamming", "levenshtein"}:
@@ -205,10 +205,11 @@ def _compute_tcrnet_metrics_batch(
 ) -> list[tuple[str, int, int, int, int, float, float, float, float]]:
     """Compute TCRNET metrics per clonotype.
 
-    Clonotypes with fewer than ``min_neighbors`` sample-side neighbours are
-    assigned p_value = 1.0 and fold_enrichment = 0.0 without computing the
-    statistical test.  Set ``min_neighbors=1`` to also test single-neighbour
-    sequences — useful for rare or ultra-long CDR3s with sparse neighbourhoods.
+    ``neighbor_count`` includes the sequence itself (self is always a
+    distance-0 match), so ``min_neighbors=3`` means self + at least two
+    additional neighbours within the edit-distance threshold.  Clonotypes with
+    ``neighbor_count < min_neighbors`` receive ``p_value = 1.0`` without any
+    statistical computation.
     """
     out: list[tuple[str, int, int, int, int, float, float, float, float]] = []
     for clonotype in clonotypes:
@@ -331,7 +332,7 @@ def compute_tcrnet(
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
     as_table: bool = True,
-    min_neighbors: int = 2,
+    min_neighbors: int = 3,
     n_jobs: int = -1,
 ) -> TcrnetResult | LocusRepertoire | SampleRepertoire:
     """Compute TCRNET-like enrichment, write clonotype metadata, and optionally return a table.
@@ -340,12 +341,15 @@ def compute_tcrnet(
     managed control via ``control_type`` with :class:`ControlManager`.
 
     Args:
-        min_neighbors: Clonotypes with fewer sample-side neighbours than this
-            threshold receive p_value = 1.0 without invoking the statistical
-            test, cutting wasted computation on large repertoires.  Default 2
-            matches the standard TCRNET cluster-membership criterion.  Lower to
-            1 for rare or ultra-long CDR3s where single-neighbour enrichment is
-            biologically meaningful.
+        min_neighbors: Minimum ``neighbor_count`` (self + additional neighbours
+            within the edit-distance threshold) a clonotype must have before
+            the statistical test is computed.  ``neighbor_count`` always includes
+            the sequence itself, so the default of 3 means *at least two
+            additional neighbours* beyond self — the minimum cluster size for a
+            meaningful enrichment test.  Clonotypes below this threshold receive
+            ``p_value = 1.0`` without any computation.  Set to 1 for higher
+            sensitivity when searching for rare or ultra-long CDR3 sequences
+            where a single additional neighbour is biologically meaningful.
     """
     norm_match_mode = normalize_match_mode(match_mode)
     params = TcrnetParams(
@@ -475,7 +479,7 @@ def add_tcrnet_metadata(
     pseudocount: float = 1.0,
     random_seed: int | None = None,
     metadata_prefix: str = "tcrnet",
-    min_neighbors: int = 2,
+    min_neighbors: int = 3,
     n_jobs: int = -1,
 ) -> LocusRepertoire | SampleRepertoire:
     """Compute TCRNET stats and write them into clonotype metadata in-place."""

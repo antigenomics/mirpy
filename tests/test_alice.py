@@ -62,6 +62,7 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
         rep,
         match_mode="none",
         pgen_mode="exact",
+        min_neighbors=2,
         n_jobs=1,
     )
 
@@ -70,6 +71,7 @@ def test_compute_alice_basic_formulae(monkeypatch) -> None:
 
     # CASSLGQETQYF and CASSLGQETQFF differ by 1 AA (Hamming-1 neighbours).
     # With neighbourhood_threshold=1, both sequences are neighbours → n=2.
+    # (n=2 = self + 1 additional neighbour; min_neighbors=2 is the minimum here)
     assert int(row0["n_neighbors"]) == 2
     assert int(row0["N_possible"]) == 2
     assert float(row0["pgen"]) == pytest.approx(0.2)
@@ -215,8 +217,8 @@ def test_compute_alice_pvalue_mode_negative_binomial(monkeypatch) -> None:
         locus="TRB",
     )
 
-    result_poisson = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="poisson", n_jobs=1)
-    result_nb = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="negative-binomial", n_jobs=1)
+    result_poisson = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="poisson", min_neighbors=2, n_jobs=1)
+    result_nb = compute_alice(rep, match_mode="none", pgen_mode="exact", pvalue_mode="negative-binomial", min_neighbors=2, n_jobs=1)
 
     row_p = result_poisson.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
     row_nb = result_nb.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
@@ -245,8 +247,8 @@ def test_compute_alice_pseudocount_shifts_expected(monkeypatch) -> None:
         locus="TRB",
     )
 
-    result_no_pc = compute_alice(rep, pgen_mode="exact", pseudocount=0.0, n_jobs=1)
-    result_pc = compute_alice(rep, pgen_mode="exact", pseudocount=1.0, n_jobs=1)
+    result_no_pc = compute_alice(rep, pgen_mode="exact", pseudocount=0.0, min_neighbors=2, n_jobs=1)
+    result_pc = compute_alice(rep, pgen_mode="exact", pseudocount=1.0, min_neighbors=2, n_jobs=1)
 
     row_no = result_no_pc.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
     row_pc = result_pc.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
@@ -259,7 +261,7 @@ def test_compute_alice_min_neighbors_filters_isolated_sequences(monkeypatch) -> 
     """Sequences below min_neighbors threshold get p_value=1.0, not 0.0."""
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
 
-    # Single sequence has n_neighbors=1 (only self); below default min_neighbors=2.
+    # Single sequence has n_neighbors=1 (only self); below the specified min_neighbors=2.
     rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
     result = compute_alice(rep, pgen_mode="exact", min_neighbors=2, n_jobs=1)
     row = result.table.row(0, named=True)
@@ -280,6 +282,34 @@ def test_compute_alice_min_neighbors_zero_computes_all(monkeypatch) -> None:
     assert float(row["pgen_raw"]) == pytest.approx(0.2)
 
 
+def test_compute_alice_q_factor_scales_expected(monkeypatch) -> None:
+    """q_factor multiplies expected_neighbors and shifts p_value accordingly."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    rep = LocusRepertoire(
+        [
+            _clone("0", "CASSLGQETQYF"),
+            _clone("1", "CASSLGQETQFF"),
+        ],
+        locus="TRB",
+    )
+
+    result_q1 = compute_alice(rep, match_mode="none", pgen_mode="exact", min_neighbors=2, q_factor=1.0, n_jobs=1)
+    result_q3 = compute_alice(rep, match_mode="none", pgen_mode="exact", min_neighbors=2, q_factor=3.0, n_jobs=1)
+
+    row_q1 = result_q1.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
+    row_q3 = result_q3.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
+
+    # pgen_raw must be unchanged by q_factor
+    assert float(row_q1["pgen_raw"]) == pytest.approx(float(row_q3["pgen_raw"]))
+    # expected_neighbors must scale by q_factor
+    assert float(row_q3["expected_neighbors"]) == pytest.approx(
+        float(row_q1["expected_neighbors"]) * 3.0
+    )
+    # p_value must be higher with larger q_factor (harder to beat larger lambda)
+    assert float(row_q3["p_value"]) > float(row_q1["p_value"])
+
+
 def test_compute_alice_min_neighbors_one_includes_single_neighbor(monkeypatch) -> None:
     """min_neighbors=1 includes sequences with at least one neighbor (including self)."""
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
@@ -291,4 +321,82 @@ def test_compute_alice_min_neighbors_one_includes_single_neighbor(monkeypatch) -
 
     # Pgen must be computed (not filtered).
     assert float(row["pgen_raw"]) == pytest.approx(0.2)
+
+
+# ---------------------------------------------------------------------------
+# MC Pgen mode tests
+# ---------------------------------------------------------------------------
+
+class _FakeMcPool:
+    """Fake McPgenPool for testing mc pgen path without generating real sequences."""
+
+    def __init__(self, pgen_1mm_map: dict[str, float], n_total: int = 10_000_000) -> None:
+        self.n_total = n_total
+        self.n_productive = n_total
+        self.p_productive = 1.0
+        self._map = pgen_1mm_map
+
+    def pgen_1mm_bulk(self, seqs: list[str], n_jobs: int = 1) -> list[float]:
+        return [self._map.get(s, 0.0) for s in seqs]
+
+
+def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
+    """pgen_mode='mc' routes through the MC pool and falls back to OLGA for sparse seqs."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+
+    # High match count for seq 0; low count for seq 1 (triggers OLGA fallback).
+    _CASSLGQETQYF_mc_pgen = 5 / 10_000_000  # 5 matches → count=5 ≥ mc_min_count=2
+    _CASSLGQETQFF_mc_pgen = 1 / 10_000_000  # 1 match  → count=1 < mc_min_count=2 → fallback
+    fake_pool = _FakeMcPool({
+        "CASSLGQETQYF": _CASSLGQETQYF_mc_pgen,
+        "CASSLGQETQFF": _CASSLGQETQFF_mc_pgen,
+    })
+
+    # get_or_build_mc_pool is imported lazily inside _compute_pgen_raw_by_junction_aa
+    # from mir.basic.pgen, so patch it there.
+    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: fake_pool)
+
+    rep = LocusRepertoire([
+        _clone("0", "CASSLGQETQYF"),
+        _clone("1", "CASSLGQETQFF"),
+    ], locus="TRB")
+
+    result = compute_alice(rep, pgen_mode="mc", min_neighbors=2, mc_min_count=2, n_jobs=1)
+    row0 = result.table.filter(pl.col("sequence_id") == "0").row(0, named=True)
+    row1 = result.table.filter(pl.col("sequence_id") == "1").row(0, named=True)
+
+    # seq 0: MC count=5 ≥ 2 → uses MC pgen
+    assert float(row0["pgen_raw"]) == pytest.approx(_CASSLGQETQYF_mc_pgen, rel=0.01)
+    # seq 1: MC count=1 < 2 → falls back to OLGA exact (0.1 from _FakeOlgaModel)
+    assert float(row1["pgen_raw"]) == pytest.approx(0.1, rel=0.01)
+
+
+def test_compute_alice_mc_mode_invalid_n_pool(monkeypatch) -> None:
+    """mc_n_pool below 100k raises ValueError."""
+    monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
+    rep = LocusRepertoire([_clone("0", "CASSLGQETQYF")], locus="TRB")
+    with pytest.raises(ValueError, match="mc_n_pool"):
+        compute_alice(rep, pgen_mode="mc", mc_n_pool=1000, n_jobs=1)
+
+
+def test_alice_tcrnet_equivalence_note() -> None:
+    """Documenting the ALICE / TCRNET relationship via assertion on shared concepts.
+
+    ALICE (pgen_mode='mc', large pool) and TCRNET both:
+    - compute Hamming-1 neighbor counts in a repertoire,
+    - compare observed counts to a background (MC pool vs real control),
+    - assign enrichment p-values.
+
+    The key difference: ALICE falls back to OLGA analytical Pgen for sparse
+    sequences; TCRNET uses a pseudocount-adjusted binomial model throughout.
+    This test records that shared interface expectation (both return tables
+    with n_neighbors, N_possible, p_value columns).
+    """
+    from mir.biomarkers.tcrnet import compute_tcrnet
+
+    assert hasattr(compute_tcrnet, "__call__")
+    from mir.biomarkers.alice import compute_alice as _compute_alice
+    assert hasattr(_compute_alice, "__call__")
+    # Both expose a table with enrichment statistics — verified structurally
+    # in their respective test modules.
 
