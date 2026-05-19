@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from mir.basic.pgen import OlgaModel
+from mir.basic.pgen import McPgenPool, OlgaModel, clear_mc_pool_cache, get_or_build_mc_pool
 from tests.conftest import skip_benchmarks
 
 ALL_MODELS = [
@@ -109,6 +109,123 @@ def test_pgen_model(olga_model):
     print(f"\n{species} {locus}: exact={mean_exact:.2f}, 1mm={mean_1mm:.2f}")
 
     assert mean_exact > -25, f"mean log10 Pgen too low for {species} {locus}: {mean_exact}"
+
+
+# ---------------------------------------------------------------------------
+# McPgenPool unit tests
+# ---------------------------------------------------------------------------
+
+def test_mc_pool_build_real_attributes() -> None:
+    """McPgenPool.build_real sets n_total = len(sequences) and p_productive = 1.0."""
+    seqs = ["CASSLGQETQYF", "CASSLGQETQYF", "CASSQGQETQYF", "CASSPGQETQYF"]
+    pool = McPgenPool.build_real(seqs, locus="TRB", species="human", skip_ends=2)
+    assert pool.n_productive == 4
+    assert pool.n_total == 4
+    assert pool.p_productive == pytest.approx(1.0)
+    assert pool.locus == "TRB"
+    assert pool.species == "human"
+
+
+def test_mc_pool_pgen_exact_zero_for_unknown() -> None:
+    pool = McPgenPool.build_real(["CASSLGQETQYF"], locus="TRB", species="human")
+    assert pool.pgen_exact("NOTINPOOL") == pytest.approx(0.0)
+
+
+def test_mc_pool_pgen_exact_frequency() -> None:
+    """pgen_exact = count / n_total."""
+    seqs = ["CASSLGQETQYF"] * 3 + ["CASSQGQETQYF"]
+    pool = McPgenPool.build_real(seqs, locus="TRB", species="human")
+    assert pool.pgen_exact("CASSLGQETQYF") == pytest.approx(3 / 4)
+    assert pool.pgen_exact("CASSQGQETQYF") == pytest.approx(1 / 4)
+
+
+def test_mc_pool_pgen_exact_bulk_matches_single() -> None:
+    seqs = ["CASSLGQETQYF", "CASSQGQETQYF", "CASSPGQETQYF"]
+    pool = McPgenPool.build_real(seqs, locus="TRB", species="human")
+    bulk = pool.pgen_exact_bulk(seqs)
+    for s, p in zip(seqs, bulk):
+        assert p == pytest.approx(pool.pgen_exact(s))
+
+
+def test_mc_pool_pgen_1mm_includes_exact() -> None:
+    """pgen_1mm for a sequence in the pool must be >= pgen_exact."""
+    seqs = ["CASSLGQETQYF", "CASSQGQETQYF"]
+    pool = McPgenPool.build_real(seqs, locus="TRB", species="human", skip_ends=1)
+    p1mm = pool.pgen_1mm("CASSLGQETQYF")
+    p_exact = pool.pgen_exact("CASSLGQETQYF")
+    assert p1mm >= p_exact, "1mm Pgen must be at least as large as exact Pgen"
+
+
+def test_mc_pool_pgen_1mm_zero_for_unknown_no_neighbors() -> None:
+    """Completely isolated sequence (no inner-1mm neighbors in pool) → pgen_1mm=0."""
+    pool = McPgenPool.build_real(["CASSLGQETQYF"], locus="TRB", species="human")
+    # "ZZZZZZZZZZZZ" is not in pool and has no Hamming-1 neighbors in pool
+    assert pool.pgen_1mm("ZZZZZZZZZZZZ") == pytest.approx(0.0)
+
+
+def test_mc_pool_skip_ends_excludes_terminal_mismatches() -> None:
+    """Hamming-1 at terminal positions must be excluded with skip_ends=2."""
+    # CASSLGQETQYF → AASSLGQETQYF: mismatch at position 0 (terminal) → excluded
+    # CASSLGQETQYF → CASSLGQETQYY: mismatch at position 11 (terminal) → excluded
+    pool = McPgenPool.build_real(
+        ["AASSLGQETQYF", "CASSLGQETQYY"],
+        locus="TRB", species="human", skip_ends=2,
+    )
+    p = pool.pgen_1mm("CASSLGQETQYF")
+    # Both neighbors are at terminal positions → no inner-1mm contribution
+    assert p == pytest.approx(0.0)
+
+
+def test_mc_pool_pgen_1mm_includes_inner_mismatch() -> None:
+    """An inner-position Hamming-1 neighbor must be counted."""
+    # CASSLGQETQYF → CASSL_Q_ETQYF, mismatch at position 5 → inner (skip_ends=2, L=12)
+    pool = McPgenPool.build_real(
+        ["CASSAGQETQYF"],   # position 5: G→A
+        locus="TRB", species="human", skip_ends=2,
+    )
+    p = pool.pgen_1mm("CASSLGQETQYF")
+    assert p > 0.0, "Inner-1mm neighbor should contribute a non-zero pgen"
+
+
+def test_mc_pool_generate_sequences_counted_denominator() -> None:
+    """n_total > n_productive (non-productive events exist)."""
+    model = OlgaModel(locus="TRB", species="human", seed=42)
+    seqs, n_total = model.generate_sequences_counted(200, n_jobs=1, seed=42)
+    model.close()
+    assert len(seqs) == 200
+    assert n_total > 200, "n_total must exceed productive count (non-productive rejections)"
+    # p_productive ≈ 0.10–0.30 for TRB
+    p_prod = len(seqs) / n_total
+    assert 0.05 < p_prod < 0.50, f"Unexpected p_productive={p_prod:.3f}"
+
+
+def test_mc_pool_generate_counted_parallel_correct_counts() -> None:
+    """Parallel counted generation returns the requested number of sequences."""
+    model = OlgaModel(locus="TRB", species="human", seed=42)
+    seqs_s, n_s = model.generate_sequences_counted(100, n_jobs=1, seed=42)
+    seqs_p, n_p = model.generate_sequences_counted(100, n_jobs=4, seed=42)
+    model.close()
+    assert len(seqs_s) == len(seqs_p) == 100
+    # Both n_total must exceed productive count
+    assert n_s > 100
+    assert n_p > 100
+    # Serial with same seed must be reproducible
+    seqs_s2, n_s2 = model.generate_sequences_counted(100, n_jobs=1, seed=42)
+    assert seqs_s2 == seqs_s and n_s2 == n_s, "Serial generation must be reproducible"
+
+
+def test_get_or_build_mc_pool_caches() -> None:
+    """get_or_build_mc_pool returns the same object on repeated calls."""
+    clear_mc_pool_cache()
+    p1 = get_or_build_mc_pool(locus="TRB", species="human", n=500, seed=1, skip_ends=2, n_jobs=1)
+    p2 = get_or_build_mc_pool(locus="TRB", species="human", n=500, seed=1, skip_ends=2, n_jobs=1)
+    assert p1 is p2, "Cache must return identical object on repeat call"
+    clear_mc_pool_cache()
+
+
+def test_mc_pool_pgen_1mm_bulk_empty() -> None:
+    pool = McPgenPool.build_real(["CASSLGQETQYF"], locus="TRB", species="human")
+    assert pool.pgen_1mm_bulk([]) == []
 
 
 def test_bulk_pgen_parallel_matches_serial() -> None:

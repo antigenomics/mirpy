@@ -481,9 +481,15 @@ result = compute_alice(
     rep,
     species="human",
     match_mode="vj",      # "none" | "v" | "j" | "vj"
-    pgen_mode="1mm",      # "exact" (Hamming-0) | "1mm" (Hamming-1)
+    pgen_mode="exact",    # "exact" | "1mm" | "mc"  — see notes below
     pvalue_mode="poisson",         # "poisson" | "negative-binomial"
     pseudocount=0.0,               # added to n and N before p-value computation
+    min_neighbors=3,               # sequences with fewer neighbors get p_value=1.0
+    q_factor=1.0,                  # thymic-selection correction multiplier (λ = N × pgen × Q)
+    # MC mode options (only used when pgen_mode="mc"):
+    mc_n_pool=10_000_000,          # synthetic pool size (built once, cached)
+    mc_seed=42,
+    mc_min_count=2,                # min pool matches to use MC pgen (else OLGA exact fallback)
     n_jobs=8,
 )
 
@@ -493,7 +499,7 @@ result = compute_alice(
 #   expected_neighbors, fold_enrichment, p_value, q_value
 
 # Filter at FDR < 0.05 (q_value is BH-corrected over all locus clonotypes)
-hits = result.table[result.table["q_value"] < 0.05]
+hits = result.table.filter(pl.col("q_value") < 0.05)
 ```
 
 Metadata-first variant (writes results into clonotype metadata in-place):
@@ -505,7 +511,7 @@ rep = add_alice_metadata(
     rep,
     species="human",
     match_mode="vj",
-    pgen_mode="1mm",
+    pgen_mode="exact",
     pvalue_mode="poisson",
     pseudocount=0.0,
     n_jobs=8,
@@ -514,13 +520,36 @@ rep = add_alice_metadata(
 #                alice_expected, alice_fold, alice_p_value, alice_q_value
 ```
 
+**`pgen_mode` options:**
+
+| Mode    | Speed         | Accuracy                   | Notes |
+|---------|---------------|----------------------------|-------|
+| `exact` | Fast (7ms/seq) | OLGA analytical exact Pgen | Default; good for `min_neighbors≥3` |
+| `1mm`   | Slow (70ms/seq) | Sums Pgen over 1mm neighbors | Best sensitivity; use skip_ends=2 (env `MIRPY_PGEN_1MM_SKIP_ENDS=2`) |
+| `mc`    | Very fast after pool build | MC match counting + OLGA fallback | Pool built once, cached; 100–1000× faster than OLGA per sample |
+
+**`pgen_mode="mc"` details:**
+- Generates `mc_n_pool` productive sequences on first call (37s for 10M TRB, 8 workers).
+- Pool cached in `mir.basic.pgen._MC_POOL_CACHE` keyed by `(locus, species, n_pool, seed, skip_ends)`.
+- Pgen estimate: `pgen_mc = n_1mm_matches / n_total_rearrangements` (includes non-productive rejection count).
+- Sequences with `< mc_min_count` pool matches fall back to OLGA analytical exact Pgen.
+- Fold-error vs OLGA at count≥2: ~1.5× (1M pool) / ~1.45× (10M pool).
+- Call `mir.basic.pgen.clear_mc_pool_cache()` to release pool memory.
+
+**ALICE / TCRNET relationship:**
+`pgen_mode="mc"` makes ALICE equivalent to TCRNET with a large synthetic control:
+- TCRNET counts Hamming-1 neighbors in a real/synthetic control and uses a binomial p-value.
+- ALICE-MC does the same count but converts to an absolute Pgen estimate, enabling Poisson statistics
+  and seamless fallback to analytical OLGA Pgen for rare sequences.
+
 Key behavior notes:
 
-- ALICE computes neighborhood stats first, then OLGA Pgen values, then BH FDR; heavy parallel sections use multiprocess workers by default for true multi-core scaling.
-- Raw OLGA Pgen is used directly as the generation probability — no V/J gene-usage conditioning. `match_mode` restricts which sequences count as neighbors but does not modify Pgen.
-- P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`) with optional thread mode override via env var.
-- `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson for overdispersed data.
-- `q_value` in the output table is BH-corrected over all clonotypes in the locus (before any frequency filtering).
+- `min_neighbors=3` requires a sequence + at least 2 Hamming-1 neighbours (default). Isolated sequences get `p_value=1.0` without OLGA computation.
+- `q_factor` multiplies λ = N × pgen × Q. Calibrate from real data: `Q ≈ median(pgen_real / pgen_olga)` for functional sequences.
+- P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`).
+- `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson.
+- `q_value` in the output table is BH-corrected over all clonotypes in the locus (before frequency filtering).
+- For multi-sample workflows, pre-warm the OLGA cache with `warm_pgen_cache(all_clonotypes, ...)` before the per-sample loop.
 
 ## 12. Single-Cell 10x Paired Chains
 
@@ -901,15 +930,61 @@ analysis = VDJBetOverlapAnalysis(reference_rep, pool=pool, n_mocks=200, seed=42)
 result = analysis.score(query_rep, match_v=True, match_j=True)
 ```
 
+### 17.2 Monte-Carlo Pgen Pool (`McPgenPool`)
+
+`McPgenPool` estimates Pgen by counting exact and inner-1mm matches in a large synthetic (or real)
+control pool, using tcrtrie for fast Hamming-1 neighbor search.  It is the backbone of
+`pgen_mode="mc"` in ALICE.
+
+```python
+from mir.basic.pgen import McPgenPool, get_or_build_mc_pool, clear_mc_pool_cache
+
+# Build a synthetic pool (tracks non-productive rejections for correct normalisation)
+pool = McPgenPool.build_synthetic(
+    10_000_000, locus="TRB", species="human", n_jobs=8, seed=42, skip_ends=2,
+)
+# pool.n_productive   = M (productive sequences)
+# pool.n_total        = M + K (all rearrangement attempts, including non-productive)
+# pool.p_productive   ≈ 0.15–0.25 for human TRB
+
+# Bulk Pgen estimation
+pgens_exact = pool.pgen_exact_bulk(cdr3_list)          # O(1) per seq via Counter
+pgens_1mm   = pool.pgen_1mm_bulk(cdr3_list, n_jobs=8)  # tcrtrie Hamming-1 + inner-pos filter
+
+# Build from real repertoire (for Q-factor analysis)
+real_pool = McPgenPool.build_real(real_cdr3_list, locus="TRB", species="human")
+# pgen_real = matches / n_control (no productive-fraction correction)
+# Q-factor  = pgen_real / pgen_olga  (thymic-selection enrichment)
+
+# Session-level cache (same pool reused across ALICE samples)
+pool = get_or_build_mc_pool(locus="TRB", species="human", n=10_000_000, seed=42)
+clear_mc_pool_cache()  # release memory
+```
+
+**MC Pgen normalisation:**  
+OLGA analytical Pgen is defined over ALL rearrangements (productive + non-productive).
+When generating M productive sequences, OLGA internally rejects K non-productive events.
+`pgen_mc = n_matches / (M + K)` uses the tracked total to match the OLGA denominator.  
+Formula: `pgen_mc(seq) = match_count / n_total_rearrangements`.
+
+**Generating sequences with rejection counting:**
+
+```python
+model = OlgaModel(locus="TRB", species="human")
+seqs, n_total = model.generate_sequences_counted(10_000_000, n_jobs=8, seed=42)
+# n_total = M + K; seqs = productive sequences only
+pool = McPgenPool(seqs, n_total, skip_ends=2, locus="TRB", species="human")
+```
+
 `OlgaModel` performance notes:
 
 - No per-sequence Pgen caching. Performance comes from a **persistent `multiprocessing.Pool`** that loads the OLGA model once per worker; the pool is reused across all `compute_pgen_junction_aa_bulk` calls on the same `OlgaModel` instance.
 - `compute_pgen_junction_aa_bulk(seqs, max_mismatches=0, n_jobs=N)` spawns `N` workers at first call; subsequent calls reuse the same pool (zero spawn overhead for repeated calls on 12+ ALICE samples).
-- `compute_pgen_junction_aa_1mm(seq)` uses OLGA's vectorized 1-mismatch path (`compute_hamming_dist_1_pgen`); 1mm pgen is ~18× slower per sequence than exact — use downsampling for large repertoires.
-- `OlgaModel.gen_model` exposes the underlying `GenerativeModelVDJ/VJ` for direct access to model marginals (`PV`, `PDJ`, `PVJ`).
-- For repeated ALICE runs on the same locus, the model-level cache in `_OLGA_MODEL_CACHE` (keyed by `(locus, species, seed, class)`) avoids model re-initialization.
-- Typical throughput (single-core exact): ~135 seqs/s for TRB; 1mm: ~8 seqs/s. True scaling with `n_jobs=8`: ~900 seqs/s exact.
-- **Lifecycle**: call `model.close()` when done, or use `with OlgaModel(...) as model:` to guarantee pool teardown and avoid lingering worker processes.
+- `generate_sequences_counted(n, n_jobs, seed)` returns `(seqs, n_total_rearrangements)` for MC Pgen denominator calibration.
+- `compute_pgen_junction_aa_1mm(seq)` uses OLGA's vectorized 1-mismatch path; ~18× slower than exact.
+- `OlgaModel.gen_model` exposes the underlying `GenerativeModelVDJ/VJ` for direct model marginals.
+- Typical throughput at `n_jobs=8`: ~1000 seqs/s exact Pgen, ~90 seqs/s 1mm Pgen, ~270K seqs/s generation.
+- **Lifecycle**: call `model.close()` or use `with OlgaModel(...) as model:` to guarantee pool teardown.
 
 ## 17.1 VDJBet YF Shortcuts (reusable workflow API)
 
