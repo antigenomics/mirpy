@@ -5,7 +5,14 @@ compares observed counts to the expectation from sequence generation
 probability (Pgen):
 
 - Neighborhood fold enrichment: ``n / (N × pgen_1mm)``
-- P-value: ``P(X >= n)`` where ``X ~ Poisson(N × pgen_1mm)``
+- P-value: ``P(X >= n)`` where ``X ~ Poisson(N × pgen_1mm)`` (``pvalue_mode="poisson"``)
+  or ``X ~ GammaPoisson(μ = N × pgen_1mm)`` (``pvalue_mode="negative-binomial"``).
+
+``GammaPoisson`` and ``NegativeBinomial`` refer to the same compound distribution:
+the Poisson rate is treated as a Gamma-distributed random variable, producing
+a NegativeBinomial marginal.  Use ``pvalue_mode="negative-binomial"`` when
+background Pgen estimates are uncertain (e.g. small MC pools or very short CDR3s)
+to account for Pgen overdispersion.
 
 ``match_mode`` controls which sequences are eligible neighbors:
 ``"v"`` restricts to the same V gene, ``"j"`` to the same J gene,
@@ -17,18 +24,43 @@ adjustments cancel in the expected count λ = N_total × pgen (same as
 ``match_mode="none"``), but the *observed* k counts only V/J-matching
 neighbours, making the test more specific.
 
+Q-factor (thymic selection correction)
+---------------------------------------
+OLGA Pgen is defined over all V(D)J recombination events (pre-thymic selection).
+Post-thymic TCR repertoires are enriched for functional sequences by a factor of
+roughly Q ≈ 3 for human TRB (can range 2–5 depending on locus and individual).
+Setting ``q_factor=3`` multiplies Pgen by Q before the enrichment test:
+``λ_adj = N × pgen × Q``.  This raises the bar for calling a cluster enriched,
+correcting for the fact that OLGA underestimates the true background density of
+post-selection sequences.  Estimate Q as ``median(pgen_real / pgen_olga)`` for
+sequences with at least one match in a real control repertoire.
+
+Pgen estimation modes
+---------------------
+- ``pgen_mode="exact"``: OLGA analytical exact Pgen.  **Slow** (see
+  :mod:`~mir.basic.pgen`); underestimates λ because it ignores the 1mm
+  neighbourhood.  Use only for quick exploratory runs.
+- ``pgen_mode="1mm"``: OLGA analytical 1mm Pgen (sum over Hamming-1 variants).
+  **Extremely slow**; correct λ scale.  Use when exact per-sequence Pgen is
+  required and pool size is impractical.
+- ``pgen_mode="mc"`` (**recommended**): estimates 1mm Pgen by counting exact +
+  inner-1mm matches in a synthetic pool of *mc_n_pool* sequences (default 10M).
+  Sequences with fewer than *mc_min_count* (default 2) pool matches fall back to
+  OLGA analytical 1mm Pgen so that rare sequences use the same λ scale as
+  pool-covered ones.  The pool is loaded from the ``ControlManager`` disk cache
+  on subsequent runs — fast after the first build.
+
 Differences from the original ALICE paper
 ------------------------------------------
 The original paper (Pogorelyy et al. *PLoS Biol.* 2019) uses:
 
-* A **100-million** sequence synthetic MC pool to estimate ``pgen_1mm``.
-  This implementation uses a **10-million** pool by default
-  (``mc_n_pool=10_000_000``) and falls back to OLGA analytical 1mm Pgen for
-  sequences with fewer than ``mc_min_count=2`` pool matches, so rare sequences
-  use the same λ scale as pool-covered ones.
-* **V+J gene matching** (``match_mode="vj"``) as the default neighbor
-  restriction.  This implementation now defaults to ``match_mode="vj"``
-  to match the paper's V+J restriction.
+* A **100-million** sequence synthetic MC pool.  This implementation uses
+  **10M** by default (``mc_n_pool=10_000_000``); 100M is supported but requires
+  ~20 GB RSS on 32 GB machines.
+* **V+J gene matching** (``match_mode="vj"``), which is also our default.
+* Sequences with **0** pool matches fall back to theoretical OLGA 1mm Pgen.
+  Our default ``mc_min_count=2`` is slightly more conservative (fallback on
+  0 or 1 matches) but equivalent in practice for large pools.
 
 Relationship to TCRNET
 -----------------------
@@ -48,7 +80,7 @@ selection-corrected)::
         rep,
         control=McPgenPool.build_synthetic(100_000_000, locus="TRB").as_locus_repertoire(),
         match_mode="vj",
-        pvalue_mode="binomial",
+        pvalue_mode="beta-binomial",
         q_factor=3.0,   # thymic-selection correction; estimate from real vs OLGA pgen ratio
     )
 
@@ -98,11 +130,6 @@ _PGEN_PARALLEL_MIN_UNIQUE = 256
 _PVALUE_PARALLEL_MIN_CLONOTYPES = 256
 _OLGA_MODEL_CACHE: dict[tuple[str, str, int | None, type], OlgaModel] = {}
 _OLGA_MODEL_CACHE_MAX = max(0, int(os.getenv("MIRPY_ALICE_MODEL_CACHE_SIZE", "4")))
-
-# Cross-call Pgen result cache: (locus, species, junction_aa, pgen_mode) → float.
-# Avoids recomputing the same CDR3 across samples in multi-sample workflows.
-_PGEN_RESULT_CACHE: dict[tuple[str, str, str, str], float] = {}
-_PGEN_RESULT_CACHE_MAX = max(0, int(os.getenv("MIRPY_ALICE_PGEN_RESULT_CACHE_SIZE", "1000000")))
 
 
 AlicePValueMode = t.Literal["poisson", "negative-binomial"]
@@ -173,11 +200,6 @@ def clear_olga_model_cache() -> None:
     _OLGA_MODEL_CACHE.clear()
 
 
-def clear_pgen_result_cache() -> None:
-    """Clear the cross-call Pgen result cache."""
-    _PGEN_RESULT_CACHE.clear()
-
-
 def _bulk_pgen(
     aas: list[str],
     *,
@@ -187,28 +209,16 @@ def _bulk_pgen(
     pgen_mode: PgenMode,
     n_jobs: int,
 ) -> dict[str, float]:
-    """Compute pgen for *aas*, consulting and populating the cross-call cache."""
-    result: dict[str, float] = {}
-    uncached: list[str] = []
-    for aa in aas:
-        v = _PGEN_RESULT_CACHE.get((locus, species, aa, pgen_mode))
-        if v is not None:
-            result[aa] = v
-        else:
-            uncached.append(aa)
-    if uncached:
-        model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
-        mismatch_budget = 1 if pgen_mode == "1mm" else 0
-        pgen_jobs = n_jobs if (n_jobs > 1 and len(uncached) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
-        pgens = model.compute_pgen_junction_aa_bulk(
-            uncached, max_mismatches=mismatch_budget, n_jobs=pgen_jobs,
-        )
-        for aa, p in zip(uncached, pgens):
-            fp = float(p)
-            result[aa] = fp
-            if _PGEN_RESULT_CACHE_MAX > 0 and len(_PGEN_RESULT_CACHE) < _PGEN_RESULT_CACHE_MAX:
-                _PGEN_RESULT_CACHE[(locus, species, aa, pgen_mode)] = fp
-    return result
+    """Compute pgen for *aas* via OLGA model."""
+    if not aas:
+        return {}
+    model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
+    mismatch_budget = 1 if pgen_mode == "1mm" else 0
+    pgen_jobs = n_jobs if (n_jobs > 1 and len(aas) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
+    pgens = model.compute_pgen_junction_aa_bulk(
+        aas, max_mismatches=mismatch_budget, n_jobs=pgen_jobs,
+    )
+    return {aa: float(p) for aa, p in zip(aas, pgens)}
 
 
 def _compute_pgen_raw_by_junction_aa(
@@ -234,15 +244,12 @@ def _compute_pgen_raw_by_junction_aa(
     to assign ``p_value = 1.0`` without calling OLGA.
 
     **MC mode**: Queries the synthetic pool for 1mm neighbourhood pgen.
+    The pool is loaded from the ControlManager disk cache when available (fast),
+    otherwise generated fresh and saved to disk for future runs.
     Sequences with fewer than *mc_min_count* pool matches fall back to OLGA
     analytical 1mm Pgen so that sparse sequences use the same λ scale.
 
     **1mm mode**: Calls OLGA 1mm Pgen directly for all eligible sequences.
-
-    **Cross-call cache**: Computed pgen values are stored in the module-level
-    ``_PGEN_RESULT_CACHE`` keyed by ``(locus, species, junction_aa, pgen_mode)``
-    so that repeated calls across multiple samples in the same session avoid
-    redundant OLGA computation.
 
     Note:
         ``neighbor_count`` includes the sequence itself (self is always a
@@ -278,12 +285,14 @@ def _compute_pgen_raw_by_junction_aa(
 
     # ── MC mode ──────────────────────────────────────────────────────────────
     # Estimate 1mm neighbourhood pgen via match counting in a synthetic pool.
+    # The pool is loaded from the ControlManager disk cache when available,
+    # otherwise generated fresh and saved to disk for future runs.
     # Sequences with < mc_min_count pool matches fall back to OLGA 1mm Pgen
     # so that sparse sequences use the same λ scale as pool-covered ones.
     if pgen_mode == "mc":
-        from mir.basic.pgen import get_or_build_mc_pool
         from mir.basic.pgen import _PGEN_1MM_SKIP_ENDS as _skip_ends
-        pool = get_or_build_mc_pool(
+        from mir.common.control import get_mc_pool_from_control
+        pool = get_mc_pool_from_control(
             locus=locus,
             species=species,
             n=mc_n_pool,
@@ -317,57 +326,6 @@ def _compute_pgen_raw_by_junction_aa(
         pgen_mode="1mm", n_jobs=n_jobs,
     )
 
-
-def warm_pgen_cache(
-    clonotypes: list[Clonotype],
-    *,
-    locus: str = "TRB",
-    species: str = "human",
-    pgen_mode: PgenMode = "1mm",
-    n_jobs: int = 4,
-    random_seed: int | None = None,
-) -> int:
-    """Pre-compute and cache Pgen for all unique CDR3s in one parallel batch.
-
-    Call this before a multi-sample ALICE loop with the concatenated clonotypes
-    from ALL samples.  All OLGA computation runs once in a single
-    ``pool.map`` call, maximising worker utilisation and eliminating
-    redundant per-sample recomputation for shared CDR3 sequences.
-
-    Args:
-        clonotypes: Flat list of clonotypes from all samples to be analysed.
-        locus: OLGA locus (e.g. ``"TRB"``).
-        species: ``"human"`` or ``"mouse"``.
-        pgen_mode: ``"exact"`` or ``"1mm"``.
-        n_jobs: Worker processes for OLGA computation.
-        random_seed: OLGA model seed.
-
-    Returns:
-        Number of newly computed Pgen values stored in the cache.
-    """
-    if not clonotypes:
-        return 0
-    unique_aas = list(dict.fromkeys(c.junction_aa for c in clonotypes))
-    to_compute = [
-        aa for aa in unique_aas
-        if _PGEN_RESULT_CACHE.get((locus, species, aa, pgen_mode)) is None
-    ]
-    if not to_compute:
-        return 0
-    model = _get_cached_olga_model(locus=locus, species=species, random_seed=random_seed)
-    mismatch_budget = 1 if pgen_mode == "1mm" else 0
-    pgen_jobs = n_jobs if (n_jobs > 1 and len(to_compute) >= _PGEN_PARALLEL_MIN_UNIQUE) else 1
-    new_pgens = model.compute_pgen_junction_aa_bulk(
-        to_compute,
-        max_mismatches=mismatch_budget,
-        n_jobs=pgen_jobs,
-    )
-    stored = 0
-    for aa, p in zip(to_compute, new_pgens):
-        if _PGEN_RESULT_CACHE_MAX > 0 and len(_PGEN_RESULT_CACHE) < _PGEN_RESULT_CACHE_MAX:
-            _PGEN_RESULT_CACHE[(locus, species, aa, pgen_mode)] = float(p)
-            stored += 1
-    return stored
 
 
 def _fold_enrichment(n: int, N: int, pgen: float) -> float:

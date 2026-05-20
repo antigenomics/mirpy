@@ -6,6 +6,19 @@ repertoire (real or synthetic) and tests whether the query's own neighborhood
 is more densely populated than expected from that background.  No OLGA Pgen is
 computed at any stage.
 
+For each query clonotype:
+
+- *n* = neighbors in sample (same clonotype + Hamming/Levenshtein matches, optionally V/J restricted)
+- *N* = total possible neighbors in sample (satisfying gene constraints)
+- *m* = neighbors in control
+- *M* = total possible neighbors in control
+
+Statistical tests:
+
+- ``pvalue_mode="binomial"`` — ``P(X ≥ n)`` where ``X ~ Binomial(N, m/M)``
+- ``pvalue_mode="beta-binomial"`` — ``P(X ≥ n)`` where ``X ~ BetaBinomial(N, m+1, M-m+1)``
+  (recommended when control is noisy or sample size is small)
+
 Control options
 ---------------
 * **Real control** (recommended default) — a separate donor or pooled baseline
@@ -19,19 +32,22 @@ Control options
   bias; the corrected control density ``Q × m/M`` is used for the enrichment
   test while raw counts are preserved in metadata.
 
-Relationship to original ALICE paper
--------------------------------------
-The original ALICE paper (Pogorelyy et al. *PLoS Biol.* 2019) implements
-enrichment as a Poisson test against ``λ = N × pgen_1mm`` (OLGA analytical
-1mm Pgen).  Our :mod:`~mir.biomarkers.alice` module replicates this exactly,
-but augments it with:
+Neighbor-depleted sequences
+----------------------------
+Swapping the roles of sample and control detects **neighbor-depleted** sequences
+— clonotypes that are *less* dense in the sample than in the control.  This can
+reveal sequences that are selectively lost (e.g. anergic clones, deleted
+specificities) relative to a healthy baseline::
 
-* An MC pool fallback (10 M synthetic sequences, down from the paper's 100 M)
-  that estimates ``pgen_1mm`` without expensive per-sequence OLGA calls.
-* OLGA analytical 1mm Pgen fallback for sequences with < 2 pool matches, so
-  sparse sequences use the same λ scale as pool-covered ones.
-* The paper uses **V+J+1mm** (CDR3 matches + same V/J genes), which can be
-  reproduced in our implementation via ``match_mode="vj"``.
+    result = compute_tcrnet(
+        control_repertoire,          # control becomes the "sample" query
+        control=sample_repertoire,   # sample becomes the "control" background
+        match_mode="vj",
+        pvalue_mode="beta-binomial",
+    )
+
+Sequences with low ``p_value`` are those for which the control has significantly
+more neighbors than the sample — i.e. sample-depleted clones.
 
 ALICE as a special case of TCRNET
 -----------------------------------
@@ -41,14 +57,29 @@ a large synthetic pool:
     ALICE (Poisson, λ = N × pgen_1mm)  ≅
     TCRNET (Binomial, p = m/M with M ≫ n, m ≫ 1)
 
+With a large synthetic control TCRNET is equivalent to ALICE **without** the
+theoretical Pgen fallback and **without** Q-scaling of the background.  One can
+still use the raw neighbor counts and cluster sizes from such a run, but the
+statistical test should account for thymic selection.  The recommended
+formulation is ``pvalue_mode="beta-binomial"`` with an effective control size of
+``M / Q`` (or equivalently ``q_factor=Q``)::
+
+    compute_tcrnet(
+        rep,
+        control=large_synthetic_locus_rep,   # e.g. 100M OLGA sequences
+        match_mode="vj",
+        pvalue_mode="beta-binomial",
+        q_factor=3.0,   # thymic-selection correction; divides effective M by Q
+    )
+
 To reproduce the original ALICE paper using TCRNET::
 
     compute_tcrnet(
         rep,
         control=McPgenPool.build_synthetic(100_000_000, locus="TRB").as_locus_repertoire(),
-        match_mode="vj",     # V+J gene restriction
-        pvalue_mode="binomial",
-        q_factor=3.0,        # thymic-selection correction for synthetic pool
+        match_mode="vj",
+        pvalue_mode="beta-binomial",
+        q_factor=3.0,
     )
 
 This implementation is metadata-first:
@@ -238,7 +269,7 @@ def _normalize_control_vj(
     )
 
 
-def _p_value(n: int, N: int, m: int, M: int, mode: PValueMode) -> float:
+def _p_value(n: int, N: int, m: float, M: float, mode: PValueMode) -> float:
     if N <= 0:
         return 1.0
     if M <= 0:
@@ -253,7 +284,7 @@ def _p_value(n: int, N: int, m: int, M: int, mode: PValueMode) -> float:
     return float(betabinom.sf(n - 1, N, alpha, beta))
 
 
-def _fold_enrichment(n: int, N: int, m: int, M: int) -> float:
+def _fold_enrichment(n: int, N: int, m: float, M: float) -> float:
     if N <= 0 or M <= 0:
         return 0.0
     if m <= 0:
@@ -273,7 +304,7 @@ def _compute_tcrnet_metrics_batch(
     match_mode: str = "none",
     gene_usage_fracs: "dict | None" = None,
     m_background_total: int = 0,
-) -> list[tuple[str, int, int, float, int, float, float, float, float]]:
+) -> list[tuple[str, int, int, int, float, float, float, float, float]]:
     """Compute TCRNET metrics per clonotype.
 
     ``neighbor_count`` includes the sequence itself (self is always a
@@ -284,14 +315,15 @@ def _compute_tcrnet_metrics_batch(
 
     ``q_factor`` scales the control density before the enrichment test:
     ``p_ctrl_adj = q_factor × (m + pc) / (M + pc)``.  Use ``q_factor > 1``
-    to correct synthetic controls for thymic selection (raw counts ``m``, ``M``
-    are stored unchanged in metadata; only the test uses the adjusted density).
+    to correct synthetic controls for thymic selection.  Raw counts ``m`` and
+    ``M`` are stored in metadata without pseudocount or q-scaling; pseudocount
+    and q_factor are applied only inside the statistical computation.
 
     When ``match_mode != "none"`` and ``gene_usage_fracs`` is provided, *M* is
     replaced by ``P_ctrl(gene) × m_background_total`` so the denominator uses
     control gene-usage frequencies rather than the raw filtered count.
     """
-    out: list[tuple[str, int, int, float, int, float, float, float, float]] = []
+    out: list[tuple[str, int, int, int, float, float, float, float, float]] = []
     use_gene_scaling = (
         match_mode != "none"
         and gene_usage_fracs is not None
@@ -303,28 +335,27 @@ def _compute_tcrnet_metrics_batch(
         n = int(s_stat["neighbor_count"])
         N = int(s_stat["potential_neighbors"])
         c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
-        # Raw control counts (stored in metadata as-is for inspection)
-        m_raw = int(c_stat["neighbor_count"]) + pseudocount
+        m_count = int(c_stat["neighbor_count"])  # true raw count, stored in metadata as-is
+        m_stat = (m_count + pseudocount) * q_factor  # pseudocount + q-scaling for statistics only
         if use_gene_scaling:
             p_gene = lookup_gene_frac(
                 match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
                 gene_usage_fracs,
             )
-            M = p_gene * m_background_total + pseudocount
+            M_val: float = p_gene * m_background_total
         else:
-            M = int(c_stat["potential_neighbors"]) + pseudocount
-        # Selection-corrected control density for statistics
-        m_adj = m_raw * q_factor
+            M_val = float(int(c_stat["potential_neighbors"]))
+        M_stat = M_val + pseudocount
         if n < min_neighbors:
-            out.append((sid, n, N, m_raw, M, 1.0, 0.0,
+            out.append((sid, n, N, m_count, M_val, 1.0, 0.0,
                         float(n / N) if N > 0 else 0.0,
-                        float(m_adj / M) if M > 0 else 0.0))
+                        float(m_stat / M_stat) if M_stat > 0 else 0.0))
             continue
-        p = _p_value(n, N, m_adj, M, pvalue_mode)
-        fe = _fold_enrichment(n, N, m_adj, M)
+        p = _p_value(n, N, m_stat, M_stat, pvalue_mode)
+        fe = _fold_enrichment(n, N, m_stat, M_stat)
         sample_density = float(n / N) if N > 0 else 0.0
-        control_density = float(m_adj / M) if M > 0 else 0.0
-        out.append((sid, n, N, m_raw, M, p, fe, sample_density, control_density))
+        control_density = float(m_stat / M_stat) if M_stat > 0 else 0.0
+        out.append((sid, n, N, m_count, M_val, p, fe, sample_density, control_density))
     return out
 
 

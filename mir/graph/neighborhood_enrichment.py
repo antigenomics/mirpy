@@ -1,10 +1,28 @@
-"""Neighborhood enrichment statistics for TCRnet and ALICE algorithms.
+"""Neighborhood enrichment statistics for TCRNET and ALICE algorithms.
 
-Computes neighborhood statistics for clonotypes. For each clonotype in a query
-repertoire, counts the number of neighbors within a specified edit distance and
-optional V/J gene matching constraints, either against itself or against an
-explicit background repertoire. Searches use ``tcrtrie`` with a constrained
-brute-force fallback only when trie search fails.
+For each clonotype in a query repertoire, counts the number of neighbors within
+a given search scope:
+
+- **Sequence scope**: ``junction_aa`` mismatches (Hamming distance, default
+  threshold=1) or insertions/deletions (Levenshtein distance).
+- **Gene scope**: optionally restrict neighbors to the same V gene, J gene, or
+  both (``match_v_gene`` / ``match_j_gene``).  This is the V+J restriction used
+  by the original ALICE paper.
+
+Performance
+-----------
+All searches are backed by **tcrtrie** for sub-linear trie-based lookups.  A
+brute-force Python fallback is used only when tcrtrie raises (e.g. for
+sequences longer than 64 AA for Hamming or 33 AA for Levenshtein).
+
+For V/J-restricted searches, background sequences are grouped by (V,J) key and
+a separate small Trie is built per group.  This eliminates the O(N × k) Python
+validation loop that dominates for natural repertoires.
+
+Parallelism is automatic: :func:`compute_neighborhood_stats_by_locus` spawns
+``n_jobs`` worker processes via ``ProcessPoolExecutor`` when the repertoire
+exceeds ``_NEIGHBOR_PARALLEL_MIN_CLONOTYPES`` (20 000) clonotypes.  Background
+sequence arrays are passed through shared memory to avoid per-worker copies.
 """
 
 from __future__ import annotations

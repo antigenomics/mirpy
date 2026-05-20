@@ -363,9 +363,9 @@ def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
         "CASSLGQETQFF": _CASSLGQETQFF_mc_pgen,
     })
 
-    # get_or_build_mc_pool is imported lazily inside _compute_pgen_raw_by_junction_aa
-    # from mir.basic.pgen, so patch it there.
-    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: fake_pool)
+    # get_mc_pool_from_control is imported lazily inside _compute_pgen_raw_by_junction_aa
+    # from mir.common.control, so patch it there.
+    monkeypatch.setattr("mir.common.control.get_mc_pool_from_control", lambda **kwargs: fake_pool)
 
     rep = LocusRepertoire([
         _clone("0", "CASSLGQETQYF"),
@@ -392,7 +392,7 @@ def test_compute_alice_mc_fallback_is_1mm_not_exact(monkeypatch) -> None:
     """
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
     # Empty pool → every sequence falls back to OLGA
-    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: _FakeMcPool({}))
+    monkeypatch.setattr("mir.common.control.get_mc_pool_from_control", lambda **kwargs: _FakeMcPool({}))
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQFF")], locus="TRB")
     result = compute_alice(rep, pgen_mode="mc", min_neighbors=0, mc_min_count=2, n_jobs=1)

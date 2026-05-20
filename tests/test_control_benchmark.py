@@ -15,29 +15,7 @@ import pytest
 
 from mir.common.control import ControlManager
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_max_seconds, skip_benchmarks
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        val = float(raw)
-    except ValueError:
-        return default
-    return max(1.0, val)
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        val = int(raw)
-    except ValueError:
-        return default
-    return max(1, val)
+from tests.conftest import _env_float, _env_int, benchmark_max_seconds, skip_benchmarks
 
 
 def _is_full_benchmark_enabled() -> bool:
