@@ -13,11 +13,22 @@ from mir.common.repertoire import LocusRepertoire
 from tests.factories import make_trb_clone
 
 
+class _FakeGenModel:
+    """Minimal gen_model stub for get_gene_usage_from_olga_model."""
+    import numpy as np
+    PV = np.array([1.0])
+    PDJ = np.array([[1.0]])
+
+
 class _FakeOlgaModel:
     def __init__(self, *, locus: str, species: str, seed: int | None = 42) -> None:
         self.locus = locus
         self.species = species
         self.seed = seed
+        self.is_d_present = True
+        self.v_names = ["TRBV5-1*01"]
+        self.j_names = ["TRBJ2-7*01"]
+        self.gen_model = _FakeGenModel()
 
     def compute_pgen_junction_aa(self, junction_aa: str) -> float:
         return {
