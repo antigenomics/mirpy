@@ -35,12 +35,12 @@ seaborn==0.12.2
 textdistance==4.5.0
 tcrtrie>=0.2.3
 tqdm==4.66.2
+kneed>=0.8.1
 
 # ── Notebook / analysis extras (not required by library at runtime) ────────────
 scanpy>=1.10          # single-cell analysis (optional; pip install mirpy-lib[sc])
 umap-learn>=0.5.6     # UMAP projections in notebooks
 plotnine==0.12.3      # grammar-of-graphics plots in notebooks
-kneed>=0.8.1          # Kneedle elbow detection in embedding notebooks
 
 # ── Dev / tooling ─────────────────────────────────────────────────────────────
 # Documentation-specific packages live in docs/requirements.txt.
