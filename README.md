@@ -101,6 +101,11 @@ the observed count `k` is V/J-filtered.  Uses a 10M-sequence MC pool by default 
 requires ~17 GB and ~16 min; use `mc_n_pool=100_000_000` if memory allows) and falls back to OLGA analytical
 1mm Pgen for rare sequences.  Use `pgen_mode="mc"` for all production runs.
 
+V/J-restricted neighbor counting uses a **grouped-trie** strategy: one small trie per (V,J) gene group
+instead of filtering a single large trie in Python.  This makes `match_mode="vj"` 1.5–2× *faster* than
+`match_mode="none"` on natural repertoires (benchmark: 300 K sequences, 8 workers — unrestricted 9.9 s,
+V+J restricted 5.5 s).
+
 **TCRNET** ([`mir.biomarkers.tcrnet`](mir/biomarkers/tcrnet.py)) is a purely MC-control algorithm — no Pgen
 calls.  When used with a real control it captures V/J bias automatically.  Pass `q_factor ≈ 3–5` when using
 a synthetic OLGA pool to correct for the pre-thymic selection deficit.  TCRNET with a 100M synthetic pool,
