@@ -19,8 +19,8 @@ def select_eps_kneedle(
     X_pca: np.ndarray,
     *,
     k: int = 4,
-    q_floor: float = 0.10,
-    q_cap: float = 0.40,
+    q_floor: float = 0.40,
+    q_cap: float = 0.65,
 ) -> tuple[np.ndarray, float, int | None]:
     """Select DBSCAN eps from sorted k-NN distances with quantile bounds."""
     nn = NearestNeighbors(n_neighbors=k, metric="euclidean")
@@ -46,8 +46,10 @@ def select_eps_kneedle(
     if knee.knee is None:
         return kth, eps_floor, None
 
-    eps = min(float(kth[knee.knee]), eps_cap)
-    return kth, max(eps, eps_floor, 1e-6), int(knee.knee)
+    # Clamp the knee-derived eps into a practical operating band so DBSCAN
+    # does not collapse into a low-retention regime on broad real datasets.
+    eps = float(np.clip(float(kth[knee.knee]), eps_floor, eps_cap))
+    return kth, max(eps, 1e-6), int(knee.knee)
 
 
 def cluster_purity_consistency(

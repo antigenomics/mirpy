@@ -87,7 +87,7 @@ def _load_trb_cdrs(path: Path, n: int | None = None) -> list[str]:
         .to_list()
     )
     if n is not None:
-        random.shuffle(seqs)
+        random.Random(_SEED).shuffle(seqs)
         seqs = seqs[:n]
     return seqs
 
@@ -111,7 +111,7 @@ def _load_tra_cdrs(n: int | None = None) -> list[str]:
             pass
     seqs_list = list(seqs)
     if n is not None:
-        random.shuffle(seqs_list)
+        random.Random(_SEED).shuffle(seqs_list)
         seqs_list = seqs_list[:n]
     return seqs_list
 
