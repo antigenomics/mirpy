@@ -14,6 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.parser import VDJdbFullPairedParser, VDJdbSlimParser
 from mir.common.single_cell import build_tenx_sample_from_cell_clonotypes
@@ -84,7 +85,7 @@ def _cluster_metrics(X_raw: np.ndarray, labels: np.ndarray) -> dict[str, float |
 class TestSingleChainVDJdbTCREmpQuality:
     """Single-chain VDJdb slim benchmark with quality and speed assertions."""
 
-    N_PROTOTYPES = 500
+    N_PROTOTYPES = 1000
 
     def test_single_chain_metrics_and_speed(self):
         sample = VDJdbSlimParser().parse_file(_VDJDB_SLIM_FILE, species="HomoSapiens")
@@ -154,7 +155,7 @@ class TestSingleChainVDJdbTCREmpQuality:
 class TestPairedVDJdbTCREmpQuality:
     """Paired VDJdb full benchmark with strict vs imputed quality assertions."""
 
-    N_PROTOTYPES = 500
+    N_PROTOTYPES = 1000
 
     def _paired_table(self, sample) -> pl.DataFrame:
         rows = []
@@ -306,3 +307,103 @@ class TestPairedVDJdbTCREmpQuality:
 
         # Imputation should not catastrophically degrade cluster purity.
         assert imputed_metrics["purity"] + 0.15 >= strict_metrics["purity"]
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.slow_benchmark
+class TestSingleChainVDJdbMixedLargeBootstrap:
+    """Stress benchmark for bootstrap-stable eps selection on mixed noisy embeddings."""
+
+    N_PROTOTYPES = 1000
+    N_RANDOM = 30_000
+
+    def test_single_chain_metrics_with_mixed_random_30k(self):
+        sample = VDJdbSlimParser().parse_file(_VDJDB_SLIM_FILE, species="HomoSapiens")
+        trb = sample["TRB"].clonotypes
+
+        rows = []
+        for c in trb:
+            ep = c.clone_metadata.get("antigen.epitope", "")
+            if ep:
+                rows.append(
+                    {
+                        "sequence_id": c.sequence_id,
+                        "epitope": ep,
+                        "v_gene": c.v_gene,
+                        "j_gene": c.j_gene,
+                        "junction_aa": c.junction_aa,
+                    }
+                )
+        df = pl.DataFrame(rows)
+        focal = (
+            df.group_by("epitope")
+            .len()
+            .sort("len", descending=True)
+            .head(10)
+            .get_column("epitope")
+            .to_list()
+        )
+        df = _categorize_epitopes(df, focal)
+        subset = _balanced_subset(
+            df,
+            label_col="epitope_cat",
+            focal_epitopes=focal,
+            sample_per_epitope=250,
+            other_sample=500,
+        )
+
+        real_clonos = [
+            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            for r in subset.iter_rows(named=True)
+        ]
+        real_labels = subset.get_column("epitope_cat").to_list()
+
+        rng = np.random.default_rng(SEED)
+        v_genes = df.get_column("v_gene").drop_nulls().unique().to_list()
+        j_genes = df.get_column("j_gene").drop_nulls().unique().to_list()
+        olga = OlgaModel(locus="TRB", species="human", seed=SEED)
+        random_junctions = olga.generate_sequences_parallel(
+            self.N_RANDOM,
+            n_jobs=8,
+            seed=SEED,
+        )
+        olga.close()
+
+        random_clonos = [
+            Clonotype(
+                v_gene=v_genes[int(rng.integers(0, len(v_genes)))],
+                j_gene=j_genes[int(rng.integers(0, len(j_genes)))],
+                junction_aa=j,
+            )
+            for j in random_junctions
+        ]
+        all_clonos = real_clonos + random_clonos
+        labels = np.asarray(real_labels + ["random"] * len(random_clonos), dtype=object)
+
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=self.N_PROTOTYPES)
+        t0 = time.perf_counter()
+        X = model.embed(all_clonos)
+        t_embed = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        metrics = analyze_embedding_dbscan(X, labels, seed=SEED)
+        t_diag = time.perf_counter() - t0
+
+        selector_meta = metrics["eps_selector_meta"]
+        print("\nSingle-chain VDJdb mixed random benchmark")
+        print(
+            f"n={len(all_clonos)} random={len(random_clonos)} "
+            f"embed={t_embed:.3f}s diag={t_diag:.3f}s "
+            f"eps={metrics['eps']:.4f} retention={metrics['retention']:.3f}"
+        )
+        print(f"selector_meta={selector_meta}")
+
+        assert X.shape == (len(all_clonos), 3 * self.N_PROTOTYPES)
+        assert metrics["eps_selection_mode"] == "stable_kneedle"
+        assert int(selector_meta["n_bootstrap"]) >= 10
+        assert int(selector_meta["n_bootstrap"]) <= 100
+        assert int(selector_meta["subset_size"]) <= 35_000
+        assert int(selector_meta["n_candidates"]) >= int(selector_meta["n_bootstrap"])
+        assert metrics["n_clusters"] >= 1
+        assert metrics["retention"] >= 0.40

@@ -31,6 +31,7 @@ classifiers = [
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "repertoire", "single-cell", "VDJdb"]
 dependencies = [
   "biopython",
+  "kneed",
   "matplotlib",
   "multipy",
   "numpy",
@@ -55,7 +56,6 @@ sc = [
   "scanpy",
   "scirpy",
   "sc-dandelion",
-  "kneed",
   "umap-learn",
 ]
 dev = [
@@ -66,7 +66,6 @@ dev = [
   "scanpy",
   "scirpy",
   "sc-dandelion",
-  "kneed",
   "umap-learn",
 ]
 docs = [
