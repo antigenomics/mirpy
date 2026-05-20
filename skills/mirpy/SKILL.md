@@ -551,8 +551,14 @@ First `"mc"` call builds the 10 M pool (37 s, 8 workers, human TRB); all subsequ
 
 **Differences from the original paper:**
 - Paper uses **100 M** sequences; this implementation uses **10 M** (`mc_n_pool`) and falls back to
-  OLGA analytical 1mm Pgen for sequences with < 2 pool matches.
-- Paper defaults to **V+J matching** (`match_mode="vj"`); this implementation defaults to `"none"`.
+  OLGA analytical 1mm Pgen for sequences with < 2 pool matches.  100 M requires ~17 GB and ~16 min — use
+  `mc_n_pool=100_000_000` only when that budget is available.
+- Default is now `match_mode="vj"` (matching the paper).  TCRNET default is `match_mode="none"`.
+- **Gene-usage conditioning** (new): when `match_mode != "none"`, `N` and `pgen` are scaled by
+  `P_OLGA(V,J)` (from `get_gene_usage_from_olga_model`): `N_adj = P(VJ) × N_total`,
+  `pgen_adj = pgen / P(VJ)`.  These cancel in λ = N_total × pgen, but the observed `k` counts only
+  V/J-matching neighbours — making the test more specific without inflating λ.
+  Same logic for TCRNET: `M` replaced by `P_ctrl(VJ) × M_total` (using `GeneUsage.from_repertoire`).
 - Paper's exact pre-screen (`n ≤ N × pgen_exact → skip 1mm`) has been removed — it filtered 0 sequences
   in practice on large repertoires (371 K clonotypes: 100% pass rate, 32 s wasted).
 

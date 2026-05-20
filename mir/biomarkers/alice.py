@@ -9,8 +9,13 @@ probability (Pgen):
 
 ``match_mode`` controls which sequences are eligible neighbors:
 ``"v"`` restricts to the same V gene, ``"j"`` to the same J gene,
-``"vj"`` to both.  Raw OLGA Pgen is used directly without synthetic-control
-gene-usage conditioning.
+``"vj"`` (default) to both.  When ``match_mode`` is not ``"none"``, the
+background size *N* and Pgen are both conditioned on the V/J gene:
+``N_adj = P_ctrl(gene) × N_total`` and ``pgen_adj = pgen / P_ctrl(gene)``,
+where P_ctrl is derived analytically from the OLGA model.  These two
+adjustments cancel in the expected count λ = N_total × pgen (same as
+``match_mode="none"``), but the *observed* k counts only V/J-matching
+neighbours, making the test more specific.
 
 Differences from the original ALICE paper
 ------------------------------------------
@@ -22,8 +27,8 @@ The original paper (Pogorelyy et al. *PLoS Biol.* 2019) uses:
   sequences with fewer than ``mc_min_count=2`` pool matches, so rare sequences
   use the same λ scale as pool-covered ones.
 * **V+J gene matching** (``match_mode="vj"``) as the default neighbor
-  restriction.  Here ``match_mode`` defaults to ``"none"``; set it to
-  ``"vj"`` to reproduce the paper's V+J restriction.
+  restriction.  This implementation now defaults to ``match_mode="vj"``
+  to match the paper's V+J restriction.
 
 Relationship to TCRNET
 -----------------------
@@ -74,6 +79,7 @@ from dataclasses import dataclass
 import polars as pl
 from scipy.stats import nbinom, poisson
 
+from mir.basic.gene_usage import get_gene_usage_from_olga_model
 from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -81,6 +87,7 @@ from mir.biomarkers._shared import (
     MatchMode,
     apply_bh_qvalues_to_metadata,
     iter_loci,
+    lookup_gene_frac,
     match_flags,
     normalize_match_mode,
 )
@@ -112,7 +119,7 @@ class AliceParams:
     rare sequences are scored on the same scale as the rest.
     """
 
-    match_mode: MatchMode = "none"
+    match_mode: MatchMode = "vj"
     pgen_mode: PgenMode = "exact"
     pvalue_mode: AlicePValueMode = "poisson"
     pseudocount: float = 0.0
@@ -399,8 +406,16 @@ def _compute_alice_metrics_batch(
     pvalue_mode: AlicePValueMode = "poisson",
     pseudocount: float = 0.0,
     q_factor: float = 1.0,
+    match_mode: str = "none",
+    gene_usage_fracs: "dict | None" = None,
+    n_background_total: int = 0,
 ) -> list[tuple[int, int, float, float, float, float, float]]:
     out: list[tuple[int, int, float, float, float, float, float]] = []
+    use_gene_scaling = (
+        match_mode != "none"
+        and gene_usage_fracs is not None
+        and n_background_total > 0
+    )
     for clonotype in clonotypes:
         sid = clonotype.sequence_id
         stat = locus_stats.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
@@ -413,7 +428,17 @@ def _compute_alice_metrics_batch(
             out.append((n, N, 0.0, 0.0, 0.0, 0.0, 1.0))
             continue
         pgen = float(pgen_opt)
-        pgen_adj = pgen * q_factor  # selection-adjusted pgen used for lambda
+        if use_gene_scaling:
+            # Scale N and pgen by OLGA V/J gene usage so λ = N_total × pgen
+            # (gene-usage-conditioned N and pgen cancel in λ, but k is V/J-filtered).
+            p_gene = lookup_gene_frac(
+                match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
+                gene_usage_fracs,
+            )
+            N = int(round(p_gene * n_background_total))
+            pgen_adj = pgen * q_factor / p_gene
+        else:
+            pgen_adj = pgen * q_factor
 
         n_eff = float(n) + pseudocount
         N_eff = float(N) + pseudocount
@@ -428,17 +453,11 @@ def _compute_alice_metrics_batch(
 
 
 def _compute_alice_metrics_batch_from_args(
-    args: tuple[
-        list[Clonotype],
-        dict[str, dict[str, int]],
-        dict[str, float],
-        AlicePValueMode,
-        float,
-        float,
-    ],
+    args: tuple,
 ) -> list[tuple[int, int, float, float, float, float, float]]:
     """Pickle-friendly wrapper for process-pool batch execution."""
-    clonotypes, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount, q_factor = args
+    (clonotypes, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount, q_factor,
+     match_mode, gene_usage_fracs, n_background_total) = args
     return _compute_alice_metrics_batch(
         clonotypes,
         locus_stats=locus_stats,
@@ -446,6 +465,9 @@ def _compute_alice_metrics_batch_from_args(
         pvalue_mode=pvalue_mode,
         pseudocount=pseudocount,
         q_factor=q_factor,
+        match_mode=match_mode,
+        gene_usage_fracs=gene_usage_fracs,
+        n_background_total=n_background_total,
     )
 
 
@@ -658,7 +680,7 @@ def compute_alice(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
     species: str = "human",
-    match_mode: str = "none",
+    match_mode: str = "vj",
     pgen_mode: PgenMode = "exact",
     metric: t.Literal["hamming"] = "hamming",
     random_seed: int | None = None,
@@ -694,8 +716,11 @@ def compute_alice(
         mc_min_count: Minimum pool-match count for MC Pgen; sequences below
             this threshold fall back to OLGA 1mm Pgen.
 
-    Raw OLGA Pgen is used directly; ``match_mode`` controls which sequences
-    are eligible neighbors but does not trigger gene-usage conditioning.
+    When ``match_mode != "none"``, gene-usage probabilities are read
+    analytically from the OLGA model and used to scale *N* and *pgen* so that
+    ``λ = N_total × pgen`` (independent of gene restriction).  The observed *k*
+    counts only gene-matching neighbours, making the test more specific without
+    changing the null expectation.
     """
     norm_match_mode = normalize_match_mode(match_mode)
     params = AliceParams(
@@ -747,6 +772,18 @@ def compute_alice(
             mc_seed=mc_seed,
             mc_min_count=mc_min_count,
         )
+
+        # Gene-usage conditioning: scale N and pgen by OLGA V/J frequencies so
+        # that λ = N_total × pgen regardless of gene restriction.
+        gene_usage_fracs: dict | None = None
+        n_background_total = 0
+        if norm_match_mode != "none":
+            olga_model = _get_cached_olga_model(
+                locus=locus, species=species, random_seed=random_seed
+            )
+            gene_usage_fracs = get_gene_usage_from_olga_model(olga_model)
+            n_background_total = len(qrep.clonotypes)
+
         if n_jobs > 1 and len(qrep.clonotypes) >= _PVALUE_PARALLEL_MIN_CLONOTYPES:
             batch_size = max(1, ceil(len(qrep.clonotypes) / n_jobs))
             batches = [
@@ -754,7 +791,8 @@ def compute_alice(
                 for start in range(0, len(qrep.clonotypes), batch_size)
             ]
             batch_args = [
-                (batch, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount, q_factor)
+                (batch, locus_stats, pgen_raw_by_aa, pvalue_mode, pseudocount, q_factor,
+                 norm_match_mode, gene_usage_fracs, n_background_total)
                 for batch in batches
             ]
             executor_mode = os.getenv("MIRPY_ALICE_PVALUE_EXECUTOR", "process").strip().lower()
@@ -777,6 +815,9 @@ def compute_alice(
                     pvalue_mode=pvalue_mode,
                     pseudocount=pseudocount,
                     q_factor=q_factor,
+                    match_mode=norm_match_mode,
+                    gene_usage_fracs=gene_usage_fracs,
+                    n_background_total=n_background_total,
                 ),
                 metadata_prefix=metadata_prefix,
             )
@@ -792,7 +833,7 @@ def add_alice_metadata(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,
     species: str = "human",
-    match_mode: str = "none",
+    match_mode: str = "vj",
     pgen_mode: PgenMode = "exact",
     pvalue_mode: AlicePValueMode = "poisson",
     pseudocount: float = 0.0,

@@ -90,6 +90,7 @@ from mir.biomarkers._shared import (
     MatchMode,
     apply_bh_qvalues_to_metadata,
     iter_loci,
+    lookup_gene_frac,
     match_flags,
     normalize_match_mode,
 )
@@ -269,6 +270,9 @@ def _compute_tcrnet_metrics_batch(
     pseudocount: float = 1.0,
     min_neighbors: int = 0,
     q_factor: float = 1.0,
+    match_mode: str = "none",
+    gene_usage_fracs: "dict | None" = None,
+    m_background_total: int = 0,
 ) -> list[tuple[str, int, int, float, int, float, float, float, float]]:
     """Compute TCRNET metrics per clonotype.
 
@@ -282,8 +286,17 @@ def _compute_tcrnet_metrics_batch(
     ``p_ctrl_adj = q_factor × (m + pc) / (M + pc)``.  Use ``q_factor > 1``
     to correct synthetic controls for thymic selection (raw counts ``m``, ``M``
     are stored unchanged in metadata; only the test uses the adjusted density).
+
+    When ``match_mode != "none"`` and ``gene_usage_fracs`` is provided, *M* is
+    replaced by ``P_ctrl(gene) × m_background_total`` so the denominator uses
+    control gene-usage frequencies rather than the raw filtered count.
     """
     out: list[tuple[str, int, int, float, int, float, float, float, float]] = []
+    use_gene_scaling = (
+        match_mode != "none"
+        and gene_usage_fracs is not None
+        and m_background_total > 0
+    )
     for clonotype in clonotypes:
         sid = clonotype.sequence_id
         s_stat = locus_self.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
@@ -292,7 +305,14 @@ def _compute_tcrnet_metrics_batch(
         c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         # Raw control counts (stored in metadata as-is for inspection)
         m_raw = int(c_stat["neighbor_count"]) + pseudocount
-        M = int(c_stat["potential_neighbors"]) + pseudocount
+        if use_gene_scaling:
+            p_gene = lookup_gene_frac(
+                match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
+                gene_usage_fracs,
+            )
+            M = p_gene * m_background_total + pseudocount
+        else:
+            M = int(c_stat["potential_neighbors"]) + pseudocount
         # Selection-corrected control density for statistics
         m_adj = m_raw * q_factor
         if n < min_neighbors:
@@ -309,18 +329,11 @@ def _compute_tcrnet_metrics_batch(
 
 
 def _compute_tcrnet_metrics_batch_from_args(
-    args: tuple[
-        list[Clonotype],
-        dict[str, dict[str, int]],
-        dict[str, dict[str, int]],
-        PValueMode,
-        float,
-        int,
-        float,
-    ],
+    args: tuple,
 ) -> list[tuple[str, int, int, float, int, float, float, float, float]]:
     """Pickle-friendly wrapper for process-pool batch execution."""
-    clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors, q_factor = args
+    (clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors, q_factor,
+     match_mode, gene_usage_fracs, m_background_total) = args
     return _compute_tcrnet_metrics_batch(
         clonotypes,
         locus_self=locus_self,
@@ -329,6 +342,9 @@ def _compute_tcrnet_metrics_batch_from_args(
         pseudocount=pseudocount,
         min_neighbors=min_neighbors,
         q_factor=q_factor,
+        match_mode=match_mode,
+        gene_usage_fracs=gene_usage_fracs,
+        m_background_total=m_background_total,
     )
 
 
@@ -498,6 +514,19 @@ def compute_tcrnet(
         locus_self = self_stats.get(locus, {})
         locus_ctrl = control_stats.get(locus, {})
 
+        # Gene-usage conditioning: replace raw V/J-filtered M with
+        # P_ctrl(gene) × M_total for a smoothed, frequency-based denominator.
+        ctrl_gene_fracs: dict | None = None
+        m_background_total = 0
+        if match_v or match_j:
+            ctrl_gu = GeneUsage.from_repertoire(crep)
+            ctrl_gene_fracs = {
+                "v": ctrl_gu.v_fraction(locus),
+                "j": ctrl_gu.j_fraction(locus),
+                "vj": ctrl_gu.vj_fraction(locus),
+            }
+            m_background_total = len(crep.clonotypes)
+
         metrics_by_sid: dict[str, tuple[int, int, int, int, float, float, float, float]] = {}
         executor_mode = os.getenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "process").strip().lower()
         should_parallelize_pvalues = (
@@ -513,7 +542,8 @@ def compute_tcrnet(
                 for start in range(0, len(qrep.clonotypes), batch_size)
             ]
             batch_args = [
-                (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors, q_factor)
+                (batch, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors, q_factor,
+                 norm_match_mode, ctrl_gene_fracs, m_background_total)
                 for batch in batches
             ]
             if executor_mode == "thread":
@@ -535,6 +565,9 @@ def compute_tcrnet(
                 pseudocount=pseudocount,
                 min_neighbors=min_neighbors,
                 q_factor=q_factor,
+                match_mode=norm_match_mode,
+                gene_usage_fracs=ctrl_gene_fracs,
+                m_background_total=m_background_total,
             ):
                 metrics_by_sid[sid] = (n, N, m, M, p, fe, sample_density, control_density)
 

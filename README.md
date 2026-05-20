@@ -90,13 +90,16 @@ Both modules detect antigen-driven CDR3 clusters, but differ in how they model t
 | --- | --- | --- |
 | Background model | OLGA Pgen (analytical or MC pool) | Any MC control — real or synthetic |
 | Pgen calls | OLGA 1mm Pgen (10M pool + fallback) | **None** |
-| V/J restriction | `match_mode="vj"` (default `"none"`) | `match_mode="vj"` or via real control |
+| V/J restriction | `match_mode="vj"` (default) with gene-usage conditioning | `match_mode="none"` (default); optional `"vj"` or via real control |
 | Statistics | Poisson | Binomial / Beta-Binomial |
 | Selection correction | `q_factor` | `q_factor` (needed for synthetic controls) |
 
 **ALICE** ([`mir.biomarkers.alice`](mir/biomarkers/alice.py)) implements the Pogorelyy et al. *PLoS Biol.* 2019
-Poisson enrichment test.  Our implementation uses a 10M-sequence MC pool by default (the paper uses 100M) and
-falls back to OLGA analytical 1mm Pgen for rare sequences.  Use `pgen_mode="mc"` for all production runs.
+Poisson enrichment test.  Default is `match_mode="vj"` (V+J gene restriction) with OLGA gene-usage conditioning:
+`N` and `pgen` are scaled by `P_OLGA(V,J)` so that `λ = N_total × pgen` regardless of gene restriction, while
+the observed count `k` is V/J-filtered.  Uses a 10M-sequence MC pool by default (the paper uses 100M, which
+requires ~17 GB and ~16 min; use `mc_n_pool=100_000_000` if memory allows) and falls back to OLGA analytical
+1mm Pgen for rare sequences.  Use `pgen_mode="mc"` for all production runs.
 
 **TCRNET** ([`mir.biomarkers.tcrnet`](mir/biomarkers/tcrnet.py)) is a purely MC-control algorithm — no Pgen
 calls.  When used with a real control it captures V/J bias automatically.  Pass `q_factor ≈ 3–5` when using

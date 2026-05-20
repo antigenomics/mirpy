@@ -222,7 +222,7 @@ def get_gene_usage_from_olga_model(
 
     import numpy as np
 
-    from mir.common.alleles import allele_to_major
+    from mir.common.alleles import strip_allele
 
     gm = model.gen_model
     v_alleles: list[str] = model.v_names
@@ -239,8 +239,10 @@ def get_gene_usage_from_olga_model(
         pv_allele = pvj_allele.sum(axis=1)
         pj_allele = pvj_allele.sum(axis=0)
 
-    v_genes = [allele_to_major(a) for a in v_alleles]
-    j_genes = [allele_to_major(a) for a in j_alleles]
+    # Strip alleles so keys match GeneUsage.strip_alleles=True convention:
+    # "TRBV5-1*01" and "TRBV5-1*02" both aggregate under "TRBV5-1".
+    v_genes = [strip_allele(a) for a in v_alleles]
+    j_genes = [strip_allele(a) for a in j_alleles]
 
     p_v: dict[str, float] = defaultdict(float)
     for v, p in zip(v_genes, pv_allele):
