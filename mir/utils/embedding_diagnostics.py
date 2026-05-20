@@ -15,6 +15,30 @@ except Exception:  # pragma: no cover - optional dependency fallback
     KneeLocator = None
 
 
+def _fallback_curvature_knee_index(
+    sorted_curve: np.ndarray,
+    *,
+    q_floor: float,
+    q_cap: float,
+) -> int:
+    """Estimate a knee index from max curvature within the quantile band."""
+    n = len(sorted_curve)
+    if n < 5:
+        return max(0, int(round((n - 1) * 0.5)))
+
+    i0 = max(0, int(np.floor((n - 1) * q_floor)))
+    i1 = min(n - 1, int(np.ceil((n - 1) * q_cap)))
+    if i1 <= i0 + 2:
+        return max(0, int(round((i0 + i1) / 2)))
+
+    y = np.log(np.maximum(sorted_curve, 1e-12))
+    d1 = np.gradient(y)
+    d2 = np.gradient(d1)
+    window = d2[i0 : i1 + 1]
+    rel = int(np.argmax(window))
+    return int(i0 + rel)
+
+
 def select_eps_kneedle(
     X_pca: np.ndarray,
     *,
@@ -52,6 +76,89 @@ def select_eps_kneedle(
     return kth, max(eps, 1e-6), int(knee.knee)
 
 
+def select_eps_kneedle_stable(
+    X_pca: np.ndarray,
+    *,
+    k: int = 4,
+    q_floor: float = 0.40,
+    q_cap: float = 0.65,
+    n_bootstrap: int = 10,
+    chunk_fraction: float = 0.70,
+    interp_methods: tuple[str, ...] = ("polynomial", "interp1d"),
+    random_state: int = 42,
+) -> tuple[np.ndarray, float, int | None, dict[str, float | int]]:
+    """Select DBSCAN eps by bootstrap-stabilized knee estimation.
+
+    The sorted k-NN distance curve is bootstrapped, knees are found across
+    interpolation methods, and the final eps is the median of valid knees.
+    """
+    nn = NearestNeighbors(n_neighbors=k, metric="euclidean")
+    nn.fit(X_pca)
+    dists, _ = nn.kneighbors(X_pca)
+    kth = np.sort(dists[:, -1])
+
+    eps_floor = max(float(np.quantile(kth, q_floor)), 1e-6)
+    eps_cap = max(float(np.quantile(kth, q_cap)), eps_floor)
+
+    rng = np.random.default_rng(random_state)
+    n = len(kth)
+    chunk_size = max(k + 2, int(round(n * chunk_fraction)))
+    chunk_size = min(chunk_size, n)
+    eps_candidates: list[float] = []
+
+    for _ in range(max(1, n_bootstrap)):
+        idx = rng.choice(n, size=chunk_size, replace=False)
+        boot = np.sort(kth[idx])
+        x = np.arange(len(boot))
+        found = False
+        if KneeLocator is not None:
+            for interp_method in interp_methods:
+                try:
+                    knee = KneeLocator(
+                        x,
+                        boot,
+                        curve="convex",
+                        direction="increasing",
+                        interp_method=interp_method,
+                    )
+                except Exception:
+                    continue
+                if knee.knee is None:
+                    continue
+                eps_raw = float(boot[int(knee.knee)])
+                eps_candidates.append(float(np.clip(eps_raw, eps_floor, eps_cap)))
+                found = True
+
+        if not found:
+            idx = _fallback_curvature_knee_index(boot, q_floor=q_floor, q_cap=q_cap)
+            eps_candidates.append(float(np.clip(float(boot[idx]), eps_floor, eps_cap)))
+
+    if not eps_candidates:
+        return kth, eps_floor, None, {
+            "eps_floor": float(eps_floor),
+            "eps_cap": float(eps_cap),
+            "n_bootstrap": int(n_bootstrap),
+            "chunk_fraction": float(chunk_fraction),
+            "n_candidates": 0,
+            "eps_iqr": 0.0,
+        }
+
+    eps_candidates_arr = np.asarray(eps_candidates, dtype=float)
+    eps = float(np.median(eps_candidates_arr))
+    eps = float(np.clip(eps, eps_floor, eps_cap))
+    knee_idx = int(np.searchsorted(kth, eps, side="left"))
+
+    q25, q75 = np.quantile(eps_candidates_arr, [0.25, 0.75])
+    return kth, max(eps, 1e-6), min(knee_idx, n - 1), {
+        "eps_floor": float(eps_floor),
+        "eps_cap": float(eps_cap),
+        "n_bootstrap": int(n_bootstrap),
+        "chunk_fraction": float(chunk_fraction),
+        "n_candidates": int(len(eps_candidates)),
+        "eps_iqr": float(q75 - q25),
+    }
+
+
 def cluster_purity_consistency(
     labels: np.ndarray,
     clusters: np.ndarray,
@@ -86,6 +193,10 @@ def analyze_embedding_dbscan(
     min_samples: int = 3,
     k_neighbors: int = 4,
     consistency_threshold: float = 0.70,
+    eps_selection_mode: str = "kneedle",
+    n_bootstrap: int = 10,
+    chunk_fraction: float = 0.70,
+    interp_methods: tuple[str, ...] = ("polynomial", "interp1d"),
 ) -> dict[str, float | int | np.ndarray | None]:
     """Standardize embedding, select PCA rank, choose eps, and compute DBSCAN metrics."""
     scaler = StandardScaler()
@@ -96,7 +207,18 @@ def analyze_embedding_dbscan(
     n_comp = int(np.searchsorted(cum, pca_variance_threshold)) + 1
 
     X_pca = l2normalize(PCA(n_components=n_comp, random_state=seed).fit_transform(X_scaled))
-    kth, eps, knee_idx = select_eps_kneedle(X_pca, k=k_neighbors)
+    selector_meta: dict[str, float | int] = {}
+    if eps_selection_mode == "stable_kneedle":
+        kth, eps, knee_idx, selector_meta = select_eps_kneedle_stable(
+            X_pca,
+            k=k_neighbors,
+            n_bootstrap=n_bootstrap,
+            chunk_fraction=chunk_fraction,
+            interp_methods=interp_methods,
+            random_state=seed,
+        )
+    else:
+        kth, eps, knee_idx = select_eps_kneedle(X_pca, k=k_neighbors)
     clusters = DBSCAN(eps=eps, min_samples=min_samples, metric="euclidean", n_jobs=-1).fit_predict(X_pca)
 
     purity, consistency, n_clusters, retention = cluster_purity_consistency(
@@ -115,6 +237,8 @@ def analyze_embedding_dbscan(
         "median_4nn": float(np.median(kth)),
         "kth": kth,
         "knee_idx": knee_idx,
+        "eps_selection_mode": eps_selection_mode,
+        "eps_selector_meta": selector_meta,
         "cum": cum,
         "X_pca": X_pca,
         "clusters": clusters,
