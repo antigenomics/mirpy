@@ -21,7 +21,14 @@ from typing import TYPE_CHECKING
 
 from tcrtrie import Trie
 
-from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
+from mir.graph._trie_utils import (
+    hit_index,
+    resolve_n_jobs,
+    search_indices_with_fallback,
+    search_limits,
+    validate_metric,
+)
+from mir.graph.distance_utils import is_within_threshold
 from mir.utils.shared_memory import (
     SharedArraySpec,
     attach_shared_array,
@@ -231,6 +238,198 @@ def _potential_neighbor_count(
     return int(counter.get(key, 0))
 
 
+def _gene_key(
+    v_gene: str | None,
+    j_gene: str | None,
+    *,
+    match_v_gene: bool,
+    match_j_gene: bool,
+) -> tuple[str, ...]:
+    """Return the V/J grouping key for a clonotype."""
+    assert match_v_gene or match_j_gene, "_gene_key requires at least one gene flag"
+    vv = v_gene or ""
+    jj = j_gene or ""
+    if match_v_gene and match_j_gene:
+        return (vv, jj)
+    if match_v_gene:
+        return (vv,)
+    return (jj,)
+
+
+def _build_grouped_tries(
+    sequences: list[str],
+    v_genes: list[str],
+    j_genes: list[str],
+    *,
+    match_v_gene: bool,
+    match_j_gene: bool,
+) -> tuple[dict[tuple, list[str]], dict[tuple, "Trie"]]:
+    """Group sequences by V/J gene key and build one small Trie per group.
+
+    Returns (group_seqs, group_tries) where group_seqs[key] is the CDR3 list
+    for that gene group and group_tries[key] is its Trie (no V/J genes stored
+    because the group is homogeneous — search needs no V/J filter).
+
+    This replaces the single-large-trie + Python V/J validation approach with
+    N_groups smaller tries, each searched without filters, eliminating the
+    O(N × k_avg) Python loop that dominates for natural repertoires.
+
+    Note: Long-CDR3 brute-force augmentation (>64 AA for Hamming, >33 for
+    Levenshtein) is not applied here because TCR CDR3s are always short.  If
+    future callers pass synthetic long sequences the count may be slightly
+    under-reported; this is explicitly acceptable and matches the behavior of
+    ``search_indices_with_fallback`` on the same data.
+    """
+    group_seqs: dict[tuple, list[str]] = {}
+    for seq, v, j in zip(sequences, v_genes, j_genes):
+        key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
+        group_seqs.setdefault(key, []).append(seq)
+    group_tries: dict[tuple, Trie] = {}
+    for key, seqs in group_seqs.items():
+        n = len(seqs)
+        group_tries[key] = Trie(sequences=seqs, vGenes=[""] * n, jGenes=[""] * n)
+    return group_seqs, group_tries
+
+
+def _count_grouped_neighbors(
+    query: str,
+    group_trie: "Trie",
+    group_seqs: list[str],
+    metric: str,
+    threshold: int,
+) -> int:
+    """Count Hamming/Levenshtein neighbors of *query* in a gene-group trie."""
+    max_sub, max_ins, max_del, max_edits = search_limits(metric, threshold)
+    n = len(group_seqs)
+    try:
+        hits = group_trie.SearchIndices(
+            query=query,
+            maxSubstitution=max_sub,
+            maxInsertion=max_ins,
+            maxDeletion=max_del,
+            maxEdits=max_edits,
+        )
+    except Exception:
+        return sum(1 for s in group_seqs if is_within_threshold(query, s, metric, threshold))
+    count = 0
+    for hit in hits:
+        local_idx = hit_index(hit)
+        if 0 <= local_idx < n and is_within_threshold(query, group_seqs[local_idx], metric, threshold):
+            count += 1
+    return count
+
+
+def _compute_grouped_query_batch(
+    query_clonotypes: list,
+    sequence_ids: list[str],
+    group_seqs: dict[tuple, list[str]],
+    group_tries: dict[tuple, "Trie"],
+    *,
+    metric: str,
+    threshold: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    add_self_pseudocount: bool,
+) -> dict[str, dict[str, int]]:
+    """Serial grouped-trie batch: one trie lookup per gene group."""
+    out: dict[str, dict[str, int]] = {}
+    for clonotype, seq_id in zip(query_clonotypes, sequence_ids):
+        key = _gene_key(
+            clonotype.v_gene, clonotype.j_gene,
+            match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+        )
+        g_seqs = group_seqs.get(key)
+        g_trie = group_tries.get(key)
+        g_size = len(g_seqs) if g_seqs is not None else 0
+        if g_trie is None:
+            nc = 1 if add_self_pseudocount else 0
+            pn = 1 if add_self_pseudocount else 0
+        else:
+            nc = _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_seqs, metric, threshold)
+            pn = g_size
+            if add_self_pseudocount:
+                nc += 1
+                pn += 1
+        out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
+    return out
+
+
+_GROUPED_WORKER_STATE: dict[str, t.Any] = {}
+
+
+def _init_grouped_neighbor_worker(
+    query_sequences: list[str],
+    query_sequence_ids: list[str],
+    query_v_genes: list[str],
+    query_j_genes: list[str],
+    background_sequences_spec: SharedArraySpec,
+    background_v_genes_spec: SharedArraySpec,
+    background_j_genes_spec: SharedArraySpec,
+    metric: str,
+    threshold: int,
+    match_v_gene: bool,
+    match_j_gene: bool,
+    add_self_pseudocount: bool,
+) -> None:
+    """Per-process init for grouped-trie parallel workers."""
+    bg_arr, bg_shm = attach_shared_array(background_sequences_spec)
+    bv_arr, bv_shm = attach_shared_array(background_v_genes_spec)
+    bj_arr, bj_shm = attach_shared_array(background_j_genes_spec)
+    bg_seqs = np.char.decode(bg_arr, "ascii").tolist()
+    bg_v = np.char.decode(bv_arr, "ascii").tolist()
+    bg_j = np.char.decode(bj_arr, "ascii").tolist()
+    g_seqs, g_tries = _build_grouped_tries(
+        bg_seqs, bg_v, bg_j,
+        match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+    )
+    _GROUPED_WORKER_STATE.update({
+        "query_sequences": query_sequences,
+        "query_sequence_ids": query_sequence_ids,
+        "query_v_genes": query_v_genes,
+        "query_j_genes": query_j_genes,
+        "group_seqs": g_seqs,
+        "group_tries": g_tries,
+        "metric": metric,
+        "threshold": threshold,
+        "match_v_gene": match_v_gene,
+        "match_j_gene": match_j_gene,
+        "add_self_pseudocount": add_self_pseudocount,
+        "shm_handles": (bg_shm, bv_shm, bj_shm),
+    })
+
+
+def _compute_grouped_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
+    """Process-pool worker for grouped-trie neighborhood queries."""
+    start, stop = range_pair
+    qs = _GROUPED_WORKER_STATE["query_sequences"]
+    ids = _GROUPED_WORKER_STATE["query_sequence_ids"]
+    qv = _GROUPED_WORKER_STATE["query_v_genes"]
+    qj = _GROUPED_WORKER_STATE["query_j_genes"]
+    g_seqs = _GROUPED_WORKER_STATE["group_seqs"]
+    g_tries = _GROUPED_WORKER_STATE["group_tries"]
+    mv = _GROUPED_WORKER_STATE["match_v_gene"]
+    mj = _GROUPED_WORKER_STATE["match_j_gene"]
+    metric = _GROUPED_WORKER_STATE["metric"]
+    threshold = _GROUPED_WORKER_STATE["threshold"]
+    asc = _GROUPED_WORKER_STATE["add_self_pseudocount"]
+    out: dict[str, dict[str, int]] = {}
+    for i in range(start, stop):
+        key = _gene_key(qv[i], qj[i], match_v_gene=mv, match_j_gene=mj)
+        seqs = g_seqs.get(key)
+        trie = g_tries.get(key)
+        g_sz = len(seqs) if seqs is not None else 0
+        if trie is None:
+            nc = pn = 1 if asc else 0
+        else:
+            nc = _count_grouped_neighbors(qs[i], trie, seqs, metric, threshold)
+            pn = g_sz
+            if asc:
+                nc += 1
+                pn += 1
+        out[ids[i]] = {"neighbor_count": nc, "potential_neighbors": pn}
+    return out
+
+
 def _compute_query_batch(
     query_clonotypes: list,
     sequence_ids: list[str],
@@ -308,19 +507,65 @@ def _compute_locus_stats(
             for seq_id in q_seq_ids
         }
 
-    trie = background_locus.trie
     background_sequences = [c.junction_aa for c in background_clonotypes]
     background_v_genes = [c.v_gene for c in background_clonotypes]
     background_j_genes = [c.j_gene for c in background_clonotypes]
     query_sequences = [c.junction_aa for c in query_clonotypes]
     query_v_genes = [c.v_gene for c in query_clonotypes]
     query_j_genes = [c.j_gene for c in query_clonotypes]
-    potential_counter = _build_potential_counter(
-        background_clonotypes,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
-    )
     n_query = len(query_clonotypes)
+
+    # ── Grouped-trie path (V/J-restricted search) ────────────────────────────
+    # Build one small Trie per (V,J) group rather than filtering one large Trie
+    # in Python.  Each per-group Trie is ~N_total / N_groups sequences, so the
+    # search is faster and no Python V/J validation loop is needed.
+    if match_v_gene or match_j_gene:
+        if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
+            g_seqs, g_tries = _build_grouped_tries(
+                background_sequences, background_v_genes, background_j_genes,
+                match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+            )
+            return _compute_grouped_query_batch(
+                query_clonotypes, q_seq_ids, g_seqs, g_tries,
+                metric=metric, threshold=threshold,
+                match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+                add_self_pseudocount=add_self_pseudocount,
+            )
+
+        # Parallel grouped path: each worker independently builds group tries
+        # from shared memory and processes its assigned query range.
+        batch_size = max(1, ceil(n_query / n_jobs))
+        ranges = [(s, min(s + batch_size, n_query)) for s in range(0, n_query, batch_size)]
+        results: dict[str, dict[str, int]] = {}
+        shared_handles = []
+        try:
+            bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
+            shared_handles.append(bg_seq_shm)
+            bg_v_spec, bg_v_shm = create_shared_array(fixed_bytes_array(background_v_genes))
+            shared_handles.append(bg_v_shm)
+            bg_j_spec, bg_j_shm = create_shared_array(fixed_bytes_array(background_j_genes))
+            shared_handles.append(bg_j_shm)
+            with ProcessPoolExecutor(
+                max_workers=n_jobs,
+                mp_context=_MP_CTX,
+                initializer=_init_grouped_neighbor_worker,
+                initargs=(
+                    query_sequences, q_seq_ids, query_v_genes, query_j_genes,
+                    bg_seq_spec, bg_v_spec, bg_j_spec,
+                    metric, threshold, match_v_gene, match_j_gene,
+                    add_self_pseudocount,
+                ),
+            ) as executor:
+                for batch_result in executor.map(_compute_grouped_query_batch_worker, ranges):
+                    results.update(batch_result)
+        finally:
+            close_unlink_many(shared_handles)
+        return results
+
+    # ── Single-trie path (no V/J restriction) ────────────────────────────────
+    # Trie construction deferred here so the grouped path never pays this cost.
+    trie = background_locus.trie
+    potential_counter = None  # match_v_gene=False, match_j_gene=False → no counter needed
     if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
         return _compute_query_batch(
             query_clonotypes,
@@ -331,8 +576,8 @@ def _compute_locus_stats(
             trie,
             metric=metric,
             threshold=threshold,
-            match_v_gene=match_v_gene,
-            match_j_gene=match_j_gene,
+            match_v_gene=False,
+            match_j_gene=False,
             background_size=n_background,
             potential_counter=potential_counter,
             add_self_pseudocount=add_self_pseudocount,
@@ -342,7 +587,7 @@ def _compute_locus_stats(
 
     batch_size = max(1, ceil(n_query / n_jobs))
     ranges = [(start, min(start + batch_size, n_query)) for start in range(0, n_query, batch_size)]
-    results: dict[str, dict[str, int]] = {}
+    results = {}
     shared_handles = []
     try:
         bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
@@ -366,8 +611,8 @@ def _compute_locus_stats(
                 bg_j_spec,
                 metric,
                 threshold,
-                match_v_gene,
-                match_j_gene,
+                False,
+                False,
                 n_background,
                 potential_counter,
                 add_self_pseudocount,
