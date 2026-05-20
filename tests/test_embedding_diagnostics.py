@@ -58,6 +58,31 @@ def test_analyze_embedding_dbscan_returns_expected_keys() -> None:
     assert 0.0 <= result["consistency"] <= 1.0
 
 
+def test_analyze_embedding_dbscan_stable_mode_returns_selector_meta() -> None:
+    rng = np.random.default_rng(7)
+    X = np.vstack(
+        [
+            rng.normal(loc=0.0, scale=0.25, size=(30, 6)),
+            rng.normal(loc=1.5, scale=0.25, size=(30, 6)),
+        ]
+    )
+    labels = np.array(["A"] * 30 + ["B"] * 30)
+
+    result = analyze_embedding_dbscan(
+        X,
+        labels,
+        seed=7,
+        eps_selection_mode="stable_kneedle",
+        n_bootstrap=5,
+    )
+
+    assert result["eps"] > 0.0
+    assert result["eps_selection_mode"] == "stable_kneedle"
+    selector_meta = result["eps_selector_meta"]
+    assert isinstance(selector_meta, dict)
+    assert "n_candidates" in selector_meta
+
+
 def test_majority_vote_predictions_and_scores() -> None:
     labels = np.array(["E1", "E1", "E2", "E2", "E3", "E3"])
     clusters = np.array([0, 0, 1, 1, -1, 1])

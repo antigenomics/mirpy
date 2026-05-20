@@ -19,6 +19,7 @@ from .embedding_diagnostics import (
     cluster_purity_consistency,
     majority_vote_cluster_predictions,
     select_eps_kneedle,
+    select_eps_kneedle_stable,
 )
 from .stats import bh_fdr
 from .memory_debug import process_memory_snapshot, top_python_processes
@@ -40,6 +41,7 @@ __all__ = [
     "cluster_purity_consistency",
     "majority_vote_cluster_predictions",
     "select_eps_kneedle",
+    "select_eps_kneedle_stable",
     "bh_fdr",
     "process_memory_snapshot",
     "top_python_processes",
