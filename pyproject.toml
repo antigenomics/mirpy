@@ -106,4 +106,6 @@ logging.level = "INFO"
 markers = [
   "benchmark: performance-oriented tests excluded from the default test run",
   "integration: slow or environment-dependent tests excluded from the default test run",
+  "slow_benchmark: long-running benchmark with slow timeout budget",
+  "very_slow_benchmark: extra long benchmark with very-slow timeout budget",
 ]

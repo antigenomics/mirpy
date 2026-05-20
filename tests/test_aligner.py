@@ -22,7 +22,7 @@ from mir.distances.aligner import (
 # ---------------------------------------------------------------------------
 # OLGA-generated human TRB CDR3 amino-acid sequences (50 sequences)
 # ---------------------------------------------------------------------------
-OLGA_CDR3S = [
+OLGA_JUNCTIONS = [
     "CASSLETGEACNQPQHF",
     "CATSGHRDRQVQPQHF",
     "CASSLGRDRGMNTEAFF",
@@ -91,7 +91,7 @@ class TestCDRAlignerBasic:
 
     def test_self_score_positive(self):
         """Self-score with BLOSUM62 must be positive for valid AA seqs."""
-        for s in OLGA_CDR3S[:20]:
+        for s in OLGA_JUNCTIONS[:20]:
             sc = self.aligner.score(s, s)
             assert sc > 0, f"self-score for {s} should be > 0, got {sc}"
 
@@ -102,13 +102,13 @@ class TestCDRAlignerBasic:
         diagonal) while ``score(s, s)`` only covers [v_offset..L-j_offset),
         so score_norm(s, s) is typically negative, not zero.
         """
-        for s in OLGA_CDR3S[:10]:
+        for s in OLGA_JUNCTIONS[:10]:
             sn = self.aligner.score_norm(s, s)
             assert sn <= 1e-9, f"norm(self) for {s} = {sn}"
 
     def test_score_dist_self_is_zero(self):
         """Distance to self must be zero."""
-        for s in OLGA_CDR3S[:10]:
+        for s in OLGA_JUNCTIONS[:10]:
             d = self.aligner.score_dist(s, s)
             assert d == pytest.approx(0.0, abs=1e-9)
 
@@ -116,14 +116,14 @@ class TestCDRAlignerBasic:
 
     def test_score_symmetry(self):
         """score(a,b) == score(b,a)."""
-        pairs = list(zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]))
+        pairs = list(zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]))
         for a, b in pairs:
             assert self.aligner.score(a, b) == pytest.approx(
                 self.aligner.score(b, a), abs=1e-9
             ), f"asymmetric score for {a}, {b}"
 
     def test_score_norm_symmetry(self):
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             assert self.aligner.score_norm(a, b) == pytest.approx(
                 self.aligner.score_norm(b, a), abs=1e-9
             )
@@ -132,7 +132,7 @@ class TestCDRAlignerBasic:
 
     def test_score_norm_nonpositive(self):
         """Normalised score must be <= 0 (similarity relative to self)."""
-        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+        for a, b in zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]):
             sn = self.aligner.score_norm(a, b)
             assert sn <= 1e-9, f"score_norm({a},{b}) = {sn} > 0"
 
@@ -148,7 +148,7 @@ class TestCDRAlignerBasic:
 
     def test_equal_length_deterministic(self):
         """Same input → same output."""
-        s1, s2 = OLGA_CDR3S[0], OLGA_CDR3S[1]
+        s1, s2 = OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[1]
         sc1 = self.aligner.score(s1, s2)
         sc2 = self.aligner.score(s1, s2)
         assert sc1 == sc2
@@ -157,14 +157,14 @@ class TestCDRAlignerBasic:
 
     def test_pad_length_consistency(self):
         """Padded sequences must have equal length (= max of originals)."""
-        s1 = OLGA_CDR3S[0]
-        s2 = OLGA_CDR3S[3]  # different length
+        s1 = OLGA_JUNCTIONS[0]
+        s2 = OLGA_JUNCTIONS[3]  # different length
         for p1, p2 in self.aligner.pad(s1, s2):
             assert len(p1) == len(p2), f"pad mismatch: {len(p1)} vs {len(p2)}"
 
     def test_alns_returns_score_per_gap(self):
         """alns() returns one (s1pad, s2pad, score) per gap position."""
-        s1, s2 = OLGA_CDR3S[0], OLGA_CDR3S[3]
+        s1, s2 = OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[3]
         result = self.aligner.alns(s1, s2)
         assert len(result) == len(self.aligner.gap_positions)
         for padded1, padded2, sc in result:
@@ -175,7 +175,7 @@ class TestCDRAlignerBasic:
 
     def test_triangle_inequality(self):
         """score_dist should satisfy the triangle inequality for simple cases."""
-        seqs = OLGA_CDR3S[:5]
+        seqs = OLGA_JUNCTIONS[:5]
         d = {}
         for i, si in enumerate(seqs):
             for j, sj in enumerate(seqs):
@@ -235,12 +235,12 @@ class TestCvsPythonFallback:
 
     def test_equal_len_c_vs_py(self):
         same_len_pairs = [
-            (a, b) for a, b in zip(OLGA_CDR3S, OLGA_CDR3S[1:])
+            (a, b) for a, b in zip(OLGA_JUNCTIONS, OLGA_JUNCTIONS[1:])
             if len(a) == len(b)
         ]
         if not same_len_pairs:
             # Make some equal-length pairs by truncation
-            same_len_pairs = [(s[:10], s[:10].replace('S', 'T', 1)) for s in OLGA_CDR3S[:5]]
+            same_len_pairs = [(s[:10], s[:10].replace('S', 'T', 1)) for s in OLGA_JUNCTIONS[:5]]
         for a, b in same_len_pairs:
             c_score = self.aligner.score(a, b)
             py_score = self._py_score(a, b)
@@ -249,7 +249,7 @@ class TestCvsPythonFallback:
 
     def test_diff_len_c_vs_py(self):
         diff_len_pairs = [
-            (a, b) for a, b in zip(OLGA_CDR3S, OLGA_CDR3S[1:])
+            (a, b) for a, b in zip(OLGA_JUNCTIONS, OLGA_JUNCTIONS[1:])
             if len(a) != len(b)
         ]
         for a, b in diff_len_pairs[:15]:
@@ -259,7 +259,7 @@ class TestCvsPythonFallback:
                 f"C vs Py mismatch for diff-len {a}, {b}: {c_score} vs {py_score}"
 
     def test_selfscore_c_vs_py(self):
-        for s in OLGA_CDR3S[:20]:
+        for s in OLGA_JUNCTIONS[:20]:
             from mir.distances.aligner import _get_seqdist
             cdr = _get_seqdist()
             if cdr is None:
@@ -303,8 +303,8 @@ class TestBioPythonCrossCheck:
 
         # Gather equal-length pairs from OLGA set
         pairs = []
-        for i, s1 in enumerate(OLGA_CDR3S):
-            for s2 in OLGA_CDR3S[i + 1 :]:
+        for i, s1 in enumerate(OLGA_JUNCTIONS):
+            for s2 in OLGA_JUNCTIONS[i + 1 :]:
                 if len(s1) == len(s2):
                     pairs.append((s1, s2))
                     if len(pairs) >= 20:
@@ -313,7 +313,7 @@ class TestBioPythonCrossCheck:
                 break
 
         # Also create some by trimming to a common length
-        for s1, s2 in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for s1, s2 in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             L = min(len(s1), len(s2))
             pairs.append((s1[:L], s2[:L]))
 
@@ -338,7 +338,7 @@ class TestBioPythonCrossCheck:
         bio.open_gap_score = -1000.0
         bio.extend_gap_score = -1000.0
 
-        for s in OLGA_CDR3S[:15]:
+        for s in OLGA_JUNCTIONS[:15]:
             cdr_ss = cdr.score(s, s) / CDRAligner._factor
             bio_ss = bio.align(s, s).score
             assert cdr_ss == pytest.approx(bio_ss, abs=1e-4), \
@@ -375,7 +375,8 @@ class TestBackwardCompat:
         cs = ClonotypeScore(1.0, 2.0, 3.0)
         assert cs.v_score == 1.0
         assert cs.j_score == 2.0
-        assert cs.cdr3_score == 3.0
+        assert cs.junction_score == 3.0
+        assert cs.cdr3_score == 3.0  # backward-compat alias
         assert cs.get_flatten_score() == [1.0, 2.0, 3.0]
 
     def test_paired_clone_score(self):
@@ -414,7 +415,7 @@ class TestAlignVisualization:
     # -- Basic structure -------------------------------------------------
 
     def test_align_returns_four_tuple(self):
-        s1, s2 = OLGA_CDR3S[0], OLGA_CDR3S[3]
+        s1, s2 = OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[3]
         result = self.aligner.align(s1, s2)
         assert len(result) == 4
         gs1, mid, gs2, score = result
@@ -426,16 +427,16 @@ class TestAlignVisualization:
     def test_align_equal_lengths(self):
         """Equal-length strings: no gaps, all three strings same length."""
         gs1, mid, gs2, sc = self.aligner.align(
-            OLGA_CDR3S[0], OLGA_CDR3S[0]
+            OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[0]
         )
-        assert gs1 == OLGA_CDR3S[0]
-        assert gs2 == OLGA_CDR3S[0]
+        assert gs1 == OLGA_JUNCTIONS[0]
+        assert gs2 == OLGA_JUNCTIONS[0]
         assert len(mid) == len(gs1)
         assert all(c == '|' for c in mid)  # self-alignment: all match
 
     def test_align_strings_equal_length(self):
         """All three output strings must have the same length."""
-        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+        for a, b in zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]):
             gs1, mid, gs2, _ = self.aligner.align(a, b)
             assert len(gs1) == len(mid) == len(gs2), (
                 f"length mismatch: {len(gs1)}, {len(mid)}, {len(gs2)}"
@@ -443,7 +444,7 @@ class TestAlignVisualization:
 
     def test_align_output_length_is_max(self):
         """Output length equals max(len(s1), len(s2))."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             gs1, mid, gs2, _ = self.aligner.align(a, b)
             expected_len = max(len(a), len(b))
             assert len(gs1) == expected_len
@@ -452,7 +453,7 @@ class TestAlignVisualization:
 
     def test_gaps_in_shorter_sequence(self):
         """Gaps ('-') must appear only in the shorter sequence."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             if len(a) == len(b):
                 continue
             gs1, mid, gs2, _ = self.aligner.align(a, b)
@@ -465,7 +466,7 @@ class TestAlignVisualization:
 
     def test_gap_count_matches_length_diff(self):
         """Number of '-' chars equals the length difference."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             gs1, mid, gs2, _ = self.aligner.align(a, b)
             diff = abs(len(a) - len(b))
             assert gs1.count('-') + gs2.count('-') == diff
@@ -474,14 +475,14 @@ class TestAlignVisualization:
 
     def test_midline_chars_valid(self):
         """Midline only contains |, :, ., or space."""
-        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+        for a, b in zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]):
             _, mid, _, _ = self.aligner.align(a, b)
             for c in mid:
                 assert c in '|:. ', f"unexpected midline char: {c!r}"
 
     def test_midline_pipe_means_match(self):
         """'|' in midline ↔ same residue at that position."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             gs1, mid, gs2, _ = self.aligner.align(a, b)
             for i, c in enumerate(mid):
                 if c == '|':
@@ -491,7 +492,7 @@ class TestAlignVisualization:
 
     def test_midline_space_means_gap(self):
         """' ' in midline ↔ gap character in one of the sequences."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             gs1, mid, gs2, _ = self.aligner.align(a, b)
             for i, c in enumerate(mid):
                 if c == ' ':
@@ -501,7 +502,7 @@ class TestAlignVisualization:
 
     def test_align_score_matches_score(self):
         """align() score must match score()."""
-        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+        for a, b in zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]):
             _, _, _, aln_sc = self.aligner.align(a, b)
             sc = self.aligner.score(a, b)
             assert aln_sc == pytest.approx(sc, abs=1e-6), (
@@ -510,7 +511,7 @@ class TestAlignVisualization:
 
     def test_align_symmetry(self):
         """align(a,b) score == align(b,a) score; gaps swap sides."""
-        for a, b in zip(OLGA_CDR3S[:10], OLGA_CDR3S[10:20]):
+        for a, b in zip(OLGA_JUNCTIONS[:10], OLGA_JUNCTIONS[10:20]):
             gs1_ab, _, gs2_ab, sc_ab = self.aligner.align(a, b)
             gs1_ba, _, gs2_ba, sc_ba = self.aligner.align(b, a)
             assert sc_ab == pytest.approx(sc_ba, abs=1e-6)
@@ -520,7 +521,7 @@ class TestAlignVisualization:
     def test_align_c_vs_python(self):
         """C and Python fallback align() must produce identical output."""
         aligner = CDRAligner()
-        for a, b in zip(OLGA_CDR3S[:15], OLGA_CDR3S[15:30]):
+        for a, b in zip(OLGA_JUNCTIONS[:15], OLGA_JUNCTIONS[15:30]):
             c_result = aligner.align(a, b)
             py_result = aligner._align_py(a, b)
             assert c_result[0] == py_result[0], f"gs1 mismatch for {a}, {b}"
@@ -533,10 +534,10 @@ class TestAlignVisualization:
     def test_visualize_sample_alignments(self):
         """Print a few representative alignments for visual inspection."""
         pairs = [
-            (OLGA_CDR3S[0], OLGA_CDR3S[3]),   # 17 vs 11 aa
-            (OLGA_CDR3S[4], OLGA_CDR3S[5]),   # 17 vs 18 aa
-            (OLGA_CDR3S[0], OLGA_CDR3S[0]),   # self
-            (OLGA_CDR3S[13], OLGA_CDR3S[15]), # 24 vs 10 aa
+            (OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[3]),   # 17 vs 11 aa
+            (OLGA_JUNCTIONS[4], OLGA_JUNCTIONS[5]),   # 17 vs 18 aa
+            (OLGA_JUNCTIONS[0], OLGA_JUNCTIONS[0]),   # self
+            (OLGA_JUNCTIONS[13], OLGA_JUNCTIONS[15]), # 24 vs 10 aa
         ]
         print("\n")
         for s1, s2 in pairs:
@@ -569,10 +570,10 @@ class TestAlignmentBenchmarks:
 
     def _make_pairs(self):
         pairs = []
-        n = len(OLGA_CDR3S)
+        n = len(OLGA_JUNCTIONS)
         for i in range(self.N_PAIRS):
-            a = OLGA_CDR3S[i % n]
-            b = OLGA_CDR3S[(i * 7 + 3) % n]
+            a = OLGA_JUNCTIONS[i % n]
+            b = OLGA_JUNCTIONS[(i * 7 + 3) % n]
             pairs.append((a, b))
         return pairs
 

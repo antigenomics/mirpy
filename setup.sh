@@ -124,12 +124,13 @@ if [ "$RUN_TESTS" -eq 1 ]; then
 
     if [ "$RUN_HEAVY" -eq 1 ]; then
         echo ""
-        echo "Running benchmark and integration tests..."
+        echo "Running benchmark and integration tests (excludes very_slow_benchmark)..."
         RUN_BENCHMARKS=1 RUN_INTEGRATION=1 \
-            "$PYTHON_BIN" -m pytest tests -m "benchmark or integration" -q
+            "$PYTHON_BIN" -m pytest tests -m "(benchmark or integration) and not very_slow_benchmark" -q
     fi
 fi
 
 echo ""
 echo "Done.  Activate the environment with:"
-echo "  source $VENV/bin/activate"
+echo "  source $VENV/bin/activate        # bash/zsh"
+echo "  source $VENV/bin/activate.fish   # fish"

@@ -32,15 +32,15 @@ Graph And Sequence Analysis
    gene_similarity
    token_graph
    edit_distance_graph
-   vdjdb_cdr3_graph
+   vdjdb_junction_graph
 
 **gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
 
 **token_graph** — Build bipartite k-mer/clonotype graphs and filter by sequence motifs.
 
-**edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from CDR3 sequences.
+**edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from junction sequences.
 
-**vdjdb_cdr3_graph** — Analyse multi-epitope CDR3 Hamming graphs from VDJdb.
+**vdjdb_junction_graph** — Analyse multi-epitope junction Hamming graphs from VDJdb.
 
 Biomarker Detection
 ====================

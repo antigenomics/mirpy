@@ -159,19 +159,19 @@ def _compute_1mm_batch(seqs: list[str]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 def _generate_chunk(args: tuple) -> list[str]:
-    """Worker: generate CDR3 aa sequences (no Pgen) for generate_sequences_parallel."""
+    """Worker: generate junction aa sequences (no Pgen) for generate_sequences_parallel."""
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
-    return [model._sample_cdr3_aa() for _ in range(n)]
+    return [model._sample_junction_aa() for _ in range(n)]
 
 
 # ---------------------------------------------------------------------------
 # Attempt-counted generation (for MC Pgen denominator calibration)
 # ---------------------------------------------------------------------------
 
-def _gen_one_counted_cdr3_vdj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
-    """Return (cdr3_aa, n_attempts) for one productive VDJ event.
+def _gen_one_counted_junction_vdj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
+    """Return (junction_aa, n_attempts) for one productive VDJ event.
 
     Counts every recombination event tried, including non-productive ones, so
     that sum(n_attempts) / n_productive = 1 / P(productive).  This ratio is
@@ -218,8 +218,8 @@ def _gen_one_counted_cdr3_vdj(sg, conserved_J_residues: str = "FVW") -> tuple[st
         return aaseq, n
 
 
-def _gen_one_counted_cdr3_vj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
-    """Return (cdr3_aa, n_attempts) for one productive VJ event."""
+def _gen_one_counted_junction_vj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
+    """Return (junction_aa, n_attempts) for one productive VJ event."""
     n = 0
     while True:
         n += 1
@@ -262,7 +262,7 @@ def _generate_counted_chunk(args: tuple) -> tuple[list[str], int]:
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
     sg = model.seq_gen_model
-    _gen = _gen_one_counted_cdr3_vdj if model.is_d_present else _gen_one_counted_cdr3_vj
+    _gen = _gen_one_counted_junction_vdj if model.is_d_present else _gen_one_counted_junction_vj
     seqs: list[str] = []
     total = 0
     for _ in range(n):
@@ -508,14 +508,14 @@ class OlgaModel:
     # Sequence generation
     # ------------------------------------------------------------------
 
-    def _sample_cdr3_aa(self) -> str:
-        """Draw one productive CDR3 amino-acid sequence from the model."""
+    def _sample_junction_aa(self) -> str:
+        """Draw one productive junction amino-acid sequence from the model."""
         result = self.seq_gen_model.gen_rnd_prod_CDR3()
         assert result is not None
         return result[1]
 
     def generate_sequences(self, n: int = 1000, seed: int | None = 42) -> list[str]:
-        """Generate *n* productive CDR3 amino-acid sequences.
+        """Generate *n* productive junction amino-acid sequences.
 
         Args:
             n: Number of sequences to generate.
@@ -523,11 +523,11 @@ class OlgaModel:
                 to continue from the current RNG state.
 
         Returns:
-            List of CDR3 amino-acid strings.
+            List of junction amino-acid strings.
         """
         if seed is not None:
             np.random.seed(seed)
-        return [self._sample_cdr3_aa() for _ in range(n)]
+        return [self._sample_junction_aa() for _ in range(n)]
 
     def generate_sequences_parallel(
         self,
@@ -586,7 +586,7 @@ class OlgaModel:
         if n_jobs <= 1:
             np.random.seed(seed)
             sg = self.seq_gen_model
-            _gen = _gen_one_counted_cdr3_vdj if self.is_d_present else _gen_one_counted_cdr3_vj
+            _gen = _gen_one_counted_junction_vdj if self.is_d_present else _gen_one_counted_junction_vj
             seqs: list[str] = []
             total = 0
             for _ in range(n):
