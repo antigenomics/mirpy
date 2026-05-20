@@ -62,12 +62,12 @@ def _load_vdjdb_b35_epl_reference() -> LocusRepertoire:
     ]
 
     # Keep exactly one record per junction_aa so benchmark cardinality checks are stable.
-    unique_by_cdr3: dict[str, Clonotype] = {}
+    unique_by_junction: dict[str, Clonotype] = {}
     for c in filtered:
-        unique_by_cdr3.setdefault(c.junction_aa, c)
+        unique_by_junction.setdefault(c.junction_aa, c)
 
     return LocusRepertoire(
-        clonotypes=list(unique_by_cdr3.values()),
+        clonotypes=list(unique_by_junction.values()),
         locus="TRB",
         repertoire_id="vdjdb-b35-epl",
     )
@@ -79,7 +79,7 @@ def _sequence_table(rep: LocusRepertoire) -> pd.DataFrame:
     for c in rep.clonotypes:
         rows.append(
             {
-                "cdr3aa": c.junction_aa,
+                "junction_aa": c.junction_aa,
                 "count": int(c.duplicate_count),
                 "v_gene": c.v_gene,
                 "j_gene": c.j_gene,
@@ -87,7 +87,7 @@ def _sequence_table(rep: LocusRepertoire) -> pd.DataFrame:
         )
     df = pd.DataFrame(rows)
     grouped = (
-        df.groupby(["cdr3aa", "v_gene", "j_gene"], as_index=False)
+        df.groupby(["junction_aa", "v_gene", "j_gene"], as_index=False)
         .agg(count=("count", "sum"))
         .sort_values("count", ascending=False)
     )
@@ -96,9 +96,9 @@ def _sequence_table(rep: LocusRepertoire) -> pd.DataFrame:
 
 
 def _tcrnet_table_with_counts(rep: LocusRepertoire, result_table: pd.DataFrame) -> pd.DataFrame:
-    counts = _sequence_table(rep)[["cdr3aa", "count", "freq"]].rename(columns={"cdr3aa": "junction_aa"})
+    counts = _sequence_table(rep)[["junction_aa", "count", "freq"]]
     table = result_table.merge(counts, on="junction_aa", how="left")
-    table = table.rename(columns={"junction_aa": "cdr3aa", "fold_enrichment": "fold"})
+    table = table.rename(columns={"fold_enrichment": "fold"})
     table = table[table["count"].fillna(0).gt(1)].copy()
     table["p.adj"] = bh_fdr(table["p_value"].to_numpy())
     return table.sort_values(["p.adj", "fold"], ascending=[True, False]).reset_index(drop=True)
@@ -115,12 +115,12 @@ def _collect_neighbor_sequences(rep: LocusRepertoire, query_sequences: list[str]
 
 def _sequences_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
     clonotypes: list[Clonotype] = []
-    for idx, row in enumerate(df.drop_duplicates("cdr3aa").itertuples(index=False)):
+    for idx, row in enumerate(df.drop_duplicates("junction_aa").itertuples(index=False)):
         clonotypes.append(
             Clonotype(
                 sequence_id=str(idx),
                 locus="TRB",
-                junction_aa=str(row.cdr3aa),
+                junction_aa=str(row.junction_aa),
                 duplicate_count=int(row.count),
                 v_gene=str(getattr(row, "v_gene", "") or ""),
                 j_gene=str(getattr(row, "j_gene", "") or ""),
@@ -130,7 +130,7 @@ def _sequences_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
     return clonotypes
 
 
-def _rand_cdr3(rng: random.Random, n: int = 13) -> str:
+def _rand_junction(rng: random.Random, n: int = 13) -> str:
     return "C" + "".join(rng.choice(_AA) for _ in range(n - 2)) + "F"
 
 
@@ -179,7 +179,7 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
     rng = random.Random(42)
 
     # Base control
-    control = [_clone(f"c{i}", _rand_cdr3(rng), v="TRBV7-9*01", j="TRBJ2-1*01") for i in range(500)]
+    control = [_clone(f"c{i}", _rand_junction(rng), v="TRBV7-9*01", j="TRBJ2-1*01") for i in range(500)]
     # Sparse GIL-like motifs in control
     control.extend(
         [
@@ -190,7 +190,7 @@ def test_tcrnet_benchmark_gil_like_motif_enrichment(capsys, tmp_path: Path) -> N
     )
 
     # Target has stronger GIL-like motif neighborhood
-    target = [_clone(f"t{i}", _rand_cdr3(rng), v="TRBV7-9*01", j="TRBJ2-1*01") for i in range(180)]
+    target = [_clone(f"t{i}", _rand_junction(rng), v="TRBV7-9*01", j="TRBJ2-1*01") for i in range(180)]
     target.extend([_clone(f"tg{i}", "CASSGILGNTQYF") for i in range(20)])
     target.extend(
         [
@@ -401,17 +401,17 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
     )
 
     table = _tcrnet_table_with_counts(target, result.table.to_pandas())
-    dedup = table.drop_duplicates(["cdr3aa", "v_gene", "j_gene"]).copy()
+    dedup = table.drop_duplicates(["junction_aa", "v_gene", "j_gene"]).copy()
 
     # High-confidence donor-enriched clonotypes versus real control.
     enriched = dedup[(dedup["p.adj"] < 1e-6) & (dedup["fold"] >= 2.0)].copy()
-    enriched_vdjdb = enriched[enriched["cdr3aa"].isin(ref_sequences)].copy()
+    enriched_vdjdb = enriched[enriched["junction_aa"].isin(ref_sequences)].copy()
 
     seq_table = _sequence_table(target)
-    seed_sequences = enriched_vdjdb["cdr3aa"].drop_duplicates().tolist()
+    seed_sequences = enriched_vdjdb["junction_aa"].drop_duplicates().tolist()
     neighbor_sequences = _collect_neighbor_sequences(target, seed_sequences)
-    component_nodes = seq_table[seq_table["cdr3aa"].isin(neighbor_sequences)].copy()
-    component_vdjdb = component_nodes[component_nodes["cdr3aa"].isin(ref_sequences)].copy()
+    component_nodes = seq_table[seq_table["junction_aa"].isin(neighbor_sequences)].copy()
+    component_vdjdb = component_nodes[component_nodes["junction_aa"].isin(ref_sequences)].copy()
 
     component_sizes: list[int] = []
     if not component_nodes.empty:

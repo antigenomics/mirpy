@@ -37,7 +37,7 @@ from mir.graph.token_graph import build_token_graph
 # Asset path
 # ---------------------------------------------------------------------------
 
-GILG_FILE = Path(__file__).parent / "assets" / "gilgfvftl_trb_cdr3.txt.gz"
+GILG_FILE = Path(__file__).parent / "assets" / "gilgfvftl_trb_junctions.txt.gz"
 
 _K = 3
 _HAMMING_THRESHOLD = 1

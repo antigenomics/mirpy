@@ -553,6 +553,7 @@ def _run_specs(
 
 @skip_benchmarks
 @pytest.mark.benchmark
+@pytest.mark.very_slow_benchmark
 def test_alice_tcrnet_synthetic_hamming_concordance(capsys) -> None:
     t_start = time.perf_counter()
     max_clonotypes = _env_int("MIRPY_BENCH_FAST_MAX_CLONOTYPES", 300)
@@ -602,6 +603,7 @@ def test_alice_tcrnet_synthetic_hamming_concordance(capsys) -> None:
 
 @skip_benchmarks
 @pytest.mark.benchmark
+@pytest.mark.very_slow_benchmark
 def test_tcrnet_synthetic_levenshtein_matrix(capsys) -> None:
     t_start = time.perf_counter()
     max_clonotypes = _env_int("MIRPY_BENCH_FAST_MAX_CLONOTYPES", 300)

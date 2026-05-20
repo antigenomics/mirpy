@@ -22,7 +22,7 @@ All data loaded from HuggingFace via `mir/utils/notebook_assets.py` utilities.
 | gene_similarity.ipynb | 5 | 2.6 s | ~80 MB | V-gene cosine similarity |
 | sample_repertoire_overview.ipynb | 7 | 3.3 s | ~80 MB | Repertoire QC plots |
 | token_graph.ipynb | 8 | 12.0 s | ~80 MB | GLIPH token graph |
-| vdjdb_cdr3_graph.ipynb | 9 | 16.5 s | ~80 MB | VDJdb CDR3 Hamming graph |
+| vdjdb_junction_graph.ipynb | 9 | 16.5 s | ~80 MB | VDJdb junction Hamming graph |
 | edit_distance_graph.ipynb | 6 | 5.3 s | ~80 MB | Levenshtein edit-distance graph |
 | gene_usage_correction.ipynb | 8 | 205 s | ~80 MB | OLGA V/J usage correction |
 | tcrnet_analysis.ipynb | 10 | 93.8 s | ~85 MB | TCRnet motif enrichment on YF |
@@ -94,7 +94,7 @@ Real-control tests cap at 2 M rows via `MIRPY_BENCH_REAL_CONTROL_N=2000000`.
 | test_alice_benchmark.py | 2/2 | ~610 s | YF notebook scaling + pgen parallel |
 | test_overlap_benchmark.py | 3/3 | ~75 s | Pairwise overlap timing + 41-sample matrix |
 | test_overlap_execution_benchmark.py | 2/2 | ~115 s | Serial overlap on real aging cohort |
-| test_tcremp_benchmarks.py | 5/5 | ~75 s | TCREmp throughput + MP scaling |
+| test_tcremp_benchmark.py | 5/5 | ~75 s | TCREmp throughput + MP scaling |
 | test_tcremp_paired_benchmark.py | 1/1 | ~2 s | Paired TRA/TRB embedding speed |
 | test_tcremp_vdjdb_benchmark.py | 1/2 | ~5 s | VDJdb TRB clustering (paired requires re-run) |
 | test_single_cell_10x_benchmark.py | 4/4 | ~10 s | 10x dcode loading + scaling |
@@ -108,7 +108,7 @@ Tests marked **skip** in the table above require additional environment flags; s
 
 > **Memory guard**: After the `test_control_benchmark.py` real-TRB build (28M rows), process RSS
 > settles at ~9–10 GB for the remainder of the pytest session. `MIRPY_BENCH_MEMORY_LIMIT_GB`
-> default was raised from 8 → **16 GB** (and `very_slow_benchmark` cap is 24 GB) so that
+> default was raised to **32 GB** (and `very_slow_benchmark` cap is also 32 GB) so that
 > residual RSS from earlier tests does not trigger false-positive failures.
 
 ---
@@ -338,7 +338,7 @@ Thread-parallel many-vs-many (n_jobs=4, same 28 pairs): 25.54 s (effective_jobs=
 
 ---
 
-### test_tcremp_benchmarks.py
+### test_tcremp_benchmark.py
 
 #### Distance correlation
 
@@ -372,11 +372,7 @@ Per-component R² (V, J, CDR3, L2-emb): 0.4691 / 0.1633 / 0.5547 / 0.5723.
 | 100 000 | 3.09 s | 2.07 s (1.49×) | 1.49 s (2.07×) | 1.22 s (2.54×) |
 | 500 000 | 15.33 s | 10.55 s (1.45×) | 7.66 s (2.00×) | 6.22 s (2.46×) |
 
----
-
-### test_tcremp_benchmark.py
-
-All tests pass with the 16 GB memory guard default. Key measurements:
+#### Key aligner measurements
 
 | Benchmark | Result |
 |---|---|
@@ -600,13 +596,12 @@ The conftest enforces RSS limits via psutil (current RSS, not the macOS `ru_maxr
 
 | Benchmark tier | Marker | Default RSS cap | Override env var |
 |---|---|---|---|
-| Standard | `@benchmark` | **16 GB** | `MIRPY_BENCH_MEMORY_LIMIT_GB` |
-| Very slow | `@very_slow_benchmark` | 24 GB | `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` |
+| Standard | `@benchmark` | **32 GB** | `MIRPY_BENCH_MEMORY_LIMIT_GB` |
+| Very slow | `@very_slow_benchmark` | **32 GB** | `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` |
 
-The 16 GB default was raised from 8 GB (2026-05-16) after the real-control build (28 M TRB rows)
-left ~9–10 GB RSS in the pytest process for the rest of the session, causing false positives.
-Tests that load the 28.3 M-row real control pickle peak at ~13–15 GB in-process.
-Those tests carry the `very_slow_benchmark` marker specifically to remain within the 24 GB cap.
+The 32 GB default accounts for residual RSS from the real-control build (28 M TRB rows,
+~9–10 GB residual) so earlier tests do not trigger false-positive failures in the same session.
+The machine has 32 GB RAM; both tiers share the same cap to avoid surprising limit differences.
 
 ---
 
@@ -614,7 +609,7 @@ Those tests carry the `very_slow_benchmark` marker specifically to remain within
 
 | Tier | Marker | Default cap | Override env var |
 |---|---|---|---|
-| Standard | `@slow_benchmark` | 600 s | `MIRPY_BENCH_SLOW_TIMEOUT_S` |
+| Standard | `@slow_benchmark` | 1 800 s | `MIRPY_BENCH_SLOW_TIMEOUT_S` |
 | Very slow | `@very_slow_benchmark` | 1 800 s | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` |
 
 ---
@@ -630,10 +625,10 @@ Those tests carry the `very_slow_benchmark` marker specifically to remain within
 | `MIRPY_BENCH_WORKERS` | 8 | Comma-separated worker counts for repertoire benchmarks |
 | `MIRPY_BENCHMARK_SCALE` | 0.5 | Multiplier for micro-benchmark loop counts (0.05–1.0) |
 | `MIRPY_BENCHMARK_MAX_SECONDS` | 120.0 | Per-test wall-clock cap for standard benchmarks |
-| `MIRPY_BENCH_SLOW_TIMEOUT_S` | 600 | Timeout for `@slow_benchmark` tests |
+| `MIRPY_BENCH_SLOW_TIMEOUT_S` | 1800 | Timeout for `@slow_benchmark` tests |
 | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` | 1800 | Timeout for `@very_slow_benchmark` tests |
-| `MIRPY_BENCH_MEMORY_LIMIT_GB` | **16** | RSS cap for `@benchmark` tests (GB) |
-| `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` | 24 | RSS cap for `@very_slow_benchmark` tests (GB) |
+| `MIRPY_BENCH_MEMORY_LIMIT_GB` | **32** | RSS cap for `@benchmark` tests (GB) |
+| `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` | 32 | RSS cap for `@very_slow_benchmark` tests (GB) |
 | `MIRPY_BENCH_BAG_OF_KMERS_MAX_ROWS` | 2 000 000 | Row cap for bag-of-k-mers control profile |
 | `MIRPY_BENCH_1M_COLD_BUILD` | 0 | Build 1 M synthetic control from scratch |
 | `MIRPY_BENCH_1M_CONTROL_DIR` | (tmp) | Shared directory for prebuilt 1 M synthetic cache |

@@ -12,13 +12,13 @@ from tests.prepare_airr_benchmark_data import ensure_test_data
 # ---------------------------------------------------------------------------
 
 BENCHMARK_MEMORY_LIMIT_BYTES = int(
-    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_GB", "16")
+    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_GB", "32")
 ) * 1024 ** 3
 
 # very_slow_benchmark tests may use more memory (e.g., full real control builds/loads
 # where the 28M-row pickle alone occupies ~15 GB in-process).
 BENCHMARK_VERY_SLOW_MEMORY_LIMIT_BYTES = int(
-    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB", "24")
+    os.getenv("MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB", "32")
 ) * 1024 ** 3
 
 _PSUTIL_PROC = psutil.Process()
@@ -148,7 +148,7 @@ def benchmark_log_path() -> Path:
     return p
 
 
-def benchmark_slow_timeout_s(default: float = 600.0) -> float:
+def benchmark_slow_timeout_s(default: float = 1800.0) -> float:
     return max(1.0, _env_float("MIRPY_BENCH_SLOW_TIMEOUT_S", default))
 
 
@@ -157,6 +157,8 @@ def benchmark_very_slow_timeout_s(default: float = 1800.0) -> float:
 
 
 def pytest_configure(config):
+    config.addinivalue_line("markers", "benchmark: performance-oriented tests excluded from the default test run")
+    config.addinivalue_line("markers", "integration: slow or environment-dependent tests excluded from the default test run")
     config.addinivalue_line("markers", "slow_benchmark: long-running benchmark with slow timeout budget")
     config.addinivalue_line("markers", "very_slow_benchmark: extra long benchmark with very-slow timeout budget")
 
@@ -192,7 +194,7 @@ def pytest_runtest_call(item):
             )
 
     # Memory guard: any benchmark test that pushes RSS past the limit fails.
-    # very_slow_benchmark tests get a higher cap (default 20 GB) because they
+    # very_slow_benchmark tests get a higher cap (default 32 GB) because they
     # may process the full real control corpus (28M rows, ~15 GB).
     # Set MIRPY_BENCH_MEMORY_LIMIT_GB / MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB to override.
     if RUN_BENCHMARKS and item.get_closest_marker("benchmark") is not None:

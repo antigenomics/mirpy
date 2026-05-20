@@ -528,13 +528,13 @@ def alice_hit_clusters(
                 x = parent[x]
             return x
 
-        for i, (cdr3, v) in enumerate(rows):
+        for i, (junction_aa, v) in enumerate(rows):
             vf = _vfam(v)
-            for pos in range(len(cdr3)):
-                o = cdr3[pos]
+            for pos in range(len(junction_aa)):
+                o = junction_aa[pos]
                 for aa in "ACDEFGHIKLMNPQRSTVWY":
                     if aa != o:
-                        for j in idx_by.get((cdr3[:pos] + aa + cdr3[pos + 1:], vf), []):
+                        for j in idx_by.get((junction_aa[:pos] + aa + junction_aa[pos + 1:], vf), []):
                             if j > i:
                                 parent[find(i)] = find(j)
 
@@ -558,17 +558,17 @@ def alice_hit_clusters(
 
         neighbor_rows = []
         for _, row in full_df.iterrows():
-            cdr3 = str(row.get("junction_aa", ""))
+            junction_aa = str(row.get("junction_aa", ""))
             vf = _vfam(str(row.get("v_gene", ""))) if has_v else ""
-            key: tuple | str = (cdr3, vf) if has_v else cdr3
+            key: tuple | str = (junction_aa, vf) if has_v else junction_aa
             if key in hit_keys:
                 continue
             found = False
-            for pos in range(len(cdr3)):
-                o = cdr3[pos]
+            for pos in range(len(junction_aa)):
+                o = junction_aa[pos]
                 for aa in "ACDEFGHIKLMNPQRSTVWY":
                     if aa != o:
-                        nbr = cdr3[:pos] + aa + cdr3[pos + 1:]
+                        nbr = junction_aa[:pos] + aa + junction_aa[pos + 1:]
                         nbr_key: tuple | str = (nbr, vf) if has_v else nbr
                         if nbr_key in hit_keys:
                             neighbor_rows.append(row.to_dict())

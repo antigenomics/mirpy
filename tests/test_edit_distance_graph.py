@@ -375,7 +375,7 @@ def test_fallback_levenshtein_applies_length_window(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 ASSETS = Path(__file__).parent / "assets"
-GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
+GILG_FILE = ASSETS / "gilgfvftl_trb_junctions.txt.gz"
 
 
 def _load_gilg_rearrangements() -> list[Clonotype]:

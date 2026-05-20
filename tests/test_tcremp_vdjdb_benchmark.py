@@ -171,10 +171,10 @@ class TestPairedVDJdbTCREmpQuality:
                     "epitope": meta.get("antigen.epitope", ""),
                     "tra_v": chains["TRA"].v_gene,
                     "tra_j": chains["TRA"].j_gene,
-                    "tra_cdr3": chains["TRA"].junction_aa,
+                    "tra_junction": chains["TRA"].junction_aa,
                     "trb_v": chains["TRB"].v_gene,
                     "trb_j": chains["TRB"].j_gene,
-                    "trb_cdr3": chains["TRB"].junction_aa,
+                    "trb_junction": chains["TRB"].junction_aa,
                 }
             )
         return pl.DataFrame(rows)

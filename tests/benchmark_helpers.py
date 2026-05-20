@@ -16,7 +16,7 @@ from mir.common.repertoire import LocusRepertoire
 from mir.comparative.overlap import many_vs_pool_overlap, pairwise_overlap
 
 ASSETS = Path(__file__).parent / "assets"
-GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
+GILG_FILE = ASSETS / "gilgfvftl_trb_junctions.txt.gz"
 BENCH_LOG = Path(__file__).parent / "benchmarks.log"
 
 
@@ -59,7 +59,7 @@ def _mk_clonotype(
 
 def load_gilg_target_repertoire(*, max_sequences: int | None = None) -> LocusRepertoire:
     if not GILG_FILE.exists():
-        pytest.skip("GIL target asset missing: tests/assets/gilgfvftl_trb_cdr3.txt.gz")
+        pytest.skip("GIL target asset missing: tests/assets/gilgfvftl_trb_junctions.txt.gz")
 
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as fh:
         seqs = [line.strip() for line in fh if line.strip()]

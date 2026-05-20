@@ -414,7 +414,7 @@ def test_alice_1mm_pgen_rate_after_neighbor_filter(capsys) -> None:
         f"n_ge1={n_ge1} pct_ge1={pct_ge1:.1f} "
         f"n_ge{min_neighbors}={n_ge2} pct_ge{min_neighbors}={pct_ge2:.1f} "
         f"trie_s={trie_s:.3f} bench_n={len(bench_seqs)} "
-        f"pgen_s={pgen_s:.3f} rate_cdr3_per_s={rate:.1f} workers={n_jobs}"
+        f"pgen_s={pgen_s:.3f} rate_junction_per_s={rate:.1f} workers={n_jobs}"
     )
 
     with capsys.disabled():
