@@ -177,7 +177,7 @@ def build_edit_distance_graph(
     Returns:
         Undirected ``igraph.Graph`` with vertex attributes ``name``
         (``junction_aa``), ``r_id`` (:attr:`Clonotype.id`),
-        ``v_gene``, and ``c_gene``.
+        ``v_gene``, ``j_gene``, and ``c_gene``.
     """
     validate_metric(metric)
     jobs = resolve_n_jobs(n_jobs=n_jobs, nproc=nproc, default=4)
@@ -206,6 +206,7 @@ def build_edit_distance_graph(
     g.vs["name"]   = [r.junction_aa for r in rearrangements]
     g.vs["r_id"]   = [r.id          for r in rearrangements]
     g.vs["v_gene"] = [r.v_gene      for r in rearrangements]
+    g.vs["j_gene"] = [r.j_gene      for r in rearrangements]
     g.vs["c_gene"] = [r.c_gene      for r in rearrangements]
     if edges:
         g.add_edges(sorted(edges))
