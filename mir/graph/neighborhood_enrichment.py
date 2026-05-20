@@ -354,79 +354,40 @@ def _compute_grouped_query_batch(
     return out
 
 
-_GROUPED_WORKER_STATE: dict[str, t.Any] = {}
-
-
-def _init_grouped_neighbor_worker(
-    query_sequences: list[str],
-    query_sequence_ids: list[str],
-    query_v_genes: list[str],
-    query_j_genes: list[str],
-    background_sequences_spec: SharedArraySpec,
-    background_v_genes_spec: SharedArraySpec,
-    background_j_genes_spec: SharedArraySpec,
+def _compute_grouped_key_batch_worker(
+    bg_by_key: dict[tuple, list[str]],
+    q_by_key: dict[tuple, tuple[list[str], list[str]]],
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
     add_self_pseudocount: bool,
-) -> None:
-    """Per-process init for grouped-trie parallel workers."""
-    bg_arr, bg_shm = attach_shared_array(background_sequences_spec)
-    bv_arr, bv_shm = attach_shared_array(background_v_genes_spec)
-    bj_arr, bj_shm = attach_shared_array(background_j_genes_spec)
-    bg_seqs = np.char.decode(bg_arr, "ascii").tolist()
-    bg_v = np.char.decode(bv_arr, "ascii").tolist()
-    bg_j = np.char.decode(bj_arr, "ascii").tolist()
-    g_seqs, g_tries = _build_grouped_tries(
-        bg_seqs, bg_v, bg_j,
-        match_v_gene=match_v_gene, match_j_gene=match_j_gene,
-    )
-    _GROUPED_WORKER_STATE.update({
-        "query_sequences": query_sequences,
-        "query_sequence_ids": query_sequence_ids,
-        "query_v_genes": query_v_genes,
-        "query_j_genes": query_j_genes,
-        "group_seqs": g_seqs,
-        "group_tries": g_tries,
-        "metric": metric,
-        "threshold": threshold,
-        "match_v_gene": match_v_gene,
-        "match_j_gene": match_j_gene,
-        "add_self_pseudocount": add_self_pseudocount,
-        "shm_handles": (bg_shm, bv_shm, bj_shm),
-    })
+) -> dict[str, dict[str, int]]:
+    """Build tries for assigned (V,J) key groups and search their queries.
 
-
-def _compute_grouped_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
-    """Process-pool worker for grouped-trie neighborhood queries."""
-    start, stop = range_pair
-    qs = _GROUPED_WORKER_STATE["query_sequences"]
-    ids = _GROUPED_WORKER_STATE["query_sequence_ids"]
-    qv = _GROUPED_WORKER_STATE["query_v_genes"]
-    qj = _GROUPED_WORKER_STATE["query_j_genes"]
-    g_seqs = _GROUPED_WORKER_STATE["group_seqs"]
-    g_tries = _GROUPED_WORKER_STATE["group_tries"]
-    mv = _GROUPED_WORKER_STATE["match_v_gene"]
-    mj = _GROUPED_WORKER_STATE["match_j_gene"]
-    metric = _GROUPED_WORKER_STATE["metric"]
-    threshold = _GROUPED_WORKER_STATE["threshold"]
-    asc = _GROUPED_WORKER_STATE["add_self_pseudocount"]
+    Each worker receives only the background and query data for its assigned keys,
+    builds exactly those tries, and returns results for all matching queries.
+    Tries are built once per key globally (not once per worker).
+    """
     out: dict[str, dict[str, int]] = {}
-    for i in range(start, stop):
-        key = _gene_key(qv[i], qj[i], match_v_gene=mv, match_j_gene=mj)
-        seqs = g_seqs.get(key)
-        trie = g_tries.get(key)
-        g_sz = len(seqs) if seqs is not None else 0
-        if trie is None:
-            nc = pn = 1 if asc else 0
-        else:
-            nc = _count_grouped_neighbors(qs[i], trie, seqs, metric, threshold)
-            pn = g_sz
-            if asc:
+    for key, bg_seqs in bg_by_key.items():
+        q_data = q_by_key.get(key)
+        if q_data is None:
+            continue
+        q_seqs, q_ids = q_data
+        n = len(bg_seqs)
+        trie = Trie(sequences=bg_seqs, vGenes=[""] * n, jGenes=[""] * n)
+        for q_seq, seq_id in zip(q_seqs, q_ids):
+            nc = _count_grouped_neighbors(q_seq, trie, bg_seqs, metric, threshold)
+            pn = n
+            if add_self_pseudocount:
                 nc += 1
                 pn += 1
-        out[ids[i]] = {"neighbor_count": nc, "potential_neighbors": pn}
+            out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
+    # Keys present in queries but absent from background → return zero/pseudocount.
+    for key, (q_seqs, q_ids) in q_by_key.items():
+        if key not in bg_by_key:
+            nc = pn = 1 if add_self_pseudocount else 0
+            for seq_id in q_ids:
+                out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
     return out
 
 
@@ -520,6 +481,12 @@ def _compute_locus_stats(
     # in Python.  Each per-group Trie is ~N_total / N_groups sequences, so the
     # search is faster and no Python V/J validation loop is needed.
     if match_v_gene or match_j_gene:
+        # Group background sequences by (V,J) key.
+        bg_by_key: dict[tuple, list[str]] = {}
+        for seq, v, j in zip(background_sequences, background_v_genes, background_j_genes):
+            key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
+            bg_by_key.setdefault(key, []).append(seq)
+
         if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
             g_seqs, g_tries = _build_grouped_tries(
                 background_sequences, background_v_genes, background_j_genes,
@@ -532,34 +499,39 @@ def _compute_locus_stats(
                 add_self_pseudocount=add_self_pseudocount,
             )
 
-        # Parallel grouped path: each worker independently builds group tries
-        # from shared memory and processes its assigned query range.
-        batch_size = max(1, ceil(n_query / n_jobs))
-        ranges = [(s, min(s + batch_size, n_query)) for s in range(0, n_query, batch_size)]
+        # Parallel grouped path: distribute (V,J) key groups across workers.
+        # Each worker builds only its assigned tries (1/n_jobs of the total),
+        # so each trie is built exactly once — no per-worker rebuild overhead.
+        q_by_key: dict[tuple, tuple[list[str], list[str]]] = {}
+        for q, seq_id, v, j in zip(query_sequences, q_seq_ids, query_v_genes, query_j_genes):
+            key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
+            if key not in q_by_key:
+                q_by_key[key] = ([], [])
+            q_by_key[key][0].append(q)
+            q_by_key[key][1].append(seq_id)
+
+        # Assign keys to workers in round-robin by descending bg size (load balance).
+        all_keys = sorted(bg_by_key, key=lambda k: len(bg_by_key[k]), reverse=True)
+        worker_bg: list[dict] = [{} for _ in range(n_jobs)]
+        worker_q: list[dict] = [{} for _ in range(n_jobs)]
+        for i, key in enumerate(all_keys):
+            w = i % n_jobs
+            worker_bg[w][key] = bg_by_key[key]
+            if key in q_by_key:
+                worker_q[w][key] = q_by_key[key]
+
         results: dict[str, dict[str, int]] = {}
-        shared_handles = []
-        try:
-            bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
-            shared_handles.append(bg_seq_shm)
-            bg_v_spec, bg_v_shm = create_shared_array(fixed_bytes_array(background_v_genes))
-            shared_handles.append(bg_v_shm)
-            bg_j_spec, bg_j_shm = create_shared_array(fixed_bytes_array(background_j_genes))
-            shared_handles.append(bg_j_shm)
-            with ProcessPoolExecutor(
-                max_workers=n_jobs,
-                mp_context=_MP_CTX,
-                initializer=_init_grouped_neighbor_worker,
-                initargs=(
-                    query_sequences, q_seq_ids, query_v_genes, query_j_genes,
-                    bg_seq_spec, bg_v_spec, bg_j_spec,
-                    metric, threshold, match_v_gene, match_j_gene,
-                    add_self_pseudocount,
-                ),
-            ) as executor:
-                for batch_result in executor.map(_compute_grouped_query_batch_worker, ranges):
-                    results.update(batch_result)
-        finally:
-            close_unlink_many(shared_handles)
+        with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX) as executor:
+            futures = [
+                executor.submit(
+                    _compute_grouped_key_batch_worker,
+                    worker_bg[w], worker_q[w], metric, threshold, add_self_pseudocount,
+                )
+                for w in range(n_jobs)
+                if worker_bg[w]
+            ]
+            for f in futures:
+                results.update(f.result())
         return results
 
     # ── Single-trie path (no V/J restriction) ────────────────────────────────

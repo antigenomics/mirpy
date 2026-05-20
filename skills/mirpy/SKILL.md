@@ -169,6 +169,7 @@ Notes:
 - Trie-backed search is used for edit-distance graphs when available.
 - For long amino-acid queries, exact brute-force fallback is used to avoid false negatives from bit-parallel limits.
 - `compute_neighborhood_stats` and `build_edit_distance_graph` use multiprocess workers when `n_jobs > 1` for true multi-core execution.
+- `build_edit_distance_graph` returns an igraph Graph with vertex attributes: `name` (junction_aa), `r_id`, `v_gene`, `j_gene`, `c_gene`. Use `g.vs["j_gene"]` directly; strip alleles with `.split("*")[0]` when comparing against gene family names.
 - **V/J-restricted search is faster than unrestricted search on natural repertoires.**  When `match_v_gene=True` or `match_j_gene=True`, `compute_neighborhood_stats` builds one small trie per gene group (grouped-trie strategy) instead of filtering one large trie in Python.  Each per-group trie is ~N_total / N_groups sequences; all hits are gene-correct by construction so no Python post-filtering loop is needed.  Benchmark on 300 K clustered TRB sequences (n_jobs=8): unrestricted 9.9 s → V+J restricted 5.5 s (1.8× faster).  On natural 1 M+ repertoires the gain is larger because average group size stays roughly constant while the full-trie Python validation loop would grow with N.
 
 For donor-vs-pool overlap workflows, use `many_vs_pool_overlap()` when scoring a sequence of repertoires against one pooled reference. It keeps the pooled worker state shared across batches and avoids repeating per-sample setup in hotspot notebooks such as `aging_analysis.ipynb`.
