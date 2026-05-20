@@ -12,6 +12,25 @@ Wraps the OLGA library to provide:
 - V/J gene-usage adjustment (importance sampling) via
   :class:`PgenGeneUsageAdjustment`.
 
+Performance notes
+-----------------
+**Theoretical exact Pgen** (``max_mismatches=0``) is slow: OLGA sums over all
+V(D)J recombination scenarios for a single amino-acid sequence, taking
+~1–10 ms per sequence.  For repertoires of 100 K+ clonotypes this becomes the
+dominant cost; use ``n_jobs > 1`` to parallelize.
+
+**Theoretical 1mm Pgen** (``max_mismatches=1``) is *extremely slow*: it
+requires L + 1 OLGA calls per sequence (one for each 1-mismatch variant plus
+self), where L is the CDR3 length.  A 12-AA CDR3 takes ~10–100 ms.  For
+production ALICE runs, prefer ``pgen_mode="mc"`` (Monte-Carlo pool estimation)
+and fall back to OLGA 1mm only for sequences with very few pool matches.
+
+**Synthetic sequence generation** is the fastest path: :meth:`OlgaModel.generate_sequences`
+and :meth:`OlgaModel.generate_pool` stream sequences directly from the OLGA
+recombination model without per-sequence Pgen evaluation.  Use
+:meth:`OlgaModel.generate_sequences_counted` when the total rearrangement
+count is needed as the MC Pgen denominator.
+
 Parallel strategy
 -----------------
 ``compute_pgen_junction_aa_bulk`` uses a ``multiprocessing.Pool`` whose workers
@@ -902,6 +921,9 @@ class PgenGeneUsageAdjustment:
         return pgen * self.factor(locus, v, j)
 
 
+# In-process gene-usage probability cache, keyed by (species, locus, synthetic_n).
+# Written/read by mir.basic.gene_usage.precompute_olga_gene_usage_probabilities;
+# declared here so downstream modules can import it from a single location.
 _GENE_USAGE_PROB_CACHE: dict[tuple[str, str, int], dict[str, dict[object, float]]] = {}
 
 

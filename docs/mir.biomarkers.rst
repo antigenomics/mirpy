@@ -28,6 +28,7 @@ the background: ``λ = N × pgen_1mm`` (Pogorelyy et al. *PLoS Biol.* 2019).
 - The paper's original pool size is 100 M and uses V+J gene matching
   (``match_mode="vj"``).  Our default is ``match_mode="none"`` for speed.
 - Use ``pgen_mode="mc"`` for production; ``"exact"`` underestimates λ.
+- Default ``match_mode="vj"`` (V+J gene restriction, matching the original paper).
 
 **TCRNET** (``mir.biomarkers.tcrnet``) is a **purely MC-control** algorithm:
 no OLGA Pgen is computed.  Neighbor density is compared between sample and a
@@ -40,7 +41,10 @@ provided control using a binomial (or beta-binomial) test.
   frequencies).  Estimate Q as ``median(pgen_real / pgen_olga)`` using
   :meth:`~mir.basic.pgen.McPgenPool.build_real` on a real control.
 - To fully reproduce the original ALICE paper using TCRNET: use a 100 M
-  synthetic pool, ``match_mode="vj"``, and ``q_factor=Q``.
+  synthetic pool, ``match_mode="vj"``, ``pvalue_mode="beta-binomial"``, and
+  ``q_factor=Q``.
+- Swap sample and control to detect **neighbor-depleted** sequences (clones
+  present in the control but lost in the sample).
 
 Submodules
 ----------
