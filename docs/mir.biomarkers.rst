@@ -100,6 +100,24 @@ h_sel ≈ 0 at germline-encoded positions (f ≈ f_bg → VJ signal removed).
   ``species`` and ``gene`` explicitly to avoid mixing TRA/TRB or human/mouse.
 - :func:`~mir.biomarkers.motif_logo.aggregate_vj_background` — weighted-average
   OLGA background across all V/J combinations for a given CDR3 length.
+- :func:`~mir.biomarkers.motif_logo.build_terminal_anchored_pwm` — build a
+  fixed-width PWM that anchors the first *n_term* and last *c_term* residues of
+  CDR3 sequences of *any* length.  The left block (labels ``1``, ``2``, …) is
+  aligned by the N-terminus (V-gene); the right block (labels ``-c_term``, …,
+  ``-1``) is aligned by the C-terminus (J-gene).  Use this to combine CDR3s of
+  different lengths into a single publication-ready IC logo.
+- :func:`~mir.biomarkers.motif_logo.build_terminal_anchored_logo` — the
+  architecturally correct version of the terminal-anchored selection logo.
+  Background subtraction (``h_sel = f · log₂(f / f_bg)``) is performed in the
+  original *linear* CDR3 coordinate space (per CDR3 length), and positions are
+  mapped to terminal display coordinates only afterwards.  Supports both
+  ``motif_pwms`` and real/synthetic control backgrounds
+  (:func:`~mir.biomarkers.motif_logo.get_vj_background_from_control`).
+- :func:`~mir.biomarkers.motif_logo.get_vj_background_from_control` — build a
+  VJ/length background PWM from a real or synthetic control repertoire
+  DataFrame (e.g. from
+  :meth:`~mir.common.control.ControlManager.load_control_df`) without relying
+  on the pre-computed ``motif_pwms.txt.gz``.
 - :func:`~mir.biomarkers.motif_logo.build_motif_logos_vj` — entry point for
   building selection logos from ALICE / TCRNET hits or connected components.
   Groups sequences by (V, J, length), builds per-VJ-len logos with matched OLGA
