@@ -1581,15 +1581,111 @@ The B27 AS CASSVGL[YF]STDTQYF motif is NOT in motif_pwms — use VDJdb
 TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01",
 j_gene="TRBJ2-3*01", length=15, species="HomoSapiens", gene="TRB")`.
 
-**B27 AS analysis (Fig 2e reproduction)**:
+**B27 AS analysis (Fig 2e reproduction)** — use pre-computed ALICE results, not VDJdb proxy:
 ```python
-as_seqs_broad = [...]           # all TRBV9/TRBJ2-3/len=15 from VDJdb (119 seqs)
-as_seqs_alice = [s for s in as_seqs_broad if s.endswith("STDTQYF")]  # 34 seqs
+import pickle
+from pathlib import Path
+from mir.biomarkers.alice import alice_hit_clusters
+from mir.biomarkers.motif_logo import get_vj_background, compute_pwm, compute_logo
+
+# Load pre-computed ALICE cache (tuple: raw_results, annotated_hits)
+_cache = pickle.load(open("tmp/_as_alice_cache.pkl", "rb"))
+as_hits_dict = _cache[1]   # {donor_id: pd.DataFrame}
+AS_DONOR_META = {1: "B27_pos", 2: "B27_pos", 3: "B27_neg", 4: "B27_pos"}
+b27_pos_donors = [k for k, v in AS_DONOR_META.items() if v == "B27_pos"]
+as_b27pos = pd.concat([as_hits_dict[d] for d in b27_pos_donors], ignore_index=True).drop_duplicates("junction_aa")
+
+# Filter to TRBV9/TRBJ2-3/len=15 ALICE hits
+alice_15 = as_b27pos[(as_b27pos.v_gene.str.startswith("TRBV9")) &
+                     (as_b27pos.j_gene.str.startswith("TRBJ2-3")) &
+                     (as_b27pos.junction_aa.str.len() == 15)]
 as_bg = get_vj_background(pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
                            length=15, species="HomoSapiens", gene="TRB")
 # Selection logo: CASS (pos 1-4) and STDTQYF (pos 9-15) collapse to ≈0;
 # VGL[YF] (pos 5-8) shows the antigen-driven enrichment.
-logo_alice = compute_logo(compute_pwm(as_seqs_alice), background=as_bg)
+logo_alice = compute_logo(compute_pwm(alice_15.junction_aa.tolist()), background=as_bg)
+```
+
+### Background from real or synthetic control (without motif_pwms.txt.gz)
+
+`get_vj_background_from_control` builds a VJ/length PWM background directly from a
+ControlManager DataFrame — useful when `motif_pwms.txt.gz` has no entry for a
+specific VJ/length, or to validate against an empirically measured control.
+
+```python
+from mir.biomarkers.motif_logo import get_vj_background_from_control
+from mir.common.control import ControlManager
+
+cm = ControlManager()
+ctrl_real  = cm.load_control_df("real",      "human", "TRB")  # ~28M rows
+ctrl_synth = cm.load_control_df("synthetic", "human", "TRB", n=100_000)
+
+bg_real = get_vj_background_from_control(
+    ctrl_real, v_gene="TRBV9", j_gene="TRBJ2-3", length=15,
+    min_seqs=100,   # returns None if fewer sequences match
+)
+bg_synth = get_vj_background_from_control(
+    ctrl_synth, v_gene="TRBV9", j_gene="TRBJ2-3", length=15,
+    min_seqs=20,    # lower threshold for synthetic controls
+)
+# Both return pl.DataFrame[pos, aa, frequency] or None
+logo = compute_logo(pwm, background=bg_real)
+```
+
+Background correlations across 158 matched VJ/len combos (43,580 frequency pairs):
+- `motif_pwms` vs real control: R = 0.97
+- `motif_pwms` vs synthetic 100K: R = 0.96
+- Real vs synthetic: R = 0.98
+
+Use `min_seqs=20` for synthetic controls (small pool); `min_seqs=100` for real repertoires.
+
+### Mixed-length terminal-anchored logos
+
+`build_terminal_anchored_logo` combines CDR3s of different lengths into one display by
+anchoring the first `n_term` and last `c_term` positions. Background subtraction happens
+in the original linear CDR3 coordinate space (per CDR3 length), THEN positions are
+mapped to the terminal display — architecturally correct and required for valid h_sel.
+
+```python
+from mir.biomarkers.motif_logo import build_terminal_anchored_logo
+import polars as pl
+
+# sequences_df must have columns: junction_aa, v_gene, j_gene
+seqs_pl = pl.from_pandas(hits_df[["junction_aa", "v_gene", "j_gene"]])
+logo_anchored = build_terminal_anchored_logo(
+    seqs_pl,
+    pwms,               # motif_pwms DataFrame; or pass motif_pwms=None for IC-only
+    n_term=8,           # anchor first 8 positions (V-gene end)
+    c_term=8,           # anchor last 8 positions (J-gene end)
+    species="HomoSapiens",
+    gene="TRB",
+)
+# Returns pl.DataFrame[pos_label, aa, count, frequency, ic_height, bg_height]
+# pos_label: "1","2",…,"n_term","gap","-c_term",…,"-1"
+# Supports both motif_pwms and get_vj_background_from_control() backgrounds.
+```
+
+### De-novo motif discovery: per-VJ-len connected components
+
+When running `alice_hit_clusters` for motif discovery, **always build CCs per VJ/len group**
+separately. Building on all sequences at once creates one giant CC that mixes J-genes and
+dilutes the motif signal.
+
+```python
+from mir.biomarkers.alice import alice_hit_clusters
+
+# CORRECT: build CCs per (v_gene, j_gene, length) group
+for v, j, L in top_vj_len_groups:
+    sub = hits_df[(hits_df.v_gene.str.startswith(v)) &
+                  (hits_df.j_gene.str.startswith(j)) &
+                  (hits_df.junction_aa.str.len() == L)]
+    clustered = alice_hit_clusters(sub)  # adds cluster_id column
+    cc_sizes  = clustered.groupby("cluster_id").size().sort_values(ascending=False)
+    top_seqs  = clustered[clustered.cluster_id == cc_sizes.index[0]]
+    # Top CC for TRBV19/TRBJ2-7/len=13 shows 93% R at RS positions (pos 5-6)
+
+# WRONG: calling on all sequences creates one giant mixed CC
+# alice_hit_clusters(all_hits_df)  ← never do this for motif discovery
 ```
 
 ### Background pool size
