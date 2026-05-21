@@ -447,7 +447,8 @@ class TestOverlapSpeed:
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         elapsed = time.perf_counter() - t0
         print(f"\nexact  key build ({self.N_REF} clones): {len(keys):,} keys  {elapsed*1e3:.1f} ms")
-        assert elapsed < 0.001, f"expected < 1 ms, got {elapsed*1e3:.1f} ms"
+        max_s = float(os.getenv("MIRPY_BENCH_OVERLAP_EXACT_MAX_S", "0.001"))
+        assert elapsed < max_s, f"expected < {max_s*1e3:.0f} ms, got {elapsed*1e3:.1f} ms"
 
     def test_key_build_1mm_under_100ms(self, ref_rep) -> None:
         t0 = time.perf_counter()
@@ -465,7 +466,8 @@ class TestOverlapSpeed:
         elapsed = time.perf_counter() - t0
         print(f"\nexact  overlap ({self.N_REF} ref × {self.N_QUERY} query): "
               f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
-        assert elapsed < 0.001
+        max_s = float(os.getenv("MIRPY_BENCH_OVERLAP_EXACT_MAX_S", "0.001"))
+        assert elapsed < max_s, f"expected < {max_s*1e3:.0f} ms, got {elapsed*1e3:.1f} ms"
 
     def test_overlap_1mm_pre_expanded_under_50ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=True)

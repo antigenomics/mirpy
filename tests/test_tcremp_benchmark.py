@@ -26,6 +26,24 @@ from tests.conftest import skip_benchmarks
 _N_CPUS = os.cpu_count() or 1
 
 
+def _available_ram_gb() -> float:
+    """Return available system RAM in GiB, or a large value if psutil is absent."""
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 ** 3)
+    except ImportError:
+        return 64.0
+
+
+def _needs_ram_gb(gb: float):
+    """pytest mark: skip if fewer than *gb* GiB of RAM are available."""
+    avail = _available_ram_gb()
+    return pytest.mark.skipif(
+        avail < gb,
+        reason=f"requires ~{gb:.0f} GB free RAM, only {avail:.1f} GB available",
+    )
+
+
 # ===================================================================
 # Benchmark 1: Parallel chunking speedup
 # ===================================================================
@@ -807,10 +825,10 @@ class TestBenchmarkThroughput:
 
     @pytest.mark.parametrize("n_clono,n_proto", [
         (10_000,   1000),
-        (100_000,  1000),
-        (100_000,  3000),
-        (500_000,  1000),
-        (1_000_000, 1000),
+        pytest.param(100_000,  1000, marks=_needs_ram_gb(4)),
+        pytest.param(100_000,  3000, marks=_needs_ram_gb(6)),
+        pytest.param(500_000,  1000, marks=_needs_ram_gb(8)),
+        pytest.param(1_000_000, 1000, marks=_needs_ram_gb(16)),
     ])
     def test_single_process(self, models, clonotype_sets, n_clono, n_proto):
         X, elapsed, peak_mb = _measure(
@@ -847,7 +865,11 @@ class TestBenchmarkMultiprocessing:
             for n in (10_000, 100_000, 500_000)
         }
 
-    @pytest.mark.parametrize("n_clono", [10_000, 100_000, 500_000])
+    @pytest.mark.parametrize("n_clono", [
+        10_000,
+        pytest.param(100_000, marks=_needs_ram_gb(4)),
+        pytest.param(500_000, marks=_needs_ram_gb(8)),
+    ])
     def test_scaling(self, model_1k, clonotype_sets, n_clono):
         """Compare n_jobs=1 vs multi-process."""
         clonos = clonotype_sets[n_clono]

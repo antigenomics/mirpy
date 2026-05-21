@@ -262,7 +262,63 @@ $$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
 
 This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
 
-## 10. Pairwise Overlap Workflows
+## 10. Diversity Metrics, Hill Curves, And Rarefaction
+
+Prefer function-first diversity APIs from `mir.common.diversity`.
+Repertoire object methods are convenience delegates to the same functions.
+
+```python
+from mir.common.diversity import (
+    summarize_clonotypes,
+    summarize_loci_clonotypes,
+    summarize_count_groups,
+    hill_curve_clonotypes,
+    rarefaction_curve_clonotypes,
+)
+
+summary = summarize_clonotypes(sample["TRB"].clonotypes)
+per_locus = summarize_loci_clonotypes({locus: rep.clonotypes for locus, rep in sample.loci.items()})
+pair_level = summarize_count_groups({"TRA_TRB": [2, 1, 1], "TRG_TRD": [1]})
+
+hill = hill_curve_clonotypes(sample["TRB"].clonotypes)
+rare = rarefaction_curve_clonotypes(sample["TRB"].clonotypes, m_steps=[10, 25, 50, 100], include_exact=True)
+```
+
+Available summary fields:
+
+- `abundance`
+- `diversity`
+- `singletons`
+- `doubletons`
+- `expanded` (>0.1%)
+- `hyperexpanded` (>1%)
+- `chao1`
+- `gini_simpson`
+- `shannon`
+
+Count modes:
+
+- `duplicate_count` (default for locus/sample repertoires)
+- `umi_count` (optional)
+- `barcode_count` (default for paired/single-cell repertoire diversity methods)
+
+Object-level usage (delegates to function-first APIs):
+
+```python
+# Locus/sample
+trb_summary = sample["TRB"].diversity()
+sample_per_locus = sample.diversity(per_locus=True)
+
+# Paired and single-cell
+pair_summary = paired_repertoire.diversity()                 # default barcode_count
+chain_summary = paired_repertoire.diversity_by_locus()       # TRA/TRB/... per-locus
+sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to paired repertoire
+```
+
+Notebook: `notebooks/diversity_analysis.ipynb` — donor summary tables, rarefaction, coverage, Hill
+curves, and Healthy vs MS cohort comparisons.
+
+## 11. Pairwise Overlap Workflows
 
 Use `pairwise_overlap` and `pairwise_overlap_matrix` from
 `mir.comparative.overlap`.
@@ -298,66 +354,6 @@ Operational notes:
 - Use metric transforms only when distance-like inputs are required:
   - `f_metric = 1 - f_similarity`
   - `d_metric = 1 / d_similarity` (for `d_similarity > 0`)
-
-  ## 11. Diversity Metrics, Hill Curves, And Rarefaction
-
-  Prefer function-first diversity APIs from `mir.common.diversity`.
-  Repertoire object methods are convenience delegates to the same functions.
-
-  ```python
-  from mir.common.diversity import (
-    summarize_clonotypes,
-    summarize_loci_clonotypes,
-    summarize_count_groups,
-    hill_curve_clonotypes,
-    rarefaction_curve_clonotypes,
-  )
-
-  summary = summarize_clonotypes(sample["TRB"].clonotypes)
-  per_locus = summarize_loci_clonotypes({locus: rep.clonotypes for locus, rep in sample.loci.items()})
-  pair_level = summarize_count_groups({"TRA_TRB": [2, 1, 1], "TRG_TRD": [1]})
-
-  hill = hill_curve_clonotypes(sample["TRB"].clonotypes)
-  rare = rarefaction_curve_clonotypes(sample["TRB"].clonotypes, m_steps=[10, 25, 50, 100], include_exact=True)
-  ```
-
-  Available summary fields:
-
-  - `abundance`
-  - `diversity`
-  - `singletons`
-  - `doubletons`
-  - `expanded` (>0.1%)
-  - `hyperexpanded` (>1%)
-  - `chao1`
-  - `gini_simpson`
-  - `shannon`
-
-  Count modes:
-
-  - `duplicate_count` (default for locus/sample repertoires)
-  - `umi_count` (optional)
-  - `barcode_count` (default for paired/single-cell repertoire diversity methods)
-
-  Object-level usage (delegates to function-first APIs):
-
-  ```python
-  # Locus/sample
-  trb_summary = sample["TRB"].diversity()
-  sample_per_locus = sample.diversity(per_locus=True)
-
-  # Paired and single-cell
-  pair_summary = paired_repertoire.diversity()                 # default barcode_count
-  chain_summary = paired_repertoire.diversity_by_locus()       # TRA/TRB/... per-locus
-  sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to paired repertoire
-  ```
-
-  Notebook workflow:
-
-  - `notebooks/diversity_analysis.ipynb` now includes a polished donor summary
-    table with age, abundance, diversity, and per-group mean ± SD rows.
-  - The notebook also shows publication-style shaded rarefaction, coverage, and
-    Hill curves for Healthy vs MS donors.
 - For repeated sample-vs-fixed-target calls, `pairwise_overlap` reuses target-side prepared data internally, which avoids repeated trie setup.
 - For a single pair, forcing many workers can be slower due to process startup; use `n_jobs=1` unless the query side is very large.
 
@@ -471,7 +467,7 @@ Operational notes:
 - Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
 - `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, floor-quantile kneedle eps selection (`select_eps_kneedle_stable`), DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
 
-## 11. ALICE Enrichment
+## 12. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 
@@ -572,7 +568,7 @@ ALICE (Poisson, λ = N × pgen_1mm) and TCRNET (Binomial, p = m/M) converge in t
   a real control it naturally captures V/J bias without conditioning.
 - ALICE uses OLGA Pgen with optional MC estimation. Falls back to analytical Pgen for sparse sequences.
 - To reproduce the original ALICE paper using TCRNET: `match_mode="vj"`, 100 M synthetic pool, `q_factor=Q`.
-- See section 15 (TCRNET) for full ALICE-as-TCRNET recipe.
+- See section 16 (TCRNET) for full ALICE-as-TCRNET recipe.
 
 Key behavior notes:
 
@@ -581,7 +577,7 @@ Key behavior notes:
 - P-value batch execution defaults to process workers (`MIRPY_ALICE_PVALUE_EXECUTOR=process`).
 - `pvalue_mode="negative-binomial"` uses `NB(mu=N*pgen, dispersion=1)` — more conservative than Poisson.
 - `q_value` in the output table is BH-corrected over all clonotypes in the locus (before frequency filtering).
-- For multi-sample workflows, pre-warm the OLGA cache with `warm_pgen_cache(all_clonotypes, ...)` before the per-sample loop.
+- For multi-sample workflows, reuse a single `OlgaModel` instance across all samples; the internal persistent `multiprocessing.Pool` is created once per model instance and reused on each `compute_pgen_junction_aa_bulk` call (zero spawn overhead after the first call).
 
 **Cluster analysis — `alice_hit_clusters`:**
 
@@ -611,7 +607,7 @@ sizes = clustered.groupby("cluster_id").size().sort_values(ascending=False)
 # sizes.index[0] is the motif cluster for AS B27+ data
 ```
 
-## 12. Single-Cell 10x Paired Chains
+## 13. Single-Cell 10x Paired Chains
 
 Use `load_10x_vdj_v1_sample` to assemble paired-chain objects from 10x v1 sample
 files where consensus annotations define clonotypes and all-contig annotations
@@ -640,7 +636,7 @@ Key behavior:
 - `SingleCellRepertoire` keeps barcode -> pair_id links separate for future
   multimodal integration.
 
-## 12.1 Single-Cell 10x + CITE-seq Integration
+## 13.1 Single-Cell 10x + CITE-seq Integration
 
 Use `load_10x_vdj_v1_citeseq_sample` when a donor has both 10x VDJ files and
 an accompanying `*_binarized_matrix.csv.gz` CITE-seq matrix.
@@ -682,7 +678,7 @@ Notes:
   kneedle/eps plots, UMAP projections colored by epitope, and per-epitope
   precision/recall/F1 support tables.
 
-## 13. 10x Benchmark And scirpy Concordance
+## 14. 10x Benchmark And scirpy Concordance
 
 Use the dedicated benchmark test module for speed, memory, and parity checks on
 AIRR benchmark donors:
@@ -701,7 +697,7 @@ This suite validates:
 - mirpy vs scirpy TRA/TRB quadrant concordance on dominant patterns,
 - speed/memory competitiveness relative to scirpy on the same donor.
 
-## 14. Single-Cell Parsing, Repair, And Pairing Graphs
+## 15. Single-Cell Parsing, Repair, And Pairing Graphs
 
 Use the parser-first API when you need to apply cleanup or imputation before
 assembling sample paired-clonotype objects.
@@ -752,7 +748,7 @@ Repair behavior summary:
 - `consistency_only_on_synthetic_slave=True` limits consistency enforcement to
   synthetic slaves; set `False` to enforce consistency on all slave chains.
 
-## 15. TCRNET Enrichment
+## 16. TCRNET Enrichment
 
 Use `compute_tcrnet` / `add_tcrnet_metadata` from `mir.biomarkers.tcrnet`.
 
@@ -871,7 +867,7 @@ This is statistically equivalent to `compute_alice(rep, pgen_mode="mc", mc_n_poo
 | Selection correction | `q_factor` (explicit) | `q_factor` (explicit) |
 | Default control | Must be provided explicitly | Synthetic OLGA pool |
 
-## 16. GLIPH-Style K-mer Enrichment (binomial)
+## 17. GLIPH-Style K-mer Enrichment (binomial)
 
 For GLIPH-like motif workflows, prefer repertoire-first extraction and reuse
 one shared unnormalized control background across studies.
@@ -928,7 +924,7 @@ Interpretation notes:
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
 - For interactive notebooks, start with `chunk_size=100_000` to `200_000`; increase only after runtime and memory are stable.
 
-## 16.5. Pairwise Sample Overlap Metrics
+## 17.5. Pairwise Sample Overlap Metrics (Detailed Reference)
 
 Use `pairwise_overlap` for a single pair and `pairwise_overlap_matrix` for all
 N×(N−1)/2 pairs across a cohort.  Both functions live in
@@ -1027,7 +1023,7 @@ The existing `count_overlap` / `compute_overlaps` / `make_reference_keys` /
 `make_query_index` API used by `VDJBetOverlapAnalysis` is unchanged.
 `pairwise_overlap` builds on top of the same `make_query_index` primitive.
 
-## 17. Pgen And VDJBet Workflows
+## 18. Pgen And VDJBet Workflows
 
 Use `OlgaModel` for sequence generation and pgen computation, and combine it
 with `PgenGeneUsageAdjustment` and `VDJBetOverlapAnalysis` for overlap tests.
@@ -1120,7 +1116,7 @@ pool = McPgenPool(seqs, n_total, skip_ends=2, locus="TRB", species="human")
 - Typical throughput at `n_jobs=8`: ~1000 seqs/s exact Pgen, ~90 seqs/s 1mm Pgen, ~270K seqs/s generation.
 - **Lifecycle**: call `model.close()` or use `with OlgaModel(...) as model:` to guarantee pool teardown.
 
-## 17.1 VDJBet YF Shortcuts (reusable workflow API)
+## 18.1 VDJBet YF Shortcuts (reusable workflow API)
 
 Use the high-level helpers in ``mir.comparative.vdjbet_workflow`` to avoid
 copying large notebook blocks:
@@ -1178,7 +1174,7 @@ Recommended defaults for reproducible runs:
 - ``n_mocks=100`` for exploratory runs, ``200+`` for stable tail p-values
 - ``n_jobs`` set to available cores but avoid oversubscription in shared environments
 
-## 18. Plotting Standards (publication-ready)
+## 19. Plotting Standards (publication-ready)
 
 Use these defaults for all notebook and report figures.
 
@@ -1237,7 +1233,7 @@ VDJBet notebook-specific plotting tips:
 - When comparing real vs mock nulls, keep mock boxplot widths/offsets fixed in every panel.
 - Use the same y-axis transform (raw or log2) for directly compared metrics.
 
-## 19. SampleRepertoire Construction
+## 20. SampleRepertoire Construction
 
 `SampleRepertoire` organises multiple loci for one donor/timepoint. Build it
 from a flat clonotype list rather than pre-built locus repertoires wherever
@@ -1263,7 +1259,7 @@ Notes:
 - AIRR TSV files from SRA do not always contain a `locus` column; infer it from
   the first four characters of `v_call` (e.g. `"TRBV…"` → `"TRB"`).
 
-## 20. TCREMP Embeddings
+## 21. TCREMP Embeddings
 
 Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors
 against a fixed set of prototype clonotypes.  Each clonotype is represented as
@@ -1351,7 +1347,7 @@ Embedding quality (R² between sequence-space and latent-space distances, 1000×
 Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
 variability is the strongest single predictor of embedding distance.
 
-## 20.1 Embedding Diagnostics — DBSCAN Clustering
+## 21.1 Embedding Diagnostics — DBSCAN Clustering
 
 Use `analyze_embedding_dbscan` from `mir.utils.embedding_diagnostics` to
 standardize, PCA-reduce, and DBSCAN-cluster a raw embedding in one call.
@@ -1416,7 +1412,7 @@ Key parameters for `analyze_embedding_dbscan`:
 but the quantile boundary stays constant.  No n_comp or variance-explained correction is
 needed.
 
-## 21. Practical Defaults
+## 22. Practical Defaults
 
 - Use `RepertoireDataset.from_folder_polars(...)` for real multi-sample loads.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.

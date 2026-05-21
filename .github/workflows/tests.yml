@@ -115,7 +115,9 @@ jobs:
           MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP: "1.5"
           MIRPY_BENCH_PGEN_MIN_THROUGHPUT: "100"
           MIRPY_BENCH_OVERLAP_1MM_MAX_S: "0.15"
+          MIRPY_BENCH_OVERLAP_EXACT_MAX_S: "0.01"
           MIRPY_BENCH_VDJBET_MOCK_MAX_S: "30.0"
           MIRPY_BENCH_SYNTH_SMALL_CAP_S: "900"
+          MIRPY_BENCH_TCRNET_REAL_MAX_SECONDS: "1800"
         working-directory: ${{ runner.temp }}
         run: python -m pytest tests -m "(benchmark or integration) and not very_slow_benchmark" -q
