@@ -128,6 +128,10 @@ from mir.biomarkers._shared import (
 from mir.common.clonotype import Clonotype
 from mir.common.alleles import allele_to_major
 from mir.common.control import ControlManager
+from mir.common.metaclonotype import (
+    MetaClonotypeDefinition,
+    metaclonotypes_from_seed_neighbors,
+)
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.sampling import resample_to_gene_usage
 from mir.graph.neighborhood_enrichment import compute_neighborhood_stats_by_locus
@@ -664,4 +668,37 @@ def add_tcrnet_metadata(
             as_table=False,
             n_jobs=n_jobs,
         )
+    )
+
+
+def metaclonotypes_from_tcrnet(
+    repertoire: LocusRepertoire,
+    *,
+    metadata_prefix: str = "tcrnet",
+    q_value_max: float = 0.05,
+    metric: t.Literal["hamming", "levenshtein"] = "hamming",
+    threshold: int = 1,
+    match_mode: MatchMode = "vj",
+) -> MetaClonotypeDefinition:
+    """Build metaclonotypes around TCRNET-significant clonotypes.
+
+    One cluster is created per significant clonotype (representative), and
+    members are all first-neighborhood clonotypes under the provided scope.
+    """
+    norm_match_mode = normalize_match_mode(match_mode)
+    match_v, match_j = match_flags(norm_match_mode)
+
+    seeds = [
+        c.sequence_id
+        for c in repertoire.clonotypes
+        if float(c.clone_metadata.get(f"{metadata_prefix}_q_value", 1.0)) <= q_value_max
+    ]
+    return metaclonotypes_from_seed_neighbors(
+        repertoire,
+        seed_clonotype_ids=seeds,
+        metric=metric,
+        threshold=threshold,
+        match_v_gene=match_v,
+        match_j_gene=match_j,
+        cluster_prefix="tcrnet_mc",
     )

@@ -60,6 +60,14 @@ mir.common.repertoire module
    :undoc-members:
    :show-inheritance:
 
+mir.common.metaclonotype module
+-------------------------------
+
+.. automodule:: mir.common.metaclonotype
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.single\_cell module
 ------------------------------
 
