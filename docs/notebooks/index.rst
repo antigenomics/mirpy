@@ -61,6 +61,16 @@ Biomarker Detection
 
 **vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
 
+**motif_logos** — PWM construction, standard IC logos, and background-normalised logos for GILGFVFTL and B27 AS CDR3 motifs.
+
+Sequence Logo Analysis
+----------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   motif_logos
+
 Aging And Cohort Overlap
 ------------------------
 
