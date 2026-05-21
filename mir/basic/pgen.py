@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import signal
 from math import ceil
 import math
 from typing import TYPE_CHECKING, Iterable
@@ -97,6 +98,7 @@ _WORKER_PGEN_MODEL = None  # set by _init_pgen_worker in each child process
 
 def _init_pgen_worker(model_dir: str, is_d_present: bool) -> None:
     """Load the OLGA pgen model once in each pool worker process."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     global _WORKER_PGEN_MODEL
 
     params_file = f"{model_dir}/model_params.txt"
@@ -160,6 +162,7 @@ def _compute_1mm_batch(seqs: list[str]) -> list[float]:
 
 def _generate_chunk(args: tuple) -> list[str]:
     """Worker: generate junction aa sequences (no Pgen) for generate_sequences_parallel."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
@@ -258,6 +261,7 @@ def _generate_counted_chunk(args: tuple) -> tuple[list[str], int]:
     n_total_rearrangements = M + K where M is productive sequences and K is
     rejected non-productive events.  Used as denominator for MC Pgen.
     """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
@@ -282,6 +286,7 @@ def _generate_pool_chunk(args: tuple) -> list[dict]:
     Record keys: ``junction_aa``, ``junction``, ``v_gene``, ``j_gene``,
     ``v_end``, ``j_start``, ``log2_pgen``.
     """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
@@ -996,6 +1001,9 @@ class McPgenPool:
     for sparse sequences.
     """
 
+    # Amino acid alphabet for 1mm enumeration — 20 standard AAs
+    _AA_ALPHABET: str = "ACDEFGHIKLMNPQRSTVWY"
+
     def __init__(
         self,
         sequences: list[str],
@@ -1006,10 +1014,6 @@ class McPgenPool:
         species: str = "human",
     ) -> None:
         from collections import Counter
-        try:
-            from tcrtrie import Trie as _Trie
-        except ImportError as exc:  # pragma: no cover
-            raise ImportError("tcrtrie is required for McPgenPool") from exc
 
         self.n_productive: int = len(sequences)
         self.n_total: int = n_total
@@ -1019,13 +1023,6 @@ class McPgenPool:
         self.p_productive: float = self.n_productive / max(1, self.n_total)
 
         self._counter: Counter = Counter(sequences)
-        self._unique_seqs: list[str] = list(self._counter.keys())
-        n_u = len(self._unique_seqs)
-        self._trie = _Trie(
-            sequences=self._unique_seqs,
-            vGenes=[""] * n_u,
-            jGenes=[""] * n_u,
-        )
 
     # ------------------------------------------------------------------
     # Single-sequence queries
@@ -1080,33 +1077,24 @@ class McPgenPool:
         inv = 1.0 / self.n_total
         skip = self.skip_ends
         counter = self._counter
-        unique_seqs = self._unique_seqs
+        AA = self._AA_ALPHABET
 
-        # Batched Hamming-1 search (substitutions only; no indels)
-        all_hits = self._trie.SearchIndicesForAll(
-            seqs,
-            maxSubstitution=1,
-            maxInsertion=0,
-            maxDeletion=0,
-            numThreads=max(1, n_jobs),
-        )
-
+        # Hash-enumeration: for each query, look up all Hamming-1 variants
+        # (inner positions only) directly in the pool Counter.
+        # Complexity: O(n_seqs × L × |AA|) dict lookups — far cheaper than
+        # trie traversal over 10M pool sequences, and uses no extra memory.
         results: list[float] = []
-        for seq, hits in zip(seqs, all_hits):
-            total = 0
+        for seq in seqs:
             L = len(seq)
-            for idx, dist in hits:
-                neighbor = unique_seqs[idx]
-                cnt = counter[neighbor]
-                if dist == 0:
-                    total += cnt
-                else:
-                    # Find mismatch position; keep only inner-window mismatches
-                    for i, (a, b) in enumerate(zip(seq, neighbor)):
-                        if a != b:
-                            if skip <= i < L - skip:
-                                total += cnt
-                            break
+            total = counter.get(seq, 0)  # exact match counts as Hamming-0
+            arr = list(seq)
+            for i in range(skip, L - skip):
+                orig = arr[i]
+                for aa in AA:
+                    if aa != orig:
+                        arr[i] = aa
+                        total += counter.get("".join(arr), 0)
+                arr[i] = orig
             results.append(total * inv)
         return results
 

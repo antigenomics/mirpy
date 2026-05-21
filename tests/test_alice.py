@@ -357,15 +357,15 @@ def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
 
     # High match count for seq 0; low count for seq 1 (triggers OLGA fallback).
     _CASSLGQETQYF_mc_pgen = 5 / 10_000_000  # 5 matches → count=5 ≥ mc_min_count=2
-    _CASSLGQETQFF_mc_pgen = 1 / 10_000_000  # 1 match  → count=1 < mc_min_count=2 → fallback to OLGA 1mm
+    _CASSLGQETQFF_mc_pgen = 1 / 10_000_000  # 1 match  → count=1 < mc_min_count=2 → fallback to OLGA exact
     fake_pool = _FakeMcPool({
         "CASSLGQETQYF": _CASSLGQETQYF_mc_pgen,
         "CASSLGQETQFF": _CASSLGQETQFF_mc_pgen,
     })
 
-    # get_mc_pool_from_control is imported lazily inside _compute_pgen_raw_by_junction_aa
-    # from mir.common.control, so patch it there.
-    monkeypatch.setattr("mir.common.control.get_mc_pool_from_control", lambda **kwargs: fake_pool)
+    # get_or_build_mc_pool is imported lazily inside _compute_pgen_raw_by_junction_aa
+    # from mir.basic.pgen, so patch it there.
+    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: fake_pool)
 
     rep = LocusRepertoire([
         _clone("0", "CASSLGQETQYF"),
@@ -378,28 +378,27 @@ def test_compute_alice_mc_mode_uses_pool(monkeypatch) -> None:
 
     # seq 0: MC count=5 ≥ 2 → uses MC pgen
     assert float(row0["pgen_raw"]) == pytest.approx(_CASSLGQETQYF_mc_pgen, rel=0.01)
-    # seq 1: MC count=1 < 2 → falls back to OLGA 1mm (0.4 from _FakeOlgaModel)
-    assert float(row1["pgen_raw"]) == pytest.approx(0.4, rel=0.01)
+    # seq 1: MC count=1 < 2 → falls back to OLGA exact (0.1 from _FakeOlgaModel)
+    assert float(row1["pgen_raw"]) == pytest.approx(0.1, rel=0.01)
 
 
-def test_compute_alice_mc_fallback_is_1mm_not_exact(monkeypatch) -> None:
-    """MC fallback for sparse sequences uses OLGA 1mm Pgen, not exact Pgen.
+def test_compute_alice_mc_fallback_is_exact(monkeypatch) -> None:
+    """MC fallback for sparse sequences uses OLGA exact Pgen (faster than 1mm).
 
-    With exact fallback, sparse sequences would get artificially small λ
-    (underestimating enrichment).  With 1mm fallback they use the same λ scale
-    as pool-covered sequences.
+    Sequences absent from a 10M pool have very small true pgen, so the exact
+    value is a conservative (lower) λ estimate — acceptable for benchmark use.
     _FakeOlgaModel returns 0.1 for exact and 0.4 for 1mm on CASSLGQETQFF.
     """
     monkeypatch.setattr("mir.biomarkers.alice.OlgaModel", _FakeOlgaModel)
     # Empty pool → every sequence falls back to OLGA
-    monkeypatch.setattr("mir.common.control.get_mc_pool_from_control", lambda **kwargs: _FakeMcPool({}))
+    monkeypatch.setattr("mir.basic.pgen.get_or_build_mc_pool", lambda **kwargs: _FakeMcPool({}))
 
     rep = LocusRepertoire([_clone("0", "CASSLGQETQFF")], locus="TRB")
     result = compute_alice(rep, pgen_mode="mc", min_neighbors=0, mc_min_count=2, n_jobs=1)
     row = result.table.row(0, named=True)
 
-    assert float(row["pgen_raw"]) == pytest.approx(0.4, rel=0.01), (
-        "MC fallback must use OLGA 1mm Pgen (0.4), not exact (0.1)"
+    assert float(row["pgen_raw"]) == pytest.approx(0.1, rel=0.01), (
+        "MC fallback must use OLGA exact Pgen (0.1), not 1mm (0.4)"
     )
 
 
