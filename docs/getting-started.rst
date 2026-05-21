@@ -219,6 +219,74 @@ returns both richness and sample-coverage estimates with confidence bounds.
    # Single-cell per-chain-locus rarefaction (barcode_count default)
    sc_rare = single_cell_sample.rarefaction_curve(per_locus=True)
 
+Metaclonotype Workflows
+-----------------------
+
+Metaclonotypes are represented as lightweight membership tables instead of
+re-wrapping repertoire objects. This keeps existing workflows intact while
+adding cluster-level analytics.
+
+Core structures
+~~~~~~~~~~~~~~~
+
+* ``MetaClonotypeDefinition`` stores single-chain or paired cluster membership.
+* ``LocusRepertoire.set_metaclonotypes(...)`` and paired-repertoire attachment
+   methods keep clustering alongside existing repertoire objects.
+
+Point-by-point clustering entry points
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ALICE and TCRNET enriched seeds + first neighbors:
+
+   * ``mir.biomarkers.metaclonotypes_from_alice``
+   * ``mir.biomarkers.metaclonotypes_from_tcrnet``
+
+* tcrtrie/custom search scope clustering (substitutions/indels/total edits):
+
+   * ``mir.common.metaclonotypes_from_search_scope``
+   * ``mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope``
+
+* Continuous-radius / TCRdist-like representative clustering:
+
+   * ``mir.common.metaclonotypes_from_radius_threshold``
+
+* Edit-distance graph connected components / Leiden / Louvain:
+
+   * ``mir.graph.metaclonotypes_from_edit_distance_graph``
+
+* TCREmp DBSCAN/OPTICS/VDBSCAN label arrays:
+
+   * ``mir.embedding.metaclonotypes_from_tcremp_labels``
+   * ``mir.embedding.paired_metaclonotypes_from_tcremp_labels``
+
+* Token bigraph / GLIPH clonotype graph communities:
+
+   * ``mir.graph.metaclonotypes_from_token_clonotype_graph``
+   * ``mir.graph.build_gliph_metaclonotypes``
+
+Downstream metaclonotype analytics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Functional diversity and rarefaction from aggregated cluster counts:
+
+   * ``functional_diversity``
+   * ``functional_hill_curve``
+   * ``functional_rarefaction_curve``
+
+* Functional overlap-1 (clusters match if they share at least one clonotype):
+
+   * ``functional_overlap_1``
+
+* Entropy decomposition for pooled-vs-separate clustering:
+
+   * ``pooled_entropy_difference`` computes
+      ``H(A pooled with B) - H(A) - H(B)``
+
+* Motif logo inputs from metaclonotypes:
+
+   * ``metaclonotype_junctions`` provides sequence lists for
+      ``compute_pwm`` / ``compute_logo`` workflows.
+
 Pairwise Overlap Spaces
 -----------------------
 

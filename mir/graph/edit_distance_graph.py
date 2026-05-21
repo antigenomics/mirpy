@@ -18,8 +18,10 @@ _MP_CTX = multiprocessing.get_context("spawn")
 import igraph as ig
 from tcrtrie import Trie
 
+from mir.common.metaclonotype import MetaClonotypeDefinition
 from mir.common.clonotype import Clonotype
 from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
+from mir.utils.metaclonotype_clustering import metaclonotypes_from_graph_communities
 
 
 _EDGE_WORKER_STATE: dict[str, t.Any] = {}
@@ -211,3 +213,25 @@ def build_edit_distance_graph(
     if edges:
         g.add_edges(sorted(edges))
     return g
+
+
+def metaclonotypes_from_edit_distance_graph(
+    graph: ig.Graph,
+    *,
+    method: str = "components",
+    min_cluster_size: int = 1,
+) -> MetaClonotypeDefinition:
+    """Convert edit-distance graph communities/components into metaclonotypes.
+
+    Args:
+        graph: Graph produced by ``build_edit_distance_graph``.
+        method: ``components``, ``leiden``, or ``louvain``.
+        min_cluster_size: Drop clusters smaller than this size.
+    """
+    return metaclonotypes_from_graph_communities(
+        graph,
+        vertex_id_attr="r_id",
+        method=method,
+        min_cluster_size=min_cluster_size,
+        weights=None,
+    )
