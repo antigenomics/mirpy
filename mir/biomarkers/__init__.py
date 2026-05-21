@@ -16,12 +16,15 @@ from mir.biomarkers.alice import (
 )
 from mir.biomarkers.motif_logo import (
     AA_ORDER,
+    BIOCHEMISTRY_COLORS,
     CHEMISTRY_COLORS,
     compute_pwm,
     compute_logo,
     load_motif_pwms,
     pwm_from_motif_pwms,
     get_vj_background,
+    aggregate_vj_background,
+    build_motif_logos_vj,
     plot_logo,
     plot_motif_logos,
     compute_cluster_profiles,
@@ -35,12 +38,15 @@ from mir.comparative.vdjbet import (
 
 __all__ = [
 	"AA_ORDER",
+	"BIOCHEMISTRY_COLORS",
 	"CHEMISTRY_COLORS",
 	"compute_pwm",
 	"compute_logo",
 	"load_motif_pwms",
 	"pwm_from_motif_pwms",
 	"get_vj_background",
+	"aggregate_vj_background",
+	"build_motif_logos_vj",
 	"plot_logo",
 	"plot_motif_logos",
 	"compute_cluster_profiles",

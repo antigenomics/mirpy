@@ -1421,26 +1421,101 @@ needed.
 
 ## 23. CDR3 Sequence Logos and Motif PWMs
 
-`mir.biomarkers.motif_logo` — Shannon IC and background-normalised logos.
+`mir.biomarkers.motif_logo` — Shannon IC logos and OLGA-background-normalised selection logos.
+
+### Scientific purpose
+
+V-gene and J-gene templates encode conserved residues at CDR3 ends (N-terminal Cys,
+J-gene STDTQYF stretch).  A plain IC logo shows these germline residues as the tallest
+columns, hiding the antigen-specific motif.  Subtracting an OLGA background for the
+**same V/J/length** removes the germline signal: `h_sel ≈ 0` at germline positions,
+`h_sel >> 0` at antigen-driven positions (Pogorelyy et al. 2019, PLoS Biol.).
+
+### CDR3 omega loop geometry
+
+V-gene encodes the first ~5 residues; J-gene encodes the last ~4; the centre
+(D-gene + N-additions) varies in length.  CDR3s of **different lengths are NOT
+linearly aligned** — they share the terminals but insert/delete at the centre.
+Aggregate profiles must therefore use **fractional position** `p / (L−1)`:
+- 0 → conserved N-terminal Cys
+- 1 → conserved C-terminal Phe/Trp
+- 0.5 → approximate hypervariable centre
+
+### Key formulas
+
+| Logo type | Formula | Notes |
+|---|---|---|
+| IC logo | `h_IC[p,a] = f[p,a] · (log₂20 + Σₐ f·log₂f)` | Always ≥ 0 (bits) |
+| Selection logo | `h_sel[p,a] = f[p,a] · log₂(f[p,a] / f_bg[p,a])` | Negative = depleted |
+| motif_pwms height.I | IC / log₂(20) | [0,1] scale — **not bits**; multiply by log₂20 to convert |
+| motif_pwms height.I.norm | −Σₐ f·ln(f_bg) / ln(20) / 2 | Cross-entropy, always ≥ 0 |
 
 ### Build a PWM from raw sequences
 
 ```python
-from mir.biomarkers.motif_logo import compute_pwm, compute_logo
+from mir.biomarkers.motif_logo import compute_pwm, compute_logo, get_vj_background
 
 pwm = compute_pwm(sequences, pseudocount=0.5)   # → pos, aa, count, frequency
-logo = compute_logo(pwm)                         # adds ic_height
-logo_bg = compute_logo(pwm, background=bg_pwm)  # adds ic_height + bg_height
+logo = compute_logo(pwm)                         # adds ic_height (bits)
+bg   = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+                          length=13, species="HomoSapiens", gene="TRB")
+logo_bg = compute_logo(pwm, background=bg)       # adds ic_height + bg_height
 ```
 
 `compute_pwm` filters to the modal CDR3 length; set `length=` to override.
+Always pass `species=` and `gene=` to avoid mixing TRA/TRB or mouse/human OLGA pools.
+
+### Two background regimes
+
+| Regime | Function | Removes |
+|---|---|---|
+| Per-VJ-len | `get_vj_background(v, j, len, species, gene)` | V-gene **and** J-gene germline |
+| All-VJ aggregate | `aggregate_vj_background(pwms, length=L, species=S, gene=G)` | Length-composition bias only |
+
+```python
+from mir.biomarkers.motif_logo import aggregate_vj_background
+
+agg_bg = aggregate_vj_background(pwms, length=13, species="HomoSapiens", gene="TRB")
+# Returns pl.DataFrame[pos, aa, frequency] — weighted average over all VJ clusters
+# of the given length.  Returns None if no matching clusters.
+```
+
+`get_vj_background` picks the cluster with the largest `total.bg` for the matching
+V/J/length; prefix matching (strip allele suffix) is tried if exact match fails.
+
+### Automated per-VJ-len logos from ALICE / TCRNET hits
+
+`build_motif_logos_vj` is the recommended entry point for ALICE / TCRNET output.
+It groups by (V, J, length), builds a per-VJ-len logo with matched OLGA background
+for each group, and adds one all-VJ aggregate logo keyed `(None, None, len)`.
+
+```python
+from mir.biomarkers.motif_logo import build_motif_logos_vj
+import polars as pl
+
+# hits_df must have columns: junction_aa, v_gene, j_gene
+logos = build_motif_logos_vj(
+    hits_df,
+    pwms,
+    species="HomoSapiens",
+    gene="TRB",
+    min_seqs=5,         # skip groups with fewer sequences
+    pseudocount=0.5,
+)
+# Returns {(v, j, len): logo_df, ..., (None, None, len): logo_df, ...}
+# Each logo_df has columns: pos, aa, count, frequency, ic_height, bg_height
+
+# Typical usage
+vj_logo  = logos.get(("TRBV9", "TRBJ2-3", 15))
+agg_logo = logos.get((None, None, 15))
+```
 
 ### Load pre-computed cluster logos from motif_pwms.txt.gz
 
 ```python
 from mir.biomarkers.motif_logo import load_motif_pwms, pwm_from_motif_pwms
 
-pwms = load_motif_pwms(path)                     # full cluster table
+pwms = load_motif_pwms(path)                          # full cluster table
 logo = pwm_from_motif_pwms(pwms, "H.B.GILGFVFTL.1")  # pos/aa/ic_height/bg_height
 ```
 
@@ -1448,42 +1523,52 @@ logo = pwm_from_motif_pwms(pwms, "H.B.GILGFVFTL.1")  # pos/aa/ic_height/bg_heigh
 Key columns: `cid`, `csz`, `species`, `gene`, `antigen.epitope`, `v.segm.repr`,
 `j.segm.repr`, `len`, `pos`, `aa`, `freq`, `freq.bg`, `height.I`, `height.I.norm`.
 
-Use `find_airr_benchmark_motif_pwms(dataset_root)` from `mir.utils.notebook_assets`.
+**Sparse storage**: `freq.bg` stores only non-zero residues per position (implicit
+zero for missing AAs). `height.I` is in [0,1]-normalised scale, not bits.
 
-### OLGA background lookup
-
-```python
-from mir.biomarkers.motif_logo import get_vj_background
-
-bg = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01", length=13)
-# Returns pl.DataFrame[pos, aa, frequency] or None if no matching cluster
-```
-
-Picks the cluster with the largest `total.bg` for the matching V/J/length.
-Prefix matching (strip allele suffix) is tried if exact match fails.
-
-### Two-panel logo figure
+### Plotting
 
 ```python
-from mir.biomarkers.motif_logo import plot_motif_logos
+from mir.biomarkers.motif_logo import plot_motif_logos, plot_logo, BIOCHEMISTRY_COLORS
 
 fig, axes = plot_motif_logos(
     logo_with_bg,
     v_gene="TRBV19*01",
     j_gene="TRBJ2-7*01",
     n_seqs=896,
-    title="GILGFVFTL",
+    title="GILGFVFTL (Influenza A, HLA-A*02:01)",
 )
-# axes[0] = standard IC logo; axes[1] = background-normalised logo
+# axes[0] = IC logo (always ≥ 0); axes[1] = selection logo (can be negative)
+# V/J gene label appears ONLY in the figure suptitle, not around the axes.
+# Letters sorted ascending so the tallest letter is drawn on top (WebLogo convention).
 ```
 
-Background-normalised panel: enriched residues (positive) above zero, depleted
-(negative, letters drawn inverted) below zero.
+`BIOCHEMISTRY_COLORS` maps all 20 amino acids to 5 colour categories matching
+Pogorelyy et al. 2019 Fig 2e:
+- Aromatic: W, F, Y, H (purple)
+- Nonpolar aliphatic: A, V, I, L, M, G, P (green)
+- Polar: S, T, N, Q, C (yellow)
+- Negatively charged: D, E (blue)
+- Positively charged: K, R (red)
 
-### Key formulas
+### Aggregate cluster IC/entropy profiles
 
-- **IC logo**: `IC[p] = log₂(20) + Σ f[p,a]·log₂(f[p,a])`;  `h_IC[p,a] = f[p,a]·IC[p]`
-- **Bg-normalised**: `h_norm[p,a] = f[p,a]·log₂(f[p,a] / f_bg[p,a])`  (can be negative)
+```python
+from mir.biomarkers.motif_logo import compute_cluster_profiles
+
+# Per-position IC, H (entropy), I_norm for all csz>=30 clusters, TRB only
+profiles = compute_cluster_profiles(pwms, min_csz=30, gene="TRB")
+# Columns: cid, species, gene, antigen.epitope, v/j.segm.repr, len, csz, pos,
+#          IC (bits), H (bits), I_norm (VDJdb-motifs cross-entropy)
+
+# Fractional-position profile (p/(L-1) maps 0→Cys, 1→Phe/Trp)
+profiles_frac = profiles.with_columns(
+    (pl.col("pos") / (pl.col("len") - 1)).alias("frac_pos")
+)
+```
+
+Formula: `IC = Σₐ height.I · log₂(20)` (position-level); `H = log₂(20) − IC`.
+`I_norm = Σₐ height.I.norm` (pre-stored cross-entropy, always ≥ 0).
 
 ### Important cluster IDs for reference
 
@@ -1493,40 +1578,21 @@ Background-normalised panel: enriched residues (positive) above zero, depleted
 | H.B.GILGFVFTL.4 | GILGFVFTL | TRBV19*01 | TRBJ1-5*01 | 13 | 129 |
 
 The B27 AS CASSVGL[YF]STDTQYF motif is NOT in motif_pwms — use VDJdb
-TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15)`.
+TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01",
+j_gene="TRBJ2-3*01", length=15, species="HomoSapiens", gene="TRB")`.
 
-**B27 AS two-pool analysis**: show broad (all VJlen) and ALICE hits (STDTQYF-ending) logos:
+**B27 AS analysis (Fig 2e reproduction)**:
 ```python
 as_seqs_broad = [...]           # all TRBV9/TRBJ2-3/len=15 from VDJdb (119 seqs)
-as_seqs_alice = [s for s in as_seqs_broad if s.endswith('STDTQYF')]  # 34 seqs
-as_bg = get_vj_background(pwms, v_gene='TRBV9*01', j_gene='TRBJ2-3*01',
-                           length=15, species='HomoSapiens', gene='TRB')
-logo_broad = compute_logo(compute_pwm(as_seqs_broad), background=as_bg)
+as_seqs_alice = [s for s in as_seqs_broad if s.endswith("STDTQYF")]  # 34 seqs
+as_bg = get_vj_background(pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+                           length=15, species="HomoSapiens", gene="TRB")
+# Selection logo: CASS (pos 1-4) and STDTQYF (pos 9-15) collapse to ≈0;
+# VGL[YF] (pos 5-8) shows the antigen-driven enrichment.
 logo_alice = compute_logo(compute_pwm(as_seqs_alice), background=as_bg)
 ```
-
-### Aggregate cluster IC/entropy profiles
-
-```python
-from mir.biomarkers.motif_logo import compute_cluster_profiles
-
-# Per-position IC, H (entropy), I_norm for all csz>=30 clusters, TRB only
-profiles = compute_cluster_profiles(pwms, min_csz=30,
-                                     species='HomoSapiens', gene='TRB')
-# Columns: cid, species, gene, antigen.epitope, v/j.segm.repr, len, csz, pos,
-#          IC (bits), H (bits), I_norm (VDJdb-motifs cross-entropy)
-```
-
-Formula: `IC = Σₐ height.I · log₂(20)` (position-level);  `H = log₂(20) − IC`.
-`I_norm = Σₐ height.I.norm` (pre-stored cross-entropy, always ≥ 0).
-
-### Background formula note
-
-- `compute_logo` uses **log-odds KL** per residue: `h[p,a] = f·log₂(f/f_bg)` (can be negative)
-- `motif_pwms height.I.norm` uses **cross-entropy**: `−Σₐ f·ln(f_bg)/ln(20)/2` (always ≥ 0)
-- Always pass `species=` and `gene=` to `get_vj_background` explicitly to avoid mixing TRA/TRB or mouse/human backgrounds.
 
 ### Background pool size
 
 ≥ 1,000 OLGA sequences per VJ/length gives stable background frequencies (MAD < 0.002);
-`motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold).
+`motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold for all cases).

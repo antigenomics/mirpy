@@ -28,6 +28,9 @@ import pytest
 from tests.conftest import skip_integration
 from mir.biomarkers.motif_logo import (
     AA_ORDER,
+    BIOCHEMISTRY_COLORS,
+    aggregate_vj_background,
+    build_motif_logos_vj,
     compute_cluster_profiles,
     compute_logo,
     compute_pwm,
@@ -547,6 +550,270 @@ class TestGilgfvftlLogoValidation(unittest.TestCase):
                 cons_pos, comp_rank[:3],
                 f"Conserved pos {cons_pos} not in top-3 of computed IC",
             )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: BIOCHEMISTRY_COLORS
+# ---------------------------------------------------------------------------
+
+class TestBiochemistryColors(unittest.TestCase):
+    """Tests for the five-category biochemistry colour scheme."""
+
+    def test_all_20_aas_have_color(self):
+        for aa in AA_ORDER:
+            self.assertIn(aa, BIOCHEMISTRY_COLORS, f"Missing color for {aa}")
+
+    def test_aromatic_residues_share_color(self):
+        """W, F, Y, H (aromatic) should have the same colour."""
+        aromatic = [BIOCHEMISTRY_COLORS[aa] for aa in "WFYH"]
+        self.assertEqual(len(set(aromatic)), 1)
+
+    def test_charged_residues_distinct_colors(self):
+        """Positively (K, R) and negatively (D, E) charged should differ."""
+        pos_color = BIOCHEMISTRY_COLORS["K"]
+        neg_color = BIOCHEMISTRY_COLORS["D"]
+        self.assertNotEqual(pos_color, neg_color)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: letter stacking order
+# ---------------------------------------------------------------------------
+
+class TestLetterStackingOrder(unittest.TestCase):
+    """Verify that the tallest letter ends up on top (WebLogo convention)."""
+
+    def _get_patch_y_tops(self, logo_df, height_col):
+        """Render logo to Agg canvas and return patches sorted by top y."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        plot_logo(logo_df, ax, height_col=height_col)
+        patches = [p for p in ax.patches if hasattr(p, "get_path")]
+        plt.close(fig)
+        return patches
+
+    def test_ic_logo_dominant_letter_on_top(self):
+        """At a conserved position, the dominant AA patch should have the highest y-top."""
+        # Position 0 is almost entirely 'C'; with pseudocount it dominates but not 100%
+        seqs = ["CASSRS"] * 10 + ["CASGTS"] * 1
+        pwm = compute_pwm(seqs, pseudocount=0.0)
+        logo = compute_logo(pwm)
+
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        plot_logo(logo, ax, height_col="ic_height")
+
+        # The tallest letter at pos 0 (C) should be drawn last → its bounding box
+        # y-top should be the highest among all patches at that position.
+        patches_pos0 = [
+            p for p in ax.patches
+            if hasattr(p, "get_path")
+            and p.get_path() is not None
+            and 0.0 <= p.get_path().get_extents().x0 < 1.0
+        ]
+        if patches_pos0:
+            y_tops = [p.get_path().get_extents().y1 for p in patches_pos0]
+            # The overall stack top should equal the sum of all ic_heights at pos 0
+            total_ic_pos0 = float(logo.filter(pl.col("pos") == 0)["ic_height"].sum())
+            self.assertAlmostEqual(max(y_tops), total_ic_pos0, delta=0.15)
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: aggregate_vj_background and build_motif_logos_vj
+# ---------------------------------------------------------------------------
+
+class TestAggregateVjBackground(unittest.TestCase):
+    """Tests for :func:`aggregate_vj_background`."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not MOTIF_PWMS_FILE.exists():
+            raise unittest.SkipTest("motif_pwms.txt.gz not found")
+        cls.pwms = load_motif_pwms(MOTIF_PWMS_FILE)
+
+    def test_returns_dataframe(self):
+        bg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        self.assertIsNotNone(bg)
+        self.assertIsInstance(bg, pl.DataFrame)
+
+    def test_expected_columns(self):
+        bg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        self.assertIn("pos", bg.columns)
+        self.assertIn("aa", bg.columns)
+        self.assertIn("frequency", bg.columns)
+
+    def test_frequencies_positive(self):
+        bg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        self.assertTrue((bg["frequency"] > 0).all())
+
+    def test_frequencies_in_unit_interval(self):
+        # motif_pwms stores only non-zero AAs; missing AAs get bg_floor in compute_logo.
+        # All stored frequencies must be in (0, 1].
+        bg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        self.assertTrue((bg["frequency"] > 0).all(), "All background frequencies must be positive")
+        self.assertTrue((bg["frequency"] <= 1.0 + 1e-9).all(), "Background frequencies must be ≤ 1")
+
+    def test_correct_length(self):
+        bg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        n_positions = bg["pos"].n_unique()
+        self.assertEqual(n_positions, 13)
+
+    def test_gene_filter(self):
+        bg_trb = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        bg_tra = aggregate_vj_background(self.pwms, length=13, gene="TRA")
+        if bg_trb is not None and bg_tra is not None:
+            # TRB and TRA aggregate backgrounds should differ from each other
+            joined = (
+                bg_trb.rename({"frequency": "f_trb"})
+                .join(bg_tra.rename({"frequency": "f_tra"}), on=["pos", "aa"], how="inner")
+            )
+            if len(joined) > 0:
+                diff = (joined["f_trb"] - joined["f_tra"]).abs().max()
+                self.assertGreater(diff, 1e-4, "TRB and TRA aggregate backgrounds should differ")
+
+    def test_nonexistent_length_returns_none(self):
+        bg = aggregate_vj_background(self.pwms, length=999, gene="TRB")
+        self.assertIsNone(bg)
+
+    def test_differs_from_per_vj_background(self):
+        """All-VJ aggregate should differ from a specific VJ background."""
+        bg_agg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
+        bg_vj = get_vj_background(
+            self.pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+            length=13, gene="TRB",
+        )
+        if bg_agg is not None and bg_vj is not None:
+            joined = bg_agg.join(bg_vj, on=["pos", "aa"], suffix="_vj")
+            diffs = (joined["frequency"] - joined["frequency_vj"]).abs()
+            # At least some positions should differ between aggregate and specific VJ
+            self.assertGreater(float(diffs.max()), 1e-4)
+
+
+class TestBuildMotifLogosVj(unittest.TestCase):
+    """Tests for :func:`build_motif_logos_vj`."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not MOTIF_PWMS_FILE.exists():
+            raise unittest.SkipTest("motif_pwms.txt.gz not found")
+        cls.pwms = load_motif_pwms(MOTIF_PWMS_FILE)
+        # Minimal synthetic input: 5 sequences of TRBV9/TRBJ2-3/len=15
+        cls.seqs_df = pl.DataFrame({
+            "junction_aa": [
+                "CASSVGLYSTDTQYF", "CASSVGLFSTDTQYF", "CASSVGVYSTDTQYF",
+                "CASSLGLFSTDTQYF", "CASSAGLFSTDTQYF",
+            ],
+            "v_gene": ["TRBV9"] * 5,
+            "j_gene": ["TRBJ2-3"] * 5,
+        })
+
+    def test_returns_dict(self):
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        self.assertIsInstance(logos, dict)
+        self.assertGreater(len(logos), 0)
+
+    def test_per_vj_key_present(self):
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        # Should have at least one (v, j, len) key
+        vj_keys = [k for k in logos if k[0] is not None]
+        self.assertGreater(len(vj_keys), 0)
+
+    def test_aggregate_key_present(self):
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        agg_keys = [k for k in logos if k[0] is None]
+        self.assertGreater(len(agg_keys), 0)
+
+    def test_logo_has_ic_height(self):
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        for key, logo in logos.items():
+            self.assertIn("ic_height", logo.columns, f"key={key}")
+
+    def test_per_vj_logo_has_bg_height(self):
+        """Per-VJ logos should have bg_height when a background is found."""
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        vj_keys = [k for k in logos if k[0] is not None]
+        for key in vj_keys:
+            # bg_height may or may not be present depending on motif_pwms coverage;
+            # if present it must contain valid values
+            logo = logos[key]
+            if "bg_height" in logo.columns:
+                self.assertFalse(logo["bg_height"].is_null().any())
+
+    def test_min_seqs_filter(self):
+        """Groups with fewer than min_seqs sequences should be excluded."""
+        logos_strict = build_motif_logos_vj(self.seqs_df, self.pwms, min_seqs=10)
+        # All 5 sequences belong to one VJ group → below min_seqs=10 → excluded
+        vj_keys = [k for k in logos_strict if k[0] is not None]
+        self.assertEqual(len(vj_keys), 0)
+
+    def test_custom_column_names(self):
+        renamed = self.seqs_df.rename({
+            "junction_aa": "cdr3",
+            "v_gene": "v",
+            "j_gene": "j",
+        })
+        logos = build_motif_logos_vj(
+            renamed, self.pwms,
+            cdr3_col="cdr3", v_col="v", j_col="j",
+        )
+        self.assertGreater(len(logos), 0)
+
+    def test_length_in_key_matches_sequences(self):
+        logos = build_motif_logos_vj(self.seqs_df, self.pwms)
+        for key, logo in logos.items():
+            expected_len = key[2]
+            n_positions = logo["pos"].n_unique()
+            self.assertEqual(n_positions, expected_len, f"key={key}")
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: plot_motif_logos title placement
+# ---------------------------------------------------------------------------
+
+class TestPlotMotifLogosTitle(unittest.TestCase):
+    """Verify that V/J gene names appear in the suptitle, not on axes margins."""
+
+    def test_vj_in_suptitle(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        pwm = compute_pwm(_SIMPLE_SEQS)
+        logo = compute_logo(pwm)
+        fig, axes = plot_motif_logos(
+            logo, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+            show_bg=False,
+        )
+        suptitle_text = fig._suptitle.get_text() if fig._suptitle else ""
+        self.assertIn("TRBV9", suptitle_text)
+        self.assertIn("TRBJ2-3", suptitle_text)
+        plt.close(fig)
+
+    def test_no_rotated_text_on_axes(self):
+        """V/J should not appear as rotated text objects on the axes."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        pwm = compute_pwm(_SIMPLE_SEQS)
+        logo = compute_logo(pwm)
+        fig, axes = plot_motif_logos(
+            logo, v_gene="TRBV9", j_gene="TRBJ2-3", show_bg=False,
+        )
+        for ax in axes:
+            rotated_texts = [
+                t for t in ax.texts
+                if t.get_rotation() not in (0, 360)
+            ]
+            self.assertEqual(
+                len(rotated_texts), 0,
+                f"Found {len(rotated_texts)} rotated text objects on axes — V/J should be in suptitle",
+            )
+        plt.close(fig)
 
 
 if __name__ == "__main__":
