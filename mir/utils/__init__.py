@@ -18,7 +18,6 @@ from .embedding_diagnostics import (
     classification_scores_by_label,
     cluster_purity_consistency,
     majority_vote_cluster_predictions,
-    select_eps_kneedle,
     select_eps_kneedle_stable,
 )
 from .stats import bh_fdr
@@ -40,7 +39,6 @@ __all__ = [
     "classification_scores_by_label",
     "cluster_purity_consistency",
     "majority_vote_cluster_predictions",
-    "select_eps_kneedle",
     "select_eps_kneedle_stable",
     "bh_fdr",
     "process_memory_snapshot",

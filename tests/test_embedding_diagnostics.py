@@ -46,6 +46,8 @@ def test_analyze_embedding_dbscan_returns_expected_keys() -> None:
         "median_4nn",
         "kth",
         "knee_idx",
+        "eps_selection_mode",
+        "eps_selector_meta",
         "cum",
         "X_pca",
         "clusters",
@@ -73,14 +75,16 @@ def test_analyze_embedding_dbscan_stable_mode_returns_selector_meta() -> None:
         labels,
         seed=7,
         eps_selection_mode="stable_kneedle",
-        n_bootstrap=5,
     )
 
     assert result["eps"] > 0.0
     assert result["eps_selection_mode"] == "stable_kneedle"
     selector_meta = result["eps_selector_meta"]
     assert isinstance(selector_meta, dict)
-    assert "n_candidates" in selector_meta
+    assert "knee_found" in selector_meta
+    assert "eps_floor" in selector_meta
+    assert "eps_cap" in selector_meta
+    assert isinstance(selector_meta["knee_found"], bool)
 
 
 def test_majority_vote_predictions_and_scores() -> None:
