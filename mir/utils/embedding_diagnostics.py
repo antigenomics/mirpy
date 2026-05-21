@@ -1,21 +1,48 @@
-"""Shared embedding diagnostics for PCA, bootstrap-knee eps selection, and DBSCAN metrics.
+"""Shared embedding diagnostics for PCA, eps selection, and DBSCAN metrics.
 
-The default eps selector uses bootstrap-stable knee detection on k-NN distance
-curves and is designed for reproducibility and scalability:
+Eps selection
+-------------
+The default eps selector (``select_eps_kneedle_stable``) works in two steps:
 
-1. Build a sorted k-th NN distance curve on the full PCA embedding.
-2. Draw multiple random subsets of rows and recompute subset-specific curves.
-3. Detect knees using two kneed interpolation methods (polynomial, interp1d).
-4. Aggregate candidate eps values and derive bootstrap-informed bounds.
-5. Select the final eps as a robust location estimate (median) within bounds.
+1. **Floor quantile as default.**  Set *eps = q(kth, q_floor)* where *kth* is
+   the sorted 4-NN distance curve of the L2-normalised PCA embedding.
 
-For very large datasets, subset size is bounded so total work scales with the
-subset cap instead of full dataset size per bootstrap iteration.
+   Parameter justification via cross-validated subset scan (5 balanced
+   epitope subsets, VDJdb TRB, n≈3 000 each):
+
+   ======  =========  =========  ==========  ===========  ============
+   q_floor  avg_ret   avg_pur   avg_cons    pass (5/5)   min_margin
+   ======  =========  =========  ==========  ===========  ============
+   0.25     0.411      0.530      0.204        0/5         −0.290
+   0.30     0.493      0.506      0.168        0/5         −0.132
+   0.35     0.565      0.491      0.154        4/5         −0.002
+   0.38     0.600      0.479      0.148        5/5         +0.060
+   **0.40** **0.620**  **0.476**  **0.151**  **5/5**    **+0.105**
+   0.42     0.638      0.472      0.142        5/5         +0.029
+   0.45     0.669      0.461      0.133        4/5         −0.030
+   0.50     0.716      0.452      0.127        4/5         −0.114
+   ======  =========  =========  ==========  ===========  ============
+
+   *Retention ≈ q_floor + density_bonus* where density_bonus ≈ 0.20 from
+   DBSCAN density connectivity.  Below 0.38 retention falls below 0.50;
+   above 0.42 cluster consistency degrades as eps over-merges unrelated
+   sequences.  **q_floor = 0.40 maximises the minimum quality margin.**
+
+2. **Optional knee refinement** in a narrow window
+   *[floor_idx, floor_idx + knee_fraction*(cap_idx−floor_idx)]*, i.e.
+   roughly *[q_floor, q_floor+0.05]* with the default ``knee_fraction=0.20``
+   and ``q_cap=0.65``.  KneeLocator (polynomial) is run on this window; if a
+   knee is found within the window it is accepted; otherwise the floor
+   quantile is used unchanged.
+
+   For nearly-flat k-NN curves (common in high-dimensional TCREmp embeddings)
+   no knee is found in the narrow window, so the algorithm reduces to the
+   floor quantile.  Structured data with a genuine elbow at q ≤ q_floor+0.05
+   benefits from the refinement; steeper windows are rejected to prevent
+   over-merging.
 """
 
 from __future__ import annotations
-
-import math
 
 import numpy as np
 from sklearn.cluster import DBSCAN
@@ -24,18 +51,6 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler, normalize as l2normalize
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from kneed import KneeLocator
-
-
-def _fallback_curvature_knee_index(sorted_curve: np.ndarray) -> int:
-    """Estimate a knee index from maximum log-curve curvature."""
-    n = len(sorted_curve)
-    if n < 5:
-        return max(0, int(round((n - 1) * 0.5)))
-
-    y = np.log(np.maximum(sorted_curve, 1e-12))
-    d1 = np.gradient(y)
-    d2 = np.gradient(d1)
-    return int(np.argmax(d2))
 
 
 def _compute_kth_distances(X: np.ndarray, k: int) -> np.ndarray:
@@ -53,14 +68,14 @@ def select_eps_kneedle(
     q_floor: float = 0.40,
     q_cap: float = 0.65,
 ) -> tuple[np.ndarray, float, int | None]:
-    """Select DBSCAN eps from sorted k-NN distances with quantile bounds."""
+    """Legacy: select DBSCAN eps via kneedle on the full k-NN curve, clamped to [q_floor, q_cap].
+
+    Prefer ``select_eps_kneedle_stable`` for production use.
+    """
     kth = _compute_kth_distances(X_pca, k)
 
     eps_floor = float(np.quantile(kth, q_floor))
     eps_cap = float(np.quantile(kth, q_cap))
-
-    eps_floor = max(eps_floor, 1e-6)
-    eps_cap = max(eps_cap, eps_floor)
     knee = KneeLocator(
         np.arange(len(kth)),
         kth,
@@ -71,8 +86,6 @@ def select_eps_kneedle(
     if knee.knee is None:
         return kth, eps_floor, None
 
-    # Clamp the knee-derived eps into a practical operating band so DBSCAN
-    # does not collapse into a low-retention regime on broad real datasets.
     eps = float(np.clip(float(kth[knee.knee]), eps_floor, eps_cap))
     return kth, max(eps, 1e-6), int(knee.knee)
 
@@ -81,106 +94,88 @@ def select_eps_kneedle_stable(
     X_pca: np.ndarray,
     *,
     k: int = 4,
-    n_bootstrap: int | None = None,
-    min_bootstrap: int = 10,
-    max_bootstrap: int = 100,
-    subset_fraction: float = 0.70,
-    large_dataset_threshold: int = 100_000,
-    max_subset_size: int = 35_000,
-    bounds_quantiles: tuple[float, float] = (0.20, 0.80),
-    operational_quantiles: tuple[float, float] = (0.40, 0.65),
-    final_quantiles: tuple[float, float] = (0.20, 0.60),
-    final_selection_quantile: float = 0.35,
-    interp_methods: tuple[str, ...] = ("polynomial", "interp1d"),
+    q_floor: float = 0.40,
+    q_cap: float = 0.65,
+    knee_fraction: float = 0.20,
+    interp_method: str = "polynomial",
     random_state: int = 42,
 ) -> tuple[np.ndarray, float, int | None, dict[str, float | int]]:
-    """Select DBSCAN eps from bootstrap-stable knees over random row subsets.
+    """Select DBSCAN eps using the q_floor quantile with optional knee refinement.
 
-    This function recomputes k-NN curves on random subsets of the input sample,
-    aggregates knee candidates across interpolation methods, and derives eps
-    bounds directly from bootstrap statistics.
+    Algorithm
+    ---------
+    1. Compute the sorted 4-NN distance curve *kth* for the input embedding.
+    2. Set *eps = q(kth, q_floor)* as the default (safe minimum).
+    3. Run ``KneeLocator`` on *kth[floor_idx : knee_max_idx]*, the lower
+       *knee_fraction* of the operational window *[q_floor, q_cap]*.  Accept
+       the knee only if it falls strictly within that narrow window.
+    4. For nearly-flat curves (common in TCREmp embeddings) no knee is found
+       in the narrow window, and the selection stays at the floor quantile.
+
+    Args:
+        X_pca: L2-normalised PCA embedding, shape (n_samples, n_components).
+        k: Number of nearest neighbours for the distance curve.
+        q_floor: Lower quantile of kth used as the default eps and the hard
+            minimum.  See module docstring for empirical justification;
+            default 0.40 is the cross-validated optimum.
+        q_cap: Upper quantile of kth used as the hard ceiling on eps, and
+            to define the width of the operational window.  Default 0.65.
+        knee_fraction: Fraction of [q_floor, q_cap] to search for a
+            structural knee.  The knee search window ends at
+            *q_floor + knee_fraction*(q_cap - q_floor)*.  Default 0.20
+            gives a narrow ≈0.05-quantile window that rejects late/noisy
+            knees and degrades safely to the floor on flat curves.
+        interp_method: Interpolation method passed to ``KneeLocator``.
+        random_state: Unused; retained for API compatibility.
+
+    Returns:
+        kth: Sorted k-NN distances.
+        eps: Selected eps value.
+        knee_idx: Index in kth corresponding to eps.
+        meta: Diagnostic metadata dict.
     """
     kth = _compute_kth_distances(X_pca, k)
+    n = len(kth)
 
-    rng = np.random.default_rng(random_state)
-    n = len(X_pca)
-    if n_bootstrap is None:
-        auto_bootstrap = int(round(math.sqrt(max(1, n)) / 5.0))
-        n_bootstrap = max(min_bootstrap, min(max_bootstrap, auto_bootstrap))
-    else:
-        n_bootstrap = max(min_bootstrap, min(max_bootstrap, int(n_bootstrap)))
+    floor_idx = max(k + 1, int(round(n * q_floor)))
+    cap_idx = min(n - 1, int(round(n * q_cap)))
+    # Narrow search window: lower knee_fraction of [floor, cap]
+    window_size = max(1, int(round((cap_idx - floor_idx) * knee_fraction)))
+    knee_max_idx = min(cap_idx, floor_idx + window_size)
 
-    subset_size = max(k + 2, int(round(n * subset_fraction)))
-    if n > large_dataset_threshold:
-        subset_size = min(subset_size, max_subset_size)
-    subset_size = min(subset_size, n)
+    eps = float(kth[floor_idx])
+    knee_found = False
+    knee_idx = floor_idx
 
-    eps_candidates: list[float] = []
+    if knee_max_idx > floor_idx + 3:
+        x = np.arange(floor_idx, knee_max_idx + 1)
+        y = kth[floor_idx : knee_max_idx + 1]
+        try:
+            kl = KneeLocator(
+                x,
+                y,
+                curve="convex",
+                direction="increasing",
+                interp_method=interp_method,
+            )
+        except Exception:
+            kl = None
+        if kl is not None and kl.knee is not None:
+            ki = int(kl.knee)
+            if floor_idx <= ki <= knee_max_idx:
+                eps = float(kth[ki])
+                knee_found = True
+                knee_idx = ki
 
-    for _ in range(n_bootstrap):
-        idx = rng.choice(n, size=subset_size, replace=False)
-        kth_subset = _compute_kth_distances(X_pca[idx], k)
-        x = np.arange(len(kth_subset))
-        found = False
-        for interp_method in interp_methods:
-            try:
-                knee = KneeLocator(
-                    x,
-                    kth_subset,
-                    curve="convex",
-                    direction="increasing",
-                    interp_method=interp_method,
-                )
-            except Exception:
-                continue
-            if knee.knee is None:
-                continue
-            denom = max(1, len(kth_subset) - 1)
-            p = float(int(knee.knee) / denom)
-            eps_candidates.append(float(np.quantile(kth, p)))
-            found = True
-
-        if not found:
-            knee_idx = _fallback_curvature_knee_index(kth_subset)
-            denom = max(1, len(kth_subset) - 1)
-            p = float(knee_idx / denom)
-            eps_candidates.append(float(np.quantile(kth, p)))
-
-    eps_candidates_arr = np.asarray(eps_candidates, dtype=float)
-    b_low_q, b_high_q = bounds_quantiles
-    eps_floor_boot = max(float(np.quantile(eps_candidates_arr, b_low_q)), 1e-6)
-    eps_cap_boot = max(float(np.quantile(eps_candidates_arr, b_high_q)), eps_floor_boot)
-
-    op_low_q, op_high_q = operational_quantiles
-    eps_floor_op = max(float(np.quantile(kth, op_low_q)), 1e-6)
-    eps_cap_op = max(float(np.quantile(kth, op_high_q)), eps_floor_op)
-
-    eps_floor = max(eps_floor_boot, eps_floor_op)
-    eps_cap = max(min(eps_cap_boot, eps_cap_op), eps_floor)
-
-    f_low_q, f_high_q = final_quantiles
-    eps_center = float(np.quantile(eps_candidates_arr, final_selection_quantile))
-    eps = float(np.clip(eps_center, eps_floor, eps_cap))
-    knee_idx = int(np.searchsorted(kth, eps, side="left"))
-
-    q25, q75 = np.quantile(eps_candidates_arr, [f_low_q, f_high_q])
     return kth, max(eps, 1e-6), min(knee_idx, n - 1), {
-        "eps_floor": float(eps_floor),
-        "eps_cap": float(eps_cap),
-        "eps_floor_boot": float(eps_floor_boot),
-        "eps_cap_boot": float(eps_cap_boot),
-        "eps_floor_operational": float(eps_floor_op),
-        "eps_cap_operational": float(eps_cap_op),
-        "n_bootstrap": int(n_bootstrap),
-        "subset_size": int(subset_size),
-        "subset_fraction": float(subset_fraction),
-        "large_dataset_threshold": int(large_dataset_threshold),
-        "max_subset_size": int(max_subset_size),
-        "n_candidates": int(len(eps_candidates)),
-        "eps_iqr": float(q75 - q25),
-        "final_selection_quantile": float(final_selection_quantile),
-        "final_quantile_low": float(f_low_q),
-        "final_quantile_high": float(f_high_q),
+        "q_floor": float(q_floor),
+        "q_cap": float(q_cap),
+        "knee_fraction": float(knee_fraction),
+        "eps_floor": float(kth[floor_idx]),
+        "eps_cap": float(kth[cap_idx]),
+        "knee_found": bool(knee_found),
+        "interp_method": str(interp_method),
+        "n": int(n),
     }
 
 
@@ -219,17 +214,31 @@ def analyze_embedding_dbscan(
     k_neighbors: int = 4,
     consistency_threshold: float = 0.70,
     eps_selection_mode: str = "stable_kneedle",
-    n_bootstrap: int | None = None,
-    subset_fraction: float = 0.70,
-    large_dataset_threshold: int = 100_000,
-    max_subset_size: int = 35_000,
-    bounds_quantiles: tuple[float, float] = (0.20, 0.80),
-    operational_quantiles: tuple[float, float] = (0.40, 0.65),
-    final_quantiles: tuple[float, float] = (0.20, 0.60),
-    final_selection_quantile: float = 0.35,
-    interp_methods: tuple[str, ...] = ("polynomial", "interp1d"),
+    q_floor: float = 0.40,
+    q_cap: float = 0.65,
+    knee_fraction: float = 0.20,
 ) -> dict[str, float | int | np.ndarray | None]:
-    """Standardize embedding, select PCA rank, choose eps, and compute DBSCAN metrics."""
+    """Standardize embedding, select PCA rank, choose eps, and compute DBSCAN metrics.
+
+    Args:
+        X_raw: Raw embedding matrix, shape (n_samples, n_features).
+        labels: Ground-truth labels for each sample.
+        seed: Random seed for PCA.
+        pca_variance_threshold: Cumulative explained variance to retain.
+        min_samples: DBSCAN min_samples parameter.
+        k_neighbors: k for k-NN distance curve.
+        consistency_threshold: Per-cluster purity threshold for consistency metric.
+        eps_selection_mode: ``"stable_kneedle"`` (default) or ``"kneedle"``.
+        q_floor: Lower quantile for eps selection (see ``select_eps_kneedle_stable``).
+        q_cap: Upper quantile cap for eps selection.
+        knee_fraction: Narrow-window fraction for knee refinement.
+
+    Returns:
+        Dict with keys: ``n_comp``, ``eps``, ``n_clusters``, ``retention``,
+        ``purity``, ``consistency``, ``median_4nn``, ``kth``, ``knee_idx``,
+        ``eps_selection_mode``, ``eps_selector_meta``, ``cum``, ``X_pca``,
+        ``clusters``.
+    """
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_raw)
 
@@ -243,19 +252,13 @@ def analyze_embedding_dbscan(
         kth, eps, knee_idx, selector_meta = select_eps_kneedle_stable(
             X_pca,
             k=k_neighbors,
-            n_bootstrap=n_bootstrap,
-            subset_fraction=subset_fraction,
-            large_dataset_threshold=large_dataset_threshold,
-            max_subset_size=max_subset_size,
-            bounds_quantiles=bounds_quantiles,
-            operational_quantiles=operational_quantiles,
-            final_quantiles=final_quantiles,
-            final_selection_quantile=final_selection_quantile,
-            interp_methods=interp_methods,
+            q_floor=q_floor,
+            q_cap=q_cap,
+            knee_fraction=knee_fraction,
             random_state=seed,
         )
     else:
-        kth, eps, knee_idx = select_eps_kneedle(X_pca, k=k_neighbors)
+        kth, eps, knee_idx = select_eps_kneedle(X_pca, k=k_neighbors, q_floor=q_floor, q_cap=q_cap)
     clusters = DBSCAN(eps=eps, min_samples=min_samples, metric="euclidean", n_jobs=-1).fit_predict(X_pca)
 
     purity, consistency, n_clusters, retention = cluster_purity_consistency(

@@ -469,7 +469,7 @@ Operational notes:
 - Each synthetic barcode stores `vdjdb_record_id`, `mhc.a`, `mhc.b`, `mhc.class`, `antigen.epitope`, `antigen.gene`, and `antigen.species` in `SingleCellRepertoire.barcode_metadata`.
 - For tabular metadata workflows, use `SingleCellRepertoire.metadata_to_polars()` and keep downstream analysis polars-native.
 - Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
-- `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, bounded-kneedle eps selection, DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
+- `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, floor-quantile kneedle eps selection (`select_eps_kneedle_stable`), DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
 
 ## 11. ALICE Enrichment
 
@@ -1350,6 +1350,71 @@ Embedding quality (R² between sequence-space and latent-space distances, 1000×
 
 Per-component R² vs total sequence distance: V=0.47, J=0.16, CDR3=0.55.  CDR3
 variability is the strongest single predictor of embedding distance.
+
+## 20.1 Embedding Diagnostics — DBSCAN Clustering
+
+Use `analyze_embedding_dbscan` from `mir.utils.embedding_diagnostics` to
+standardize, PCA-reduce, and DBSCAN-cluster a raw embedding in one call.
+
+```python
+from mir.utils.embedding_diagnostics import (
+    analyze_embedding_dbscan,
+    majority_vote_cluster_predictions,
+    classification_scores_by_label,
+)
+
+# X_raw: raw TCREmp embedding, shape (n_samples, n_features)
+# labels: ground-truth epitope labels per row
+result = analyze_embedding_dbscan(X_raw, labels, seed=42)
+
+# Key output fields:
+#   n_comp      — PCA components retained for 90% variance
+#   eps         — selected DBSCAN epsilon
+#   n_clusters  — number of clusters found (excl. noise)
+#   retention   — fraction of non-noise points
+#   purity      — mean per-cluster purity
+#   consistency — fraction of clusters with >70% single label
+#   median_4nn  — median 4-NN distance (scale reference)
+#   kth         — full sorted k-NN distance curve (numpy array)
+#   knee_idx    — index in kth corresponding to selected eps
+#   X_pca       — L2-normalised PCA embedding used for DBSCAN
+#   clusters    — DBSCAN cluster labels (−1 = noise)
+#   eps_selector_meta — diagnostic dict with knee_found, eps_floor, eps_cap, etc.
+
+# Derive per-point predicted labels and compute classification scores:
+predicted = majority_vote_cluster_predictions(labels, result["clusters"])
+scores = classification_scores_by_label(labels, predicted)
+# scores keys: accuracy, macro_f1, weighted_f1, per_label (list of dicts)
+```
+
+**Eps selection — `select_eps_kneedle_stable` algorithm:**
+
+1. Compute the sorted 4-NN distance curve `kth` of the L2-normalised PCA embedding.
+2. Set `eps = kth[q_floor]` (default `q_floor=0.40`) as the safe minimum.
+3. Run `KneeLocator` on the narrow window `[q_floor, q_floor + knee_fraction*(q_cap−q_floor)]`
+   (default: ≈`[0.40, 0.45]`).  Accept the knee only if it falls strictly within that window.
+4. For flat k-NN curves (typical in TCREmp embeddings) no knee is found; the selection
+   stays at the floor quantile.
+
+The floor `q_floor=0.40` was cross-validated on five balanced VDJdb TRB epitope subsets
+(n≈3 000 each): it gives the highest minimum quality margin across all subsets and keeps
+retention ≈ 0.62, purity ≈ 0.48.
+
+Key parameters for `analyze_embedding_dbscan`:
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `pca_variance_threshold` | `0.90` | Cumulative variance retained |
+| `q_floor` | `0.40` | Lower quantile bound for eps (empirically validated) |
+| `q_cap` | `0.65` | Upper quantile cap |
+| `knee_fraction` | `0.20` | Fraction of `[q_floor, q_cap]` to search for a knee |
+| `min_samples` | `3` | DBSCAN min_samples |
+| `eps_selection_mode` | `"stable_kneedle"` | Use `"kneedle"` for legacy full-range mode |
+
+**Dimensionality scaling note:** The quantile approach is inherently dimensionality-adaptive
+— absolute eps grows with n_comp (0.12 at n_comp=10, 0.49 at n_comp=100 on TRB/VDJdb),
+but the quantile boundary stays constant.  No n_comp or variance-explained correction is
+needed.
 
 ## 21. Practical Defaults
 

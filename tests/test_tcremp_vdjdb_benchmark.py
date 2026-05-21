@@ -370,6 +370,11 @@ class TestSingleChainVDJdbMixedLargeBootstrap:
         )
         olga.close()
 
+        # Remove any OLGA-generated sequences that overlap with VDJdb CDR3s so the
+        # "random" partition contains no signal.
+        vdjdb_junctions: set[str] = set(df.get_column("junction_aa").to_list())
+        random_junctions = [j for j in random_junctions if j not in vdjdb_junctions]
+
         random_clonos = [
             Clonotype(
                 v_gene=v_genes[int(rng.integers(0, len(v_genes)))],
@@ -401,9 +406,79 @@ class TestSingleChainVDJdbMixedLargeBootstrap:
 
         assert X.shape == (len(all_clonos), 3 * self.N_PROTOTYPES)
         assert metrics["eps_selection_mode"] == "stable_kneedle"
-        assert int(selector_meta["n_bootstrap"]) >= 10
-        assert int(selector_meta["n_bootstrap"]) <= 100
-        assert int(selector_meta["subset_size"]) <= 35_000
-        assert int(selector_meta["n_candidates"]) >= int(selector_meta["n_bootstrap"])
+        assert isinstance(selector_meta["knee_found"], bool)
+        assert "eps_floor" in selector_meta
+        assert "eps_cap" in selector_meta
         assert metrics["n_clusters"] >= 1
         assert metrics["retention"] >= 0.40
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.slow_benchmark
+class TestNoiseOnly10k:
+    """Verify eps-selection stays conservative on pure random noise.
+
+    For 10k OLGA-generated sequences the k-NN distance curve has no cluster
+    structure.  The algorithm should stay at the floor quantile (no knee found
+    in the narrow window) and produce eps ≤ median_4nn.
+    """
+
+    N_PROTOTYPES = 1000
+    N_NOISE = 10_000
+
+    def test_noise_only_eps_is_small(self):
+        sample = VDJdbSlimParser().parse_file(_VDJDB_SLIM_FILE, species="HomoSapiens")
+        trb_df = pl.DataFrame(
+            [{"v_gene": c.v_gene, "j_gene": c.j_gene} for c in sample["TRB"].clonotypes]
+        )
+        v_genes = trb_df.get_column("v_gene").drop_nulls().unique().to_list()
+        j_genes = trb_df.get_column("j_gene").drop_nulls().unique().to_list()
+
+        olga = OlgaModel(locus="TRB", species="human", seed=SEED)
+        junctions = olga.generate_sequences_parallel(self.N_NOISE, n_jobs=8, seed=SEED)
+        olga.close()
+
+        rng = np.random.default_rng(SEED)
+        noise_clonos = [
+            Clonotype(
+                v_gene=v_genes[int(rng.integers(0, len(v_genes)))],
+                j_gene=j_genes[int(rng.integers(0, len(j_genes)))],
+                junction_aa=j,
+            )
+            for j in junctions
+        ]
+        labels = np.full(len(noise_clonos), "noise", dtype=object)
+
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=self.N_PROTOTYPES)
+        t0 = time.perf_counter()
+        X = model.embed(noise_clonos)
+        t_embed = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        metrics = analyze_embedding_dbscan(X, labels, seed=SEED)
+        t_diag = time.perf_counter() - t0
+
+        selector_meta = metrics["eps_selector_meta"]
+        print("\nNoise-only 10k benchmark")
+        print(
+            f"n={len(noise_clonos)} embed={t_embed:.3f}s diag={t_diag:.3f}s "
+            f"eps={metrics['eps']:.4f} median_4nn={metrics['median_4nn']:.4f} "
+            f"retention={metrics['retention']:.3f} n_clusters={metrics['n_clusters']}"
+        )
+        print(f"selector_meta={selector_meta}")
+
+        # Flat k-NN curves on pure noise should find no knee in the narrow window.
+        assert not selector_meta["knee_found"], (
+            "pure noise should not produce a structural knee in the narrow search "
+            "window — expected fallback to the floor quantile"
+        )
+        # eps at q=0.40 must be below the median (q=0.50).
+        assert metrics["eps"] <= metrics["median_4nn"], (
+            f"eps {metrics['eps']:.4f} exceeds median_4nn {metrics['median_4nn']:.4f}: "
+            "noise-only input must not inflate eps"
+        )
+        # eps must stay within bounds.
+        assert metrics["eps"] <= selector_meta["eps_cap"], (
+            "eps should not reach the operational cap for noise-only input"
+        )
