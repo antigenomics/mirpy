@@ -175,7 +175,7 @@ class TestMcPgenBenchmark:
         print(
             f"  TRB pool built in {elapsed:.1f}s  "
             f"(p_productive={pool.p_productive:.3f}, "
-            f"unique={len(pool._unique_seqs):,})",
+            f"unique={pool.n_productive:,})",
             flush=True,
         )
         # Build-time budget: 25s for 500K CI run, 90s for 10M full run (8 workers, Apple M3)
