@@ -22,6 +22,12 @@ from .embedding_diagnostics import (
 )
 from .stats import bh_fdr
 from .memory_debug import process_memory_snapshot, top_python_processes
+from .metaclonotype_clustering import (
+    metaclonotypes_from_cluster_labels,
+    metaclonotypes_from_graph_communities,
+    metaclonotypes_from_search_scope,
+    paired_metaclonotypes_from_pair_labels,
+)
 
 __all__ = [
     "ensure_airr_benchmark",
@@ -43,4 +49,8 @@ __all__ = [
     "bh_fdr",
     "process_memory_snapshot",
     "top_python_processes",
+    "metaclonotypes_from_cluster_labels",
+    "metaclonotypes_from_graph_communities",
+    "metaclonotypes_from_search_scope",
+    "paired_metaclonotypes_from_pair_labels",
 ]

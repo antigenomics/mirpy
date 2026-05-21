@@ -46,6 +46,11 @@ from mir.common.single_cell import LOCUS_PAIR_TO_LOCI, PairedClonotype
 from mir.common.gene_library import GeneLibrary
 from mir.distances.aligner import BioAlignerWrapper, JunctionAligner, GermlineAligner, Scoring
 from mir.embedding.prototypes import N_PROTOTYPES, load_prototypes
+from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.utils.metaclonotype_clustering import (
+    metaclonotypes_from_cluster_labels,
+    paired_metaclonotypes_from_pair_labels,
+)
 
 # Backward-compat alias kept for pickled workers from previous API versions
 CDRAligner = JunctionAligner
@@ -553,3 +558,53 @@ class PairedTCREmp:
         chain1_emb = self.chain1_model.embed(chain1_clonotypes, n_jobs=n_jobs)
         chain2_emb = self.chain2_model.embed(chain2_clonotypes, n_jobs=n_jobs)
         return np.concatenate([chain1_emb, chain2_emb], axis=1, dtype=np.float32)
+
+
+def metaclonotypes_from_tcremp_labels(
+    clonotypes: list[Clonotype],
+    labels: list[int | str] | np.ndarray,
+    *,
+    include_noise: bool = False,
+    noise_labels: set[int | str] | None = None,
+) -> MetaClonotypeDefinition:
+    """Build single-chain metaclonotypes from TCREmp clustering labels.
+
+    This wrapper is agnostic to clustering backend: DBSCAN, OPTICS, and
+    VDBSCAN-like algorithms can pass their label arrays directly.
+    """
+    clonotype_ids = [str(c.sequence_id) for c in clonotypes]
+    return metaclonotypes_from_cluster_labels(
+        clonotype_ids,
+        labels,
+        include_noise=include_noise,
+        noise_labels=noise_labels,
+    )
+
+
+def paired_metaclonotypes_from_tcremp_labels(
+    paired_clonotypes: list[PairedClonotype],
+    labels: list[int | str] | np.ndarray,
+    *,
+    include_noise: bool = False,
+    noise_labels: set[int | str] | None = None,
+    mock_chain_1_by_pair: dict[str, bool] | None = None,
+    mock_chain_2_by_pair: dict[str, bool] | None = None,
+) -> MetaClonotypeDefinition:
+    """Build paired metaclonotypes from paired TCREmp clustering labels.
+
+    Optional mock-chain maps allow preserving imputation provenance from
+    paired workflows where one chain was synthetically imputed.
+    """
+    pair_ids = [str(p.pair_id) for p in paired_clonotypes]
+    chain1_ids = [str(p.clonotype1.sequence_id) for p in paired_clonotypes]
+    chain2_ids = [str(p.clonotype2.sequence_id) for p in paired_clonotypes]
+    return paired_metaclonotypes_from_pair_labels(
+        pair_ids,
+        chain1_ids,
+        chain2_ids,
+        labels,
+        mock_chain_1_by_pair=mock_chain_1_by_pair,
+        mock_chain_2_by_pair=mock_chain_2_by_pair,
+        include_noise=include_noise,
+        noise_labels=noise_labels,
+    )

@@ -235,6 +235,69 @@ def metaclonotypes_from_seed_neighbors(
     return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
 
 
+def metaclonotypes_from_search_scope(
+    representative_ids: list[str],
+    *,
+    neighbor_selector: Callable[[str], Iterable[str]],
+    cluster_prefix: str = "scope_mc",
+) -> MetaClonotypeDefinition:
+    """Build representative-centered metaclonotypes from a custom search scope.
+
+    This is suitable for tcrtrie-backed scope search (substitutions/indels/
+    max edits) and any custom neighborhood API that returns member IDs for a
+    representative query.
+    """
+    from mir.utils.metaclonotype_clustering import metaclonotypes_from_search_scope as _build
+
+    return _build(
+        representative_ids,
+        neighbor_selector=neighbor_selector,
+        cluster_prefix=cluster_prefix,
+    )
+
+
+def metaclonotypes_from_radius_threshold(
+    repertoire: LocusRepertoire,
+    *,
+    representative_ids: list[str],
+    score_distance_fn: Callable[[Clonotype, Clonotype], float],
+    max_distance: float,
+    match_v_gene: bool = False,
+    match_j_gene: bool = False,
+    cluster_prefix: str = "radius_mc",
+) -> MetaClonotypeDefinition:
+    """Build metaclonotypes via a continuous-radius score threshold.
+
+    This helper targets TCRdist-like workflows where clonotypes join a
+    representative-centered cluster when distance/score <= ``max_distance``.
+    """
+    if max_distance < 0:
+        raise ValueError("max_distance must be >= 0")
+
+    by_id = {c.sequence_id: c for c in repertoire.clonotypes}
+    rows: list[dict[str, object]] = []
+    for idx, rep_id in enumerate(representative_ids):
+        rep = by_id.get(rep_id)
+        if rep is None:
+            continue
+        cluster_id = f"{cluster_prefix}_{idx}"
+        for candidate in repertoire.clonotypes:
+            if match_v_gene and rep.v_gene != candidate.v_gene:
+                continue
+            if match_j_gene and rep.j_gene != candidate.j_gene:
+                continue
+            distance = float(score_distance_fn(rep, candidate))
+            if distance <= max_distance:
+                rows.append(
+                    {
+                        "cluster_id": cluster_id,
+                        "clonotype_id": candidate.sequence_id,
+                        "is_representative": candidate.sequence_id == rep_id,
+                    }
+                )
+    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+
+
 def summarize_metaclonotypes(
     repertoire: LocusRepertoire,
     metaclonotypes: MetaClonotypeDefinition,

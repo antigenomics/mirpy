@@ -258,6 +258,10 @@ model_custom = TCREmp.from_file("my_prototypes.tsv", species="human", locus="TRB
 **Embedding structure**: Each clonotype is embedded as `[v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]`
 where `K` is the number of prototypes. All distances use the formula:
 
+$$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
+
+This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
+
 ## 10. Metaclonotypes (Functional Clusters)
 
 Use metaclonotypes as a lightweight cluster layer over existing repertoires.
@@ -285,6 +289,22 @@ Common builders:
 - `metaclonotypes_from_igraph` for connected components or graph memberships.
 - `metaclonotypes_from_seed_neighbors` for seed + first-neighborhood clusters
   (useful for ALICE/TCRNET-derived representative clonotypes).
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_cluster_labels` as
+  a backend-agnostic helper for DBSCAN/OPTICS/VDBSCAN-style labels.
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_graph_communities`
+  for components/Leiden/Louvain in a shared implementation.
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope` for
+  representative-centered search scopes (tcrtrie or score-radius style).
+
+TCREmp convenience wrappers:
+
+- `mir.embedding.metaclonotypes_from_tcremp_labels`
+- `mir.embedding.paired_metaclonotypes_from_tcremp_labels`
+
+Token-graph/GLIPH convenience wrappers:
+
+- `mir.graph.metaclonotypes_from_token_clonotype_graph`
+- `mir.graph.build_gliph_metaclonotypes`
 
 Biomarker integration:
 
@@ -296,11 +316,13 @@ Functional overlap:
 - `functional_overlap_1` computes overlap where two metaclonotypes match if
   they share at least one clonotype identity.
 
-$$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
+Mutual-information-style summary:
 
-This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
+- Use pooled and separate metaclonotype count vectors with
+  `pooled_entropy_difference` to compute
+  `H(A pooled with B) - H(A) - H(B)`.
 
-## 10. Diversity Metrics, Hill Curves, And Rarefaction
+## 11. Diversity Metrics, Hill Curves, And Rarefaction
 
 Prefer function-first diversity APIs from `mir.common.diversity`.
 Repertoire object methods are convenience delegates to the same functions.
@@ -356,7 +378,7 @@ sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to pair
 Notebook: `notebooks/diversity_analysis.ipynb` — donor summary tables, rarefaction, coverage, Hill
 curves, and Healthy vs MS cohort comparisons.
 
-## 11. Pairwise Overlap Workflows
+## 12. Pairwise Overlap Workflows
 
 Use `pairwise_overlap` and `pairwise_overlap_matrix` from
 `mir.comparative.overlap`.
