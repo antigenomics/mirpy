@@ -2,12 +2,15 @@
 
 from .notebook_assets import (
     ensure_airr_benchmark,
+    ensure_airr_benchmark_alice,
     ensure_airr_covid19,
     ensure_airr_yfv19,
     find_airr_benchmark_dcode_10x_vdj_v1_donor,
     find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix,
+    find_airr_benchmark_motif_pwms,
     find_airr_benchmark_sra_meta,
     find_airr_benchmark_tcrnet_file,
+    find_airr_benchmark_vdjdb_full,
     find_airr_benchmark_vdjdb_slim,
     find_repo_root,
     notebook_assets_root,
@@ -31,12 +34,15 @@ from .metaclonotype_clustering import (
 
 __all__ = [
     "ensure_airr_benchmark",
+    "ensure_airr_benchmark_alice",
     "ensure_airr_covid19",
     "ensure_airr_yfv19",
     "find_airr_benchmark_dcode_10x_vdj_v1_donor",
     "find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix",
+    "find_airr_benchmark_motif_pwms",
     "find_airr_benchmark_sra_meta",
     "find_airr_benchmark_tcrnet_file",
+    "find_airr_benchmark_vdjdb_full",
     "find_airr_benchmark_vdjdb_slim",
     "find_repo_root",
     "notebook_assets_root",

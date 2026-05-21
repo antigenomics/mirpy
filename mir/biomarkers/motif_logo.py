@@ -1016,11 +1016,12 @@ def build_terminal_anchored_logo(
 
         pwm_L = compute_pwm(seqs_L, pseudocount=pseudocount, length=length)
 
-        # Dominant V/J for background lookup
+        # Dominant V/J for background lookup. Ties broken alphabetically for
+        # determinism (most-frequent V/J combination; V-name tiebreak then J-name).
         dom = (
             group.group_by([v_col, j_col])
             .agg(pl.len().alias("_cnt"))
-            .sort("_cnt", descending=True)
+            .sort(["_cnt", v_col, j_col], descending=[True, False, False])
         )
         v_dom = str(dom[0][v_col][0])
         j_dom = str(dom[0][j_col][0])

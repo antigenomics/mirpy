@@ -60,7 +60,9 @@ class RarefactionResult:
 
 
 def _as_positive_counts(counts: Sequence[int] | np.ndarray | Iterable[int]) -> np.ndarray:
-    arr = np.asarray(list(counts), dtype=np.int64)
+    arr = np.asarray(counts, dtype=np.int64)
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
     if arr.size == 0:
         return np.empty(0, dtype=np.int64)
     return arr[arr > 0]
@@ -135,17 +137,24 @@ def hill_curve(
 
     total = float(arr.sum())
     p = arr / total
-    hills = np.empty_like(q_arr)
     richness = float(arr.size)
     shannon = float(-np.sum(p * np.log(p)))
 
-    for i, q in enumerate(q_arr):
-        if np.isclose(q, 0.0):
-            hills[i] = richness
-        elif np.isclose(q, 1.0):
-            hills[i] = float(np.exp(shannon))
-        else:
-            hills[i] = float(np.power(np.sum(np.power(p, q)), 1.0 / (1.0 - q)))
+    # Vectorised Hill computation: avoid Python loop over q values.
+    # Handle q==0 (richness) and q==1 (exp(H)) as special cases via masking.
+    is_q0 = np.isclose(q_arr, 0.0)
+    is_q1 = np.isclose(q_arr, 1.0)
+    is_generic = ~(is_q0 | is_q1)
+
+    hills = np.empty_like(q_arr)
+    hills[is_q0] = richness
+    hills[is_q1] = np.exp(shannon)
+
+    if np.any(is_generic):
+        q_generic = q_arr[is_generic]
+        # p shape: (n_species,); q shape: (n_q,) — broadcast via outer product.
+        log_sum_pq = np.log(np.sum(p[:, np.newaxis] ** q_generic[np.newaxis, :], axis=0))
+        hills[is_generic] = np.exp(log_sum_pq / (1.0 - q_generic))
 
     return pl.DataFrame({"q": q_arr, "hill": hills})
 

@@ -22,9 +22,12 @@ Paired-chain membership schema
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from math import log
 from typing import Callable, Iterable
+
+_logger = logging.getLogger(__name__)
 
 import polars as pl
 
@@ -217,6 +220,7 @@ def metaclonotypes_from_seed_neighbors(
     for idx, seed_id in enumerate(seed_clonotype_ids):
         seed = by_id.get(seed_id)
         if seed is None:
+            _logger.warning("seed_id %r not found in repertoire; skipping", seed_id)
             continue
         cluster_id = f"{cluster_prefix}_{idx}"
         for candidate in repertoire.clonotypes:
@@ -491,14 +495,17 @@ def functional_overlap_1(
     ida = _cluster_identity_sets(repertoire_a, metaclonotypes_a, identity_fn)
     idb = _cluster_identity_sets(repertoire_b, metaclonotypes_b, identity_fn)
 
-    shared_a = {
-        a for a, aset in ida.items()
-        if aset and any(aset.intersection(bset) for bset in idb.values())
-    }
-    shared_b = {
-        b for b, bset in idb.items()
-        if bset and any(bset.intersection(aset) for aset in ida.values())
-    }
+    # Build a flat set of all identities present in B to allow O(1) lookup.
+    all_b_identities: set[object] = set()
+    for bset in idb.values():
+        all_b_identities.update(bset)
+
+    all_a_identities: set[object] = set()
+    for aset in ida.values():
+        all_a_identities.update(aset)
+
+    shared_a = {a for a, aset in ida.items() if aset & all_b_identities}
+    shared_b = {b for b, bset in idb.items() if bset & all_a_identities}
 
     return pl.DataFrame(
         {
@@ -560,13 +567,14 @@ def summarize_paired_metaclonotypes(
     if count_field not in {"duplicate_count", "umi_count"}:
         raise ValueError("count_field must be 'duplicate_count' or 'umi_count'")
 
-    lookup = paired_repertoire._materialize_clonotype_lookup()
+    flat_lookup: dict[str, Clonotype] = {}
+    for pair_rep in paired_repertoire.paired_locus_repertoires.values():
+        for pair in pair_rep.paired_clonotypes:
+            flat_lookup[pair.clonotype1.sequence_id] = pair.clonotype1
+            flat_lookup[pair.clonotype2.sequence_id] = pair.clonotype2
 
     def _find_clone(seq_id: str) -> Clonotype | None:
-        for by_id in lookup.values():
-            if seq_id in by_id:
-                return by_id[seq_id]
-        return None
+        return flat_lookup.get(seq_id)
 
     rows: list[dict] = []
     for row in metaclonotypes.table.iter_rows(named=True):

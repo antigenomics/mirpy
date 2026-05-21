@@ -131,15 +131,11 @@ def ensure_airr_benchmark_alice(
 ) -> Path:
     """Download the ALICE subset of the AIRR benchmark dataset.
 
-    Parameters
-    ----------
-    subsets:
-        Which sub-folders to fetch.  Defaults to ``["yf", "as"]``.
-        Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
+    Args:
+        subsets: Sub-folders to fetch. Defaults to ``["yf", "as"]``.
+            Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
 
-    Returns
-    -------
-    Path
+    Returns:
         ``notebooks/assets/large/airr_benchmark`` root.
     """
     if subsets is None:
