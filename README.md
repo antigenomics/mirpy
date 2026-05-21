@@ -76,11 +76,11 @@ For large datasets, it benchmarks small chunks first, estimates full runtime/mem
 - `mir.common`: clonotypes, repertoires, parsers, segment libraries
 - `mir.distances`: aligners, search, graph-based utilities
 - `mir.basic`: diversity, sampling, segment usage, pgen helpers
-- `mir.embedding`: repertoire and prototype embeddings
+- `mir.graph`: edit-distance graphs, neighborhood enrichment, token graphs, single-cell pairing graphs
+- `mir.embedding`: repertoire and prototype embeddings (TCREmp, PairedTCREmp)
 - `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
-- `mir.biomarkers`: enrichment and biomarker detection utilities — ALICE, TCRNET, GLIPH
-- `notebooks/diversity_analysis.ipynb`: diversity summary tables, rarefaction,
-  Hill curves, and cohort comparisons for Healthy vs MS donors
+- `mir.biomarkers`: enrichment and biomarker detection — ALICE, TCRNET, GLIPH
+- `mir.utils`: embedding diagnostics, shared memory, notebook asset helpers
 
 ### ALICE and TCRNET
 

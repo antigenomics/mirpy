@@ -5,7 +5,7 @@ Rendered walkthroughs for the key mirpy workflows. All notebooks are included
 as-is with pre-computed outputs; they are not re-executed during the docs build.
 
 Parsing And Repertoire Basics
-==============================
+-----------------------------
 
 .. toctree::
    :maxdepth: 1
@@ -24,7 +24,7 @@ Parsing And Repertoire Basics
 **diversity_analysis** — Reproduce diversity tables, rarefaction, coverage, Hill curves, and MS vs healthy cohort comparisons.
 
 Graph And Sequence Analysis
-============================
+---------------------------
 
 .. toctree::
    :maxdepth: 1
@@ -43,7 +43,7 @@ Graph And Sequence Analysis
 **vdjdb_junction_graph** — Analyse multi-epitope junction Hamming graphs from VDJdb.
 
 Biomarker Detection
-====================
+-------------------
 
 .. toctree::
    :maxdepth: 1
@@ -62,7 +62,7 @@ Biomarker Detection
 **vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
 
 Aging And Cohort Overlap
-========================
+------------------------
 
 .. toctree::
    :maxdepth: 1
@@ -71,8 +71,18 @@ Aging And Cohort Overlap
 
 **aging_analysis** — Donor-vs-pool overlap trends across aging, using the shared-worker many-vs-pool overlap path for faster repeated scoring.
 
+Pgen And Selection Analysis
+---------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   pgen_analysis
+
+**pgen_analysis** — Benchmark OLGA exact, Monte-Carlo, and hash-enumeration Pgen strategies; analyse the Q-factor (thymic selection correction) on VDJdb clonotypes.
+
 TCREmp Embeddings
-==================
+-----------------
 
 .. toctree::
    :maxdepth: 1
@@ -88,7 +98,7 @@ TCREmp Embeddings
 **tcremp_10xdcode_analysis** — 10x CITE-seq + TCREmp embedding with DBSCAN epitope clustering.
 
 Single-Cell Analysis
-=====================
+--------------------
 
 .. toctree::
    :maxdepth: 1

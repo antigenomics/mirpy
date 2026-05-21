@@ -184,8 +184,8 @@ class TestTokenStatsBenchmark(unittest.TestCase):
     def test_benchmark_summary(self):
         """Print combined summary of GILGFVFTL vs OLGA comparison."""
         print(f"\n  Dataset sizes:")
-        print(f"    GILGFVFTL CDR3s : {len(self.gilg_cdr3s)}")
-        print(f"    OLGA background : {len(self.bg_cdr3s)}")
+        print(f"    GILGFVFTL CDR3s : {len(self.gilg_junctions)}")
+        print(f"    OLGA background : {len(self.bg_junctions)}")
 
         for k in (2, 3, 4, 5):
             df = compare_repertoire_kmers(self.gilg_rep, self.bg_rep, k=k).to_pandas().set_index("kmer")
