@@ -114,6 +114,10 @@ from scipy.stats import nbinom, poisson
 from mir.basic.gene_usage import get_gene_usage_from_olga_model
 from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
+from mir.common.metaclonotype import (
+    MetaClonotypeDefinition,
+    metaclonotypes_from_seed_neighbors,
+)
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.biomarkers._shared import (
     MatchMode,
@@ -829,4 +833,37 @@ def add_alice_metadata(
             mc_min_count=mc_min_count,
             n_jobs=n_jobs,
         ),
+    )
+
+
+def metaclonotypes_from_alice(
+    repertoire: LocusRepertoire,
+    *,
+    metadata_prefix: str = "alice",
+    q_value_max: float = 0.05,
+    metric: t.Literal["hamming", "levenshtein"] = "hamming",
+    threshold: int = 1,
+    match_mode: MatchMode = "vj",
+) -> MetaClonotypeDefinition:
+    """Build metaclonotypes around ALICE-significant clonotypes.
+
+    One cluster is created per significant clonotype (representative), and
+    members are all first-neighborhood clonotypes under the provided scope.
+    """
+    norm_match_mode = normalize_match_mode(match_mode)
+    match_v, match_j = match_flags(norm_match_mode)
+
+    seeds = [
+        c.sequence_id
+        for c in repertoire.clonotypes
+        if float(c.clone_metadata.get(f"{metadata_prefix}_q_value", 1.0)) <= q_value_max
+    ]
+    return metaclonotypes_from_seed_neighbors(
+        repertoire,
+        seed_clonotype_ids=seeds,
+        metric=metric,
+        threshold=threshold,
+        match_v_gene=match_v,
+        match_j_gene=match_j,
+        cluster_prefix="alice_mc",
     )

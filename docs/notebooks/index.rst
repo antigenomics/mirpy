@@ -33,6 +33,7 @@ Graph And Sequence Analysis
    token_graph
    edit_distance_graph
    vdjdb_junction_graph
+   metaclonotype_examples
 
 **gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
 
@@ -41,6 +42,8 @@ Graph And Sequence Analysis
 **edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from junction sequences.
 
 **vdjdb_junction_graph** — Analyse multi-epitope junction Hamming graphs from VDJdb.
+
+**metaclonotype_examples** — Build, attach, summarize, and analyze metaclonotypes for functional diversity workflows.
 
 Biomarker Detection
 -------------------

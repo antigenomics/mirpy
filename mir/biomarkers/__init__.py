@@ -5,6 +5,7 @@ from mir.biomarkers.tcrnet import (
 	TcrnetResult,
 	add_tcrnet_metadata,
 	compute_tcrnet,
+	metaclonotypes_from_tcrnet,
 	tcrnet_table,
 )
 from mir.biomarkers.alice import (
@@ -12,6 +13,7 @@ from mir.biomarkers.alice import (
 	AliceResult,
 	add_alice_metadata,
 	compute_alice,
+	metaclonotypes_from_alice,
 	alice_table,
 )
 from mir.biomarkers.motif_logo import (
@@ -60,11 +62,13 @@ __all__ = [
 	"TcrnetResult",
 	"compute_tcrnet",
 	"add_tcrnet_metadata",
+	"metaclonotypes_from_tcrnet",
 	"tcrnet_table",
 	"AliceParams",
 	"AliceResult",
 	"compute_alice",
 	"add_alice_metadata",
+	"metaclonotypes_from_alice",
 	"alice_table",
 	"OverlapResult",
 	"PgenBinPool",

@@ -219,6 +219,22 @@ class PairedRepertoire:
     loaded_cell_count: int
     loaded_clonotype_count: int
     _clonotype_lookup: dict[str, dict[str, Clonotype]] | None = field(default=None, init=False, repr=False)
+    _metaclonotypes: object | None = field(default=None, init=False, repr=False)
+
+    def set_metaclonotypes(self, metaclonotypes) -> None:
+        """Attach paired metaclonotype definition to this paired repertoire."""
+        from mir.common.metaclonotype import MetaClonotypeDefinition
+
+        if not isinstance(metaclonotypes, MetaClonotypeDefinition):
+            raise TypeError("metaclonotypes must be MetaClonotypeDefinition")
+        if not metaclonotypes.paired:
+            raise ValueError("PairedRepertoire expects paired metaclonotypes")
+        self._metaclonotypes = metaclonotypes
+
+    @property
+    def metaclonotypes(self):
+        """Return attached paired metaclonotype definition, if present."""
+        return self._metaclonotypes
 
     @property
     def clonotype_count(self) -> int:

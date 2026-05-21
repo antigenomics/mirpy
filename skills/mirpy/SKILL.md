@@ -258,6 +258,44 @@ model_custom = TCREmp.from_file("my_prototypes.tsv", species="human", locus="TRB
 **Embedding structure**: Each clonotype is embedded as `[v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]`
 where `K` is the number of prototypes. All distances use the formula:
 
+## 10. Metaclonotypes (Functional Clusters)
+
+Use metaclonotypes as a lightweight cluster layer over existing repertoires.
+This avoids rebuilding `LocusRepertoire` objects while enabling cluster-level
+count aggregation, functional diversity, and overlap workflows.
+
+```python
+from mir.common.metaclonotype import (
+    metaclonotypes_from_components,
+    summarize_metaclonotypes,
+    functional_diversity,
+)
+
+# components: list[list[sequence_id]] from any clustering backend
+meta = metaclonotypes_from_components(components, cluster_prefix="cc")
+rep.set_metaclonotypes(meta)
+
+summary = summarize_metaclonotypes(rep, meta)
+func_div = functional_diversity(rep, meta, count_field="duplicate_count")
+```
+
+Common builders:
+
+- `metaclonotypes_from_labels` for DBSCAN/Leiden/Louvain-style label vectors.
+- `metaclonotypes_from_igraph` for connected components or graph memberships.
+- `metaclonotypes_from_seed_neighbors` for seed + first-neighborhood clusters
+  (useful for ALICE/TCRNET-derived representative clonotypes).
+
+Biomarker integration:
+
+- `mir.biomarkers.metaclonotypes_from_alice`
+- `mir.biomarkers.metaclonotypes_from_tcrnet`
+
+Functional overlap:
+
+- `functional_overlap_1` computes overlap where two metaclonotypes match if
+  they share at least one clonotype identity.
+
 $$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
 
 This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
