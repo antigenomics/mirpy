@@ -1418,3 +1418,115 @@ needed.
 - Strip alleles for most comparative analyses unless allele-specific behavior is the point of the analysis.
 - Reuse prebuilt controls outside inner benchmark loops.
 - When you need only V or J views after a VJ correction run, derive them via `marginalize_batch_corrected_gene_usage(...)` instead of ad hoc notebook code.
+
+## 23. CDR3 Sequence Logos and Motif PWMs
+
+`mir.biomarkers.motif_logo` — Shannon IC and background-normalised logos.
+
+### Build a PWM from raw sequences
+
+```python
+from mir.biomarkers.motif_logo import compute_pwm, compute_logo
+
+pwm = compute_pwm(sequences, pseudocount=0.5)   # → pos, aa, count, frequency
+logo = compute_logo(pwm)                         # adds ic_height
+logo_bg = compute_logo(pwm, background=bg_pwm)  # adds ic_height + bg_height
+```
+
+`compute_pwm` filters to the modal CDR3 length; set `length=` to override.
+
+### Load pre-computed cluster logos from motif_pwms.txt.gz
+
+```python
+from mir.biomarkers.motif_logo import load_motif_pwms, pwm_from_motif_pwms
+
+pwms = load_motif_pwms(path)                     # full cluster table
+logo = pwm_from_motif_pwms(pwms, "H.B.GILGFVFTL.1")  # pos/aa/ic_height/bg_height
+```
+
+`motif_pwms.txt.gz` is in `isalgo/airr_benchmark` on HuggingFace (`vdjdb/**`).
+Key columns: `cid`, `csz`, `species`, `gene`, `antigen.epitope`, `v.segm.repr`,
+`j.segm.repr`, `len`, `pos`, `aa`, `freq`, `freq.bg`, `height.I`, `height.I.norm`.
+
+Use `find_airr_benchmark_motif_pwms(dataset_root)` from `mir.utils.notebook_assets`.
+
+### OLGA background lookup
+
+```python
+from mir.biomarkers.motif_logo import get_vj_background
+
+bg = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01", length=13)
+# Returns pl.DataFrame[pos, aa, frequency] or None if no matching cluster
+```
+
+Picks the cluster with the largest `total.bg` for the matching V/J/length.
+Prefix matching (strip allele suffix) is tried if exact match fails.
+
+### Two-panel logo figure
+
+```python
+from mir.biomarkers.motif_logo import plot_motif_logos
+
+fig, axes = plot_motif_logos(
+    logo_with_bg,
+    v_gene="TRBV19*01",
+    j_gene="TRBJ2-7*01",
+    n_seqs=896,
+    title="GILGFVFTL",
+)
+# axes[0] = standard IC logo; axes[1] = background-normalised logo
+```
+
+Background-normalised panel: enriched residues (positive) above zero, depleted
+(negative, letters drawn inverted) below zero.
+
+### Key formulas
+
+- **IC logo**: `IC[p] = log₂(20) + Σ f[p,a]·log₂(f[p,a])`;  `h_IC[p,a] = f[p,a]·IC[p]`
+- **Bg-normalised**: `h_norm[p,a] = f[p,a]·log₂(f[p,a] / f_bg[p,a])`  (can be negative)
+
+### Important cluster IDs for reference
+
+| Cluster | Epitope | V | J | len | csz |
+|---------|---------|---|---|-----|-----|
+| H.B.GILGFVFTL.1 | GILGFVFTL (InfluenzaA, HLA-A*02) | TRBV19*01 | TRBJ2-7*01 | 13 | 896 |
+| H.B.GILGFVFTL.4 | GILGFVFTL | TRBV19*01 | TRBJ1-5*01 | 13 | 129 |
+
+The B27 AS CASSVGL[YF]STDTQYF motif is NOT in motif_pwms — use VDJdb
+TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15)`.
+
+**B27 AS two-pool analysis**: show broad (all VJlen) and ALICE hits (STDTQYF-ending) logos:
+```python
+as_seqs_broad = [...]           # all TRBV9/TRBJ2-3/len=15 from VDJdb (119 seqs)
+as_seqs_alice = [s for s in as_seqs_broad if s.endswith('STDTQYF')]  # 34 seqs
+as_bg = get_vj_background(pwms, v_gene='TRBV9*01', j_gene='TRBJ2-3*01',
+                           length=15, species='HomoSapiens', gene='TRB')
+logo_broad = compute_logo(compute_pwm(as_seqs_broad), background=as_bg)
+logo_alice = compute_logo(compute_pwm(as_seqs_alice), background=as_bg)
+```
+
+### Aggregate cluster IC/entropy profiles
+
+```python
+from mir.biomarkers.motif_logo import compute_cluster_profiles
+
+# Per-position IC, H (entropy), I_norm for all csz>=30 clusters, TRB only
+profiles = compute_cluster_profiles(pwms, min_csz=30,
+                                     species='HomoSapiens', gene='TRB')
+# Columns: cid, species, gene, antigen.epitope, v/j.segm.repr, len, csz, pos,
+#          IC (bits), H (bits), I_norm (VDJdb-motifs cross-entropy)
+```
+
+Formula: `IC = Σₐ height.I · log₂(20)` (position-level);  `H = log₂(20) − IC`.
+`I_norm = Σₐ height.I.norm` (pre-stored cross-entropy, always ≥ 0).
+
+### Background formula note
+
+- `compute_logo` uses **log-odds KL** per residue: `h[p,a] = f·log₂(f/f_bg)` (can be negative)
+- `motif_pwms height.I.norm` uses **cross-entropy**: `−Σₐ f·ln(f_bg)/ln(20)/2` (always ≥ 0)
+- Always pass `species=` and `gene=` to `get_vj_background` explicitly to avoid mixing TRA/TRB or mouse/human backgrounds.
+
+### Background pool size
+
+≥ 1,000 OLGA sequences per VJ/length gives stable background frequencies (MAD < 0.002);
+`motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold).

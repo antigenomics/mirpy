@@ -167,6 +167,17 @@ def find_airr_benchmark_dcode_10x_vdj_v1_donor(
     return all_contig[0], consensus[0]
 
 
+def find_airr_benchmark_motif_pwms(dataset_root: Path) -> Path:
+    """Return the latest ``motif_pwms.txt.gz`` file inside AIRR benchmark."""
+    candidates = sorted(dataset_root.glob("vdjdb/vdjdb-*/motif_pwms.txt.gz"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find motif_pwms.txt.gz under {dataset_root / 'vdjdb'}.  "
+            "Run ensure_airr_benchmark(allow_patterns=['vdjdb/**']) first."
+        )
+    return candidates[-1]
+
+
 def find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix(
     dataset_root: Path,
     donor_id: str,

@@ -46,8 +46,46 @@ provided control using a binomial (or beta-binomial) test.
 - Swap sample and control to detect **neighbor-depleted** sequences (clones
   present in the control but lost in the sample).
 
+Sequence logos and motif PWMs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``mir.biomarkers.motif_logo`` implements Shannon-IC and background-normalised
+sequence logos following the VDJdb-motifs methodology (Pogorelyy *et al.* 2019).
+
+- :func:`~mir.biomarkers.motif_logo.compute_pwm` — build a PWM from raw CDR3
+  sequences.  All sequences are trimmed to the modal length; a Laplace pseudocount
+  avoids zero-frequency cells.
+- :func:`~mir.biomarkers.motif_logo.compute_logo` — add IC and log-odds height
+  columns.  The background-normalised height
+  ``h_norm[p,a] = f[p,a] · log₂(f[p,a] / f_bg[p,a])``
+  can be negative (depleted residues drawn inverted in the logo).  Note: the
+  ``motif_pwms.txt.gz`` ``height.I.norm`` column uses the VDJdb-motifs
+  cross-entropy formula ``−Σₐ f·ln(f_bg) / ln(20) / 2`` (always ≥ 0).
+- :func:`~mir.biomarkers.motif_logo.get_vj_background` — look up an OLGA-derived
+  background PWM for a given V-gene / J-gene / length from ``motif_pwms.txt.gz``.
+  Always specify ``species`` and ``gene`` explicitly to avoid mixing TRA/TRB or
+  human/mouse backgrounds.
+- :func:`~mir.biomarkers.motif_logo.compute_cluster_profiles` — compute per-position
+  IC, entropy (H) and I_norm profiles for all qualifying clusters in
+  ``motif_pwms.txt.gz`` (default ``csz ≥ 30``).  Optionally filter by ``species``
+  and ``gene`` to analyse TRA or TRB separately.
+- :func:`~mir.biomarkers.motif_logo.plot_motif_logos` — two-panel figure (standard
+  IC top, background-normalised bottom) with V/J gene annotations.
+
+See the ``motif_logos`` notebook for worked examples on the GILGFVFTL and HLA-B27 AS
+motifs, aggregate TRA/TRB profile plots, and a background pool-size convergence
+benchmark.
+
 Submodules
 ----------
+
+mir.biomarkers.motif_logo module
+---------------------------------
+
+.. automodule:: mir.biomarkers.motif_logo
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 mir.biomarkers.token_stats module
 ---------------------------------
