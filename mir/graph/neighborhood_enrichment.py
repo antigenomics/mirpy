@@ -30,6 +30,7 @@ from __future__ import annotations
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from math import ceil
+import signal
 import typing as t
 
 import numpy as np
@@ -80,6 +81,7 @@ def _init_neighbor_worker(
     add_self_pseudocount: bool,
 ) -> None:
     """Initialize per-process state for neighborhood batch workers."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     background_sequences_arr, background_sequences_shm = attach_shared_array(background_sequences_spec)
     background_v_genes_arr, background_v_genes_shm = attach_shared_array(background_v_genes_spec)
     background_j_genes_arr, background_j_genes_shm = attach_shared_array(background_j_genes_spec)
@@ -136,6 +138,7 @@ def _potential_neighbor_count_from_genes(
 
 def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
     """Process-pool worker for neighborhood query ranges."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     start, stop = range_pair
     query_sequences = _NEIGHBOR_WORKER_STATE["query_sequences"]
     query_sequence_ids = _NEIGHBOR_WORKER_STATE["query_sequence_ids"]
@@ -385,6 +388,7 @@ def _compute_grouped_key_batch_worker(
     builds exactly those tries, and returns results for all matching queries.
     Tries are built once per key globally (not once per worker).
     """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     out: dict[str, dict[str, int]] = {}
     for key, bg_seqs in bg_by_key.items():
         q_data = q_by_key.get(key)

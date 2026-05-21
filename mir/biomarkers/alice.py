@@ -290,9 +290,8 @@ def _compute_pgen_raw_by_junction_aa(
     # Sequences with < mc_min_count pool matches fall back to OLGA 1mm Pgen
     # so that sparse sequences use the same λ scale as pool-covered ones.
     if pgen_mode == "mc":
-        from mir.basic.pgen import _PGEN_1MM_SKIP_ENDS as _skip_ends
-        from mir.common.control import get_mc_pool_from_control
-        pool = get_mc_pool_from_control(
+        from mir.basic.pgen import _PGEN_1MM_SKIP_ENDS as _skip_ends, get_or_build_mc_pool
+        pool = get_or_build_mc_pool(
             locus=locus,
             species=species,
             n=mc_n_pool,
@@ -311,10 +310,14 @@ def _compute_pgen_raw_by_junction_aa(
                 needs_olga.append(aa)
 
         if needs_olga:
+            # Sparse sequences with < mc_min_count pool matches use OLGA exact pgen
+            # as fallback. Exact pgen is ~100x faster than 1mm pgen and appropriate
+            # here: sequences absent from a 10M pool have very small true pgen, so
+            # the exact value is a conservative (lower) λ estimate.
             mc_map.update(_bulk_pgen(
                 needs_olga,
                 locus=locus, species=species, random_seed=random_seed,
-                pgen_mode="1mm", n_jobs=n_jobs,
+                pgen_mode="exact", n_jobs=n_jobs,
             ))
 
         return mc_map
