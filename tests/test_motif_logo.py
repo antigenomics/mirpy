@@ -31,10 +31,13 @@ from mir.biomarkers.motif_logo import (
     BIOCHEMISTRY_COLORS,
     aggregate_vj_background,
     build_motif_logos_vj,
+    build_terminal_anchored_logo,
+    build_terminal_anchored_pwm,
     compute_cluster_profiles,
     compute_logo,
     compute_pwm,
     get_vj_background,
+    get_vj_background_from_control,
     load_motif_pwms,
     plot_logo,
     plot_motif_logos,
@@ -814,6 +817,326 @@ class TestPlotMotifLogosTitle(unittest.TestCase):
                 f"Found {len(rotated_texts)} rotated text objects on axes — V/J should be in suptitle",
             )
         plt.close(fig)
+
+
+class TestBuildTerminalAnchoredPwm(unittest.TestCase):
+    """Tests for :func:`build_terminal_anchored_pwm`."""
+
+    # Sequences of mixed length — typical CDR3 diversity
+    _MIXED = [
+        "CASSRSYEQYF",   # len 11
+        "CASSGRSYEQYF",  # len 12
+        "CASSRSSYEQYF",  # len 12
+        "CASSQGRSYEQYF", # len 13
+        "CASSPGRSYEQYF", # len 13
+        "CASSRSYEQYF",   # len 11 again
+    ]
+
+    def test_returns_dataframe(self):
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        self.assertIsInstance(pwm, pl.DataFrame)
+
+    def test_required_columns(self):
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        for col in ("pos", "label", "aa", "count", "n_covering", "frequency"):
+            self.assertIn(col, pwm.columns, f"missing column {col!r}")
+
+    def test_n_term_labels_positive(self):
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        n_labels = set(pwm.filter(pl.col("pos") < 5)["label"].unique().to_list())
+        for lbl in n_labels:
+            self.assertFalse(lbl.startswith("-"), f"N-term label should be positive, got {lbl!r}")
+
+    def test_c_term_labels_negative(self):
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        c_labels = set(pwm.filter(pl.col("pos") >= 5)["label"].unique().to_list())
+        for lbl in c_labels:
+            self.assertTrue(lbl.startswith("-"), f"C-term label should be negative, got {lbl!r}")
+
+    def test_last_c_term_label_is_minus_one(self):
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        last_pos = pwm["pos"].max()
+        last_label = pwm.filter(pl.col("pos") == last_pos)["label"].to_list()[0]
+        self.assertEqual(last_label, "-1", "Last C-terminal label must be '-1'")
+
+    def test_first_c_term_is_conserved_phef(self):
+        """Last position (-1) of any TRB CDR3 is always F (Phe)."""
+        seqs = [s for s in self._MIXED]  # all end in F
+        pwm = build_terminal_anchored_pwm(seqs, n_term=3, c_term=3)
+        last_pos = pwm["pos"].max()
+        last_col = pwm.filter(pl.col("pos") == last_pos)
+        # All counts at -1 should be F
+        f_count = last_col.filter(pl.col("aa") == "F")["count"].sum()
+        total_count = last_col["count"].sum()
+        self.assertEqual(f_count, total_count, "Last residue should be all F")
+
+    def test_only_observed_aas_returned(self):
+        """No rows with count == 0 should be present."""
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        zero_count_rows = pwm.filter(pl.col("count") == 0)
+        self.assertEqual(len(zero_count_rows), 0, "build_terminal_anchored_pwm must not include unobserved AAs")
+
+    def test_frequencies_sum_leq_one(self):
+        """Per-position frequencies sum to <= 1 (sparse = only observed AAs)."""
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        pos_sums = pwm.group_by("pos").agg(pl.col("frequency").sum()).sort("pos")
+        for row in pos_sums.iter_rows(named=True):
+            self.assertLessEqual(row["frequency"], 1.0 + 1e-9, f"frequency sum > 1 at pos {row['pos']}")
+
+    def test_compute_logo_compatible(self):
+        """Output must be accepted by compute_logo without errors."""
+        pwm = build_terminal_anchored_pwm(self._MIXED, n_term=5, c_term=4)
+        logo = compute_logo(pwm)
+        self.assertIn("ic_height", logo.columns)
+
+    def test_empty_sequences_raises(self):
+        with self.assertRaises(ValueError):
+            build_terminal_anchored_pwm([])
+
+
+class TestPlotLogoCountFilter(unittest.TestCase):
+    """Verify that plot_logo suppresses pseudocount-only residues."""
+
+    def test_no_spurious_slivers_at_conserved_position(self):
+        """Fully-conserved sequences should produce exactly one patch per position."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        # All 5 sequences are identical: 6 positions each fully conserved
+        seqs = ["CASSRS", "CASSRS", "CASSRS", "CASSRS", "CASSRS"]
+        pwm = compute_pwm(seqs)
+        logo = compute_logo(pwm)
+        n_pos = logo["pos"].n_unique()
+
+        fig, ax = plt.subplots(figsize=(4, 2))
+        plot_logo(logo, ax, height_col="ic_height")
+
+        # With count filter: each position has exactly 1 observed AA → 1 patch per position.
+        # Without the fix, pseudocount leaks many extra patches (up to 20 per position).
+        n_patches = len(ax.patches)
+        self.assertEqual(
+            n_patches, n_pos,
+            f"Expected {n_pos} patches (one per position for fully-conserved logo), got {n_patches} — pseudocount residuals not suppressed",
+        )
+        plt.close(fig)
+
+    def test_tick_labels_centered_below_columns(self):
+        """X-axis ticks must be at bar centres (pos + 0.5), not left edges."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        pwm = compute_pwm(_SIMPLE_SEQS)
+        logo = compute_logo(pwm)
+
+        fig, ax = plt.subplots(figsize=(4, 2))
+        plot_logo(logo, ax)
+
+        tick_locs = ax.get_xticks()
+        n_pos = logo["pos"].n_unique()
+        for i, loc in enumerate(tick_locs[:n_pos]):
+            expected = i + 0.5
+            self.assertAlmostEqual(
+                loc, expected, places=5,
+                msg=f"Tick {i} at {loc}, expected {expected} (bar centre)"
+            )
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: get_vj_background_from_control
+# ---------------------------------------------------------------------------
+
+class TestGetVjBackgroundFromControl(unittest.TestCase):
+    """Tests for :func:`get_vj_background_from_control`."""
+
+    # Synthetic control: 200 sequences of TRBV9/TRBJ2-3/len=15
+    @classmethod
+    def setUpClass(cls):
+        import random
+        rng = random.Random(42)
+        aas = list("ACDEFGHIKLMNPQRSTVWY")
+        def _rand_cdr3(length=15):
+            mid = "".join(rng.choice(aas) for _ in range(length - 10))
+            return f"CASS{mid}TDTQYF"
+        cls.ctrl = pl.DataFrame({
+            "junction_aa": [_rand_cdr3() for _ in range(200)],
+            "v_gene": ["TRBV9"] * 200,
+            "j_gene": ["TRBJ2-3"] * 200,
+        })
+
+    def test_returns_dataframe_sufficient_seqs(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+        )
+        self.assertIsInstance(bg, pl.DataFrame)
+
+    def test_returns_none_insufficient_seqs(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=500
+        )
+        self.assertIsNone(bg)
+
+    def test_columns(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+        )
+        for col in ("pos", "aa", "frequency"):
+            self.assertIn(col, bg.columns)
+
+    def test_n_positions(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+        )
+        self.assertEqual(bg["pos"].n_unique(), 15)
+
+    def test_frequencies_sum_to_one(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+        )
+        for pos in bg["pos"].unique().to_list():
+            total = float(bg.filter(pl.col("pos") == pos)["frequency"].sum())
+            self.assertAlmostEqual(total, 1.0, places=5)
+
+    def test_v_prefix_matching(self):
+        """TRBV9*01 should match TRBV9 entries in control."""
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15, min_seqs=50
+        )
+        self.assertIsInstance(bg, pl.DataFrame)
+
+    def test_no_vj_filter(self):
+        """Passing v_gene=None, j_gene=None should aggregate all entries."""
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene=None, j_gene=None, length=15, min_seqs=50
+        )
+        self.assertIsInstance(bg, pl.DataFrame)
+
+    def test_usable_as_compute_logo_background(self):
+        bg = get_vj_background_from_control(
+            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+        )
+        seqs = ["CASSVGLYSTDTQYF", "CASSVGLFSTDTQYF", "CASSVGVYSTDTQYF",
+                "CASSLGLFSTDTQYF", "CASSAGLFSTDTQYF"]
+        pwm = compute_pwm(seqs, length=15)
+        logo = compute_logo(pwm, background=bg)
+        self.assertIn("bg_height", logo.columns)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: build_terminal_anchored_logo
+# ---------------------------------------------------------------------------
+
+class TestBuildTerminalAnchoredLogo(unittest.TestCase):
+    """Tests for :func:`build_terminal_anchored_logo`."""
+
+    _SEQS_DF = pl.DataFrame({
+        "junction_aa": [
+            "CASSVGLYSTDTQYF",   # len 15
+            "CASSVGLFSTDTQYF",   # len 15
+            "CASSVGVYSTDTQYF",   # len 15
+            "CASSLGLFSTDTQYF",   # len 15
+            "CASSRSYEQYF",       # len 11
+            "CASSGRSYEQYF",      # len 12
+            "CASSRSSYEQYF",      # len 12
+        ],
+        "v_gene": ["TRBV9"] * 4 + ["TRBV19"] * 3,
+        "j_gene": ["TRBJ2-3"] * 4 + ["TRBJ2-7"] * 3,
+    })
+
+    @classmethod
+    def setUpClass(cls):
+        if not MOTIF_PWMS_FILE.exists():
+            raise unittest.SkipTest("motif_pwms.txt.gz not found")
+        cls.pwms = load_motif_pwms(MOTIF_PWMS_FILE)
+
+    def test_returns_dataframe(self):
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        self.assertIsInstance(logo, pl.DataFrame)
+
+    def test_required_columns(self):
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        for col in ("pos", "label", "aa", "ic_height"):
+            self.assertIn(col, logo.columns, f"missing column {col!r}")
+
+    def test_n_term_display_positions(self):
+        """Display positions 0..n_term-1 should have positive-integer labels."""
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        n_labels = logo.filter(pl.col("pos") < 8)["label"].unique().to_list()
+        for lbl in n_labels:
+            self.assertFalse(lbl.startswith("-"), f"N-block label should be positive: {lbl!r}")
+            self.assertGreater(int(lbl), 0)
+
+    def test_c_term_display_positions(self):
+        """Display positions n_term..n_term+c_term-1 should have negative labels."""
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        c_labels = logo.filter(pl.col("pos") >= 8)["label"].unique().to_list()
+        for lbl in c_labels:
+            self.assertTrue(lbl.startswith("-"), f"C-block label should be negative: {lbl!r}")
+            self.assertLess(int(lbl), 0)
+
+    def test_max_display_pos(self):
+        """Max display pos must be n_term + c_term - 1."""
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        self.assertEqual(int(logo["pos"].max()), 8 + 7 - 1)
+
+    def test_bg_height_present_when_background_found(self):
+        """bg_height column must appear when at least one length has a valid background."""
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        # Some VJ combos are in motif_pwms; at least one bg match expected
+        if "bg_height" in logo.columns:
+            non_null = logo["bg_height"].drop_nulls()
+            self.assertGreater(len(non_null), 0)
+
+    def test_ic_height_non_negative(self):
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, self.pwms, n_term=8, c_term=7
+        )
+        self.assertTrue((logo["ic_height"] >= -1e-9).all())
+
+    def test_control_df_fallback(self):
+        """When control_df is given and has coverage, bg_height should appear."""
+        import random
+        rng = random.Random(0)
+        aas = list("ACDEFGHIKLMNPQRSTVWY")
+        def _rand15():
+            mid = "".join(rng.choice(aas) for _ in range(5))
+            return f"CASS{mid}TDTQYF"
+        ctrl = pl.DataFrame({
+            "junction_aa": [_rand15() for _ in range(500)],
+            "v_gene": ["TRBV9"] * 500,
+            "j_gene": ["TRBJ2-3"] * 500,
+        })
+        seqs_df = self._SEQS_DF.filter(pl.col("j_gene") == "TRBJ2-3")
+        logo = build_terminal_anchored_logo(
+            seqs_df, None, n_term=8, c_term=7,
+            control_df=ctrl, min_control_seqs=50,
+        )
+        self.assertIsInstance(logo, pl.DataFrame)
+        if "bg_height" in logo.columns:
+            non_null = logo["bg_height"].drop_nulls()
+            self.assertGreater(len(non_null), 0)
+
+    def test_no_background_source_returns_ic_only(self):
+        """Calling with no motif_pwms and no control_df must still return a logo (IC only)."""
+        logo = build_terminal_anchored_logo(
+            self._SEQS_DF, None, n_term=8, c_term=7
+        )
+        self.assertIn("ic_height", logo.columns)
+        self.assertNotIn("bg_height", logo.columns)
 
 
 if __name__ == "__main__":

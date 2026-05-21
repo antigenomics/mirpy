@@ -79,7 +79,7 @@ For large datasets, it benchmarks small chunks first, estimates full runtime/mem
 - `mir.graph`: edit-distance graphs, neighborhood enrichment, token graphs, single-cell pairing graphs
 - `mir.embedding`: repertoire and prototype embeddings (TCREmp, PairedTCREmp)
 - `mir.comparative`: pairwise sample overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching (Hamming / Levenshtein), VDJBet Pgen-matched null distributions
-- `mir.biomarkers`: enrichment and biomarker detection — ALICE, TCRNET, GLIPH
+- `mir.biomarkers`: enrichment and biomarker detection — ALICE, TCRNET, CDR3 sequence logos
 - `mir.utils`: embedding diagnostics, shared memory, notebook asset helpers
 
 ### ALICE and TCRNET
@@ -110,6 +110,51 @@ V+J restricted 5.5 s).
 calls.  When used with a real control it captures V/J bias automatically.  Pass `q_factor ≈ 3–5` when using
 a synthetic OLGA pool to correct for the pre-thymic selection deficit.  TCRNET with a 100M synthetic pool,
 `match_mode="vj"`, and `q_factor=Q` is statistically equivalent to the original ALICE paper.
+
+## CDR3 Motif Logos
+
+`mir.biomarkers.motif_logo` builds **IC** and **selection** sequence logos for
+CDR3 motifs, following Pogorelyy *et al.* 2019 (*PLoS Biol.*).  The key insight
+is to subtract an OLGA-derived background for the *same* V-gene / J-gene /
+CDR3-length combination, which collapses the germline signal and reveals only
+what is antigen-driven.
+
+```python
+from mir.biomarkers.motif_logo import (
+    compute_pwm, compute_logo, get_vj_background,
+    build_terminal_anchored_pwm, load_motif_pwms, plot_logo,
+)
+
+motif_pwms = load_motif_pwms("motif_pwms.txt.gz")   # OLGA backgrounds
+
+seqs = ["CASSGRSYEQYF", "CASSGRTNEQYF", ...]        # CDR3 sequences
+
+bg = get_vj_background(
+    motif_pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+    length=13, species="HomoSapiens", gene="TRB",
+)
+pwm  = compute_pwm(seqs)
+logo = compute_logo(pwm, background=bg)   # adds ic_height + bg_height columns
+
+fig, ax = plt.subplots()
+plot_logo(logo, ax, height_col="bg_height")   # selection logo, RS motif visible
+```
+
+For CDR3s of **mixed lengths** (e.g. different J-genes), use the
+**terminal-anchored logo** which anchors the N-terminal block (V-gene side) and
+C-terminal block (J-gene side) independently:
+
+```python
+ta_pwm  = build_terminal_anchored_pwm(seqs, n_term=8, c_term=7)
+ta_logo = compute_logo(ta_pwm, background=bg)
+```
+
+For automated per-VJ-len logos from ALICE/TCRNET hit DataFrames use
+`build_motif_logos_vj`.  The background data (`motif_pwms.txt.gz`) is fetched
+automatically by the notebook bootstrap helpers in `mir.utils.notebook_assets`.
+
+See `notebooks/motif_logos.ipynb` for GILGFVFTL (Influenza A) and HLA-B27 AS
+worked examples.
 
 ## Quick start
 

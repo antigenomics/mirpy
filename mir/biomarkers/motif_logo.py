@@ -682,6 +682,410 @@ def compute_cluster_profiles(
 
 
 # ---------------------------------------------------------------------------
+# Terminal-anchored PWM
+# ---------------------------------------------------------------------------
+
+def build_terminal_anchored_pwm(
+    sequences: Sequence[str] | list[str],
+    *,
+    n_term: int = 15,
+    c_term: int = 15,
+    pseudocount: float = 0.5,
+) -> pl.DataFrame:
+    """Build a fixed-width PWM anchored at both CDR3 termini (mixed-length input).
+
+    CDR3s of different lengths share their N-terminal and C-terminal residues
+    (encoded by V-gene and J-gene respectively) but differ in the hypervariable
+    centre (D-gene + N-additions).  This function builds a position-weight matrix
+    with a fixed display width of ``n_term + c_term`` columns by extracting:
+
+    * **Left block** (positions 0 … n_term−1, labels ``"1"`` … ``"n_term"``):
+      the first *n_term* residues of each CDR3 (N-terminal anchor).
+    * **Right block** (positions n_term … n_term+c_term−1,
+      labels ``"-c_term"`` … ``"-1"``): the last *c_term* residues in order
+      (label ``"-1"`` is the last residue, the conserved Phe/Trp).
+
+    When drawn with :func:`plot_logo` this produces a canonical half-circle
+    representation: V-gene residues on the left, J-gene residues on the right,
+    with the variable loop implied by the gap between the two blocks (use
+    ``divider_after=n_term-1`` to draw the separator line).
+
+    Sequences shorter than *n_term* or *c_term* contribute to only the positions
+    they cover; the ``n_covering`` column records how many sequences contributed
+    to each position so sparse positions can be identified.
+
+    Args:
+        sequences: Iterable of CDR3 amino-acid strings (any lengths).
+        n_term: Number of N-terminal positions to include (default 15).
+        c_term: Number of C-terminal positions to include (default 15).
+        pseudocount: Laplace smoothing applied only to observed amino acids at
+            each position (default 0.5).
+
+    Returns:
+        Polars DataFrame with columns ``pos`` (0-indexed internal position),
+        ``label`` (string axis label, e.g. ``"1"`` or ``"-3"``), ``aa``,
+        ``count`` (raw observed count), ``n_covering`` (sequences contributing
+        to this position), and ``frequency`` (smoothed frequency).  Only amino
+        acids with ``count > 0`` are present; positions with zero coverage are
+        omitted.
+
+        Pass this DataFrame to :func:`compute_logo` (optionally with a
+        background from :func:`get_vj_background` or
+        :func:`aggregate_vj_background`) and then to :func:`plot_logo` with
+        ``divider_after=n_term-1``.
+
+    Example:
+        >>> pwm = build_terminal_anchored_pwm(
+        ...     cdr3_sequences, n_term=8, c_term=7
+        ... )
+        >>> logo = compute_logo(pwm, background=bg)
+        >>> plot_logo(logo, ax, divider_after=7)
+    """
+    seqs = [s for s in sequences if s]
+    if not seqs:
+        raise ValueError("sequences must be non-empty")
+
+    records: list[dict] = []
+
+    # N-terminal block
+    for p in range(n_term):
+        col_counts: Counter = Counter()
+        for s in seqs:
+            if len(s) > p and s[p] in _AA_SET:
+                col_counts[s[p]] += 1
+        n_cov = sum(col_counts.values())
+        if n_cov == 0:
+            continue
+        n_observed = len(col_counts)
+        total_with_pc = n_cov + pseudocount * n_observed
+        for aa, cnt in col_counts.items():
+            records.append({
+                "pos": p,
+                "label": str(p + 1),
+                "aa": aa,
+                "count": cnt,
+                "n_covering": n_cov,
+                "frequency": (cnt + pseudocount) / total_with_pc,
+            })
+
+    # C-terminal block
+    for k in range(c_term):
+        p = n_term + k
+        # label: -c_term at k=0, -1 at k=c_term-1
+        label_val = -(c_term - k)
+        dist_from_end = c_term - k  # number of positions from the C-terminus
+        col_counts = Counter()
+        for s in seqs:
+            if len(s) >= dist_from_end:
+                aa = s[-dist_from_end]
+                if aa in _AA_SET:
+                    col_counts[aa] += 1
+        n_cov = sum(col_counts.values())
+        if n_cov == 0:
+            continue
+        n_observed = len(col_counts)
+        total_with_pc = n_cov + pseudocount * n_observed
+        for aa, cnt in col_counts.items():
+            records.append({
+                "pos": p,
+                "label": str(label_val),
+                "aa": aa,
+                "count": cnt,
+                "n_covering": n_cov,
+                "frequency": (cnt + pseudocount) / total_with_pc,
+            })
+
+    if not records:
+        raise ValueError("No valid (pos, aa) pairs found after building terminal-anchored PWM")
+
+    return pl.DataFrame(records).with_columns(
+        pl.col("pos").cast(pl.Int32),
+        pl.col("count").cast(pl.Int32),
+        pl.col("n_covering").cast(pl.Int32),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Background from real/synthetic control
+# ---------------------------------------------------------------------------
+
+def get_vj_background_from_control(
+    control_df: pl.DataFrame,
+    *,
+    v_gene: str | None = None,
+    j_gene: str | None = None,
+    length: int,
+    pseudocount: float = 0.5,
+    min_seqs: int = 100,
+    cdr3_col: str = "junction_aa",
+    v_col: str = "v_gene",
+    j_col: str = "j_gene",
+) -> pl.DataFrame | None:
+    """Build a VJ/length background PWM from a real or synthetic control repertoire.
+
+    Filters *control_df* to sequences matching *v_gene* / *j_gene* / *length*
+    and computes per-position amino-acid frequencies using :func:`compute_pwm`.
+    The result can be passed directly as *background* to :func:`compute_logo` to
+    generate a data-driven selection logo without relying on the pre-computed
+    ``motif_pwms.txt.gz``.
+
+    V-gene and J-gene matching uses prefix matching (gene family name before
+    ``*``), so ``"TRBV9"`` matches ``"TRBV9*01"`` and ``"TRBV9*02"`` in the
+    control.
+
+    Args:
+        control_df: Polars DataFrame with at least *cdr3_col*, *v_col* and
+            *j_col* columns.  Produced by
+            :meth:`~mir.common.control.ControlManager.load_control_df` or any
+            compatible repertoire DataFrame.
+        v_gene: V-gene name for filtering (prefix matching, e.g.
+            ``"TRBV9"`` or ``"TRBV9*01"``).  Pass ``None`` to skip V-gene
+            filtering (aggregate over all V-genes).
+        j_gene: J-gene name for filtering (prefix matching).  Pass ``None``
+            to skip J-gene filtering.
+        length: CDR3 amino-acid length to select.
+        pseudocount: Laplace smoothing count added to every cell (default
+            0.5).
+        min_seqs: Minimum number of matching control sequences required to
+            return a result (default 100).  When fewer are found, ``None``
+            is returned.
+        cdr3_col: Column name for CDR3 sequences (default
+            ``"junction_aa"``).
+        v_col: Column name for V-gene (default ``"v_gene"``).
+        j_col: Column name for J-gene (default ``"j_gene"``).
+
+    Returns:
+        Polars DataFrame with columns ``pos``, ``aa``, ``frequency`` (the
+        background frequencies), or ``None`` if fewer than *min_seqs*
+        sequences match.
+
+    Example:
+        >>> mgr = ControlManager()
+        >>> mgr.ensure_synthetic_control("human", "TRB", n=10_000_000)
+        >>> ctrl = mgr.load_control_df("synthetic", "human", "TRB", n=10_000_000)
+        >>> bg = get_vj_background_from_control(
+        ...     ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15
+        ... )
+        >>> logo = compute_logo(pwm, background=bg)
+    """
+    mask = pl.col(cdr3_col).str.len_chars() == length
+    if v_gene is not None:
+        v_prefix = v_gene.split("*")[0]
+        mask = mask & pl.col(v_col).str.starts_with(v_prefix)
+    if j_gene is not None:
+        j_prefix = j_gene.split("*")[0]
+        mask = mask & pl.col(j_col).str.starts_with(j_prefix)
+
+    subset = control_df.filter(mask)
+    seqs = subset[cdr3_col].to_list()
+    if len(seqs) < min_seqs:
+        return None
+
+    return compute_pwm(seqs, pseudocount=pseudocount, length=length).select(
+        "pos", "aa", "frequency"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Terminal-anchored selection logo (correct bg-subtract-first architecture)
+# ---------------------------------------------------------------------------
+
+def build_terminal_anchored_logo(
+    sequences_df: pl.DataFrame,
+    motif_pwms: pl.DataFrame | None = None,
+    *,
+    n_term: int = 15,
+    c_term: int = 15,
+    species: str = "HomoSapiens",
+    gene: str = "TRB",
+    pseudocount: float = 0.5,
+    min_seqs_per_length: int = 3,
+    control_df: pl.DataFrame | None = None,
+    min_control_seqs: int = 100,
+    cdr3_col: str = "junction_aa",
+    v_col: str = "v_gene",
+    j_col: str = "j_gene",
+) -> pl.DataFrame:
+    """Build a terminal-anchored logo with background subtracted in linear space.
+
+    This is the architecturally correct version of a fixed-width CDR3 logo that
+    combines sequences of different lengths.  The critical difference from
+    :func:`build_terminal_anchored_pwm` is that background subtraction happens
+    **in the original linear CDR3 coordinate space** (per CDR3 length) *before*
+    positions are remapped to terminal display coordinates.
+
+    Algorithm
+    ---------
+    1. **IC logo** — build terminal-anchored position frequencies across all
+       input sequences (via :func:`build_terminal_anchored_pwm`) and compute
+       Shannon IC heights.  The left block (``"1"`` … ``"n_term"``) and right
+       block (``"-c_term"`` … ``"-1"``) will show high IC where V-gene and
+       J-gene are conserved.
+
+    2. **Selection logo** — for each CDR3 length *L*:
+
+       a. Compute a standard linear PWM (positions 0 … L−1).
+       b. Look up the dominant V/J background for this length via
+          *control_df* (:func:`get_vj_background_from_control`, tried first
+          when *control_df* is given) or *motif_pwms*
+          (:func:`get_vj_background`).
+       c. Compute per-position selection heights ``h_sel[p, a] = f · log₂(f /
+          f_bg)`` in **linear** position space.
+       d. Map each linear position *p* to terminal display coordinate(s):
+
+          * **N-block** (if *p* < *n_term*): display position *p*, label
+            ``str(p + 1)``.
+          * **C-block** (if *L − p* ≤ *c_term*): display position
+            ``n_term + c_term − (L − p)``, label ``str(−(L − p))``.
+
+          A single position can map to *both* blocks for CDR3s shorter than
+          *n_term* + *c_term* — this is intentional: the same residue appears
+          in both the N-terminal and C-terminal context.
+
+       e. Accumulate weighted ``h_sel`` values (weight = number of sequences
+          at that length) across all lengths.
+
+    3. Divide accumulated sums by accumulated weights to get the final
+       per-terminal-position ``bg_height``.
+
+    Args:
+        sequences_df: Polars DataFrame containing at least *cdr3_col*,
+            *v_col*, and *j_col* columns (typically ALICE/TCRNET hits or
+            any antigen-associated CDR3 set).
+        motif_pwms: Pre-computed ``motif_pwms`` table from
+            :func:`load_motif_pwms`.  Used as background source when
+            *control_df* is ``None`` or provides insufficient coverage.
+        n_term: Number of N-terminal positions in the left block (default
+            15).
+        c_term: Number of C-terminal positions in the right block (default
+            15).
+        species: Species for background lookup from *motif_pwms* (default
+            ``"HomoSapiens"``).
+        gene: Receptor gene for background lookup (default ``"TRB"``).
+        pseudocount: Laplace smoothing for PWM computation (default 0.5).
+        min_seqs_per_length: Minimum sequences required at a given CDR3
+            length to contribute to the selection logo (default 3).
+        control_df: Optional real/synthetic control DataFrame produced by
+            :meth:`~mir.common.control.ControlManager.load_control_df`.
+            When provided, VJ/length backgrounds are estimated from this
+            data via :func:`get_vj_background_from_control`, falling back
+            to *motif_pwms* if coverage is insufficient.
+        min_control_seqs: Minimum matching control sequences required to
+            use the control-derived background (default 100).  Falls back
+            to *motif_pwms* when the threshold is not met.
+        cdr3_col: CDR3 column name (default ``"junction_aa"``).
+        v_col: V-gene column name (default ``"v_gene"``).
+        j_col: J-gene column name (default ``"j_gene"``).
+
+    Returns:
+        Polars DataFrame with columns ``pos``, ``label``, ``aa``, ``count``,
+        ``n_covering``, ``frequency``, ``ic_height``, and (when at least one
+        length-background was found) ``bg_height``.  The ``pos`` column is
+        0-indexed display position; ``label`` is the axis tick string.
+
+    Example:
+        >>> logo = build_terminal_anchored_logo(
+        ...     alice_hits, pwms, n_term=15, c_term=15,
+        ...     species="HomoSapiens", gene="TRB",
+        ... )
+        >>> fig, axes = plot_motif_logos(logo, divider_after=n_term - 1)
+    """
+    seqs_all = sequences_df[cdr3_col].to_list()
+
+    # Step 1: IC logo from terminal-anchored frequencies
+    ta_pwm = build_terminal_anchored_pwm(
+        seqs_all, n_term=n_term, c_term=c_term, pseudocount=pseudocount
+    )
+    ic_logo = compute_logo(ta_pwm)
+
+    # Step 2: per-length selection heights accumulated in terminal space
+    # bg_accum[(terminal_pos, aa)] = weighted sum of h_sel; weight_accum = total weight
+    bg_accum: dict[tuple[int, str], float] = {}
+    weight_accum: dict[tuple[int, str], float] = {}
+
+    df = sequences_df.with_columns(
+        pl.col(cdr3_col).str.len_chars().alias("_len")
+    )
+
+    for (length_val,), group in df.group_by(["_len"]):
+        length = int(length_val)
+        seqs_L = group[cdr3_col].to_list()
+        if len(seqs_L) < min_seqs_per_length:
+            continue
+        n_L = len(seqs_L)
+
+        pwm_L = compute_pwm(seqs_L, pseudocount=pseudocount, length=length)
+
+        # Dominant V/J for background lookup
+        dom = (
+            group.group_by([v_col, j_col])
+            .agg(pl.len().alias("_cnt"))
+            .sort("_cnt", descending=True)
+        )
+        v_dom = str(dom[0][v_col][0])
+        j_dom = str(dom[0][j_col][0])
+
+        # Try control first, then motif_pwms
+        bg: pl.DataFrame | None = None
+        if control_df is not None:
+            bg = get_vj_background_from_control(
+                control_df,
+                v_gene=v_dom, j_gene=j_dom,
+                length=length,
+                pseudocount=pseudocount,
+                min_seqs=min_control_seqs,
+                cdr3_col=cdr3_col,
+                v_col=v_col,
+                j_col=j_col,
+            )
+        if bg is None and motif_pwms is not None:
+            bg = get_vj_background(
+                motif_pwms, v_gene=v_dom, j_gene=j_dom,
+                length=length, species=species, gene=gene,
+            )
+        if bg is None:
+            continue
+
+        logo_L = compute_logo(pwm_L, background=bg)
+        if "bg_height" not in logo_L.columns:
+            continue
+
+        # Build lookup: (linear_pos, aa) → h_sel
+        h_lookup: dict[tuple[int, str], float] = {}
+        for row in logo_L.iter_rows(named=True):
+            h_lookup[(int(row["pos"]), row["aa"])] = float(row["bg_height"])
+
+        for aa in AA_ORDER:
+            for p in range(length):
+                h = h_lookup.get((p, aa), 0.0)
+
+                # N-block contribution
+                if p < n_term:
+                    key = (p, aa)
+                    bg_accum[key] = bg_accum.get(key, 0.0) + h * n_L
+                    weight_accum[key] = weight_accum.get(key, 0.0) + n_L
+
+                # C-block contribution: dist_from_end (1-indexed) = length - p
+                dist = length - p
+                if dist <= c_term:
+                    t_pos = n_term + c_term - dist
+                    key = (t_pos, aa)
+                    bg_accum[key] = bg_accum.get(key, 0.0) + h * n_L
+                    weight_accum[key] = weight_accum.get(key, 0.0) + n_L
+
+    if not bg_accum:
+        return ic_logo
+
+    bg_records = [
+        {"pos": t_pos, "aa": aa, "bg_height": bg_accum[(t_pos, aa)] / weight_accum[(t_pos, aa)]}
+        for (t_pos, aa) in bg_accum
+    ]
+    bg_df = pl.DataFrame(bg_records).with_columns(pl.col("pos").cast(pl.Int32))
+
+    return ic_logo.join(bg_df, on=["pos", "aa"], how="left")
+
+
+# ---------------------------------------------------------------------------
 # Rendering helpers
 # ---------------------------------------------------------------------------
 
@@ -763,18 +1167,24 @@ def plot_logo(
     ylabel: str | None = None,
     letter_width: float = 0.85,
     show_xaxis: bool = True,
+    x_labels: list[str] | None = None,
+    shade_positions: list[int] | None = None,
+    divider_after: int | None = None,
 ) -> None:
     """Render a sequence logo onto *ax*.
 
     Letters are stacked from bottom to top with the **most frequent / tallest
-    letter at the top** (WebLogo convention).  For background-normalised logos,
-    enriched residues (h > 0) stack upward and depleted residues (h < 0) stack
-    downward with letters drawn inverted.
+    letter at the top** (WebLogo convention).  Only amino acids that were
+    actually observed in the input sequences (``count > 0``) are drawn;
+    pseudocount-only residues are suppressed to avoid spurious slivers at
+    fully-conserved positions such as the CDR3-terminal Cys or Phe/Trp.
+    For background-normalised logos, enriched residues (h > 0) stack upward
+    and depleted residues (h < 0) stack downward with letters drawn inverted.
 
     Args:
         logo_df: Logo DataFrame with ``pos``, ``aa``, and *height_col*.
-            All positions need not have all 20 residues — only rows present
-            are drawn.
+            When a ``count`` column is present (output of :func:`compute_pwm`
+            + :func:`compute_logo`), only rows with ``count > 0`` are drawn.
         ax: Matplotlib ``Axes`` instance to draw on.
         height_col: Name of the column containing per-residue heights
             (default ``"ic_height"``).  Use ``"bg_height"`` for the
@@ -786,11 +1196,22 @@ def plot_logo(
         letter_width: Fraction of one position width used by each letter
             (default 0.85; the remainder is left as whitespace).
         show_xaxis: Whether to show position tick labels (default ``True``).
+        x_labels: Custom tick label strings, one per position.  When
+            ``None`` and the DataFrame contains a ``label`` column (from
+            :func:`build_terminal_anchored_pwm`), that column is used.
+            Otherwise labels default to 1-indexed position numbers.
+        shade_positions: 0-indexed position indices whose columns should be
+            highlighted with a light orchid background shading (e.g. the
+            antigen-specific motif columns).
+        divider_after: Draw a vertical dashed separator after this
+            0-indexed position (e.g. between N-terminal and C-terminal
+            blocks of a terminal-anchored logo).
 
     Example:
         >>> fig, axes = plt.subplots(2, 1, figsize=(8, 4))
         >>> plot_logo(logo, axes[0], height_col="ic_height")
-        >>> plot_logo(logo, axes[1], height_col="bg_height")
+        >>> plot_logo(logo, axes[1], height_col="bg_height",
+        ...           shade_positions=[6, 7])
     """
     from matplotlib.font_manager import FontProperties  # lazy import
 
@@ -798,6 +1219,7 @@ def plot_logo(
     colors = _get_color_scheme(color_scheme)
     positions = sorted(logo_df["pos"].unique().to_list())
     x_offset = (1.0 - letter_width) / 2.0
+    has_count = "count" in logo_df.columns
 
     all_heights = logo_df[height_col].to_numpy()
     has_negatives = bool(np.any(all_heights < -1e-10))
@@ -808,10 +1230,12 @@ def plot_logo(
     for pos in positions:
         pos_data = logo_df.filter(pl.col("pos") == pos)
 
+        # Only draw AAs that were actually observed — suppress pseudocount residuals.
+        if has_count:
+            pos_data = pos_data.filter(pl.col("count") > 0)
+
         if not has_negatives:
             # IC logo: sort ascending so the tallest letter is drawn last (on top).
-            # Letters stack bottom → top; smallest frequency letters are at the
-            # bottom, the dominant residue is the top-most visible letter.
             pos_data = pos_data.sort(height_col, descending=False)
             y_cursor = 0.0
             for row in pos_data.iter_rows(named=True):
@@ -828,13 +1252,10 @@ def plot_logo(
                 y_cursor += h
             y_max = max(y_max, y_cursor)
         else:
-            # Selection logo: sort ascending (smallest enrichment first, highest
-            # enrichment letter on top for positive stack).
+            # Selection logo: enriched (pos) stack upward, depleted (neg) downward.
             pos_pos = pos_data.filter(pl.col(height_col) > 1e-10).sort(
                 height_col, descending=False
             )
-            # For negative stack: most-depleted letter is outermost (furthest from 0).
-            # Sort descending so most-negative is processed last (drawn furthest down).
             pos_neg = pos_data.filter(pl.col(height_col) < -1e-10).sort(
                 height_col, descending=True
             )
@@ -866,18 +1287,47 @@ def plot_logo(
             y_max = max(y_max, y_cursor_pos)
             y_min = min(y_min, y_cursor_neg)
 
-    # Axes formatting
+    # Column shading (before axes formatting so bars appear on top).
+    if shade_positions:
+        for sp in shade_positions:
+            if sp in positions:
+                ax.axvspan(sp, sp + 1.0, alpha=0.10, color="#c984cc", zorder=0)
+
+    # Divider between N-terminal / C-terminal blocks.
+    if divider_after is not None:
+        ax.axvline(divider_after + 1, color="#aaaaaa", lw=1.0, ls="--", alpha=0.7, zorder=1)
+
+    # Axes formatting.
     n_pos = len(positions)
-    ax.set_xlim(-0.1, n_pos + 0.1)
-    pad = max(0.05, (y_max - y_min) * 0.05)
+    ax.set_xlim(0, n_pos)
+    pad = max(0.05, (y_max - y_min) * 0.06)
     ax.set_ylim(y_min - pad, y_max + pad)
 
     if has_negatives:
         ax.axhline(0, color="#333333", linewidth=0.6, zorder=0)
 
     if show_xaxis:
-        ax.set_xticks(range(n_pos))
-        ax.set_xticklabels([str(p + 1) for p in positions], fontsize=8)
+        # Ticks centred under each column bar (bars span pos to pos+1).
+        tick_positions = [p + 0.5 for p in range(n_pos)]
+        ax.set_xticks(tick_positions)
+
+        # Determine tick labels: explicit override > label column > 1-indexed.
+        if x_labels is not None:
+            labels = list(x_labels)
+        elif "label" in logo_df.columns:
+            pos_to_label = (
+                logo_df.select(["pos", "label"])
+                .unique()
+                .sort("pos")
+                .rows()
+            )
+            label_map = {p: lbl for p, lbl in pos_to_label}
+            labels = [str(label_map.get(p, p + 1)) for p in positions]
+        else:
+            labels = [str(p + 1) for p in positions]
+
+        ax.set_xticklabels(labels, fontsize=7, rotation=0)
+        ax.tick_params(axis="x", pad=4)
         ax.set_xlabel("CDR3 position", fontsize=9)
     else:
         ax.set_xticks([])
@@ -888,7 +1338,7 @@ def plot_logo(
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.tick_params(axis="both", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
 
 
 def plot_motif_logos(
@@ -994,6 +1444,9 @@ __all__ = [
     "CHEMISTRY_COLORS",
     "compute_pwm",
     "compute_logo",
+    "build_terminal_anchored_pwm",
+    "build_terminal_anchored_logo",
+    "get_vj_background_from_control",
     "load_motif_pwms",
     "pwm_from_motif_pwms",
     "get_vj_background",
