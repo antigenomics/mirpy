@@ -1854,17 +1854,20 @@ Adjust weights if needed for a custom balance.
 **`cdrs_only=True`** is reserved for CDR1/2/2.5 positional markup and raises
 `NotImplementedError`.  Use `v_alignment_type="full_germline"` (the default).
 
-**Performance** (Apple M3, TRB, `fixed_gaps=(3,4,-4,-3)`):
+**Performance** (Apple M3, TRB, measured 2026-05-22):
 
-| Dataset   | n_jobs | Wall time | Pairs/s       |
-|-----------|--------|-----------|---------------|
-| 100×100   | 1      | <0.01 s   | ~100 M pairs/s|
-| 1K×1K     | 1      | ~0.04 s   | ~25 M pairs/s |
-| 10K×10K   | 8      | ~4 s      | ~25 M pairs/s |
+| Mode              | Dataset | n_jobs | Wall time | Pairs/s      |
+|-------------------|---------|--------|-----------|--------------|
+| `fixed_gaps` list | 1K×1K   | 1      | 0.036 s   | 27.9 M/s     |
+| `fixed_gaps` list | 5K×5K   | 1      | 0.894 s   | 28.0 M/s     |
+| `fixed_gaps` list | 1K×1K   | 8      | 0.013 s   | 75.9 M/s     |
+| `"Mid"` (Python)  | 1K×1K   | 1      | 11.7 s    | 85 k/s       |
+| `None` (BioPython)| 100×100 | 1      | 0.278 s   | 36 k/s       |
 
-CDR3 scoring uses `JunctionAligner.score_matrix` (C, GIL released); true
-thread parallelism scales near-linearly with core count.  V-gene lookup is
-O(1) via precomputed dictionaries.
+`fixed_gaps` list is **~330×** faster than `"Mid"` and **~780×** faster than
+full BioPython DP.  CDR3 scoring uses `JunctionAligner.score_matrix` (C, GIL
+released); true thread parallelism gives ~2.7× speedup at n_jobs=8 (V-gene
+lookup is serial but O(1) via precomputed dicts).
 
 **Notebook**: `notebooks/tcrdist_analysis.ipynb` — influenza GILGFVFTL example,
 distance heatmap, UMAP, hierarchical clustering, motif logos, gap mode comparison.

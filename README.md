@@ -22,6 +22,7 @@ characterising T-cell and B-cell receptor repertoires.
   - [Pool repertoires across samples](#pool-repertoires-across-samples)
 - [Diversity metrics](#diversity-metrics)
 - [Metaclonotypes](#metaclonotypes)
+- [TCRdist](#tcrdist)
 - [CDR3 Motif Logos](#cdr3-motif-logos)
 - [ALICE and TCRNET](#alice-and-tcrnet)
 - [Prototype-based embeddings (TCREmp)](#prototype-based-embeddings-with-tcremp)
@@ -71,7 +72,7 @@ Use the cloned repo setup when developing or running docs/notebooks locally.
 | Package | Responsibilities |
 | --- | --- |
 | `mir.common` | Clonotypes, repertoires, parsers, segment libraries |
-| `mir.distances` | Aligners, Hamming/Levenshtein search, graph utilities |
+| `mir.distances` | Aligners, Hamming/Levenshtein search, graph utilities, TCRdist |
 | `mir.basic` | Sampling, segment usage, alphabet helpers, Pgen utilities |
 | `mir.graph` | Edit-distance graphs, neighbourhood enrichment, token graphs, single-cell pairing |
 | `mir.embedding` | Prototype embeddings: TCREmp, PairedTCREmp |
@@ -252,6 +253,59 @@ from mir.common.metaclonotype import functional_overlap_1
 # Fraction of metaclonotypes in rep_a that share a CDR3 identity with rep_b
 overlap = functional_overlap_1(meta_a, meta_b, repertoire_a, repertoire_b)
 ```
+
+---
+
+## TCRdist
+
+`TcrDist` (`mir.distances.tcrdist`) computes the weighted V-gene + CDR3
+alignment distance between TCR clonotypes, following the TCRdist3 metric
+(Dash *et al.* 2017).  All V-gene pairwise distances are pre-computed once
+from full germline sequences; CDR3 alignment uses BLOSUM62 with a fixed-gap
+C extension that releases the GIL for thread parallelism.
+
+```python
+from mir.distances.tcrdist import TcrDist
+from mir.common.clonotype import Clonotype
+
+# Build once — loads OLGA library and pre-computes V-gene distances (~3–10 s)
+td = TcrDist.from_defaults(
+    "TRB", "human",
+    w_v=1.0, w_j=0.0, w_cdr3=3.0,
+    fixed_gaps=(3, 4, -4, -3),   # C-accelerated (default)
+    # fixed_gaps="Mid"  → midpoint gap per pair (Python, ~330× slower)
+    # fixed_gaps=None   → full BioPython DP  (~780× slower)
+)
+
+cln1 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
+cln2 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
+
+d    = td.dist(cln1, cln2)                         # single pair
+row  = td.dist_one_to_many(cln1, refs)             # (K,) array
+mat  = td.dist_matrix(queries, refs, n_jobs=4)     # (N, K) matrix
+```
+
+### Radius and metaclonotype discovery
+
+```python
+from mir.basic.pgen import OlgaModel
+
+model = OlgaModel(locus="TRB", species="human")
+bg_seqs, _ = model.generate_sequences_counted(10_000, n_jobs=4, seed=42)
+bg_clns = [Clonotype(junction_aa=s, locus="TRB") for s in bg_seqs]
+
+# Median background distance for each query clonotype
+radii = td.compute_radius(hits, bg_clns, percentile=50, n_jobs=4)
+
+# Cluster around seeds whose radius falls in the bottom quartile
+import numpy as np
+threshold = float(np.percentile(radii, 25))
+meta = td.find_metaclonotypes(rep, max_distance=threshold, n_jobs=4)
+```
+
+**Performance** (Apple M3, TRB, `fixed_gaps=(3,4,-4,-3)`, n_jobs=1):
+28 M pairs/s at 1K–5K scale; ~76 M pairs/s with n_jobs=8.
+See `notebooks/tcrdist_analysis.ipynb` for an influenza GILGFVFTL worked example.
 
 ---
 
