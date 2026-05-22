@@ -45,20 +45,22 @@ exposes these columns as ``ic_height`` / ``bg_height`` in the motif_pwms scale.
 
 References
 ----------
-Pogorelyy M.V., Minervina A.A., Shugay M. *et al.* Detecting T cell receptors
-involved in immune responses from single repertoire snapshots.
-*PLoS Biol.* **17**, e3000314 (2019).
-https://doi.org/10.1371/journal.pbio.3000314
+Pogorelyy MV, Minervina AA, Shugay M, Chudakov DM, Lebedev YB, Mora T,
+Walczak AM. Detecting T cell receptors involved in immune responses from
+single repertoire snapshots. *PLoS Biol.* 2019;17(6):e3000314.
+PMID:31194732. https://pubmed.ncbi.nlm.nih.gov/31194732/
 
-Schneider T.D., Stormo G.D., Gold L. and Ehrenfeucht A. Information content
-of binding sites on nucleotide sequences. *J. Mol. Biol.* **188**, 415–431
-(1986).
+Schneider TD, Stormo GD, Gold L, Ehrenfeucht A. Information content of
+binding sites on nucleotide sequences. *J Mol Biol.* 1986;188(3):415-431.
+PMID:3525846. https://pubmed.ncbi.nlm.nih.gov/3525846/
 
-Schneider T.D. and Stephens R.M. Sequence logos: a new way to display
-consensus sequences. *Nucleic Acids Res.* **18**, 6097–6100 (1990).
+Schneider TD, Stephens RM. Sequence logos: a new way to display consensus
+sequences. *Nucleic Acids Res.* 1990;18(20):6097-6100.
+PMID:2172928. https://pubmed.ncbi.nlm.nih.gov/2172928/
 
-Crooks G.E. *et al.* WebLogo: A sequence logo generator.
-*Genome Res.* **14**, 1188–1190 (2004).
+Crooks GE, Hon G, Chandonia JM, Brenner SE. WebLogo: A sequence logo
+generator. *Genome Res.* 2004;14(6):1188-1190.
+PMID:15173120. https://pubmed.ncbi.nlm.nih.gov/15173120/
 """
 
 from __future__ import annotations

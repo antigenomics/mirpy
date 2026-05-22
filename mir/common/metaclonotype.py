@@ -1,23 +1,53 @@
-"""Metaclonotype definitions and core utilities.
+"""Metaclonotype definitions and core analytics.
 
-A metaclonotype is represented as a lightweight membership table that maps
-cluster identifiers to clonotype identifiers. This avoids rebuilding expensive
-repertoire objects while still enabling cluster-level traversal and analytics.
+A *metaclonotype* is a lightweight cluster layer over an existing
+:class:`~mir.common.repertoire.LocusRepertoire`.  It is stored as a membership
+table (a Polars DataFrame) that maps cluster identifiers to sequence identifiers,
+without duplicating or rebuilding the underlying clonotype objects.  This design
+allows cluster-level count aggregation, functional-diversity computation, and
+cross-repertoire overlap without the memory cost of re-instantiating repertoires.
 
-Single-chain membership schema
-------------------------------
-- ``cluster_id`` (str)
-- ``clonotype_id`` (str)
-- ``is_representative`` (bool, optional; defaults to False)
+Metaclonotypes can represent the output of any clustering backend:
 
-Paired-chain membership schema
-------------------------------
-- ``cluster_id`` (str)
+* DBSCAN / Leiden / Louvain community detection on an edit-distance graph
+* ALICE / TCRNET enriched-cluster sets
+* TCRdist-style radius clusters around representative sequences
+* Pre-computed connected components from any graph
+
+Membership table schemas
+------------------------
+Single-chain (``paired=False``):
+
+- ``cluster_id``     (str)
+- ``clonotype_id``   (str)
+- ``is_representative`` (bool, defaults to False)
+
+Paired-chain (``paired=True``):
+
+- ``cluster_id``     (str)
 - ``clonotype_id_1`` (str)
 - ``clonotype_id_2`` (str)
-- ``is_representative`` (bool, optional; defaults to False)
-- ``mock_chain_1`` (bool, optional; defaults to False)
-- ``mock_chain_2`` (bool, optional; defaults to False)
+- ``is_representative`` (bool, defaults to False)
+- ``mock_chain_1``   (bool, defaults to False)
+- ``mock_chain_2``   (bool, defaults to False)
+
+Functional-diversity methods delegate to :mod:`mir.common.diversity`,
+implementing Hill (1973) profiles and iNEXT-style rarefaction (Hsieh *et al.*
+2016) at the metaclonotype count level.
+
+References
+----------
+Pogorelyy MV, Minervina AA, Shugay M, Chudakov DM, Lebedev YB, Mora T,
+Walczak AM. Detecting T cell receptors involved in immune responses from
+single repertoire snapshots. *PLoS Biol.* 2019;17(6):e3000314.
+PMID:31194732. https://pubmed.ncbi.nlm.nih.gov/31194732/
+
+Hsieh TC, Ma KH, Chao A. iNEXT: an R package for rarefaction and
+extrapolation of species diversity (Hill numbers). *Methods Ecol Evol.*
+2016;7(12):1451-1456. doi:10.1111/2041-210X.12613.
+
+Hill MO. Diversity and evenness: a unifying notation and its consequences.
+*Ecology.* 1973;54(2):427-432. doi:10.2307/1934352.
 """
 
 from __future__ import annotations
