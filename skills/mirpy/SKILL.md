@@ -1752,3 +1752,119 @@ for v, j, L in top_vj_len_groups:
 
 ≥ 1,000 OLGA sequences per VJ/length gives stable background frequencies (MAD < 0.002);
 `motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold for all cases).
+
+## 24. TCRdist — Alignment-Based Clonotype Distance
+
+Use `TcrDist` from `mir.distances.tcrdist` to compute weighted V-gene + CDR3
+distances between TCR clonotypes, find per-clonotype radii, and define
+metaclonotypes via radius-threshold clustering.
+
+```python
+from mir.distances.tcrdist import TcrDist
+from mir.common.clonotype import Clonotype
+from mir.common.repertoire import LocusRepertoire
+
+# Build with defaults (computes V/J germline distances once, ~3–10 s)
+td = TcrDist.from_defaults(
+    "TRB", "human",
+    w_v=1.0,            # V-gene germline weight
+    w_j=0.0,            # J-gene weight (0 = ignore)
+    w_cdr3=3.0,         # CDR3/junction_aa weight
+    fixed_gaps=(3, 4, -4, -3),  # C-accelerated JunctionAligner (default)
+    # fixed_gaps="Mid"  → midpoint gap per pair
+    # fixed_gaps=None   → full BioPython DP alignment (slowest)
+    gap_penalty=-4.0,
+)
+
+# One-to-one
+cln1 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
+cln2 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
+d = td.dist(cln1, cln2)   # float, symmetric, non-negative
+
+# One-to-many
+refs = list(rep.clonotypes)
+row = td.dist_one_to_many(cln1, refs)  # shape: (K,)
+
+# Many-to-many (N×K matrix, parallel when fixed_gaps is a list)
+mat = td.dist_matrix(queries, refs, n_jobs=4)   # shape: (N, K)
+
+# Self-distance matrix
+mat_self = td.self_dist_matrix(list(rep.clonotypes), n_jobs=4)  # shape: (N, N)
+```
+
+### Radius computation
+
+For each clonotype, compute the *p*-th percentile of its distances to a
+background set (used as the neighbourhood search threshold):
+
+```python
+import numpy as np
+from mir.basic.pgen import OlgaModel
+
+# Generate OLGA background sequences
+model = OlgaModel(locus="TRB", species="human")
+bg_seqs, _ = model.generate_sequences_counted(10_000, n_jobs=4, seed=42)
+bg_clns = [Clonotype(junction_aa=s, locus="TRB") for s in bg_seqs]
+
+hits = [c for c in rep.clonotypes if c.v_gene and c.junction_aa]
+radii = td.compute_radius(hits, bg_clns, percentile=50, n_jobs=4)
+# radii: float64 array of shape (len(hits),)
+
+# Sequences with small radii are in convergent (antigen-driven) neighbourhoods
+threshold = float(np.percentile(radii, 25))
+```
+
+### Metaclonotype discovery
+
+```python
+from mir.common.metaclonotype import summarize_metaclonotypes
+
+# All-vs-all clustering (each clonotype as its own seed)
+meta = td.find_metaclonotypes(
+    rep,
+    max_distance=threshold,       # float radius threshold
+    match_v_gene=False,           # optionally restrict to same V
+    match_j_gene=False,
+    cluster_prefix="tcrdist_mc",
+    n_jobs=4,
+)
+print(meta.n_clusters)
+
+# Only cluster around enriched/selected seeds
+enriched_ids = [c.sequence_id for c in hits if radius_for_c <= threshold]
+meta = td.find_metaclonotypes(
+    rep,
+    representative_ids=enriched_ids,
+    max_distance=threshold,
+    n_jobs=4,
+)
+
+# Aggregate counts per cluster
+summary = summarize_metaclonotypes(rep, meta)
+# Columns: cluster_id, n_members, representative_junction_aa,
+#           representative_v_gene, representative_j_gene,
+#           duplicate_count, umi_count
+```
+
+**Scale note**: V-gene distances (BioPython BLOSUM62, unscaled) and CDR3
+distances (JunctionAligner BLOSUM62 × 10) are on different absolute scales.
+Default weights `w_v=1.0, w_cdr3=3.0` ensure CDR3 divergence dominates.
+Adjust weights if needed for a custom balance.
+
+**`cdrs_only=True`** is reserved for CDR1/2/2.5 positional markup and raises
+`NotImplementedError`.  Use `v_alignment_type="full_germline"` (the default).
+
+**Performance** (Apple M3, TRB, `fixed_gaps=(3,4,-4,-3)`):
+
+| Dataset   | n_jobs | Wall time | Pairs/s       |
+|-----------|--------|-----------|---------------|
+| 100×100   | 1      | <0.01 s   | ~100 M pairs/s|
+| 1K×1K     | 1      | ~0.04 s   | ~25 M pairs/s |
+| 10K×10K   | 8      | ~4 s      | ~25 M pairs/s |
+
+CDR3 scoring uses `JunctionAligner.score_matrix` (C, GIL released); true
+thread parallelism scales near-linearly with core count.  V-gene lookup is
+O(1) via precomputed dictionaries.
+
+**Notebook**: `notebooks/tcrdist_analysis.ipynb` — influenza GILGFVFTL example,
+distance heatmap, UMAP, hierarchical clustering, motif logos, gap mode comparison.
