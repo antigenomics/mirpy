@@ -96,6 +96,7 @@ Real-control tests cap at 2 M rows via `MIRPY_BENCH_REAL_CONTROL_N=2000000`.
 | test_overlap_benchmark.py | 3/3 | ~75 s | Pairwise overlap timing + 41-sample matrix |
 | test_overlap_execution_benchmark.py | 2/2 | ~115 s | Serial overlap on real aging cohort |
 | test_metaclonotype_benchmark.py | 3/3 | ~2 s | Metaclonotype creation + functional diversity |
+| test_tcrdist_benchmark.py | 5/5 | ~5 s | TCRdist distance matrix + metaclonotypes (GILGFVFTL) |
 | test_tcremp_benchmark.py | 5/5 | ~75 s | TCREmp throughput + MP scaling |
 | test_tcremp_paired_benchmark.py | 1/1 | ~2 s | Paired TRA/TRB embedding speed |
 | test_tcremp_vdjdb_benchmark.py | 4/4 | ~15 s | VDJdb TRB clustering (paired + noise-only) |
@@ -611,6 +612,52 @@ All tests pass. Key measurements:
 | naive summarize_annotations (10k, k=3) | 0.738 s, 6 221 KmerSeq, peak 30 557 KiB |
 | polars 4 summaries (10k, k=3) | 0.241 s, peak 20 KiB |
 | polars fetch_by_kmer 'CAS' (1k lookups) | 1.173 s (853 ops/s) |
+
+---
+
+### test_tcrdist_benchmark.py
+
+`TcrDist` throughput measured on Apple M3, TRB, synthetic random CDR3s (uniform 10–15 aa, 5 V-genes, 4 J-genes).
+All runs use `fixed_gaps=(3,4,-4,-3)` unless noted.  Pairs/s = N² / wall_time.
+
+#### self_dist_matrix throughput (n_jobs=1)
+
+| N | Pairs | Wall time | Pairs/s | Peak RSS |
+| --- | --- | --- | --- | --- |
+| 100 | 10 000 | 0.001 s | 14.9 M/s | <1 MB |
+| 500 | 250 000 | 0.009 s | 27.5 M/s | 8 MB |
+| 1 000 | 1 000 000 | 0.036 s | 27.9 M/s | 32 MB |
+| 2 000 | 4 000 000 | 0.136 s | 29.4 M/s | 128 MB |
+| 5 000 | 25 000 000 | 0.894 s | 28.0 M/s | 800 MB |
+
+Peak RSS measured by `tracemalloc` (Python heap only; C-extension allocations excluded).
+At N=5000, the 800 MB captures both the 200 MB float64 distance matrix and the 200 MB intermediate CDR3 score matrix held simultaneously during summation.
+
+#### Parallel scaling (fixed_gap, N=1000 self-distance matrix)
+
+| n_jobs | Wall time | Pairs/s | Speedup vs n_jobs=1 |
+| --- | --- | --- | --- |
+| 1 | 0.037 s | 27.3 M/s | 1.0× |
+| 2 | 0.023 s | 44.0 M/s | 1.6× |
+| 4 | 0.017 s | 60.0 M/s | 2.2× |
+| 8 | 0.013 s | 75.9 M/s | 2.8× |
+
+Scaling is limited by the serial V-gene lookup phase (O(1) dict lookup, N² calls).
+CDR3 phase uses `JunctionAligner.score_matrix` (C, GIL released) and scales linearly.
+
+#### Gap mode comparison (N=1000×1000)
+
+| Mode | Wall time | Pairs/s | vs fixed_gap |
+| --- | --- | --- | --- |
+| `fixed_gaps=(3,4,-4,-3)` | 0.036 s | 27.9 M/s | 1× |
+| `fixed_gaps="Mid"` | 11.7 s | 85 k/s | 330× slower |
+| `fixed_gaps=None` (BioPython) | ~278 s | 36 k/s | ~780× slower |
+
+`fixed_gaps="Mid"` uses Python-level per-pair calls (no C batch path); `fixed_gaps=None` uses BioPython's Smith-Waterman DP.
+
+#### GILGFVFTL influenza metaclonotype test
+
+Tested with bundled asset (`tests/assets/gilgfvftl_trb_junctions.txt.gz`): bare CDR3 sequences from the public GILGFVFTL-specific TRB dataset.  `find_metaclonotypes` with `max_distance` derived from the 25th-percentile radius identifies a largest cluster of ≥ 2 members dominated by `TRBV19` sequences.
 
 ---
 
