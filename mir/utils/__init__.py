@@ -30,6 +30,7 @@ from .metaclonotype_clustering import (
     metaclonotypes_from_graph_communities,
     metaclonotypes_from_search_scope,
     paired_metaclonotypes_from_pair_labels,
+    paired_metaclonotypes_from_single_chain,
 )
 
 __all__ = [
@@ -59,4 +60,5 @@ __all__ = [
     "metaclonotypes_from_graph_communities",
     "metaclonotypes_from_search_scope",
     "paired_metaclonotypes_from_pair_labels",
+    "paired_metaclonotypes_from_single_chain",
 ]

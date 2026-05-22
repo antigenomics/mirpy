@@ -174,6 +174,17 @@ def metaclonotypes_from_labels(
                 "is_representative": str(cid) in reps,
             }
         )
+    if not rows:
+        return MetaClonotypeDefinition(
+            pl.DataFrame(
+                {
+                    "cluster_id": pl.Series([], dtype=pl.Utf8),
+                    "clonotype_id": pl.Series([], dtype=pl.Utf8),
+                    "is_representative": pl.Series([], dtype=pl.Boolean),
+                }
+            ),
+            paired=False,
+        )
     return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
 
 
@@ -266,6 +277,17 @@ def metaclonotypes_from_seed_neighbors(
                         "is_representative": candidate.sequence_id == seed_id,
                     }
                 )
+    if not rows:
+        return MetaClonotypeDefinition(
+            pl.DataFrame(
+                {
+                    "cluster_id": pl.Series([], dtype=pl.Utf8),
+                    "clonotype_id": pl.Series([], dtype=pl.Utf8),
+                    "is_representative": pl.Series([], dtype=pl.Boolean),
+                }
+            ),
+            paired=False,
+        )
     return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
 
 

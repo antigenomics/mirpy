@@ -202,6 +202,39 @@ A *metaclonotype* is a lightweight cluster layer over an existing
 This supports any clustering backend: DBSCAN, ALICE/TCRNET enriched clusters,
 TCRdist radius clusters, or pre-computed connected components.
 
+### Unified clustering interface
+
+`MetaclonotypeClusterConfig` + `cluster_metaclonotypes` dispatch to any
+supported backend (ALICE, TCRNET, TCRdist, edit-distance graph, TCREmp, GLIPH):
+
+```python
+from mir.biomarkers.metaclonotype_cluster import (
+    MetaclonotypeClusterConfig,
+    cluster_metaclonotypes,
+    cluster_paired_metaclonotypes,
+)
+
+# Edit-distance graph, Leiden communities
+cfg = MetaclonotypeClusterConfig(method="edit_distance", graph_algo="leiden")
+meta = cluster_metaclonotypes(rep, cfg)
+
+# TCRdist radius clusters
+cfg_dist = MetaclonotypeClusterConfig(method="tcrdist", locus="TRB", max_distance=24.5)
+meta_dist = cluster_metaclonotypes(rep, cfg_dist)
+```
+
+Paired-chain metaclonotypes via single-chain-combine (works for **all** methods):
+
+```python
+# Computes per-chain edit-distance clusters, combines IDs as "TRA_cluster.TRB_cluster"
+cfg = MetaclonotypeClusterConfig(method="edit_distance", min_cluster_size=1)
+meta_paired = cluster_paired_metaclonotypes(paired_locus_rep, cfg)
+```
+
+For TCREmp, `cluster_paired_metaclonotypes` uses the built-in `PairedTCREmp`
+joint embedding by default. See `notebooks/metaclonotype_method_compare.ipynb`
+for a comparison of methods including concordance analysis.
+
 ### Build metaclonotypes from cluster labels
 
 ```python

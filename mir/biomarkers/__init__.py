@@ -1,5 +1,10 @@
 """Biomarker detection utilities for immune repertoires."""
 
+from mir.biomarkers.metaclonotype_cluster import (
+    MetaclonotypeClusterConfig,
+    cluster_metaclonotypes,
+    cluster_paired_metaclonotypes,
+)
 from mir.biomarkers.tcrnet import (
 	TcrnetParams,
 	TcrnetResult,
@@ -42,6 +47,9 @@ from mir.comparative.vdjbet import (
 )
 
 __all__ = [
+    "MetaclonotypeClusterConfig",
+    "cluster_metaclonotypes",
+    "cluster_paired_metaclonotypes",
 	"AA_ORDER",
 	"BIOCHEMISTRY_COLORS",
 	"CHEMISTRY_COLORS",

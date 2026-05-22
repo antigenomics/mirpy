@@ -183,3 +183,11 @@ mir.biomarkers.gliph module
    :undoc-members:
    :show-inheritance:
 
+mir.biomarkers.metaclonotype_cluster module
+-------------------------------------------
+
+.. automodule:: mir.biomarkers.metaclonotype_cluster
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
