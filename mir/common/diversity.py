@@ -3,6 +3,35 @@
 Implements VDJtools-style summary indices and iNEXT-style rarefaction/coverage
 estimators from abundance tables. The rarefaction math uses NumPy/SciPy vector
 kernels for fast execution on large abundance vectors.
+
+Summary statistics follow the VDJtools convention (Shugay *et al.* 2015):
+richness (observed and Chao1), Shannon entropy, Gini-Simpson index, singleton/
+doubleton counts, and expanded/hyperexpanded clone fractions.
+
+Rarefaction and extrapolation curves implement the iNEXT framework (Chao *et al.*
+2014; Hsieh *et al.* 2016), which unifies interpolation (m ≤ n) and extrapolation
+(m > n) under a single sample-coverage estimator based on the Chao1 formula.
+
+Hill diversity profiles follow Hill (1973): the order-q family
+``D_q = (Σ p_i^q)^{1/(1-q)}`` with q=0 (richness), q→1 (exp(Shannon)),
+and q=2 (inverse Simpson) as special cases.
+
+References
+----------
+Shugay M, Bagaev DV, Turchaninova MA, Bolotin DA, Zvyagin IV, Putintseva EV,
+Pogorelyy MV, Radko SP, Lebedev YB, Chudakov DM. VDJtools: unifying
+post-analysis of T cell receptor repertoires. *PLoS Comput Biol.*
+2015;11(11):e1004503. PMID:26606115. https://pubmed.ncbi.nlm.nih.gov/26606115/
+
+Chao A. Nonparametric estimation of the number of classes in a population.
+*Scand J Stat.* 1984;11(4):265-270.
+
+Hsieh TC, Ma KH, Chao A. iNEXT: an R package for rarefaction and
+extrapolation of species diversity (Hill numbers). *Methods Ecol Evol.*
+2016;7(12):1451-1456. doi:10.1111/2041-210X.12613.
+
+Hill MO. Diversity and evenness: a unifying notation and its consequences.
+*Ecology.* 1973;54(2):427-432. doi:10.2307/1934352.
 """
 
 from __future__ import annotations
