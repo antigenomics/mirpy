@@ -13,6 +13,7 @@ import numpy as np
 
 if TYPE_CHECKING:  # pragma: no cover
     from mir.common.metaclonotype import MetaClonotypeDefinition
+    from mir.common.single_cell import PairedClonotype
 
 
 def metaclonotypes_from_cluster_labels(
@@ -201,3 +202,106 @@ def paired_metaclonotypes_from_pair_labels(
     from mir.common.metaclonotype import MetaClonotypeDefinition
 
     return MetaClonotypeDefinition(pl.DataFrame(rows), paired=True)
+
+
+def _empty_paired_df() -> "pl.DataFrame":
+    import polars as pl
+
+    return pl.DataFrame(
+        {
+            "cluster_id": pl.Series([], dtype=pl.Utf8),
+            "clonotype_id_1": pl.Series([], dtype=pl.Utf8),
+            "clonotype_id_2": pl.Series([], dtype=pl.Utf8),
+            "is_representative": pl.Series([], dtype=pl.Boolean),
+            "mock_chain_1": pl.Series([], dtype=pl.Boolean),
+            "mock_chain_2": pl.Series([], dtype=pl.Boolean),
+        }
+    )
+
+
+def paired_metaclonotypes_from_single_chain(
+    paired_clonotypes: "list[PairedClonotype]",
+    meta_chain1: "MetaClonotypeDefinition",
+    meta_chain2: "MetaClonotypeDefinition",
+    *,
+    cluster_separator: str = ".",
+    include_unassigned: bool = False,
+    unassigned_label: str = "unassigned",
+) -> "MetaClonotypeDefinition":
+    """Build paired metaclonotypes by combining independent per-chain results.
+
+    For each paired clonotype, looks up the cluster assignment for chain 1
+    (via ``clonotype1.sequence_id``) and chain 2 (via ``clonotype2.sequence_id``),
+    then combines them as ``f"{chain1_cluster}{cluster_separator}{chain2_cluster}"``.
+
+    Pairs where one or both chains lack a cluster assignment are excluded unless
+    ``include_unassigned`` is True, in which case the missing assignment is
+    replaced with ``unassigned_label``.
+
+    This enables paired-chain functional diversity analysis using any
+    single-chain method (ALICE, TCRNET, TCRdist, edit-distance graph, etc.)
+    by running each chain independently and then combining the cluster IDs.
+
+    Args:
+        paired_clonotypes: List of :class:`~mir.common.single_cell.PairedClonotype`
+            objects from a ``PairedLocusRepertoire``.
+        meta_chain1: Single-chain metaclonotypes for the first chain (must not be paired).
+        meta_chain2: Single-chain metaclonotypes for the second chain (must not be paired).
+        cluster_separator: String inserted between chain 1 and chain 2 cluster IDs.
+        include_unassigned: Include pairs where one or both chains have no cluster.
+        unassigned_label: Placeholder used when ``include_unassigned`` is True.
+
+    Returns:
+        Paired :class:`~mir.common.metaclonotype.MetaClonotypeDefinition` with
+        combined cluster IDs of the form ``"<chain1_id><sep><chain2_id>"``.
+    """
+    import polars as pl
+    from mir.common.metaclonotype import MetaClonotypeDefinition
+
+    if meta_chain1.paired or meta_chain2.paired:
+        raise ValueError("meta_chain1 and meta_chain2 must be single-chain (paired=False)")
+
+    # clonotype_id → cluster_id lookup for each chain
+    chain1_lookup: dict[str, str] = {
+        row["clonotype_id"]: row["cluster_id"]
+        for row in meta_chain1.table.iter_rows(named=True)
+    }
+    chain2_lookup: dict[str, str] = {
+        row["clonotype_id"]: row["cluster_id"]
+        for row in meta_chain2.table.iter_rows(named=True)
+    }
+
+    rows: list[dict[str, object]] = []
+    for pair in paired_clonotypes:
+        cid1 = str(pair.clonotype1.sequence_id)
+        cid2 = str(pair.clonotype2.sequence_id)
+        cluster1 = chain1_lookup.get(cid1)
+        cluster2 = chain2_lookup.get(cid2)
+
+        if cluster1 is None or cluster2 is None:
+            if not include_unassigned:
+                continue
+            cluster1 = cluster1 or unassigned_label
+            cluster2 = cluster2 or unassigned_label
+
+        rows.append(
+            {
+                "cluster_id": f"{cluster1}{cluster_separator}{cluster2}",
+                "clonotype_id_1": cid1,
+                "clonotype_id_2": cid2,
+                "is_representative": False,
+                "mock_chain_1": False,
+                "mock_chain_2": False,
+            }
+        )
+
+    # First occurrence per cluster becomes the representative.
+    seen: set[str] = set()
+    for row in rows:
+        cid = str(row["cluster_id"])
+        if cid not in seen:
+            seen.add(cid)
+            row["is_representative"] = True
+
+    df = pl.DataFrame(rows) if rows else _empty_paired_df()
+    return MetaClonotypeDefinition(df, paired=True)

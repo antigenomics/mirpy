@@ -322,6 +322,88 @@ Mutual-information-style summary:
   `pooled_entropy_difference` to compute
   `H(A pooled with B) - H(A) - H(B)`.
 
+### Unified metaclonotype clustering interface
+
+`mir.biomarkers.metaclonotype_cluster` provides a single entry-point that
+dispatches to any supported backend via `MetaclonotypeClusterConfig`.
+
+```python
+from mir.biomarkers.metaclonotype_cluster import (
+    MetaclonotypeClusterConfig,
+    cluster_metaclonotypes,
+    cluster_paired_metaclonotypes,
+)
+
+# Edit-distance graph with Leiden communities
+cfg = MetaclonotypeClusterConfig(
+    method="edit_distance",
+    metric="hamming",
+    threshold=1,
+    graph_algo="leiden",
+    min_cluster_size=2,
+)
+meta = cluster_metaclonotypes(rep, cfg)
+func_div = functional_diversity(rep, meta)
+
+# TCRdist radius clusters
+cfg_dist = MetaclonotypeClusterConfig(method="tcrdist", locus="TRB", max_distance=24.5)
+meta_dist = cluster_metaclonotypes(rep, cfg_dist)
+
+# ALICE (requires add_alice_metadata to be run first)
+from mir.biomarkers.alice import add_alice_metadata
+rep = add_alice_metadata(rep, species="human")
+cfg_alice = MetaclonotypeClusterConfig(method="alice", q_value_max=0.05)
+meta_alice = cluster_metaclonotypes(rep, cfg_alice)
+
+# TCREmp embedding + DBSCAN
+cfg_tcremp = MetaclonotypeClusterConfig(
+    method="tcremp", locus="TRB", n_prototypes=300,
+    embed_cluster_algo="dbscan", dbscan_eps=0.5, dbscan_min_samples=3,
+)
+meta_tcremp = cluster_metaclonotypes(rep, cfg_tcremp)
+```
+
+Supported `method` values: `"alice"`, `"tcrnet"`, `"tcrdist"`,
+`"edit_distance"`, `"tcremp"`, `"gliph"`.
+
+Embedding-space clustering (`embed_cluster_algo`): `"dbscan"` or `"optics"`.
+
+Graph community detection (`graph_algo`): `"components"`, `"leiden"`,
+`"louvain"`.
+
+### Paired-chain metaclonotypes from single-chain results
+
+Any single-chain method can be extended to paired TRA/TRB data by computing
+metaclonotypes per-chain and combining IDs:
+
+```python
+from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
+
+# Given: meta_tra (single-chain for TRA), meta_trb (single-chain for TRB),
+# and paired_locus_rep (PairedLocusRepertoire with TRA/TRB pairs)
+meta_paired = paired_metaclonotypes_from_single_chain(
+    paired_locus_rep.paired_clonotypes,
+    meta_tra,
+    meta_trb,
+    cluster_separator=".",  # cluster ID = "<TRA_cluster>.<TRB_cluster>"
+    include_unassigned=False,
+)
+```
+
+Or use the unified interface which handles per-chain dispatch automatically:
+
+```python
+cfg = MetaclonotypeClusterConfig(method="edit_distance", min_cluster_size=1)
+meta_paired = cluster_paired_metaclonotypes(paired_locus_rep, cfg)
+```
+
+For TCREmp, `cluster_paired_metaclonotypes` uses the **native paired embedding**
+(`PairedTCREmp`) by default. To force single-chain-combined behaviour, provide
+explicit `config_chain1` / `config_chain2` overrides.
+
+Comparison between TCREmp-native paired and single-chain-combined approaches:
+see `notebooks/metaclonotype_method_compare.ipynb`.
+
 ## 11. Diversity Metrics, Hill Curves, And Rarefaction
 
 Prefer function-first diversity APIs from `mir.common.diversity`.
