@@ -20,3 +20,11 @@ mir.distances.seqdist module
    :undoc-members:
    :show-inheritance:
 
+mir.distances.tcrdist module
+----------------------------
+
+.. automodule:: mir.distances.tcrdist
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
