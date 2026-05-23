@@ -40,6 +40,13 @@ def metaclonotypes_from_cluster_labels(
     )
 
 
+def _resolve_weights(graph, weights: str | None) -> str | None:
+    """Return None if weights attr is missing; avoids igraph InternalError."""
+    if weights is None:
+        return None
+    return weights if weights in graph.es.attributes() else None
+
+
 def _membership_for_method(
     graph,
     *,
@@ -54,16 +61,17 @@ def _membership_for_method(
             for vertex in vertices:
                 membership[vertex] = component_id
         return membership.tolist()
+    w = _resolve_weights(graph, weights)
     if method == "leiden":
         return list(
             graph.community_leiden(
-                weights=weights,
+                weights=w,
                 objective_function=leiden_objective_function,
                 n_iterations=leiden_n_iterations,
             ).membership
         )
     if method == "louvain":
-        return list(graph.community_multilevel(weights=weights).membership)
+        return list(graph.community_multilevel(weights=w).membership)
     raise ValueError("method must be one of: components, leiden, louvain")
 
 
