@@ -2,7 +2,7 @@
 
 This module centralizes conversion of clustering outputs (labels, graph
 components, Leiden/Louvain communities, search neighborhoods) into
-``MetaClonotypeDefinition`` objects.
+``MetaClonotypeClustering`` objects.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Callable, Iterable
 import numpy as np
 
 if TYPE_CHECKING:  # pragma: no cover
-    from mir.common.metaclonotype import MetaClonotypeDefinition
+    from mir.common.metaclonotype import MetaClonotypeClustering
     from mir.common.single_cell import PairedClonotype
 
 
@@ -23,7 +23,7 @@ def metaclonotypes_from_cluster_labels(
     include_noise: bool = False,
     noise_labels: set[int | str] | None = None,
     representatives: set[str] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Convert arbitrary cluster labels to a metaclonotype definition."""
     from mir.common.metaclonotype import metaclonotypes_from_labels
 
@@ -78,7 +78,7 @@ def metaclonotypes_from_graph_communities(
     leiden_n_iterations: int = 5,
     include_unclustered: bool = False,
     unclustered_label: int | str = -1,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Convert graph components/communities to metaclonotypes.
 
     Args:
@@ -121,14 +121,14 @@ def metaclonotypes_from_search_scope(
     *,
     neighbor_selector: Callable[[str], Iterable[str]],
     cluster_prefix: str = "mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build metaclonotypes from representative-centered search neighborhoods.
 
     The ``neighbor_selector`` callback can be backed by tcrtrie search scopes,
     edit-distance scopes, or continuous-radius score thresholds.
     """
     import polars as pl
-    from mir.common.metaclonotype import MetaClonotypeDefinition
+    from mir.common.metaclonotype import MetaClonotypeClustering
 
     rows: list[dict[str, object]] = []
     for i, rep_id in enumerate(representative_ids):
@@ -148,7 +148,7 @@ def metaclonotypes_from_search_scope(
                 }
             )
 
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
 
 def paired_metaclonotypes_from_pair_labels(
@@ -161,7 +161,7 @@ def paired_metaclonotypes_from_pair_labels(
     mock_chain_2_by_pair: dict[str, bool] | None = None,
     include_noise: bool = False,
     noise_labels: set[int | str] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Convert paired-clonotype labels (e.g. paired TCREmp DBSCAN) to metaclonotypes."""
     if isinstance(labels, np.ndarray):
         label_list = labels.tolist()
@@ -199,9 +199,9 @@ def paired_metaclonotypes_from_pair_labels(
         rows[idx]["is_representative"] = True
 
     import polars as pl
-    from mir.common.metaclonotype import MetaClonotypeDefinition
+    from mir.common.metaclonotype import MetaClonotypeClustering
 
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=True)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=True)
 
 
 def _empty_paired_df() -> "pl.DataFrame":
@@ -221,13 +221,13 @@ def _empty_paired_df() -> "pl.DataFrame":
 
 def paired_metaclonotypes_from_single_chain(
     paired_clonotypes: "list[PairedClonotype]",
-    meta_chain1: "MetaClonotypeDefinition",
-    meta_chain2: "MetaClonotypeDefinition",
+    meta_chain1: "MetaClonotypeClustering",
+    meta_chain2: "MetaClonotypeClustering",
     *,
     cluster_separator: str = ".",
     include_unassigned: bool = False,
     unassigned_label: str = "unassigned",
-) -> "MetaClonotypeDefinition":
+) -> "MetaClonotypeClustering":
     """Build paired metaclonotypes by combining independent per-chain results.
 
     For each paired clonotype, looks up the cluster assignment for chain 1
@@ -252,11 +252,11 @@ def paired_metaclonotypes_from_single_chain(
         unassigned_label: Placeholder used when ``include_unassigned`` is True.
 
     Returns:
-        Paired :class:`~mir.common.metaclonotype.MetaClonotypeDefinition` with
+        Paired :class:`~mir.common.metaclonotype.MetaClonotypeClustering` with
         combined cluster IDs of the form ``"<chain1_id><sep><chain2_id>"``.
     """
     import polars as pl
-    from mir.common.metaclonotype import MetaClonotypeDefinition
+    from mir.common.metaclonotype import MetaClonotypeClustering
 
     if meta_chain1.paired or meta_chain2.paired:
         raise ValueError("meta_chain1 and meta_chain2 must be single-chain (paired=False)")
@@ -304,4 +304,4 @@ def paired_metaclonotypes_from_single_chain(
             row["is_representative"] = True
 
     df = pl.DataFrame(rows) if rows else _empty_paired_df()
-    return MetaClonotypeDefinition(df, paired=True)
+    return MetaClonotypeClustering(df, paired=True)

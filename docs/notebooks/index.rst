@@ -34,6 +34,7 @@ Graph And Sequence Analysis
    edit_distance_graph
    vdjdb_junction_graph
    metaclonotype_examples
+   metaclonotype_method_compare
 
 **gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
 
@@ -44,6 +45,8 @@ Graph And Sequence Analysis
 **vdjdb_junction_graph** — Analyse multi-epitope junction Hamming graphs from VDJdb.
 
 **metaclonotype_examples** — Build, attach, summarize, and analyze metaclonotypes for functional diversity workflows.
+
+**metaclonotype_method_compare** — Compare ALICE, TCRnet, TCRdist, edit-distance, TCREmp, and GLIPH metaclonotype clustering methods; benchmark paired-chain combined vs native TCREmp; concordance via ARI.
 
 Biomarker Detection
 -------------------
@@ -81,8 +84,11 @@ Aging And Cohort Overlap
    :maxdepth: 1
 
    aging_analysis
+   aging_analysis_functional
 
 **aging_analysis** — Donor-vs-pool overlap trends across aging, using the shared-worker many-vs-pool overlap path for faster repeated scoring.
+
+**aging_analysis_functional** — Compare clonotypic and functional diversity, rarefaction, and F overlap for the AIRR benchmark aging cohort. Metaclonotypes built via 1-mismatch Hamming edit graph + Louvain clustering.
 
 Pgen And Selection Analysis
 ---------------------------

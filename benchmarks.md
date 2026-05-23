@@ -409,7 +409,7 @@ Synthetic TRB repertoires; average cluster size 5; scales 1 K, 5 K, 10 K, 50 K c
 
 #### TestFunctionalDiversityEndToEndBenchmark — `functional_diversity()`
 
-End-to-end: `LocusRepertoire` → `MetaClonotypeDefinition` → `DiversitySummary`.
+End-to-end: `LocusRepertoire` → `MetaClonotypeClustering` → `DiversitySummary`.
 
 | n | n_clusters | elapsed (ms) | rss (MB) | Shannon H | Chao1 |
 | --- | --- | --- | --- | --- | --- |

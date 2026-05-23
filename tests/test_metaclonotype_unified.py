@@ -14,7 +14,7 @@ from mir.biomarkers.metaclonotype_cluster import (
     cluster_paired_metaclonotypes,
 )
 from mir.common.clonotype import Clonotype
-from mir.common.metaclonotype import MetaClonotypeDefinition, metaclonotypes_from_labels
+from mir.common.metaclonotype import MetaClonotypeClustering, metaclonotypes_from_labels
 from mir.common.repertoire import LocusRepertoire
 from mir.common.single_cell import PairedClonotype, PairedLocusRepertoire
 
@@ -91,7 +91,7 @@ def _toy_paired_rep() -> PairedLocusRepertoire:
     )
 
 
-def _make_meta(ids: list[str], labels: list[int]) -> MetaClonotypeDefinition:
+def _make_meta(ids: list[str], labels: list[int]) -> MetaClonotypeClustering:
     return metaclonotypes_from_labels(ids, labels)
 
 
@@ -140,7 +140,7 @@ def test_cluster_alice_uses_metadata() -> None:
     rep = _annotated_rep("alice")
     cfg = MetaclonotypeClusterConfig(method="alice", q_value_max=0.05)
     meta = cluster_metaclonotypes(rep, cfg)
-    assert isinstance(meta, MetaClonotypeDefinition)
+    assert isinstance(meta, MetaClonotypeClustering)
     assert not meta.paired
     # c1 and c2 are significant seeds; c3/c4 are Hamming-1 neighbors
     assert meta.n_clusters >= 1
@@ -150,7 +150,7 @@ def test_cluster_tcrnet_uses_metadata() -> None:
     rep = _annotated_rep("tcrnet")
     cfg = MetaclonotypeClusterConfig(method="tcrnet", q_value_max=0.05)
     meta = cluster_metaclonotypes(rep, cfg)
-    assert isinstance(meta, MetaClonotypeDefinition)
+    assert isinstance(meta, MetaClonotypeClustering)
     assert not meta.paired
 
 
@@ -179,7 +179,7 @@ def test_cluster_edit_distance_components() -> None:
         min_cluster_size=1,
     )
     meta = cluster_metaclonotypes(rep, cfg)
-    assert isinstance(meta, MetaClonotypeDefinition)
+    assert isinstance(meta, MetaClonotypeClustering)
     assert not meta.paired
     assert meta.n_clusters >= 1
 
@@ -246,7 +246,7 @@ def test_cluster_tcremp_single_dispatches() -> None:
         instance.embed.return_value = fake_X
         result = cluster_metaclonotypes(rep, cfg)
 
-    assert isinstance(result, MetaClonotypeDefinition)
+    assert isinstance(result, MetaClonotypeClustering)
     assert not result.paired
 
 

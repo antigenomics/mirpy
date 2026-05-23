@@ -115,7 +115,7 @@ from mir.basic.gene_usage import get_gene_usage_from_olga_model
 from mir.basic.pgen import OlgaModel
 from mir.common.clonotype import Clonotype
 from mir.common.metaclonotype import (
-    MetaClonotypeDefinition,
+    MetaClonotypeClustering,
     metaclonotypes_from_seed_neighbors,
 )
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -844,7 +844,7 @@ def metaclonotypes_from_alice(
     metric: t.Literal["hamming", "levenshtein"] = "hamming",
     threshold: int = 1,
     match_mode: MatchMode = "vj",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build metaclonotypes around ALICE-significant clonotypes.
 
     One cluster is created per significant clonotype (representative), and

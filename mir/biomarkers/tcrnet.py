@@ -129,7 +129,7 @@ from mir.common.clonotype import Clonotype
 from mir.common.alleles import allele_to_major
 from mir.common.control import ControlManager
 from mir.common.metaclonotype import (
-    MetaClonotypeDefinition,
+    MetaClonotypeClustering,
     metaclonotypes_from_seed_neighbors,
 )
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
@@ -679,7 +679,7 @@ def metaclonotypes_from_tcrnet(
     metric: t.Literal["hamming", "levenshtein"] = "hamming",
     threshold: int = 1,
     match_mode: MatchMode = "vj",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build metaclonotypes around TCRNET-significant clonotypes.
 
     One cluster is created per significant clonotype (representative), and

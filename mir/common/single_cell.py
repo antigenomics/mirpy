@@ -223,10 +223,10 @@ class PairedRepertoire:
 
     def set_metaclonotypes(self, metaclonotypes) -> None:
         """Attach paired metaclonotype definition to this paired repertoire."""
-        from mir.common.metaclonotype import MetaClonotypeDefinition
+        from mir.common.metaclonotype import MetaClonotypeClustering
 
-        if not isinstance(metaclonotypes, MetaClonotypeDefinition):
-            raise TypeError("metaclonotypes must be MetaClonotypeDefinition")
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
         if not metaclonotypes.paired:
             raise ValueError("PairedRepertoire expects paired metaclonotypes")
         self._metaclonotypes = metaclonotypes

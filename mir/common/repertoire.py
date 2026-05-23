@@ -118,10 +118,10 @@ class LocusRepertoire:
 
     def set_metaclonotypes(self, metaclonotypes) -> None:
         """Attach a single-chain metaclonotype definition to this repertoire."""
-        from mir.common.metaclonotype import MetaClonotypeDefinition
+        from mir.common.metaclonotype import MetaClonotypeClustering
 
-        if not isinstance(metaclonotypes, MetaClonotypeDefinition):
-            raise TypeError("metaclonotypes must be MetaClonotypeDefinition")
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
         if metaclonotypes.paired:
             raise ValueError("LocusRepertoire accepts only single-chain metaclonotypes")
         self._metaclonotypes = metaclonotypes
@@ -885,12 +885,12 @@ class SampleRepertoire:
 
     def set_metaclonotypes(self, locus: str, metaclonotypes) -> None:
         """Attach single-chain metaclonotypes to one locus."""
-        from mir.common.metaclonotype import MetaClonotypeDefinition
+        from mir.common.metaclonotype import MetaClonotypeClustering
 
         if locus not in self.loci:
             raise KeyError(f"Unknown locus {locus!r}")
-        if not isinstance(metaclonotypes, MetaClonotypeDefinition):
-            raise TypeError("metaclonotypes must be MetaClonotypeDefinition")
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
         if metaclonotypes.paired:
             raise ValueError("SampleRepertoire locus attachments must be single-chain")
         self._metaclonotypes_by_locus[locus] = metaclonotypes

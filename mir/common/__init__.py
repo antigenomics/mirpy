@@ -45,7 +45,7 @@ from .diversity import (
 	summaries_to_polars,
 )
 from .metaclonotype import (
-	MetaClonotypeDefinition,
+	MetaClonotypeClustering,
 	default_clonotype_identity,
 	functional_diversity,
 	functional_hill_curve,
@@ -119,7 +119,7 @@ __all__ = [
 	'summarize_loci_clonotypes',
 	'summarize_counts',
 	'summaries_to_polars',
-	'MetaClonotypeDefinition',
+	'MetaClonotypeClustering',
 	'default_clonotype_identity',
 	'functional_diversity',
 	'functional_hill_curve',

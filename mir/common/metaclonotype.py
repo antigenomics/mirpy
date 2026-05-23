@@ -93,7 +93,7 @@ def _ensure_bool_col(df: pl.DataFrame, col: str, default: bool = False) -> pl.Da
 
 
 @dataclass(frozen=True)
-class MetaClonotypeDefinition:
+class MetaClonotypeClustering:
     """Cluster membership table for single-chain or paired clonotypes.
 
     Args:
@@ -148,7 +148,7 @@ def metaclonotypes_from_labels(
     include_noise: bool = False,
     noise_labels: set[int | str] | None = None,
     representatives: set[str] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build single-chain metaclonotypes from per-clonotype labels.
 
     Args:
@@ -175,7 +175,7 @@ def metaclonotypes_from_labels(
             }
         )
     if not rows:
-        return MetaClonotypeDefinition(
+        return MetaClonotypeClustering(
             pl.DataFrame(
                 {
                     "cluster_id": pl.Series([], dtype=pl.Utf8),
@@ -185,14 +185,14 @@ def metaclonotypes_from_labels(
             ),
             paired=False,
         )
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
 
 def metaclonotypes_from_components(
     components: list[list[str]],
     *,
     cluster_prefix: str = "mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build single-chain metaclonotypes from connected components.
 
     The first member of each component is marked as representative.
@@ -208,7 +208,7 @@ def metaclonotypes_from_components(
                     "is_representative": j == 0,
                 }
             )
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
 
 def metaclonotypes_from_igraph(
@@ -217,7 +217,7 @@ def metaclonotypes_from_igraph(
     membership: list[int] | None = None,
     vertex_id_attr: str = "r_id",
     cluster_prefix: str = "mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build single-chain metaclonotypes from an igraph graph.
 
     If ``membership`` is omitted, connected components are used.
@@ -247,7 +247,7 @@ def metaclonotypes_from_seed_neighbors(
     match_v_gene: bool = True,
     match_j_gene: bool = True,
     cluster_prefix: str = "mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build one metaclonotype per seed clonotype using edit-distance neighbors."""
     if metric not in {"hamming", "levenshtein"}:
         raise ValueError("metric must be 'hamming' or 'levenshtein'")
@@ -278,7 +278,7 @@ def metaclonotypes_from_seed_neighbors(
                     }
                 )
     if not rows:
-        return MetaClonotypeDefinition(
+        return MetaClonotypeClustering(
             pl.DataFrame(
                 {
                     "cluster_id": pl.Series([], dtype=pl.Utf8),
@@ -288,7 +288,7 @@ def metaclonotypes_from_seed_neighbors(
             ),
             paired=False,
         )
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
 
 def metaclonotypes_from_search_scope(
@@ -296,7 +296,7 @@ def metaclonotypes_from_search_scope(
     *,
     neighbor_selector: Callable[[str], Iterable[str]],
     cluster_prefix: str = "scope_mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build representative-centered metaclonotypes from a custom search scope.
 
     This is suitable for tcrtrie-backed scope search (substitutions/indels/
@@ -321,7 +321,7 @@ def metaclonotypes_from_radius_threshold(
     match_v_gene: bool = False,
     match_j_gene: bool = False,
     cluster_prefix: str = "radius_mc",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build metaclonotypes via a continuous-radius score threshold.
 
     This helper targets TCRdist-like workflows where clonotypes join a
@@ -351,12 +351,12 @@ def metaclonotypes_from_radius_threshold(
                         "is_representative": candidate.sequence_id == rep_id,
                     }
                 )
-    return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+    return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
 
 def summarize_metaclonotypes(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
 ) -> pl.DataFrame:
     """Aggregate duplicate/UMI counts per metaclonotype for single-chain data."""
     if metaclonotypes.paired:
@@ -410,7 +410,7 @@ def summarize_metaclonotypes(
 
 def metaclonotype_count_vector(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     count_field: CountField = "duplicate_count",
 ) -> list[int]:
@@ -423,7 +423,7 @@ def metaclonotype_count_vector(
 
 def functional_diversity(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     count_field: CountField = "duplicate_count",
     expanded_threshold: float = 1e-3,
@@ -444,7 +444,7 @@ def functional_diversity(
 
 def functional_hill_curve(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     count_field: CountField = "duplicate_count",
     q_values: list[float] | None = None,
@@ -460,7 +460,7 @@ def functional_hill_curve(
 
 def functional_rarefaction_curve(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     count_field: CountField = "duplicate_count",
     m_steps: list[int] | None = None,
@@ -483,7 +483,7 @@ def functional_rarefaction_curve(
 
 def metaclonotype_junctions(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     cluster_id: str,
     representatives_only: bool = False,
@@ -513,7 +513,7 @@ def default_clonotype_identity(clonotype: Clonotype) -> tuple[str, str, str]:
 
 def _cluster_identity_sets(
     repertoire: LocusRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     identity_fn: Callable[[Clonotype], object],
 ) -> dict[str, set[object]]:
     by_id = {c.sequence_id: c for c in repertoire.clonotypes}
@@ -530,9 +530,9 @@ def _cluster_identity_sets(
 
 def functional_overlap_1(
     repertoire_a: LocusRepertoire,
-    metaclonotypes_a: MetaClonotypeDefinition,
+    metaclonotypes_a: MetaClonotypeClustering,
     repertoire_b: LocusRepertoire,
-    metaclonotypes_b: MetaClonotypeDefinition,
+    metaclonotypes_b: MetaClonotypeClustering,
     *,
     identity_fn: Callable[[Clonotype], object] = default_clonotype_identity,
 ) -> pl.DataFrame:
@@ -609,7 +609,7 @@ def pooled_entropy_difference(
 
 def summarize_paired_metaclonotypes(
     paired_repertoire: PairedRepertoire,
-    metaclonotypes: MetaClonotypeDefinition,
+    metaclonotypes: MetaClonotypeClustering,
     *,
     count_field: CountField = "duplicate_count",
 ) -> pl.DataFrame:

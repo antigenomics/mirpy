@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 
 from mir.common.clonotype import Clonotype
 from mir.common.metaclonotype import (
-    MetaClonotypeDefinition,
+    MetaClonotypeClustering,
     summarize_metaclonotypes,
 )
 from mir.common.repertoire import LocusRepertoire
@@ -314,7 +314,7 @@ def test_influenza_metaclonotypes(td, gilgfvftl_clonotypes, gilgfvftl_rep):
     )
     print(f"  Metaclonotypes (d<={max_dist:.1f}): {meta.n_clusters} clusters, {time.perf_counter()-t0:.3f}s")
 
-    assert isinstance(meta, MetaClonotypeDefinition)
+    assert isinstance(meta, MetaClonotypeClustering)
     assert meta.n_clusters > 0
 
     # Step 4: summarise
