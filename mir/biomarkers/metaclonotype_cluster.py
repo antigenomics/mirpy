@@ -118,8 +118,8 @@ class MetaclonotypeClusterConfig:
     match_mode: str = "vj"
     metadata_prefix: str | None = None
 
-    # TCRdist
-    max_distance: float = 24.5
+    # TCRdist — raw score scale (mirpy TcrDist: ~900 min, ~4000 median for random TRB)
+    max_distance: float = 1200.0
     match_v_gene: bool = False
     match_j_gene: bool = False
 
