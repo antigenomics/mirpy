@@ -18,7 +18,7 @@ _MP_CTX = multiprocessing.get_context("spawn")
 import igraph as ig
 from tcrtrie import Trie
 
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.clonotype import Clonotype
 from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
 from mir.utils.metaclonotype_clustering import metaclonotypes_from_graph_communities
@@ -220,7 +220,7 @@ def metaclonotypes_from_edit_distance_graph(
     *,
     method: str = "components",
     min_cluster_size: int = 1,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Convert edit-distance graph communities/components into metaclonotypes.
 
     Args:

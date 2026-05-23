@@ -229,7 +229,7 @@ adding cluster-level analytics.
 Core structures
 ~~~~~~~~~~~~~~~
 
-* ``MetaClonotypeDefinition`` stores single-chain or paired cluster membership.
+* ``MetaClonotypeClustering`` stores single-chain or paired cluster membership.
 * ``LocusRepertoire.set_metaclonotypes(...)`` and paired-repertoire attachment
    methods keep clustering alongside existing repertoire objects.
 
@@ -263,6 +263,59 @@ Point-by-point clustering entry points
 
    * ``mir.graph.metaclonotypes_from_token_clonotype_graph``
    * ``mir.graph.build_gliph_metaclonotypes``
+
+Unified clustering interface
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``mir.biomarkers.metaclonotype_cluster`` provides a single config-driven entry
+point for all six clustering methods and supports paired-chain analysis.
+
+.. code-block:: python
+
+   from mir.biomarkers.metaclonotype_cluster import (
+       MetaclonotypeClusterConfig,
+       cluster_metaclonotypes,
+       cluster_paired_metaclonotypes,
+   )
+
+   cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus="TRB",
+       max_distance=1,
+       graph_algo="louvain",
+       min_cluster_size=2,
+   )
+   meta = cluster_metaclonotypes(repertoire, cfg)
+
+   # Paired analysis: per-chain clusters combined as "chain1_id.chain2_id"
+   paired_cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus_pair="TRA_TRB",
+       max_distance=1,
+       graph_algo="components",
+   )
+   paired_meta = cluster_paired_metaclonotypes(paired_locus_repertoire, paired_cfg)
+
+Paired-from-single combining
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Any single-chain metaclonotype results can be combined into paired-chain
+clusters using ``paired_metaclonotypes_from_single_chain``:
+
+.. code-block:: python
+
+   from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
+
+   paired_meta = paired_metaclonotypes_from_single_chain(
+       paired_clonotypes,
+       meta_chain1=meta_tra,
+       meta_chain2=meta_trb,
+       cluster_separator=".",
+   )
+
+Each combined cluster ID has the form ``"<chain1_cluster>.<chain2_cluster>"``.
+Pairs where one or both chains are unassigned are excluded by default; pass
+``include_unassigned=True`` to keep them with a placeholder label.
 
 Downstream metaclonotype analytics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

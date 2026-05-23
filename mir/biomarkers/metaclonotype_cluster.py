@@ -44,7 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.repertoire import LocusRepertoire
 from mir.common.single_cell import PairedLocusRepertoire
 
@@ -159,7 +159,7 @@ class MetaclonotypeClusterConfig:
 
 def _cluster_alice(
     rep: LocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.biomarkers.alice import metaclonotypes_from_alice
 
     return metaclonotypes_from_alice(
@@ -174,7 +174,7 @@ def _cluster_alice(
 
 def _cluster_tcrnet(
     rep: LocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.biomarkers.tcrnet import metaclonotypes_from_tcrnet
 
     return metaclonotypes_from_tcrnet(
@@ -189,7 +189,7 @@ def _cluster_tcrnet(
 
 def _cluster_tcrdist(
     rep: LocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.distances.tcrdist import TcrDist
 
     tcrdist = TcrDist.from_defaults(cfg.locus, cfg.species)
@@ -205,7 +205,7 @@ def _cluster_tcrdist(
 
 def _cluster_edit_distance(
     rep: LocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.graph.edit_distance_graph import (
         build_edit_distance_graph,
         metaclonotypes_from_edit_distance_graph,
@@ -228,7 +228,7 @@ def _apply_embed_clustering(
     X: "np.ndarray",  # noqa: F821
     clonotype_ids: list[str],
     cfg: MetaclonotypeClusterConfig,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     import numpy as np
     from sklearn.cluster import DBSCAN, OPTICS
     from sklearn.preprocessing import normalize as l2normalize
@@ -258,7 +258,7 @@ def _apply_embed_clustering(
 
 def _cluster_tcremp_single(
     rep: LocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.embedding.tcremp import TCREmp
 
     model = TCREmp.from_defaults(cfg.species, cfg.locus, n_prototypes=cfg.n_prototypes)
@@ -270,7 +270,7 @@ def _cluster_tcremp_single(
 
 def _cluster_tcremp_paired(
     paired_rep: PairedLocusRepertoire, cfg: MetaclonotypeClusterConfig
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.embedding.tcremp import PairedTCREmp, paired_metaclonotypes_from_tcremp_labels
 
     model = PairedTCREmp.from_defaults(cfg.species, cfg.locus_pair, n_prototypes=cfg.n_prototypes)
@@ -306,7 +306,7 @@ def _cluster_gliph(
     rep: LocusRepertoire,
     cfg: MetaclonotypeClusterConfig,
     extra: dict[str, Any],
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     from mir.graph.token_graph import build_gliph_metaclonotypes
 
     study_df = extra.get("study_df")
@@ -332,7 +332,7 @@ def cluster_metaclonotypes(
     config: MetaclonotypeClusterConfig,
     *,
     extra: dict[str, Any] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Cluster a single-chain repertoire using the specified method.
 
     Dispatches to the appropriate backend based on ``config.method``:
@@ -356,7 +356,7 @@ def cluster_metaclonotypes(
         extra: Method-specific extra data.  Currently used only for GLIPH.
 
     Returns:
-        :class:`~mir.common.metaclonotype.MetaClonotypeDefinition` with
+        :class:`~mir.common.metaclonotype.MetaClonotypeClustering` with
         single-chain membership table.
     """
     _extra = extra or {}
@@ -386,7 +386,7 @@ def cluster_paired_metaclonotypes(
     include_unassigned: bool = False,
     extra_chain1: dict[str, Any] | None = None,
     extra_chain2: dict[str, Any] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Cluster paired clonotypes using per-chain single-chain methods.
 
     For TCREmp, this function can optionally use the built-in paired
@@ -411,7 +411,7 @@ def cluster_paired_metaclonotypes(
         extra_chain2: Extra data forwarded to chain 2 clusterer.
 
     Returns:
-        Paired :class:`~mir.common.metaclonotype.MetaClonotypeDefinition`.
+        Paired :class:`~mir.common.metaclonotype.MetaClonotypeClustering`.
     """
     from mir.common.single_cell import LOCUS_PAIR_TO_LOCI
     from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain

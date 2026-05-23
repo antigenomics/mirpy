@@ -5,7 +5,7 @@ import pytest
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.repertoire import LocusRepertoire
 from mir.distances.aligner import GermlineAligner
 from mir.distances.tcrdist import TcrDist, _MidGapScorer
@@ -352,7 +352,7 @@ class TestFindMetaclonotypes:
         meta = td.find_metaclonotypes(
             small_repertoire, max_distance=500.0
         )
-        assert isinstance(meta, MetaClonotypeDefinition)
+        assert isinstance(meta, MetaClonotypeClustering)
 
     def test_tight_radius_only_self(self, td, small_repertoire):
         # At distance 0, each cluster should contain only its representative

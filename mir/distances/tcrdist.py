@@ -53,7 +53,7 @@ from Bio.Align import substitution_matrices
 
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.repertoire import LocusRepertoire
 from mir.distances.aligner import (
     BioAlignerWrapper,
@@ -462,7 +462,7 @@ class TcrDist:
         match_j_gene: bool = False,
         cluster_prefix: str = "tcrdist_mc",
         n_jobs: int = 1,
-    ) -> MetaClonotypeDefinition:
+    ) -> MetaClonotypeClustering:
         """Find metaclonotypes via TCRdist radius-threshold clustering.
 
         Each representative clonotype seeds a cluster containing all
@@ -487,7 +487,7 @@ class TcrDist:
             n_jobs: Number of threads for distance computation.
 
         Returns:
-            :class:`~mir.common.metaclonotype.MetaClonotypeDefinition` with
+            :class:`~mir.common.metaclonotype.MetaClonotypeClustering` with
             one cluster per representative.
         """
         clonotypes = repertoire.clonotypes
@@ -505,7 +505,7 @@ class TcrDist:
             )
 
         if not reps:
-            return MetaClonotypeDefinition(
+            return MetaClonotypeClustering(
                 pl.DataFrame({
                     "cluster_id": pl.Series([], dtype=pl.Utf8),
                     "clonotype_id": pl.Series([], dtype=pl.Utf8),
@@ -543,7 +543,7 @@ class TcrDist:
                     })
 
         if not rows:
-            return MetaClonotypeDefinition(
+            return MetaClonotypeClustering(
                 pl.DataFrame({
                     "cluster_id": pl.Series([], dtype=pl.Utf8),
                     "clonotype_id": pl.Series([], dtype=pl.Utf8),
@@ -551,7 +551,7 @@ class TcrDist:
                 }),
                 paired=False,
             )
-        return MetaClonotypeDefinition(pl.DataFrame(rows), paired=False)
+        return MetaClonotypeClustering(pl.DataFrame(rows), paired=False)
 
     # ──────────────────────────────────────────────────────────────────
     # Private helpers

@@ -42,7 +42,7 @@ import pytest
 from mir.common.clonotype import Clonotype
 from mir.common.diversity import hill_curve, rarefaction_curve, summarize_counts
 from mir.common.metaclonotype import (
-    MetaClonotypeDefinition,
+    MetaClonotypeClustering,
     functional_diversity,
     metaclonotypes_from_components,
     metaclonotypes_from_labels,

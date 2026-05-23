@@ -7,7 +7,7 @@ from mir.biomarkers.alice import metaclonotypes_from_alice
 from mir.biomarkers.tcrnet import metaclonotypes_from_tcrnet
 from mir.common.clonotype import Clonotype
 from mir.common.metaclonotype import (
-    MetaClonotypeDefinition,
+    MetaClonotypeClustering,
     functional_diversity,
     functional_overlap_1,
     metaclonotype_count_vector,
@@ -68,7 +68,7 @@ def test_metaclonotype_definition_normalizes_and_deduplicates() -> None:
             "clonotype_id": ["c1", "c1", "c2"],
         }
     )
-    m = MetaClonotypeDefinition(table, paired=False)
+    m = MetaClonotypeClustering(table, paired=False)
     assert m.n_clusters == 1
     assert len(m.table) == 2
     assert "is_representative" in m.table.columns
@@ -178,7 +178,7 @@ def _make_paired_repertoire() -> PairedRepertoire:
 
 def test_summarize_paired_metaclonotypes() -> None:
     paired = _make_paired_repertoire()
-    meta = MetaClonotypeDefinition(
+    meta = MetaClonotypeClustering(
         pl.DataFrame(
             {
                 "cluster_id": ["p_mc_0", "p_mc_1"],

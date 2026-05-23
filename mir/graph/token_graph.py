@@ -29,7 +29,7 @@ import igraph as ig
 import polars as pl
 
 from mir.basic.token_tables import Kmer, KmerMatch, Clonotype
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
 from mir.utils.metaclonotype_clustering import metaclonotypes_from_graph_communities
@@ -343,7 +343,7 @@ def metaclonotypes_from_token_clonotype_graph(
     method: str = "components",
     min_cluster_size: int = 1,
     vertex_id_attr: str = "name",
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Convert token/GLIPH clonotype graph communities to metaclonotypes.
 
     Args:
@@ -373,7 +373,7 @@ def build_gliph_metaclonotypes(
     expand_hamming_neighbors: bool = True,
     min_kmer_edge_weight: float = 0.35,
     hamming_bonus: float = 1.0,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build GLIPH-style clonotype graph and return metaclonotypes.
 
     This wraps:

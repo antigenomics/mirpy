@@ -174,6 +174,10 @@ Notes:
 
 For donor-vs-pool overlap workflows, use `many_vs_pool_overlap()` when scoring a sequence of repertoires against one pooled reference. It keeps the pooled worker state shared across batches and avoids repeating per-sample setup in hotspot notebooks such as `aging_analysis.ipynb`.
 
+**Notebook references:**
+- `notebooks/aging_analysis.ipynb` — clonotypic diversity, rarefaction, and F overlap across the AIRR benchmark aging cohort (Britanova et al. 2016, 79 donors, VDJtools format).
+- `notebooks/aging_analysis_functional.ipynb` — extends `aging_analysis.ipynb` with metaclonotype clustering (1-mismatch Hamming edit graph + Louvain, `min_cluster_size=2`) and compares clonotypic vs functional diversity, rarefaction, and pairwise F overlap across donors. Uses `functional_diversity`, `functional_rarefaction_curve`, `functional_hill_curve`, `functional_overlap_1`.
+
 ## 8. Control Repertoires
 
 Use `ControlManager` to build or load synthetic and real controls.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mir.common.clonotype import Clonotype
-from mir.common.metaclonotype import MetaClonotypeDefinition, metaclonotypes_from_labels
+from mir.common.metaclonotype import MetaClonotypeClustering, metaclonotypes_from_labels
 from mir.common.single_cell import PairedClonotype
 from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
 
@@ -50,7 +50,7 @@ def _toy_pairs() -> list[PairedClonotype]:
     ]
 
 
-def _meta_trb() -> MetaClonotypeDefinition:
+def _meta_trb() -> MetaClonotypeClustering:
     # b1 and b2 are in cluster "trb_0"; b3 is alone in "trb_1"
     return metaclonotypes_from_labels(
         ["b1", "b2", "b3"],
@@ -59,7 +59,7 @@ def _meta_trb() -> MetaClonotypeDefinition:
     )
 
 
-def _meta_tra() -> MetaClonotypeDefinition:
+def _meta_tra() -> MetaClonotypeClustering:
     # a1 and a2 cluster together ("0"), a3 alone ("2")
     return metaclonotypes_from_labels(
         ["a1", "a2", "a3"],
@@ -137,7 +137,7 @@ def test_custom_separator() -> None:
 def test_raises_on_paired_input() -> None:
     import polars as pl
 
-    paired_meta = MetaClonotypeDefinition(
+    paired_meta = MetaClonotypeClustering(
         pl.DataFrame(
             {
                 "cluster_id": ["x"],

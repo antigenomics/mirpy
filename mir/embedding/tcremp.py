@@ -46,7 +46,7 @@ from mir.common.single_cell import LOCUS_PAIR_TO_LOCI, PairedClonotype
 from mir.common.gene_library import GeneLibrary
 from mir.distances.aligner import BioAlignerWrapper, JunctionAligner, GermlineAligner, Scoring
 from mir.embedding.prototypes import N_PROTOTYPES, load_prototypes
-from mir.common.metaclonotype import MetaClonotypeDefinition
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.utils.metaclonotype_clustering import (
     metaclonotypes_from_cluster_labels,
     paired_metaclonotypes_from_pair_labels,
@@ -566,7 +566,7 @@ def metaclonotypes_from_tcremp_labels(
     *,
     include_noise: bool = False,
     noise_labels: set[int | str] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build single-chain metaclonotypes from TCREmp clustering labels.
 
     This wrapper is agnostic to clustering backend: DBSCAN, OPTICS, and
@@ -589,7 +589,7 @@ def paired_metaclonotypes_from_tcremp_labels(
     noise_labels: set[int | str] | None = None,
     mock_chain_1_by_pair: dict[str, bool] | None = None,
     mock_chain_2_by_pair: dict[str, bool] | None = None,
-) -> MetaClonotypeDefinition:
+) -> MetaClonotypeClustering:
     """Build paired metaclonotypes from paired TCREmp clustering labels.
 
     Optional mock-chain maps allow preserving imputation provenance from
