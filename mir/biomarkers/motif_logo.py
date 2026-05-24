@@ -1025,8 +1025,9 @@ def build_terminal_anchored_logo(
             .agg(pl.len().alias("_cnt"))
             .sort(["_cnt", v_col, j_col], descending=[True, False, False])
         )
-        v_dom = str(dom[0][v_col][0])
-        j_dom = str(dom[0][j_col][0])
+        first_row = dom.row(0, named=True)
+        v_dom = str(first_row[v_col])
+        j_dom = str(first_row[j_col])
 
         # Try control first, then motif_pwms
         bg: pl.DataFrame | None = None
@@ -1301,8 +1302,12 @@ def plot_logo(
         ax.axvline(divider_after + 1, color="#aaaaaa", lw=1.0, ls="--", alpha=0.7, zorder=1)
 
     # Axes formatting.
-    n_pos = len(positions)
-    ax.set_xlim(0, n_pos)
+    if positions:
+        min_pos = positions[0]
+        max_pos = positions[-1]
+        ax.set_xlim(min_pos - 0.5, max_pos + 1.5)
+    else:
+        ax.set_xlim(0, 1)
     pad = max(0.05, (y_max - y_min) * 0.06)
     ax.set_ylim(y_min - pad, y_max + pad)
 
@@ -1311,7 +1316,8 @@ def plot_logo(
 
     if show_xaxis:
         # Ticks centred under each column bar (bars span pos to pos+1).
-        tick_positions = [p + 0.5 for p in range(n_pos)]
+        # Use actual position values, not range(n_pos), to handle non-contiguous positions.
+        tick_positions = [p + 0.5 for p in positions]
         ax.set_xticks(tick_positions)
 
         # Determine tick labels: explicit override > label column > 1-indexed.
