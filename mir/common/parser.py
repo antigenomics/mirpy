@@ -1142,7 +1142,7 @@ def load_vdjdb_latest(
 
         with zipfile.ZipFile(tmp_path) as zf:
             txt_entries = [n for n in zf.namelist() if n.endswith(".txt")]
-            slim_entries = [n for n in txt_entries if "slim" in n.lower()]
+            slim_entries = [n for n in txt_entries if "slim" in n.lower() and "meta" not in n.lower()]
             target = slim_entries[0] if slim_entries else (txt_entries[0] if txt_entries else None)
             if target is None:
                 raise RuntimeError(f"No .txt file found inside VDJdb ZIP. Contents: {zf.namelist()}")

@@ -48,6 +48,7 @@ dependencies = [
   "textdistance",
   "tcrtrie",
   "tqdm",
+  "adjustText",
 ]
 license = {text = "GPL-3.0 license"}
 
