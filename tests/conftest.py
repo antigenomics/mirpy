@@ -5,8 +5,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from tests.prepare_airr_benchmark_data import ensure_test_data
-from mir.utils.notebook_assets import ensure_airr_covid19
+from tests.prepare_airr_benchmark_data import ensure_test_airr_covid19, ensure_test_data
 
 # ---------------------------------------------------------------------------
 # Memory guard
@@ -51,7 +50,7 @@ if os.getenv("MIRPY_SKIP_TEST_DATA_BOOTSTRAP", "0") not in {"1", "true", "TRUE",
     # Also ensure COVID-19 dataset is available when running benchmarks,
     # as test_pgen_mc_benchmark.py requires TRA data from this dataset.
     if RUN_BENCHMARKS or RUN_INTEGRATION:
-        ensure_airr_covid19()
+        ensure_test_airr_covid19()
 
 skip_benchmarks = pytest.mark.skipif(
     not RUN_BENCHMARKS,

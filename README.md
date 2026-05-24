@@ -59,8 +59,9 @@ Install from source (editable development mode):
 git clone https://github.com/antigenomics/mirpy.git
 cd mirpy
 ./setup.sh
-pip install -e .
 ```
+
+`setup.sh` already installs mirpy in editable mode.
 
 Prefer `pip install mirpy-lib` for project usage.
 Use the cloned repo setup when developing or running docs/notebooks locally.
@@ -513,5 +514,5 @@ any run expected to exceed ~10–15 min on 4–8 cores or ~12–16 GB RAM.
 
 ## Project status
 
-The library is actively evolving. Some modules are more mature than others and
-the public API may still change in places.
+The library is actively evolving. Some modules are more mature than others,
+and parts of the public API may still change.

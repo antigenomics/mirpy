@@ -56,7 +56,7 @@ In chat, invoke ``/mirpy-analysis`` and provide:
 
 * input data path(s) or instructions to obtain public/control data,
 * optional metadata path/schema,
-* workflow steps or one/more hypotheses to test.
+* workflow steps or one or more hypotheses to test.
 
 The agent then creates and executes dedicated notebook(s), and for large data
 first runs benchmark chunks to estimate full runtime and peak memory before

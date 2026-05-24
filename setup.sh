@@ -23,13 +23,13 @@ RUN_HEAVY=0
 INSTALL_REQUIREMENTS=0
 
 usage() {
-        cat <<'EOF'
+    cat <<'EOF'
 Usage: ./setup.sh [venv_dir] [--docs] [--requirements] [--test] [--test-all]
 
 Options:
     --docs      Install documentation dependencies from docs/requirements.txt
     --requirements
-                            Install additional dependencies from requirements.txt
+                Install additional dependencies from requirements.txt
     --test      Run fast tests (exclude benchmark/integration)
     --test-all  Run fast tests + benchmark + integration tests
     --help      Show this help message
@@ -46,7 +46,7 @@ for arg in "$@"; do
         --requirements) INSTALL_REQUIREMENTS=1 ;;
         --test)     RUN_TESTS=1 ;;
         --test-all) RUN_TESTS=1; RUN_HEAVY=1 ;;
-                --help|-h)  usage; exit 0 ;;
+            --help|-h)  usage; exit 0 ;;
         -*)         echo "Unknown option: $arg"; exit 1 ;;
         *)          VENV="$arg" ;;
     esac
@@ -131,6 +131,6 @@ if [ "$RUN_TESTS" -eq 1 ]; then
 fi
 
 echo ""
-echo "Done.  Activate the environment with:"
+echo "Done. Activate the environment with:"
 echo "  source $VENV/bin/activate        # bash/zsh"
 echo "  source $VENV/bin/activate.fish   # fish"
