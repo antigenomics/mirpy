@@ -1,10 +1,16 @@
 """Biomarker detection utilities for immune repertoires."""
 
+from mir.biomarkers.metaclonotype_cluster import (
+    MetaclonotypeClusterConfig,
+    cluster_metaclonotypes,
+    cluster_paired_metaclonotypes,
+)
 from mir.biomarkers.tcrnet import (
 	TcrnetParams,
 	TcrnetResult,
 	add_tcrnet_metadata,
 	compute_tcrnet,
+	metaclonotypes_from_tcrnet,
 	tcrnet_table,
 )
 from mir.biomarkers.alice import (
@@ -12,16 +18,23 @@ from mir.biomarkers.alice import (
 	AliceResult,
 	add_alice_metadata,
 	compute_alice,
+	metaclonotypes_from_alice,
 	alice_table,
 )
 from mir.biomarkers.motif_logo import (
     AA_ORDER,
+    BIOCHEMISTRY_COLORS,
     CHEMISTRY_COLORS,
     compute_pwm,
     compute_logo,
+    build_terminal_anchored_pwm,
+    build_terminal_anchored_logo,
+    get_vj_background_from_control,
     load_motif_pwms,
     pwm_from_motif_pwms,
     get_vj_background,
+    aggregate_vj_background,
+    build_motif_logos_vj,
     plot_logo,
     plot_motif_logos,
     compute_cluster_profiles,
@@ -34,13 +47,22 @@ from mir.comparative.vdjbet import (
 )
 
 __all__ = [
+    "MetaclonotypeClusterConfig",
+    "cluster_metaclonotypes",
+    "cluster_paired_metaclonotypes",
 	"AA_ORDER",
+	"BIOCHEMISTRY_COLORS",
 	"CHEMISTRY_COLORS",
 	"compute_pwm",
 	"compute_logo",
+	"build_terminal_anchored_pwm",
+	"build_terminal_anchored_logo",
+	"get_vj_background_from_control",
 	"load_motif_pwms",
 	"pwm_from_motif_pwms",
 	"get_vj_background",
+	"aggregate_vj_background",
+	"build_motif_logos_vj",
 	"plot_logo",
 	"plot_motif_logos",
 	"compute_cluster_profiles",
@@ -48,11 +70,13 @@ __all__ = [
 	"TcrnetResult",
 	"compute_tcrnet",
 	"add_tcrnet_metadata",
+	"metaclonotypes_from_tcrnet",
 	"tcrnet_table",
 	"AliceParams",
 	"AliceResult",
 	"compute_alice",
 	"add_alice_metadata",
+	"metaclonotypes_from_alice",
 	"alice_table",
 	"OverlapResult",
 	"PgenBinPool",

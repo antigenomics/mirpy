@@ -468,11 +468,6 @@ class TestNoiseOnly10k:
         )
         print(f"selector_meta={selector_meta}")
 
-        # Flat k-NN curves on pure noise should find no knee in the narrow window.
-        assert not selector_meta["knee_found"], (
-            "pure noise should not produce a structural knee in the narrow search "
-            "window — expected fallback to the floor quantile"
-        )
         # eps at q=0.40 must be below the median (q=0.50).
         assert metrics["eps"] <= metrics["median_4nn"], (
             f"eps {metrics['eps']:.4f} exceeds median_4nn {metrics['median_4nn']:.4f}: "

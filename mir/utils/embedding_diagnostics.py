@@ -7,21 +7,17 @@ The default eps selector (``select_eps_kneedle_stable``) works in two steps:
 1. **Floor quantile as default.**  Set *eps = q(kth, q_floor)* where *kth* is
    the sorted 4-NN distance curve of the L2-normalised PCA embedding.
 
-   Parameter justification via cross-validated subset scan (5 balanced
-   epitope subsets, VDJdb TRB, n≈3 000 each):
+    Parameter justification via cross-validated subset scan (5 balanced
+    epitope subsets, VDJdb TRB, n≈3 000 each):
 
-   ======  =========  =========  ==========  ===========  ============
-   q_floor  avg_ret   avg_pur   avg_cons    pass (5/5)   min_margin
-   ======  =========  =========  ==========  ===========  ============
-   0.25     0.411      0.530      0.204        0/5         −0.290
-   0.30     0.493      0.506      0.168        0/5         −0.132
-   0.35     0.565      0.491      0.154        4/5         −0.002
-   0.38     0.600      0.479      0.148        5/5         +0.060
-   **0.40** **0.620**  **0.476**  **0.151**  **5/5**    **+0.105**
-   0.42     0.638      0.472      0.142        5/5         +0.029
-   0.45     0.669      0.461      0.133        4/5         −0.030
-   0.50     0.716      0.452      0.127        4/5         −0.114
-   ======  =========  =========  ==========  ===========  ============
+    - q_floor=0.25: avg_ret=0.411, avg_pur=0.530, avg_cons=0.204, pass=0/5, min_margin=-0.290
+    - q_floor=0.30: avg_ret=0.493, avg_pur=0.506, avg_cons=0.168, pass=0/5, min_margin=-0.132
+    - q_floor=0.35: avg_ret=0.565, avg_pur=0.491, avg_cons=0.154, pass=4/5, min_margin=-0.002
+    - q_floor=0.38: avg_ret=0.600, avg_pur=0.479, avg_cons=0.148, pass=5/5, min_margin=+0.060
+    - q_floor=0.40: avg_ret=0.620, avg_pur=0.476, avg_cons=0.151, pass=5/5, min_margin=+0.105 (selected)
+    - q_floor=0.42: avg_ret=0.638, avg_pur=0.472, avg_cons=0.142, pass=5/5, min_margin=+0.029
+    - q_floor=0.45: avg_ret=0.669, avg_pur=0.461, avg_cons=0.133, pass=4/5, min_margin=-0.030
+    - q_floor=0.50: avg_ret=0.716, avg_pur=0.452, avg_cons=0.127, pass=4/5, min_margin=-0.114
 
    *Retention ≈ q_floor + density_bonus* where density_bonus ≈ 0.20 from
    DBSCAN density connectivity.  Below 0.38 retention falls below 0.50;

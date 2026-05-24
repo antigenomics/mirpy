@@ -41,7 +41,9 @@ from typing import TYPE_CHECKING
 from tcrtrie import Trie
 
 from mir.graph._trie_utils import (
+    _is_trie_safe,
     hit_index,
+    make_trie,
     resolve_n_jobs,
     search_indices_with_fallback,
     search_limits,
@@ -109,11 +111,11 @@ def _init_neighbor_worker(
         background_v_genes_shm,
         background_j_genes_shm,
     )
-    _NEIGHBOR_WORKER_STATE["trie"] = Trie(
-        sequences=background_sequences,
-        vGenes=background_v_genes,
-        jGenes=background_j_genes,
-    )
+    trie, trie_to_orig = make_trie(background_sequences, background_v_genes, background_j_genes)
+    _NEIGHBOR_WORKER_STATE["trie"] = trie
+    _NEIGHBOR_WORKER_STATE["canon_background_seqs"] = [background_sequences[i] for i in trie_to_orig]
+    _NEIGHBOR_WORKER_STATE["canon_background_v"]    = [background_v_genes[i] for i in trie_to_orig]
+    _NEIGHBOR_WORKER_STATE["canon_background_j"]    = [background_j_genes[i] for i in trie_to_orig]
 
 
 def _potential_neighbor_count_from_genes(
@@ -147,6 +149,9 @@ def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[s
     background_sequences = _NEIGHBOR_WORKER_STATE["background_sequences"]
     background_v_genes = _NEIGHBOR_WORKER_STATE["background_v_genes"]
     background_j_genes = _NEIGHBOR_WORKER_STATE["background_j_genes"]
+    canon_background_seqs = _NEIGHBOR_WORKER_STATE["canon_background_seqs"]
+    canon_background_v    = _NEIGHBOR_WORKER_STATE["canon_background_v"]
+    canon_background_j    = _NEIGHBOR_WORKER_STATE["canon_background_j"]
     trie = _NEIGHBOR_WORKER_STATE["trie"]
     metric = _NEIGHBOR_WORKER_STATE["metric"]
     threshold = _NEIGHBOR_WORKER_STATE["threshold"]
@@ -158,16 +163,19 @@ def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[s
 
     out: dict[str, dict[str, int]] = {}
     for i in range(start, stop):
+        if not _is_trie_safe(query_sequences[i]):
+            out[query_sequence_ids[i]] = {"actual": 0, "potential": 0}
+            continue
         hits = search_indices_with_fallback(
             trie,
             query=query_sequences[i],
             metric=metric,
             threshold=threshold,
-            sequences=background_sequences,
+            sequences=canon_background_seqs,
             v_gene_filter=query_v_genes[i] if match_v_gene else None,
             j_gene_filter=query_j_genes[i] if match_j_gene else None,
-            v_genes=background_v_genes,
-            j_genes=background_j_genes,
+            v_genes=canon_background_v,
+            j_genes=canon_background_j,
         )
         potential_neighbors = _potential_neighbor_count_from_genes(
             v_gene=query_v_genes[i],
@@ -284,12 +292,14 @@ def _build_grouped_tries(
     *,
     match_v_gene: bool,
     match_j_gene: bool,
-) -> tuple[dict[tuple, list[str]], dict[tuple, "Trie"]]:
+) -> tuple[dict[tuple, list[str]], dict[tuple, "Trie"], dict[tuple, list[str]]]:
     """Group sequences by V/J gene key and build one small Trie per group.
 
-    Returns (group_seqs, group_tries) where group_seqs[key] is the CDR3 list
-    for that gene group and group_tries[key] is its Trie (no V/J genes stored
-    because the group is homogeneous — search needs no V/J filter).
+    Returns ``(group_seqs, group_tries, group_canon_seqs)`` where
+    ``group_seqs[key]`` is the full CDR3 list (including non-canonical),
+    ``group_tries[key]`` is a Trie built from canonical sequences only, and
+    ``group_canon_seqs[key]`` is the canonical-only subsequence used by the
+    trie (indices returned by the trie index into this list, not group_seqs).
 
     This replaces the single-large-trie + Python V/J validation approach with
     N_groups smaller tries, each searched without filters, eliminating the
@@ -306,22 +316,30 @@ def _build_grouped_tries(
         key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
         group_seqs.setdefault(key, []).append(seq)
     group_tries: dict[tuple, Trie] = {}
+    group_canon_seqs: dict[tuple, list[str]] = {}
     for key, seqs in group_seqs.items():
         n = len(seqs)
-        group_tries[key] = Trie(sequences=seqs, vGenes=[""] * n, jGenes=[""] * n)
-    return group_seqs, group_tries
+        trie, trie_to_orig = make_trie(seqs, [""] * n, [""] * n)
+        group_tries[key] = trie
+        group_canon_seqs[key] = [seqs[i] for i in trie_to_orig]
+    return group_seqs, group_tries, group_canon_seqs
 
 
 def _count_grouped_neighbors(
     query: str,
     group_trie: "Trie",
-    group_seqs: list[str],
+    canon_seqs: list[str],
     metric: str,
     threshold: int,
 ) -> int:
-    """Count Hamming/Levenshtein neighbors of *query* in a gene-group trie."""
+    """Count Hamming/Levenshtein neighbors of *query* in a gene-group trie.
+
+    ``canon_seqs`` must be the canonical-only subsequence used to build the
+    trie (returned as the third element of ``_build_grouped_tries``).  Trie hit
+    indices are in canonical space (0..len(canon_seqs)-1).
+    """
     max_sub, max_ins, max_del, max_edits = search_limits(metric, threshold)
-    n = len(group_seqs)
+    n = len(canon_seqs)
     try:
         hits = group_trie.SearchIndices(
             query=query,
@@ -331,11 +349,11 @@ def _count_grouped_neighbors(
             maxEdits=max_edits,
         )
     except Exception:
-        return sum(1 for s in group_seqs if is_within_threshold(query, s, metric, threshold))
+        return sum(1 for s in canon_seqs if is_within_threshold(query, s, metric, threshold))
     count = 0
     for hit in hits:
         local_idx = hit_index(hit)
-        if 0 <= local_idx < n and is_within_threshold(query, group_seqs[local_idx], metric, threshold):
+        if 0 <= local_idx < n and is_within_threshold(query, canon_seqs[local_idx], metric, threshold):
             count += 1
     return count
 
@@ -345,6 +363,7 @@ def _compute_grouped_query_batch(
     sequence_ids: list[str],
     group_seqs: dict[tuple, list[str]],
     group_tries: dict[tuple, "Trie"],
+    group_canon_seqs: dict[tuple, list[str]],
     *,
     metric: str,
     threshold: int,
@@ -361,12 +380,13 @@ def _compute_grouped_query_batch(
         )
         g_seqs = group_seqs.get(key)
         g_trie = group_tries.get(key)
+        g_canon = group_canon_seqs.get(key, [])
         g_size = len(g_seqs) if g_seqs is not None else 0
         if g_trie is None:
             nc = 1 if add_self_pseudocount else 0
             pn = 1 if add_self_pseudocount else 0
         else:
-            nc = _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_seqs, metric, threshold)
+            nc = _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_canon, metric, threshold)
             pn = g_size
             if add_self_pseudocount:
                 nc += 1
@@ -396,9 +416,10 @@ def _compute_grouped_key_batch_worker(
             continue
         q_seqs, q_ids = q_data
         n = len(bg_seqs)
-        trie = Trie(sequences=bg_seqs, vGenes=[""] * n, jGenes=[""] * n)
+        trie, trie_to_orig = make_trie(bg_seqs, [""] * n, [""] * n)
+        canon_bg = [bg_seqs[i] for i in trie_to_orig]
         for q_seq, seq_id in zip(q_seqs, q_ids):
-            nc = _count_grouped_neighbors(q_seq, trie, bg_seqs, metric, threshold)
+            nc = _count_grouped_neighbors(q_seq, trie, canon_bg, metric, threshold)
             pn = n
             if add_self_pseudocount:
                 nc += 1
@@ -510,12 +531,12 @@ def _compute_locus_stats(
             bg_by_key.setdefault(key, []).append(seq)
 
         if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
-            g_seqs, g_tries = _build_grouped_tries(
+            g_seqs, g_tries, g_canon = _build_grouped_tries(
                 background_sequences, background_v_genes, background_j_genes,
                 match_v_gene=match_v_gene, match_j_gene=match_j_gene,
             )
             return _compute_grouped_query_batch(
-                query_clonotypes, q_seq_ids, g_seqs, g_tries,
+                query_clonotypes, q_seq_ids, g_seqs, g_tries, g_canon,
                 metric=metric, threshold=threshold,
                 match_v_gene=match_v_gene, match_j_gene=match_j_gene,
                 add_self_pseudocount=add_self_pseudocount,

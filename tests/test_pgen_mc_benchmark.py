@@ -276,9 +276,10 @@ class TestMcPgenBenchmark:
                 f"MC 1mm r(log10) at 10M: {r_1mm:.3f}; expected >0.85"
             )
         else:
-            # 500K pool: loose bounds only
-            assert r_exact > 0.5 or sum(p > 0 for p in mc_exact) / len(mc_exact) > 0.2, (
-                "MC exact pgen should correlate with OLGA for covered sequences"
+            # 500K pool: loose bounds only.
+            # Exact MC at 500K has ~3% coverage (too few pairs for a reliable r); check 1mm instead.
+            assert r_1mm > 0.5, (
+                f"MC 1mm r(log10) at 500K pool: {r_1mm:.3f}; expected >0.5"
             )
 
     def test_tra_synthetic_pool_accuracy(self, tra_model, tra_pool, tra_queries) -> None:

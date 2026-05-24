@@ -3,6 +3,35 @@
 Implements VDJtools-style summary indices and iNEXT-style rarefaction/coverage
 estimators from abundance tables. The rarefaction math uses NumPy/SciPy vector
 kernels for fast execution on large abundance vectors.
+
+Summary statistics follow the VDJtools convention (Shugay *et al.* 2015):
+richness (observed and Chao1), Shannon entropy, Gini-Simpson index, singleton/
+doubleton counts, and expanded/hyperexpanded clone fractions.
+
+Rarefaction and extrapolation curves implement the iNEXT framework (Chao *et al.*
+2014; Hsieh *et al.* 2016), which unifies interpolation (m ≤ n) and extrapolation
+(m > n) under a single sample-coverage estimator based on the Chao1 formula.
+
+Hill diversity profiles follow Hill (1973): the order-q family
+``D_q = (Σ p_i^q)^{1/(1-q)}`` with q=0 (richness), q→1 (exp(Shannon)),
+and q=2 (inverse Simpson) as special cases.
+
+References
+----------
+Shugay M, Bagaev DV, Turchaninova MA, Bolotin DA, Zvyagin IV, Putintseva EV,
+Pogorelyy MV, Radko SP, Lebedev YB, Chudakov DM. VDJtools: unifying
+post-analysis of T cell receptor repertoires. *PLoS Comput Biol.*
+2015;11(11):e1004503. PMID:26606115. https://pubmed.ncbi.nlm.nih.gov/26606115/
+
+Chao A. Nonparametric estimation of the number of classes in a population.
+*Scand J Stat.* 1984;11(4):265-270.
+
+Hsieh TC, Ma KH, Chao A. iNEXT: an R package for rarefaction and
+extrapolation of species diversity (Hill numbers). *Methods Ecol Evol.*
+2016;7(12):1451-1456. doi:10.1111/2041-210X.12613.
+
+Hill MO. Diversity and evenness: a unifying notation and its consequences.
+*Ecology.* 1973;54(2):427-432. doi:10.2307/1934352.
 """
 
 from __future__ import annotations
@@ -60,7 +89,9 @@ class RarefactionResult:
 
 
 def _as_positive_counts(counts: Sequence[int] | np.ndarray | Iterable[int]) -> np.ndarray:
-    arr = np.asarray(list(counts), dtype=np.int64)
+    arr = np.asarray(counts, dtype=np.int64)
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
     if arr.size == 0:
         return np.empty(0, dtype=np.int64)
     return arr[arr > 0]
@@ -135,17 +166,24 @@ def hill_curve(
 
     total = float(arr.sum())
     p = arr / total
-    hills = np.empty_like(q_arr)
     richness = float(arr.size)
     shannon = float(-np.sum(p * np.log(p)))
 
-    for i, q in enumerate(q_arr):
-        if np.isclose(q, 0.0):
-            hills[i] = richness
-        elif np.isclose(q, 1.0):
-            hills[i] = float(np.exp(shannon))
-        else:
-            hills[i] = float(np.power(np.sum(np.power(p, q)), 1.0 / (1.0 - q)))
+    # Vectorised Hill computation: avoid Python loop over q values.
+    # Handle q==0 (richness) and q==1 (exp(H)) as special cases via masking.
+    is_q0 = np.isclose(q_arr, 0.0)
+    is_q1 = np.isclose(q_arr, 1.0)
+    is_generic = ~(is_q0 | is_q1)
+
+    hills = np.empty_like(q_arr)
+    hills[is_q0] = richness
+    hills[is_q1] = np.exp(shannon)
+
+    if np.any(is_generic):
+        q_generic = q_arr[is_generic]
+        # p shape: (n_species,); q shape: (n_q,) — broadcast via outer product.
+        log_sum_pq = np.log(np.sum(p[:, np.newaxis] ** q_generic[np.newaxis, :], axis=0))
+        hills[is_generic] = np.exp(log_sum_pq / (1.0 - q_generic))
 
     return pl.DataFrame({"q": q_arr, "hill": hills})
 

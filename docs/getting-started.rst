@@ -219,6 +219,127 @@ returns both richness and sample-coverage estimates with confidence bounds.
    # Single-cell per-chain-locus rarefaction (barcode_count default)
    sc_rare = single_cell_sample.rarefaction_curve(per_locus=True)
 
+Metaclonotype Workflows
+-----------------------
+
+Metaclonotypes are represented as lightweight membership tables instead of
+re-wrapping repertoire objects. This keeps existing workflows intact while
+adding cluster-level analytics.
+
+Core structures
+~~~~~~~~~~~~~~~
+
+* ``MetaClonotypeClustering`` stores single-chain or paired cluster membership.
+* ``LocusRepertoire.set_metaclonotypes(...)`` and paired-repertoire attachment
+   methods keep clustering alongside existing repertoire objects.
+
+Point-by-point clustering entry points
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ALICE and TCRNET enriched seeds + first neighbors:
+
+   * ``mir.biomarkers.metaclonotypes_from_alice``
+   * ``mir.biomarkers.metaclonotypes_from_tcrnet``
+
+* tcrtrie/custom search scope clustering (substitutions/indels/total edits):
+
+   * ``mir.common.metaclonotypes_from_search_scope``
+   * ``mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope``
+
+* Continuous-radius / TCRdist-like representative clustering:
+
+   * ``mir.common.metaclonotypes_from_radius_threshold``
+
+* Edit-distance graph connected components / Leiden / Louvain:
+
+   * ``mir.graph.metaclonotypes_from_edit_distance_graph``
+
+* TCREmp DBSCAN/OPTICS/VDBSCAN label arrays:
+
+   * ``mir.embedding.metaclonotypes_from_tcremp_labels``
+   * ``mir.embedding.paired_metaclonotypes_from_tcremp_labels``
+
+* Token bigraph / GLIPH clonotype graph communities:
+
+   * ``mir.graph.metaclonotypes_from_token_clonotype_graph``
+   * ``mir.graph.build_gliph_metaclonotypes``
+
+Unified clustering interface
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``mir.biomarkers.metaclonotype_cluster`` provides a single config-driven entry
+point for all six clustering methods and supports paired-chain analysis.
+
+.. code-block:: python
+
+   from mir.biomarkers.metaclonotype_cluster import (
+       MetaclonotypeClusterConfig,
+       cluster_metaclonotypes,
+       cluster_paired_metaclonotypes,
+   )
+
+   cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus="TRB",
+       max_distance=1,
+       graph_algo="louvain",
+       min_cluster_size=2,
+   )
+   meta = cluster_metaclonotypes(repertoire, cfg)
+
+   # Paired analysis: per-chain clusters combined as "chain1_id.chain2_id"
+   paired_cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus_pair="TRA_TRB",
+       max_distance=1,
+       graph_algo="components",
+   )
+   paired_meta = cluster_paired_metaclonotypes(paired_locus_repertoire, paired_cfg)
+
+Paired-from-single combining
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Any single-chain metaclonotype results can be combined into paired-chain
+clusters using ``paired_metaclonotypes_from_single_chain``:
+
+.. code-block:: python
+
+   from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
+
+   paired_meta = paired_metaclonotypes_from_single_chain(
+       paired_clonotypes,
+       meta_chain1=meta_tra,
+       meta_chain2=meta_trb,
+       cluster_separator=".",
+   )
+
+Each combined cluster ID has the form ``"<chain1_cluster>.<chain2_cluster>"``.
+Pairs where one or both chains are unassigned are excluded by default; pass
+``include_unassigned=True`` to keep them with a placeholder label.
+
+Downstream metaclonotype analytics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Functional diversity and rarefaction from aggregated cluster counts:
+
+   * ``functional_diversity``
+   * ``functional_hill_curve``
+   * ``functional_rarefaction_curve``
+
+* Functional overlap-1 (clusters match if they share at least one clonotype):
+
+   * ``functional_overlap_1``
+
+* Entropy decomposition for pooled-vs-separate clustering:
+
+   * ``pooled_entropy_difference`` computes
+      ``H(A pooled with B) - H(A) - H(B)``
+
+* Motif logo inputs from metaclonotypes:
+
+   * ``metaclonotype_junctions`` provides sequence lists for
+      ``compute_pwm`` / ``compute_logo`` workflows.
+
 Pairwise Overlap Spaces
 -----------------------
 

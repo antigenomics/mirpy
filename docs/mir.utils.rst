@@ -44,6 +44,14 @@ mir.utils.shared\_memory module
    :undoc-members:
    :show-inheritance:
 
+mir.utils.metaclonotype\_clustering module
+--------------------------------------------
+
+.. automodule:: mir.utils.metaclonotype_clustering
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.utils.parser\_cli module
 ------------------------------
 
