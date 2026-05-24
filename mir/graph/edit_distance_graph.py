@@ -8,6 +8,7 @@ back to constrained brute-force only when trie search raises an error.
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import typing as t
 from concurrent.futures import ProcessPoolExecutor
@@ -16,10 +17,20 @@ from math import ceil
 _MP_CTX = multiprocessing.get_context("spawn")
 
 import igraph as ig
-from tcrtrie import Trie
 
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.clonotype import Clonotype
-from mir.graph._trie_utils import resolve_n_jobs, search_indices_with_fallback, validate_metric
+from mir.graph._trie_utils import (
+    _is_trie_safe,
+    make_trie,
+    resolve_n_jobs,
+    search_indices_with_fallback,
+    validate_metric,
+)
+from mir.graph.distance_utils import is_within_threshold
+from mir.utils.metaclonotype_clustering import metaclonotypes_from_graph_communities
+
+_logger = logging.getLogger(__name__)
 
 
 _EDGE_WORKER_STATE: dict[str, t.Any] = {}
@@ -43,7 +54,14 @@ def _init_edge_worker(
     _EDGE_WORKER_STATE["threshold"] = threshold
     _EDGE_WORKER_STATE["v_gene_match"] = v_gene_match
     _EDGE_WORKER_STATE["c_gene_match"] = c_gene_match
-    _EDGE_WORKER_STATE["trie"] = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
+    trie, trie_to_orig = make_trie(seqs, v_genes, j_genes)
+    trie_orig_set = set(trie_to_orig)
+    _EDGE_WORKER_STATE["trie"] = trie
+    _EDGE_WORKER_STATE["trie_to_orig"] = trie_to_orig
+    _EDGE_WORKER_STATE["canon_seqs"] = [seqs[i] for i in trie_to_orig]
+    _EDGE_WORKER_STATE["canon_v"]    = [v_genes[i] for i in trie_to_orig]
+    _EDGE_WORKER_STATE["canon_j"]    = [j_genes[i] for i in trie_to_orig]
+    _EDGE_WORKER_STATE["non_canon_indices"] = [j for j in range(len(seqs)) if j not in trie_orig_set]
 
 
 def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int]]:
@@ -54,6 +72,11 @@ def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int
         _EDGE_WORKER_STATE["j_genes"],
         _EDGE_WORKER_STATE["trie"],
         _EDGE_WORKER_STATE["c_genes"],
+        _EDGE_WORKER_STATE["trie_to_orig"],
+        _EDGE_WORKER_STATE["canon_seqs"],
+        _EDGE_WORKER_STATE["canon_v"],
+        _EDGE_WORKER_STATE["canon_j"],
+        _EDGE_WORKER_STATE["non_canon_indices"],
         metric=_EDGE_WORKER_STATE["metric"],
         threshold=_EDGE_WORKER_STATE["threshold"],
         v_gene_match=_EDGE_WORKER_STATE["v_gene_match"],
@@ -69,6 +92,11 @@ def _build_batch_edges(
     j_genes: list[str],
     trie,
     c_genes: list[str],
+    trie_to_orig: list[int],
+    canon_seqs: list[str],
+    canon_v: list[str],
+    canon_j: list[str],
+    non_canon_indices: list[int],
     *,
     metric: str,
     threshold: int,
@@ -77,26 +105,45 @@ def _build_batch_edges(
     start: int,
     stop: int,
 ) -> set[tuple[int, int]]:
-    """Build unique edges for query indices in [start, stop)."""
+    """Build unique edges for query indices in [start, stop).
+
+    Canonical queries use the trie; non-canonical sequences are also checked via
+    brute-force so canonical↔non-canonical edges are not silently dropped.
+    """
     edges: set[tuple[int, int]] = set()
     for i in range(start, stop):
-        hits = search_indices_with_fallback(
+        if not _is_trie_safe(seqs[i]):  # non-canonical query — skip
+            continue
+        v_filter = v_genes[i] if v_gene_match else None
+        # Returns indices into canon_seqs (canonical space, 0..len(trie_to_orig)-1).
+        canon_hits = search_indices_with_fallback(
             trie,
             query=seqs[i],
             metric=metric,
             threshold=threshold,
-            sequences=seqs,
-            v_gene_filter=v_genes[i] if v_gene_match else None,
+            sequences=canon_seqs,
+            v_gene_filter=v_filter,
             j_gene_filter=None,
-            v_genes=v_genes,
-            j_genes=j_genes,
+            v_genes=canon_v,
+            j_genes=canon_j,
         )
-        for j in hits:
+        for ci in canon_hits:
+            j = trie_to_orig[ci]  # canonical index → original index
             if j <= i:
                 continue
             if c_gene_match and c_genes[i] != c_genes[j]:
                 continue
             edges.add((i, j))
+        # Brute-force for non-canonical sequences not indexed by the trie.
+        for j in non_canon_indices:
+            if j <= i:
+                continue
+            if v_gene_match and v_genes[i] != v_genes[j]:
+                continue
+            if c_gene_match and c_genes[i] != c_genes[j]:
+                continue
+            if is_within_threshold(seqs[i], seqs[j], metric, threshold):
+                edges.add((i, j))
     return edges
 
 
@@ -117,13 +164,23 @@ def _build_edges_parallel(
     if n <= 1:
         return set()
     if jobs <= 1 or n <= chunk_sz:
-        trie = Trie(sequences=seqs, vGenes=v_genes, jGenes=j_genes)
+        trie, trie_to_orig = make_trie(seqs, v_genes, j_genes)
+        trie_orig_set = set(trie_to_orig)
+        canon_seqs = [seqs[i] for i in trie_to_orig]
+        canon_v    = [v_genes[i] for i in trie_to_orig]
+        canon_j    = [j_genes[i] for i in trie_to_orig]
+        non_canon_indices = [j for j in range(n) if j not in trie_orig_set]
         return _build_batch_edges(
             seqs,
             v_genes,
             j_genes,
             trie,
             c_genes,
+            trie_to_orig,
+            canon_seqs,
+            canon_v,
+            canon_j,
+            non_canon_indices,
             metric=metric,
             threshold=threshold,
             v_gene_match=v_gene_match,
@@ -211,3 +268,25 @@ def build_edit_distance_graph(
     if edges:
         g.add_edges(sorted(edges))
     return g
+
+
+def metaclonotypes_from_edit_distance_graph(
+    graph: ig.Graph,
+    *,
+    method: str = "components",
+    min_cluster_size: int = 1,
+) -> MetaClonotypeClustering:
+    """Convert edit-distance graph communities/components into metaclonotypes.
+
+    Args:
+        graph: Graph produced by ``build_edit_distance_graph``.
+        method: ``components``, ``leiden``, or ``louvain``.
+        min_cluster_size: Drop clusters smaller than this size.
+    """
+    return metaclonotypes_from_graph_communities(
+        graph,
+        vertex_id_attr="r_id",
+        method=method,
+        min_cluster_size=min_cluster_size,
+        weights=None,
+    )

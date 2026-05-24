@@ -174,6 +174,10 @@ Notes:
 
 For donor-vs-pool overlap workflows, use `many_vs_pool_overlap()` when scoring a sequence of repertoires against one pooled reference. It keeps the pooled worker state shared across batches and avoids repeating per-sample setup in hotspot notebooks such as `aging_analysis.ipynb`.
 
+**Notebook references:**
+- `notebooks/aging_analysis.ipynb` — clonotypic diversity, rarefaction, and F overlap across the AIRR benchmark aging cohort (Britanova et al. 2016, 79 donors, VDJtools format).
+- `notebooks/aging_analysis_functional.ipynb` — extends `aging_analysis.ipynb` with metaclonotype clustering (1-mismatch Hamming edit graph + Louvain, `min_cluster_size=2`) and compares clonotypic vs functional diversity, rarefaction, and pairwise F overlap across donors. Uses `functional_diversity`, `functional_rarefaction_curve`, `functional_hill_curve`, `functional_overlap_1`.
+
 ## 8. Control Repertoires
 
 Use `ControlManager` to build or load synthetic and real controls.
@@ -262,7 +266,149 @@ $$d(a, b) = s(a,a) + s(b,b) - 2 \cdot s(a,b)$$
 
 This ensures metric properties: $d(a,a) = 0$, $d(a,b) = d(b,a)$, and non-negativity.
 
-## 10. Diversity Metrics, Hill Curves, And Rarefaction
+## 10. Metaclonotypes (Functional Clusters)
+
+Use metaclonotypes as a lightweight cluster layer over existing repertoires.
+This avoids rebuilding `LocusRepertoire` objects while enabling cluster-level
+count aggregation, functional diversity, and overlap workflows.
+
+```python
+from mir.common.metaclonotype import (
+    metaclonotypes_from_components,
+    summarize_metaclonotypes,
+    functional_diversity,
+)
+
+# components: list[list[sequence_id]] from any clustering backend
+meta = metaclonotypes_from_components(components, cluster_prefix="cc")
+rep.set_metaclonotypes(meta)
+
+summary = summarize_metaclonotypes(rep, meta)
+func_div = functional_diversity(rep, meta, count_field="duplicate_count")
+```
+
+Common builders:
+
+- `metaclonotypes_from_labels` for DBSCAN/Leiden/Louvain-style label vectors.
+- `metaclonotypes_from_igraph` for connected components or graph memberships.
+- `metaclonotypes_from_seed_neighbors` for seed + first-neighborhood clusters
+  (useful for ALICE/TCRNET-derived representative clonotypes).
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_cluster_labels` as
+  a backend-agnostic helper for DBSCAN/OPTICS/VDBSCAN-style labels.
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_graph_communities`
+  for components/Leiden/Louvain in a shared implementation.
+- `mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope` for
+  representative-centered search scopes (tcrtrie or score-radius style).
+
+TCREmp convenience wrappers:
+
+- `mir.embedding.metaclonotypes_from_tcremp_labels`
+- `mir.embedding.paired_metaclonotypes_from_tcremp_labels`
+
+Token-graph/GLIPH convenience wrappers:
+
+- `mir.graph.metaclonotypes_from_token_clonotype_graph`
+- `mir.graph.build_gliph_metaclonotypes`
+
+Biomarker integration:
+
+- `mir.biomarkers.metaclonotypes_from_alice`
+- `mir.biomarkers.metaclonotypes_from_tcrnet`
+
+Functional overlap:
+
+- `functional_overlap_1` computes overlap where two metaclonotypes match if
+  they share at least one clonotype identity.
+
+Mutual-information-style summary:
+
+- Use pooled and separate metaclonotype count vectors with
+  `pooled_entropy_difference` to compute
+  `H(A pooled with B) - H(A) - H(B)`.
+
+### Unified metaclonotype clustering interface
+
+`mir.biomarkers.metaclonotype_cluster` provides a single entry-point that
+dispatches to any supported backend via `MetaclonotypeClusterConfig`.
+
+```python
+from mir.biomarkers.metaclonotype_cluster import (
+    MetaclonotypeClusterConfig,
+    cluster_metaclonotypes,
+    cluster_paired_metaclonotypes,
+)
+
+# Edit-distance graph with Leiden communities
+cfg = MetaclonotypeClusterConfig(
+    method="edit_distance",
+    metric="hamming",
+    threshold=1,
+    graph_algo="leiden",
+    min_cluster_size=2,
+)
+meta = cluster_metaclonotypes(rep, cfg)
+func_div = functional_diversity(rep, meta)
+
+# TCRdist radius clusters
+cfg_dist = MetaclonotypeClusterConfig(method="tcrdist", locus="TRB", max_distance=24.5)
+meta_dist = cluster_metaclonotypes(rep, cfg_dist)
+
+# ALICE (requires add_alice_metadata to be run first)
+from mir.biomarkers.alice import add_alice_metadata
+rep = add_alice_metadata(rep, species="human")
+cfg_alice = MetaclonotypeClusterConfig(method="alice", q_value_max=0.05)
+meta_alice = cluster_metaclonotypes(rep, cfg_alice)
+
+# TCREmp embedding + DBSCAN
+cfg_tcremp = MetaclonotypeClusterConfig(
+    method="tcremp", locus="TRB", n_prototypes=300,
+    embed_cluster_algo="dbscan", dbscan_eps=0.5, dbscan_min_samples=3,
+)
+meta_tcremp = cluster_metaclonotypes(rep, cfg_tcremp)
+```
+
+Supported `method` values: `"alice"`, `"tcrnet"`, `"tcrdist"`,
+`"edit_distance"`, `"tcremp"`, `"gliph"`.
+
+Embedding-space clustering (`embed_cluster_algo`): `"dbscan"` or `"optics"`.
+
+Graph community detection (`graph_algo`): `"components"`, `"leiden"`,
+`"louvain"`.
+
+### Paired-chain metaclonotypes from single-chain results
+
+Any single-chain method can be extended to paired TRA/TRB data by computing
+metaclonotypes per-chain and combining IDs:
+
+```python
+from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
+
+# Given: meta_tra (single-chain for TRA), meta_trb (single-chain for TRB),
+# and paired_locus_rep (PairedLocusRepertoire with TRA/TRB pairs)
+meta_paired = paired_metaclonotypes_from_single_chain(
+    paired_locus_rep.paired_clonotypes,
+    meta_tra,
+    meta_trb,
+    cluster_separator=".",  # cluster ID = "<TRA_cluster>.<TRB_cluster>"
+    include_unassigned=False,
+)
+```
+
+Or use the unified interface which handles per-chain dispatch automatically:
+
+```python
+cfg = MetaclonotypeClusterConfig(method="edit_distance", min_cluster_size=1)
+meta_paired = cluster_paired_metaclonotypes(paired_locus_rep, cfg)
+```
+
+For TCREmp, `cluster_paired_metaclonotypes` uses the **native paired embedding**
+(`PairedTCREmp`) by default. To force single-chain-combined behaviour, provide
+explicit `config_chain1` / `config_chain2` overrides.
+
+Comparison between TCREmp-native paired and single-chain-combined approaches:
+see `notebooks/metaclonotype_method_compare.ipynb`.
+
+## 11. Diversity Metrics, Hill Curves, And Rarefaction
 
 Prefer function-first diversity APIs from `mir.common.diversity`.
 Repertoire object methods are convenience delegates to the same functions.
@@ -318,7 +464,7 @@ sc_summary = single_cell_sample.diversity(per_locus=True)    # delegates to pair
 Notebook: `notebooks/diversity_analysis.ipynb` — donor summary tables, rarefaction, coverage, Hill
 curves, and Healthy vs MS cohort comparisons.
 
-## 11. Pairwise Overlap Workflows
+## 12. Pairwise Overlap Workflows
 
 Use `pairwise_overlap` and `pairwise_overlap_matrix` from
 `mir.comparative.overlap`.
@@ -467,7 +613,7 @@ Operational notes:
 - Notebook asset downloads use `notebooks/assets/large/airr_benchmark`; test bootstrap mirrors `vdjdb_full.txt.gz` into `tests/assets/vdjdb_full.txt.gz`.
 - `notebooks/tcremp_vdjdb_analysis_paired.ipynb` demonstrates strict vs imputed paired analysis with cumulative PCA variance, floor-quantile kneedle eps selection (`select_eps_kneedle_stable`), DBSCAN purity/retention/consistency summaries, and SLL epitope outlier diagnosis against paired/TRA-only/TRB-only embeddings.
 
-## 12. ALICE Enrichment
+## 12.5. ALICE Enrichment
 
 Use `compute_alice` / `add_alice_metadata` from `mir.biomarkers.alice`.
 
@@ -1421,26 +1567,101 @@ needed.
 
 ## 23. CDR3 Sequence Logos and Motif PWMs
 
-`mir.biomarkers.motif_logo` — Shannon IC and background-normalised logos.
+`mir.biomarkers.motif_logo` — Shannon IC logos and OLGA-background-normalised selection logos.
+
+### Scientific purpose
+
+V-gene and J-gene templates encode conserved residues at CDR3 ends (N-terminal Cys,
+J-gene STDTQYF stretch).  A plain IC logo shows these germline residues as the tallest
+columns, hiding the antigen-specific motif.  Subtracting an OLGA background for the
+**same V/J/length** removes the germline signal: `h_sel ≈ 0` at germline positions,
+`h_sel >> 0` at antigen-driven positions (Pogorelyy et al. 2019, PLoS Biol.).
+
+### CDR3 omega loop geometry
+
+V-gene encodes the first ~5 residues; J-gene encodes the last ~4; the centre
+(D-gene + N-additions) varies in length.  CDR3s of **different lengths are NOT
+linearly aligned** — they share the terminals but insert/delete at the centre.
+Aggregate profiles must therefore use **fractional position** `p / (L−1)`:
+- 0 → conserved N-terminal Cys
+- 1 → conserved C-terminal Phe/Trp
+- 0.5 → approximate hypervariable centre
+
+### Key formulas
+
+| Logo type | Formula | Notes |
+|---|---|---|
+| IC logo | `h_IC[p,a] = f[p,a] · (log₂20 + Σₐ f·log₂f)` | Always ≥ 0 (bits) |
+| Selection logo | `h_sel[p,a] = f[p,a] · log₂(f[p,a] / f_bg[p,a])` | Negative = depleted |
+| motif_pwms height.I | IC / log₂(20) | [0,1] scale — **not bits**; multiply by log₂20 to convert |
+| motif_pwms height.I.norm | −Σₐ f·ln(f_bg) / ln(20) / 2 | Cross-entropy, always ≥ 0 |
 
 ### Build a PWM from raw sequences
 
 ```python
-from mir.biomarkers.motif_logo import compute_pwm, compute_logo
+from mir.biomarkers.motif_logo import compute_pwm, compute_logo, get_vj_background
 
 pwm = compute_pwm(sequences, pseudocount=0.5)   # → pos, aa, count, frequency
-logo = compute_logo(pwm)                         # adds ic_height
-logo_bg = compute_logo(pwm, background=bg_pwm)  # adds ic_height + bg_height
+logo = compute_logo(pwm)                         # adds ic_height (bits)
+bg   = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+                          length=13, species="HomoSapiens", gene="TRB")
+logo_bg = compute_logo(pwm, background=bg)       # adds ic_height + bg_height
 ```
 
 `compute_pwm` filters to the modal CDR3 length; set `length=` to override.
+Always pass `species=` and `gene=` to avoid mixing TRA/TRB or mouse/human OLGA pools.
+
+### Two background regimes
+
+| Regime | Function | Removes |
+|---|---|---|
+| Per-VJ-len | `get_vj_background(v, j, len, species, gene)` | V-gene **and** J-gene germline |
+| All-VJ aggregate | `aggregate_vj_background(pwms, length=L, species=S, gene=G)` | Length-composition bias only |
+
+```python
+from mir.biomarkers.motif_logo import aggregate_vj_background
+
+agg_bg = aggregate_vj_background(pwms, length=13, species="HomoSapiens", gene="TRB")
+# Returns pl.DataFrame[pos, aa, frequency] — weighted average over all VJ clusters
+# of the given length.  Returns None if no matching clusters.
+```
+
+`get_vj_background` picks the cluster with the largest `total.bg` for the matching
+V/J/length; prefix matching (strip allele suffix) is tried if exact match fails.
+
+### Automated per-VJ-len logos from ALICE / TCRNET hits
+
+`build_motif_logos_vj` is the recommended entry point for ALICE / TCRNET output.
+It groups by (V, J, length), builds a per-VJ-len logo with matched OLGA background
+for each group, and adds one all-VJ aggregate logo keyed `(None, None, len)`.
+
+```python
+from mir.biomarkers.motif_logo import build_motif_logos_vj
+import polars as pl
+
+# hits_df must have columns: junction_aa, v_gene, j_gene
+logos = build_motif_logos_vj(
+    hits_df,
+    pwms,
+    species="HomoSapiens",
+    gene="TRB",
+    min_seqs=5,         # skip groups with fewer sequences
+    pseudocount=0.5,
+)
+# Returns {(v, j, len): logo_df, ..., (None, None, len): logo_df, ...}
+# Each logo_df has columns: pos, aa, count, frequency, ic_height, bg_height
+
+# Typical usage
+vj_logo  = logos.get(("TRBV9", "TRBJ2-3", 15))
+agg_logo = logos.get((None, None, 15))
+```
 
 ### Load pre-computed cluster logos from motif_pwms.txt.gz
 
 ```python
 from mir.biomarkers.motif_logo import load_motif_pwms, pwm_from_motif_pwms
 
-pwms = load_motif_pwms(path)                     # full cluster table
+pwms = load_motif_pwms(path)                          # full cluster table
 logo = pwm_from_motif_pwms(pwms, "H.B.GILGFVFTL.1")  # pos/aa/ic_height/bg_height
 ```
 
@@ -1448,42 +1669,52 @@ logo = pwm_from_motif_pwms(pwms, "H.B.GILGFVFTL.1")  # pos/aa/ic_height/bg_heigh
 Key columns: `cid`, `csz`, `species`, `gene`, `antigen.epitope`, `v.segm.repr`,
 `j.segm.repr`, `len`, `pos`, `aa`, `freq`, `freq.bg`, `height.I`, `height.I.norm`.
 
-Use `find_airr_benchmark_motif_pwms(dataset_root)` from `mir.utils.notebook_assets`.
+**Sparse storage**: `freq.bg` stores only non-zero residues per position (implicit
+zero for missing AAs). `height.I` is in [0,1]-normalised scale, not bits.
 
-### OLGA background lookup
-
-```python
-from mir.biomarkers.motif_logo import get_vj_background
-
-bg = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01", length=13)
-# Returns pl.DataFrame[pos, aa, frequency] or None if no matching cluster
-```
-
-Picks the cluster with the largest `total.bg` for the matching V/J/length.
-Prefix matching (strip allele suffix) is tried if exact match fails.
-
-### Two-panel logo figure
+### Plotting
 
 ```python
-from mir.biomarkers.motif_logo import plot_motif_logos
+from mir.biomarkers.motif_logo import plot_motif_logos, plot_logo, BIOCHEMISTRY_COLORS
 
 fig, axes = plot_motif_logos(
     logo_with_bg,
     v_gene="TRBV19*01",
     j_gene="TRBJ2-7*01",
     n_seqs=896,
-    title="GILGFVFTL",
+    title="GILGFVFTL (Influenza A, HLA-A*02:01)",
 )
-# axes[0] = standard IC logo; axes[1] = background-normalised logo
+# axes[0] = IC logo (always ≥ 0); axes[1] = selection logo (can be negative)
+# V/J gene label appears ONLY in the figure suptitle, not around the axes.
+# Letters sorted ascending so the tallest letter is drawn on top (WebLogo convention).
 ```
 
-Background-normalised panel: enriched residues (positive) above zero, depleted
-(negative, letters drawn inverted) below zero.
+`BIOCHEMISTRY_COLORS` maps all 20 amino acids to 5 colour categories matching
+Pogorelyy et al. 2019 Fig 2e:
+- Aromatic: W, F, Y, H (purple)
+- Nonpolar aliphatic: A, V, I, L, M, G, P (green)
+- Polar: S, T, N, Q, C (yellow)
+- Negatively charged: D, E (blue)
+- Positively charged: K, R (red)
 
-### Key formulas
+### Aggregate cluster IC/entropy profiles
 
-- **IC logo**: `IC[p] = log₂(20) + Σ f[p,a]·log₂(f[p,a])`;  `h_IC[p,a] = f[p,a]·IC[p]`
-- **Bg-normalised**: `h_norm[p,a] = f[p,a]·log₂(f[p,a] / f_bg[p,a])`  (can be negative)
+```python
+from mir.biomarkers.motif_logo import compute_cluster_profiles
+
+# Per-position IC, H (entropy), I_norm for all csz>=30 clusters, TRB only
+profiles = compute_cluster_profiles(pwms, min_csz=30, gene="TRB")
+# Columns: cid, species, gene, antigen.epitope, v/j.segm.repr, len, csz, pos,
+#          IC (bits), H (bits), I_norm (VDJdb-motifs cross-entropy)
+
+# Fractional-position profile (p/(L-1) maps 0→Cys, 1→Phe/Trp)
+profiles_frac = profiles.with_columns(
+    (pl.col("pos") / (pl.col("len") - 1)).alias("frac_pos")
+)
+```
+
+Formula: `IC = Σₐ height.I · log₂(20)` (position-level); `H = log₂(20) − IC`.
+`I_norm = Σₐ height.I.norm` (pre-stored cross-entropy, always ≥ 0).
 
 ### Important cluster IDs for reference
 
@@ -1493,40 +1724,236 @@ Background-normalised panel: enriched residues (positive) above zero, depleted
 | H.B.GILGFVFTL.4 | GILGFVFTL | TRBV19*01 | TRBJ1-5*01 | 13 | 129 |
 
 The B27 AS CASSVGL[YF]STDTQYF motif is NOT in motif_pwms — use VDJdb
-TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15)`.
+TRBV9/TRBJ2-3/len=15 sequences with `get_vj_background(..., v_gene="TRBV9*01",
+j_gene="TRBJ2-3*01", length=15, species="HomoSapiens", gene="TRB")`.
 
-**B27 AS two-pool analysis**: show broad (all VJlen) and ALICE hits (STDTQYF-ending) logos:
+**B27 AS analysis (Fig 2e reproduction)** — use pre-computed ALICE results, not VDJdb proxy:
 ```python
-as_seqs_broad = [...]           # all TRBV9/TRBJ2-3/len=15 from VDJdb (119 seqs)
-as_seqs_alice = [s for s in as_seqs_broad if s.endswith('STDTQYF')]  # 34 seqs
-as_bg = get_vj_background(pwms, v_gene='TRBV9*01', j_gene='TRBJ2-3*01',
-                           length=15, species='HomoSapiens', gene='TRB')
-logo_broad = compute_logo(compute_pwm(as_seqs_broad), background=as_bg)
-logo_alice = compute_logo(compute_pwm(as_seqs_alice), background=as_bg)
+import pickle
+from pathlib import Path
+from mir.biomarkers.alice import alice_hit_clusters
+from mir.biomarkers.motif_logo import get_vj_background, compute_pwm, compute_logo
+
+# Load pre-computed ALICE cache (tuple: raw_results, annotated_hits)
+_cache = pickle.load(open("tmp/_as_alice_cache.pkl", "rb"))
+as_hits_dict = _cache[1]   # {donor_id: pd.DataFrame}
+AS_DONOR_META = {1: "B27_pos", 2: "B27_pos", 3: "B27_neg", 4: "B27_pos"}
+b27_pos_donors = [k for k, v in AS_DONOR_META.items() if v == "B27_pos"]
+as_b27pos = pd.concat([as_hits_dict[d] for d in b27_pos_donors], ignore_index=True).drop_duplicates("junction_aa")
+
+# Filter to TRBV9/TRBJ2-3/len=15 ALICE hits
+alice_15 = as_b27pos[(as_b27pos.v_gene.str.startswith("TRBV9")) &
+                     (as_b27pos.j_gene.str.startswith("TRBJ2-3")) &
+                     (as_b27pos.junction_aa.str.len() == 15)]
+as_bg = get_vj_background(pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+                           length=15, species="HomoSapiens", gene="TRB")
+# Selection logo: CASS (pos 1-4) and STDTQYF (pos 9-15) collapse to ≈0;
+# VGL[YF] (pos 5-8) shows the antigen-driven enrichment.
+logo_alice = compute_logo(compute_pwm(alice_15.junction_aa.tolist()), background=as_bg)
 ```
 
-### Aggregate cluster IC/entropy profiles
+### Background from real or synthetic control (without motif_pwms.txt.gz)
+
+`get_vj_background_from_control` builds a VJ/length PWM background directly from a
+ControlManager DataFrame — useful when `motif_pwms.txt.gz` has no entry for a
+specific VJ/length, or to validate against an empirically measured control.
 
 ```python
-from mir.biomarkers.motif_logo import compute_cluster_profiles
+from mir.biomarkers.motif_logo import get_vj_background_from_control
+from mir.common.control import ControlManager
 
-# Per-position IC, H (entropy), I_norm for all csz>=30 clusters, TRB only
-profiles = compute_cluster_profiles(pwms, min_csz=30,
-                                     species='HomoSapiens', gene='TRB')
-# Columns: cid, species, gene, antigen.epitope, v/j.segm.repr, len, csz, pos,
-#          IC (bits), H (bits), I_norm (VDJdb-motifs cross-entropy)
+cm = ControlManager()
+ctrl_real  = cm.load_control_df("real",      "human", "TRB")  # ~28M rows
+ctrl_synth = cm.load_control_df("synthetic", "human", "TRB", n=100_000)
+
+bg_real = get_vj_background_from_control(
+    ctrl_real, v_gene="TRBV9", j_gene="TRBJ2-3", length=15,
+    min_seqs=100,   # returns None if fewer sequences match
+)
+bg_synth = get_vj_background_from_control(
+    ctrl_synth, v_gene="TRBV9", j_gene="TRBJ2-3", length=15,
+    min_seqs=20,    # lower threshold for synthetic controls
+)
+# Both return pl.DataFrame[pos, aa, frequency] or None
+logo = compute_logo(pwm, background=bg_real)
 ```
 
-Formula: `IC = Σₐ height.I · log₂(20)` (position-level);  `H = log₂(20) − IC`.
-`I_norm = Σₐ height.I.norm` (pre-stored cross-entropy, always ≥ 0).
+Background correlations across 158 matched VJ/len combos (43,580 frequency pairs):
+- `motif_pwms` vs real control: R = 0.97
+- `motif_pwms` vs synthetic 100K: R = 0.96
+- Real vs synthetic: R = 0.98
 
-### Background formula note
+Use `min_seqs=20` for synthetic controls (small pool); `min_seqs=100` for real repertoires.
 
-- `compute_logo` uses **log-odds KL** per residue: `h[p,a] = f·log₂(f/f_bg)` (can be negative)
-- `motif_pwms height.I.norm` uses **cross-entropy**: `−Σₐ f·ln(f_bg)/ln(20)/2` (always ≥ 0)
-- Always pass `species=` and `gene=` to `get_vj_background` explicitly to avoid mixing TRA/TRB or mouse/human backgrounds.
+### Mixed-length terminal-anchored logos
+
+`build_terminal_anchored_logo` combines CDR3s of different lengths into one display by
+anchoring the first `n_term` and last `c_term` positions. Background subtraction happens
+in the original linear CDR3 coordinate space (per CDR3 length), THEN positions are
+mapped to the terminal display — architecturally correct and required for valid h_sel.
+
+```python
+from mir.biomarkers.motif_logo import build_terminal_anchored_logo
+import polars as pl
+
+# sequences_df must have columns: junction_aa, v_gene, j_gene
+seqs_pl = pl.from_pandas(hits_df[["junction_aa", "v_gene", "j_gene"]])
+logo_anchored = build_terminal_anchored_logo(
+    seqs_pl,
+    pwms,               # motif_pwms DataFrame; or pass motif_pwms=None for IC-only
+    n_term=8,           # anchor first 8 positions (V-gene end)
+    c_term=8,           # anchor last 8 positions (J-gene end)
+    species="HomoSapiens",
+    gene="TRB",
+)
+# Returns pl.DataFrame[pos_label, aa, count, frequency, ic_height, bg_height]
+# pos_label: "1","2",…,"n_term","gap","-c_term",…,"-1"
+# Supports both motif_pwms and get_vj_background_from_control() backgrounds.
+```
+
+### De-novo motif discovery: per-VJ-len connected components
+
+When running `alice_hit_clusters` for motif discovery, **always build CCs per VJ/len group**
+separately. Building on all sequences at once creates one giant CC that mixes J-genes and
+dilutes the motif signal.
+
+```python
+from mir.biomarkers.alice import alice_hit_clusters
+
+# CORRECT: build CCs per (v_gene, j_gene, length) group
+for v, j, L in top_vj_len_groups:
+    sub = hits_df[(hits_df.v_gene.str.startswith(v)) &
+                  (hits_df.j_gene.str.startswith(j)) &
+                  (hits_df.junction_aa.str.len() == L)]
+    clustered = alice_hit_clusters(sub)  # adds cluster_id column
+    cc_sizes  = clustered.groupby("cluster_id").size().sort_values(ascending=False)
+    top_seqs  = clustered[clustered.cluster_id == cc_sizes.index[0]]
+    # Top CC for TRBV19/TRBJ2-7/len=13 shows 93% R at RS positions (pos 5-6)
+
+# WRONG: calling on all sequences creates one giant mixed CC
+# alice_hit_clusters(all_hits_df)  ← never do this for motif discovery
+```
 
 ### Background pool size
 
 ≥ 1,000 OLGA sequences per VJ/length gives stable background frequencies (MAD < 0.002);
-`motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold).
+`motif_pwms.txt.gz` uses ~23,000 per combination (well above threshold for all cases).
+
+## 24. TCRdist — Alignment-Based Clonotype Distance
+
+Use `TcrDist` from `mir.distances.tcrdist` to compute weighted V-gene + CDR3
+distances between TCR clonotypes, find per-clonotype radii, and define
+metaclonotypes via radius-threshold clustering.
+
+```python
+from mir.distances.tcrdist import TcrDist
+from mir.common.clonotype import Clonotype
+from mir.common.repertoire import LocusRepertoire
+
+# Build with defaults (computes V/J germline distances once, ~3–10 s)
+td = TcrDist.from_defaults(
+    "TRB", "human",
+    w_v=1.0,            # V-gene germline weight
+    w_j=0.0,            # J-gene weight (0 = ignore)
+    w_cdr3=3.0,         # CDR3/junction_aa weight
+    fixed_gaps=(3, 4, -4, -3),  # C-accelerated JunctionAligner (default)
+    # fixed_gaps="Mid"  → midpoint gap per pair
+    # fixed_gaps=None   → full BioPython DP alignment (slowest)
+    gap_penalty=-4.0,
+)
+
+# One-to-one
+cln1 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
+cln2 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
+d = td.dist(cln1, cln2)   # float, symmetric, non-negative
+
+# One-to-many
+refs = list(rep.clonotypes)
+row = td.dist_one_to_many(cln1, refs)  # shape: (K,)
+
+# Many-to-many (N×K matrix, parallel when fixed_gaps is a list)
+mat = td.dist_matrix(queries, refs, n_jobs=4)   # shape: (N, K)
+
+# Self-distance matrix
+mat_self = td.self_dist_matrix(list(rep.clonotypes), n_jobs=4)  # shape: (N, N)
+```
+
+### Radius computation
+
+For each clonotype, compute the *p*-th percentile of its distances to a
+background set (used as the neighbourhood search threshold):
+
+```python
+import numpy as np
+from mir.basic.pgen import OlgaModel
+
+# Generate OLGA background sequences
+model = OlgaModel(locus="TRB", species="human")
+bg_seqs, _ = model.generate_sequences_counted(10_000, n_jobs=4, seed=42)
+bg_clns = [Clonotype(junction_aa=s, locus="TRB") for s in bg_seqs]
+
+hits = [c for c in rep.clonotypes if c.v_gene and c.junction_aa]
+radii = td.compute_radius(hits, bg_clns, percentile=50, n_jobs=4)
+# radii: float64 array of shape (len(hits),)
+
+# Sequences with small radii are in convergent (antigen-driven) neighbourhoods
+threshold = float(np.percentile(radii, 25))
+```
+
+### Metaclonotype discovery
+
+```python
+from mir.common.metaclonotype import summarize_metaclonotypes
+
+# All-vs-all clustering (each clonotype as its own seed)
+meta = td.find_metaclonotypes(
+    rep,
+    max_distance=threshold,       # float radius threshold
+    match_v_gene=False,           # optionally restrict to same V
+    match_j_gene=False,
+    cluster_prefix="tcrdist_mc",
+    n_jobs=4,
+)
+print(meta.n_clusters)
+
+# Only cluster around enriched/selected seeds
+enriched_ids = [c.sequence_id for c in hits if radius_for_c <= threshold]
+meta = td.find_metaclonotypes(
+    rep,
+    representative_ids=enriched_ids,
+    max_distance=threshold,
+    n_jobs=4,
+)
+
+# Aggregate counts per cluster
+summary = summarize_metaclonotypes(rep, meta)
+# Columns: cluster_id, n_members, representative_junction_aa,
+#           representative_v_gene, representative_j_gene,
+#           duplicate_count, umi_count
+```
+
+**Scale note**: V-gene distances (BioPython BLOSUM62, unscaled) and CDR3
+distances (JunctionAligner BLOSUM62 × 10) are on different absolute scales.
+Default weights `w_v=1.0, w_cdr3=3.0` ensure CDR3 divergence dominates.
+Adjust weights if needed for a custom balance.
+
+**`cdrs_only=True`** is reserved for CDR1/2/2.5 positional markup and raises
+`NotImplementedError`.  Use `v_alignment_type="full_germline"` (the default).
+
+**Performance** (Apple M3, TRB, measured 2026-05-22):
+
+| Mode              | Dataset | n_jobs | Wall time | Pairs/s      |
+|-------------------|---------|--------|-----------|--------------|
+| `fixed_gaps` list | 1K×1K   | 1      | 0.036 s   | 27.9 M/s     |
+| `fixed_gaps` list | 5K×5K   | 1      | 0.894 s   | 28.0 M/s     |
+| `fixed_gaps` list | 1K×1K   | 8      | 0.013 s   | 75.9 M/s     |
+| `"Mid"` (Python)  | 1K×1K   | 1      | 11.7 s    | 85 k/s       |
+| `None` (BioPython)| 100×100 | 1      | 0.278 s   | 36 k/s       |
+
+`fixed_gaps` list is **~330×** faster than `"Mid"` and **~780×** faster than
+full BioPython DP.  CDR3 scoring uses `JunctionAligner.score_matrix` (C, GIL
+released); true thread parallelism gives ~2.7× speedup at n_jobs=8 (V-gene
+lookup is serial but O(1) via precomputed dicts).
+
+**Notebook**: `notebooks/tcrdist_analysis.ipynb` — influenza GILGFVFTL example,
+distance heatmap, UMAP, hierarchical clustering, motif logos, gap mode comparison.

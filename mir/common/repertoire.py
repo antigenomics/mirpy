@@ -114,6 +114,22 @@ class LocusRepertoire:
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
+        self._metaclonotypes = None
+
+    def set_metaclonotypes(self, metaclonotypes) -> None:
+        """Attach a single-chain metaclonotype definition to this repertoire."""
+        from mir.common.metaclonotype import MetaClonotypeClustering
+
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
+        if metaclonotypes.paired:
+            raise ValueError("LocusRepertoire accepts only single-chain metaclonotypes")
+        self._metaclonotypes = metaclonotypes
+
+    @property
+    def metaclonotypes(self):
+        """Return attached metaclonotype definition, if present."""
+        return self._metaclonotypes
 
     @classmethod
     def _from_group(cls, locus: str, clonotypes: list) -> "LocusRepertoire":
@@ -865,6 +881,23 @@ class SampleRepertoire:
         self.loci: dict[str, LocusRepertoire] = dict(loci)
         self.sample_id: str = sample_id
         self.sample_metadata: dict = sample_metadata if sample_metadata is not None else {}
+        self._metaclonotypes_by_locus: dict[str, object] = {}
+
+    def set_metaclonotypes(self, locus: str, metaclonotypes) -> None:
+        """Attach single-chain metaclonotypes to one locus."""
+        from mir.common.metaclonotype import MetaClonotypeClustering
+
+        if locus not in self.loci:
+            raise KeyError(f"Unknown locus {locus!r}")
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
+        if metaclonotypes.paired:
+            raise ValueError("SampleRepertoire locus attachments must be single-chain")
+        self._metaclonotypes_by_locus[locus] = metaclonotypes
+
+    def get_metaclonotypes(self, locus: str):
+        """Get attached metaclonotypes for a locus, or None."""
+        return self._metaclonotypes_by_locus.get(locus)
 
     def to_pickle(self, path: str | Path) -> Path:
         """Serialize this sample repertoire to a pickle file and return the path."""

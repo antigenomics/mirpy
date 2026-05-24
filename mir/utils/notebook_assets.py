@@ -12,6 +12,17 @@ from pathlib import Path
 from huggingface_hub import snapshot_download
 
 
+from tqdm.auto import tqdm as _base_tqdm
+
+
+class _SilentTqdm(_base_tqdm):
+    """A tqdm subclass that never displays anything."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["disable"] = True
+        super().__init__(*args, **kwargs)
+
+
 def find_repo_root(start: Path | None = None) -> Path:
     """Return the repository root from a notebook or script working directory."""
     current = (start or Path.cwd()).resolve()
@@ -51,6 +62,7 @@ def _ensure_dataset(
         repo_type="dataset",
         local_dir=str(dataset_root),
         allow_patterns=allow_patterns,
+        tqdm_class=_SilentTqdm,
     )
     return dataset_root
 
@@ -131,15 +143,11 @@ def ensure_airr_benchmark_alice(
 ) -> Path:
     """Download the ALICE subset of the AIRR benchmark dataset.
 
-    Parameters
-    ----------
-    subsets:
-        Which sub-folders to fetch.  Defaults to ``["yf", "as"]``.
-        Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
+    Args:
+        subsets: Sub-folders to fetch. Defaults to ``["yf", "as"]``.
+            Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
 
-    Returns
-    -------
-    Path
+    Returns:
         ``notebooks/assets/large/airr_benchmark`` root.
     """
     if subsets is None:
