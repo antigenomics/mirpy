@@ -7,7 +7,7 @@ and documentation.
 ## Core Objects
 
 - `Clonotype`: one rearrangement with junction sequence, V/D/J calls, and counts.
-- `LocusRepertoire`: one locus worth of clonotypes for a single sample.
+- `LocusRepertoire`: clonotypes for one locus in a single sample.
 - `SampleRepertoire`: a sample that may contain multiple loci.
 - `RepertoireDataset`: a collection of `SampleRepertoire` objects plus metadata.
 
@@ -25,7 +25,7 @@ clonotypes = parser.parse("sample.tsv.gz")
 rep = LocusRepertoire(clonotypes=clonotypes, locus="TRB")
 ```
 
-For Adaptive immunoSEQ / MLR tables, use `AdaptiveParser` and the returned
+For Adaptive immunoSEQ/MLR tables, use `AdaptiveParser` and the returned
 `LocusRepertoire` directly:
 
 ```python
@@ -230,7 +230,7 @@ probs = precompute_olga_gene_usage_probabilities(
 )
 ```
 
-This stores/reuses the synthetic control artifact via `ControlManager` and
+This stores and reuses the synthetic control artifact via `ControlManager` and
 returns a dict with `v`, `j`, and `vj` probability maps.
 
 ## 9. Prototype-Based Embeddings With TCREMP

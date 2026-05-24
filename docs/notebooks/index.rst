@@ -106,9 +106,12 @@ TCREmp Embeddings
 .. toctree::
    :maxdepth: 1
 
+   tcrdist_analysis
    tcremp_vdjdb_analysis
    tcremp_vdjdb_analysis_paired
    tcremp_10xdcode_analysis
+
+**tcrdist_analysis** — Compute TCRdist matrices, score radius-based neighborhoods, and derive metaclonotypes.
 
 **tcremp_vdjdb_analysis** — Single-chain TCREmp on VDJdb epitope-labelled clonotypes with UMAP projection.
 

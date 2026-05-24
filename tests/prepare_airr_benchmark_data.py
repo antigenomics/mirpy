@@ -11,12 +11,17 @@ csv.field_size_limit(10_000_000)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ID = "isalgo/airr_benchmark"
+COVID19_DATASET_ID = "isalgo/airr_covid19"
 
 DATASET_ROOT = REPO_ROOT / "airr_benchmark"
 TESTS_DIR = REPO_ROOT / "tests"
 ASSETS_DIR = TESTS_DIR / "assets"
 REAL_REPS_DIR = ASSETS_DIR / "real_repertoires"
 SRX_DIR = ASSETS_DIR / "srx_repertoires"
+NOTEBOOK_LARGE_ASSETS_DIR = REPO_ROOT / "notebooks" / "assets" / "large"
+COVID19_DATASET_ROOT = NOTEBOOK_LARGE_ASSETS_DIR / "airr_covid19"
+
+_COVID19_SENTINEL = COVID19_DATASET_ROOT / ".test_data_ready"
 
 # Written after a successful bootstrap so we can skip on subsequent runs.
 _SENTINEL = DATASET_ROOT / ".test_data_ready"
@@ -343,6 +348,39 @@ def ensure_test_data(
 
     _derive_assets(verbose=verbose)
     _SENTINEL.touch()
+
+
+def ensure_test_airr_covid19(*, force: bool = False, verbose: bool = False) -> Path:
+    """Ensure benchmark tests have access to AIRR COVID-19 notebook assets.
+
+    The test suite intentionally keeps its own bootstrap helpers rather than
+    importing notebook-facing asset utilities.
+    """
+    if (
+        not force
+        and _COVID19_SENTINEL.exists()
+        and any(COVID19_DATASET_ROOT.glob("*.TRA.vdjtools.tsv.gz"))
+    ):
+        return COVID19_DATASET_ROOT
+
+    from huggingface_hub import snapshot_download
+
+    NOTEBOOK_LARGE_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot_download(
+        repo_id=COVID19_DATASET_ID,
+        repo_type="dataset",
+        local_dir=str(COVID19_DATASET_ROOT),
+    )
+
+    if not any(COVID19_DATASET_ROOT.glob("*.TRA.vdjtools.tsv.gz")):
+        raise RuntimeError(
+            f"Downloaded dataset at {COVID19_DATASET_ROOT} has no TRA repertoire files"
+        )
+
+    _COVID19_SENTINEL.touch()
+    if verbose:
+        print(f"prepared AIRR COVID-19 test data under {COVID19_DATASET_ROOT}")
+    return COVID19_DATASET_ROOT
 
 
 def main() -> None:
