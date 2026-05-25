@@ -44,6 +44,21 @@ def _needs_ram_gb(gb: float):
     )
 
 
+def _run_extreme_benchmarks() -> bool:
+    """Whether to run memory-intensive benchmark tiers.
+
+    Disabled by default for CI stability; enable explicitly with
+    MIRPY_RUN_EXTREME_BENCHMARKS=1 on high-memory runners.
+    """
+    return os.getenv("MIRPY_RUN_EXTREME_BENCHMARKS", "0") in {"1", "true", "TRUE", "yes", "YES"}
+
+
+_needs_extreme_bench = pytest.mark.skipif(
+    not _run_extreme_benchmarks(),
+    reason="extreme benchmark tier disabled (set MIRPY_RUN_EXTREME_BENCHMARKS=1 to enable)",
+)
+
+
 # ===================================================================
 # Benchmark 1: Parallel chunking speedup
 # ===================================================================
@@ -827,8 +842,8 @@ class TestBenchmarkThroughput:
         (10_000,   1000),
         pytest.param(100_000,  1000, marks=_needs_ram_gb(4)),
         pytest.param(100_000,  3000, marks=_needs_ram_gb(6)),
-        pytest.param(500_000,  1000, marks=_needs_ram_gb(8)),
-        pytest.param(1_000_000, 1000, marks=_needs_ram_gb(16)),
+        pytest.param(500_000,  1000, marks=(_needs_ram_gb(8), _needs_extreme_bench)),
+        pytest.param(1_000_000, 1000, marks=(_needs_ram_gb(16), _needs_extreme_bench)),
     ])
     def test_single_process(self, models, clonotype_sets, n_clono, n_proto):
         X, elapsed, peak_mb = _measure(
@@ -868,7 +883,7 @@ class TestBenchmarkMultiprocessing:
     @pytest.mark.parametrize("n_clono", [
         10_000,
         pytest.param(100_000, marks=_needs_ram_gb(4)),
-        pytest.param(500_000, marks=_needs_ram_gb(8)),
+        pytest.param(500_000, marks=(_needs_ram_gb(8), _needs_extreme_bench)),
     ])
     def test_scaling(self, model_1k, clonotype_sets, n_clono):
         """Compare n_jobs=1 vs multi-process."""
