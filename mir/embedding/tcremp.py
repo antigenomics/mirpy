@@ -442,9 +442,17 @@ class TCREmp:
                     sub = fut.result()
                     cross[offset: offset + len(sub)] = sub
 
-        junc_mat = (
-            junc_ss[:, None] + self._proto_junction_selfscores[None, :] - 2.0 * cross
-        ).astype(np.float32)
+        # Blockwise junction distance matrix computation to avoid giant float64 intermediate.
+        # Process in chunks sized to fit in L3 cache; convert to float32 immediately.
+        junc_mat = np.empty((n, self._n_prototypes), dtype=np.float32)
+        chunk_size = max(1, min(50_000, (n + 7) // 8))  # ~64 MiB per chunk for float32
+        for offset in range(0, n, chunk_size):
+            end = min(offset + chunk_size, n)
+            chunk_junc_ss = junc_ss[offset:end, None]  # (chunk_n, 1)
+            chunk_cross = cross[offset:end, :]          # (chunk_n, n_protos)
+            junc_mat[offset:end, :] = (
+                chunk_junc_ss + self._proto_junction_selfscores[None, :] - 2.0 * chunk_cross
+            ).astype(np.float32)
 
         result = np.empty((n, self.embedding_dim), dtype=np.float32)
         result[:, 0::3] = v_mat
