@@ -44,6 +44,8 @@ html_sidebars = {
 }
 html_theme_options = {
     "logo": {
+        "image_light": "mirpy_logo.png",
+        "image_dark": "mirpy_logo_dark.png",
         "text": "mirpy documentation",
     },
     "navbar_align": "content",
