@@ -34,6 +34,33 @@ def iter_loci(
     raise TypeError("repertoire must be LocusRepertoire or SampleRepertoire")
 
 
+def lookup_gene_frac(
+    match_mode: str,
+    v_gene: str,
+    j_gene: str,
+    fracs: "dict[str, dict]",
+    *,
+    floor: float = 1e-10,
+) -> float:
+    """Return P(V), P(J), or P(V,J) from *fracs*, with a floor to avoid division by zero.
+
+    *fracs* must have keys ``"v"``, ``"j"``, and ``"vj"`` mapping to dicts of
+    gene-name → probability.  Allele suffixes are stripped before lookup.
+    For ``"vj"`` mode, falls back to ``P(V) × P(J)`` when the pair is absent.
+    """
+    vf = (v_gene or "").split("*")[0]
+    jf = (j_gene or "").split("*")[0]
+    if match_mode == "v":
+        p = fracs["v"].get(vf, 0.0)
+    elif match_mode == "j":
+        p = fracs["j"].get(jf, 0.0)
+    else:  # "vj"
+        p = fracs["vj"].get((vf, jf), 0.0)
+        if p == 0.0:
+            p = fracs["v"].get(vf, 0.0) * fracs["j"].get(jf, 0.0)
+    return max(float(p), floor)
+
+
 def apply_bh_qvalues_to_metadata(
     repertoire: LocusRepertoire | SampleRepertoire,
     *,

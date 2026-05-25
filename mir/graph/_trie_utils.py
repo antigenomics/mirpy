@@ -2,9 +2,56 @@
 
 from __future__ import annotations
 
+import logging
 import typing as t
 
+from tcrtrie import Trie
 from mir.graph.distance_utils import is_within_threshold
+
+_logger = logging.getLogger(__name__)
+
+# Standard 20 amino acids — sequences containing other characters (*, _, B, …)
+# cause tcrtrie to emit per-sequence warnings to stdout (compiled C++ code).
+# Pre-filtering to "" silences those warnings; the empty string is never matched.
+_STANDARD_AA = frozenset("ACDEFGHIKLMNPQRSTVWY")
+
+
+def _is_trie_safe(seq: str) -> bool:
+    """Return True if every character is a standard amino acid."""
+    return bool(seq) and all(c in _STANDARD_AA for c in seq.upper())
+
+
+def make_trie(seqs: list[str], v_genes: list[str], j_genes: list[str]) -> tuple:
+    """Build a tcrtrie Trie with only canonical sequences.
+
+    Non-canonical sequences (containing *, _, or non-standard AA chars) are
+    excluded from the trie index.  The compiled tcrtrie extension emits
+    per-sequence prints to C-level stdout; excluding them entirely prevents
+    those prints.  A single summary is emitted via ``logging.warning``.
+
+    Returns:
+        Tuple of ``(trie, trie_to_orig)`` where ``trie_to_orig[trie_idx]``
+        gives the corresponding original-list index.  Non-canonical entries
+        have no trie index and produce no edges.
+    """
+    from tcrtrie import Trie
+
+    trie_to_orig = [i for i, s in enumerate(seqs) if _is_trie_safe(s)]
+    n_skip = len(seqs) - len(trie_to_orig)
+    if n_skip:
+        _logger.warning(
+            "Skipping %d sequences with non-canonical amino acids (*, _, or non-standard chars)",
+            n_skip,
+        )
+
+    if trie_to_orig:
+        canon_seqs = [seqs[i] for i in trie_to_orig]
+        canon_v    = [v_genes[i] for i in trie_to_orig]
+        canon_j    = [j_genes[i] for i in trie_to_orig]
+    else:
+        canon_seqs = canon_v = canon_j = []
+
+    return Trie(sequences=canon_seqs, vGenes=canon_v, jGenes=canon_j), trie_to_orig
 
 
 _TRIE_LONG_QUERY_AUGMENT_THRESHOLD: dict[str, int] = {

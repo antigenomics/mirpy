@@ -48,6 +48,12 @@ def _init_score_worker(
     _WORKER_MOCK_KEYS = mock_key_sets
 
 
+def _clear_score_worker() -> None:
+    global _WORKER_REF_KEYS, _WORKER_MOCK_KEYS
+    _WORKER_REF_KEYS = None
+    _WORKER_MOCK_KEYS = None
+
+
 def _score_one_sample_row(sample: dict[str, Any]) -> dict[str, Any]:
     """Worker-safe sample scoring using precomputed reference/mock key sets."""
     if _WORKER_REF_KEYS is None or _WORKER_MOCK_KEYS is None:
@@ -369,23 +375,26 @@ def score_samples_dataframe(
         mock_key_sets = analysis_obj._get_mock_key_sets_for_match(match_v=True, match_j=True)
 
     rows_local: list[dict[str, Any]] = []
-    if sample_n_jobs <= 1:
-        _init_score_worker(ref_keys, mock_key_sets)
-        for i, s in enumerate(samples_list, start=1):
-            rows_local.append(_score_one_sample_row(s))
-            if progress_every and i % progress_every == 0:
-                print(f"Processed {i}/{len(samples_list)} samples")
-    else:
-        with ProcessPoolExecutor(
-            max_workers=sample_n_jobs,
-            mp_context=_MP_CTX,
-            initializer=_init_score_worker,
-            initargs=(ref_keys, mock_key_sets),
-        ) as pool:
-            for i, row in enumerate(pool.map(_score_one_sample_row, samples_list, chunksize=1), start=1):
-                rows_local.append(row)
+    try:
+        if sample_n_jobs <= 1:
+            _init_score_worker(ref_keys, mock_key_sets)
+            for i, s in enumerate(samples_list, start=1):
+                rows_local.append(_score_one_sample_row(s))
                 if progress_every and i % progress_every == 0:
                     print(f"Processed {i}/{len(samples_list)} samples")
+        else:
+            with ProcessPoolExecutor(
+                max_workers=sample_n_jobs,
+                mp_context=_MP_CTX,
+                initializer=_init_score_worker,
+                initargs=(ref_keys, mock_key_sets),
+            ) as pool:
+                for i, row in enumerate(pool.map(_score_one_sample_row, samples_list, chunksize=1), start=1):
+                    rows_local.append(row)
+                    if progress_every and i % progress_every == 0:
+                        print(f"Processed {i}/{len(samples_list)} samples")
+    finally:
+        _clear_score_worker()
 
     out = pl.from_dicts(rows_local).sort(["donor", "replica", "day"])
     out = out.with_columns([
@@ -405,6 +414,7 @@ def build_synthetic_comparison(
     n_jobs: int,
     seed: int,
     df_res_real: pl.DataFrame,
+    sample_n_jobs: int = 1,
 ) -> tuple[PgenBinPool, VDJBetOverlapAnalysis, pl.DataFrame, float, pl.DataFrame]:
     """Build synthetic null, score all samples, and compute scale-factor X."""
     pool_synth = PgenBinPool(
@@ -422,7 +432,7 @@ def build_synthetic_comparison(
         seed=seed,
     )
 
-    df_res_synth = score_samples_dataframe(analysis_synth, samples)
+    df_res_synth = score_samples_dataframe(analysis_synth, samples, sample_n_jobs=sample_n_jobs)
     x_scale = float(
         df_res_real["matched_n_mock_mean"].mean()
         / max(df_res_synth["matched_n_mock_mean"].mean(), 1e-12)

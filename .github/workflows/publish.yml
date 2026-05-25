@@ -90,6 +90,26 @@ jobs:
           merge-multiple: true
           path: dist/
 
+      - name: Validate package version matches release tag
+        if: github.event_name == 'release'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          pyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          version = pyproject['project']['version']
+          release_tag = "${{ github.event.release.tag_name }}"
+
+          normalized_tag = release_tag[1:] if release_tag.startswith('v') else release_tag
+          if version != normalized_tag:
+              raise SystemExit(
+                  f"Version mismatch: pyproject.toml has {version}, release tag is {release_tag}"
+              )
+
+          print(f"Version check passed: {version} == {release_tag}")
+          PY
+
       - name: List distributions
         run: ls -R dist/
 

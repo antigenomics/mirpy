@@ -19,6 +19,16 @@ import pandas as pd
 import polars as pl
 
 from mir.common.clonotype import Clonotype
+from mir.common.diversity import (
+    CountField,
+    DiversitySummary,
+    hill_curve_clonotypes,
+    hill_curve_loci_clonotypes,
+    rarefaction_curve_clonotypes,
+    rarefaction_curve_loci_clonotypes,
+    summarize_clonotypes,
+    summarize_loci_clonotypes,
+)
 
 
 _GENE_PREFIX_TO_LOCUS: dict[str, str] = {
@@ -104,6 +114,22 @@ class LocusRepertoire:
         self.locus: str = locus
         self.repertoire_id: str = repertoire_id
         self.repertoire_metadata: dict = repertoire_metadata if repertoire_metadata is not None else {}
+        self._metaclonotypes = None
+
+    def set_metaclonotypes(self, metaclonotypes) -> None:
+        """Attach a single-chain metaclonotype definition to this repertoire."""
+        from mir.common.metaclonotype import MetaClonotypeClustering
+
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
+        if metaclonotypes.paired:
+            raise ValueError("LocusRepertoire accepts only single-chain metaclonotypes")
+        self._metaclonotypes = metaclonotypes
+
+    @property
+    def metaclonotypes(self):
+        """Return attached metaclonotype definition, if present."""
+        return self._metaclonotypes
 
     @classmethod
     def _from_group(cls, locus: str, clonotypes: list) -> "LocusRepertoire":
@@ -223,6 +249,51 @@ class LocusRepertoire:
             return self._duplicate_count_cache
         self._duplicate_count_cache = sum(c.duplicate_count for c in self.clonotypes)
         return self._duplicate_count_cache
+
+    def diversity(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> DiversitySummary:
+        """Compute diversity summary metrics for this locus repertoire."""
+        return summarize_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+
+    def hill_curve(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        q_values: list[float] | None = None,
+    ) -> pl.DataFrame:
+        """Compute Hill diversity profile for this locus repertoire."""
+        return hill_curve_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
+            q_values=q_values,
+        )
+
+    def rarefaction_curve(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        m_steps: list[int] | None = None,
+        include_exact: bool = True,
+        confidence: float = 0.95,
+    ) -> pl.DataFrame:
+        """Compute rarefaction/extrapolation and sample-coverage curves."""
+        return rarefaction_curve_clonotypes(
+            self.clonotypes,
+            count_field=count_field,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
 
     # ------------------------------------------------------------------
     # Sorting
@@ -810,6 +881,23 @@ class SampleRepertoire:
         self.loci: dict[str, LocusRepertoire] = dict(loci)
         self.sample_id: str = sample_id
         self.sample_metadata: dict = sample_metadata if sample_metadata is not None else {}
+        self._metaclonotypes_by_locus: dict[str, object] = {}
+
+    def set_metaclonotypes(self, locus: str, metaclonotypes) -> None:
+        """Attach single-chain metaclonotypes to one locus."""
+        from mir.common.metaclonotype import MetaClonotypeClustering
+
+        if locus not in self.loci:
+            raise KeyError(f"Unknown locus {locus!r}")
+        if not isinstance(metaclonotypes, MetaClonotypeClustering):
+            raise TypeError("metaclonotypes must be MetaClonotypeClustering")
+        if metaclonotypes.paired:
+            raise ValueError("SampleRepertoire locus attachments must be single-chain")
+        self._metaclonotypes_by_locus[locus] = metaclonotypes
+
+    def get_metaclonotypes(self, locus: str):
+        """Get attached metaclonotypes for a locus, or None."""
+        return self._metaclonotypes_by_locus.get(locus)
 
     def to_pickle(self, path: str | Path) -> Path:
         """Serialize this sample repertoire to a pickle file and return the path."""
@@ -1099,6 +1187,99 @@ class SampleRepertoire:
     def duplicate_count(self) -> int:
         """Total duplicate_count across all loci."""
         return sum(lr.duplicate_count for lr in self.loci.values())
+
+    def diversity(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        per_locus: bool = True,
+        expanded_threshold: float = 1e-3,
+        hyperexpanded_threshold: float = 1e-2,
+    ) -> dict[str, DiversitySummary] | DiversitySummary:
+        """Compute diversity summaries either per locus or pooled across loci."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
+        if per_locus:
+            return summarize_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                expanded_threshold=expanded_threshold,
+                hyperexpanded_threshold=hyperexpanded_threshold,
+            )
+
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return summarize_clonotypes(
+            pooled,
+            count_field=count_field,
+            expanded_threshold=expanded_threshold,
+            hyperexpanded_threshold=hyperexpanded_threshold,
+        )
+
+    def hill_curve(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        per_locus: bool = True,
+        q_values: list[float] | None = None,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute Hill diversity profile per locus or pooled."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
+        if per_locus:
+            return hill_curve_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                q_values=q_values,
+            )
+
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return hill_curve_clonotypes(
+            pooled,
+            count_field=count_field,
+            q_values=q_values,
+        )
+
+    def rarefaction_curve(
+        self,
+        *,
+        count_field: CountField = "duplicate_count",
+        per_locus: bool = True,
+        m_steps: list[int] | None = None,
+        include_exact: bool = True,
+        confidence: float = 0.95,
+    ) -> dict[str, pl.DataFrame] | pl.DataFrame:
+        """Compute rarefaction/coverage curve per locus or pooled."""
+        loci_to_clonotypes = {
+            locus: lr.clonotypes
+            for locus, lr in self.loci.items()
+        }
+        if per_locus:
+            return rarefaction_curve_loci_clonotypes(
+                loci_to_clonotypes,
+                count_field=count_field,
+                m_steps=m_steps,
+                include_exact=include_exact,
+                confidence=confidence,
+            )
+
+        pooled: list[Clonotype] = []
+        for clonotypes in loci_to_clonotypes.values():
+            pooled.extend(clonotypes)
+        return rarefaction_curve_clonotypes(
+            pooled,
+            count_field=count_field,
+            m_steps=m_steps,
+            include_exact=include_exact,
+            confidence=confidence,
+        )
 
     # ------------------------------------------------------------------
     # Sorting
