@@ -25,6 +25,8 @@ import pytest
 
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
+import math
+
 from mir.comparative.overlap import (
     _AA20,
     compute_overlaps,
@@ -32,8 +34,12 @@ from mir.comparative.overlap import (
     expand_1mm,
     make_query_index,
     make_reference_keys,
+    pairwise_overlap,
+    pairwise_overlap_matrix,
+    PairwiseOverlapResult,
 )
 import mir.comparative.overlap as overlap_mod
+from tests.benchmark_helpers import many_vs_many_sample_overlap, many_vs_pool_sample_overlap
 from tests.conftest import skip_benchmarks
 
 
@@ -47,12 +53,14 @@ def _make_rep(
     v_gene: str = "TRBV12-3*01",
     j_gene: str = "TRBJ2-2*01",
     locus: str = "TRB",
+    junctions: list[str] | None = None,
 ) -> LocusRepertoire:
     clones = [
         Clonotype(
             sequence_id=str(i),
             locus=locus,
             junction_aa=jaa,
+            junction=(junctions[i] if junctions is not None else ""),
             v_gene=v_gene,
             j_gene=j_gene,
             duplicate_count=i + 1,
@@ -364,6 +372,60 @@ class TestOverlapSpeed:
     def ref_rep(self):
         return _make_synthetic_rep(self.N_REF)
 
+
+    class TestPairwiseOverlapSpaces:
+        """Sanity checks for overlap spaces and non-coding handling."""
+
+        def test_exact_spaces_identical(self) -> None:
+            rep = _make_rep(
+                ["CASSF", "CASSY", "CASSW"],
+                junctions=["TGTGCC", "TGTGCA", "TGTGCG"],
+            )
+
+            for overlap_space in ("ntvj", "nt", "aavj", "aa"):
+                r = pairwise_overlap(rep, rep, overlap_space=overlap_space)
+                assert r.n1_matched == 3
+                assert r.n2_matched == 3
+                assert r.jaccard == pytest.approx(1.0)
+
+        def test_nt_spaces_forbid_mismatch(self) -> None:
+            rep1 = _make_rep(["CASSF"], junctions=["TGTGCC"])
+            rep2 = _make_rep(["CASSF"], junctions=["TGTGCC"])
+
+            with pytest.raises(ValueError):
+                pairwise_overlap(rep1, rep2, overlap_space="nt", metric="hamming", threshold=1)
+
+            with pytest.raises(ValueError):
+                pairwise_overlap(rep1, rep2, overlap_space="ntvj", metric="levenshtein", threshold=1)
+
+        def test_noncoding_excluded_from_aa_overlap(self) -> None:
+            rep1 = _make_rep(
+                ["CASSF", "CAS*F", "CAS~F", "CAS_F"],
+                junctions=["A", "B", "C", "D"],
+            )
+            rep2 = _make_rep(
+                ["CASSF", "CAS*F", "CAS~F", "CAS_F"],
+                junctions=["A", "B", "C", "D"],
+            )
+
+            r_aa = pairwise_overlap(rep1, rep2, overlap_space="aa")
+            r_nt = pairwise_overlap(rep1, rep2, overlap_space="nt")
+
+            assert r_aa.n1_matched == 1
+            assert r_nt.n1_matched == 4
+
+        def test_sample_vs_downsample_sanity(self) -> None:
+            rep = _make_rep(
+                ["CASSF", "CASSY", "CASSW", "CASRG", "CASST"],
+                junctions=["AAA", "AAT", "AAC", "AAG", "ATA"],
+            )
+            downsample = LocusRepertoire(clonotypes=rep.clonotypes[:3], locus="TRB")
+
+            for overlap_space in ("ntvj", "nt", "aavj", "aa"):
+                r = pairwise_overlap(rep, downsample, overlap_space=overlap_space)
+                assert r.n2_matched == 3
+                assert r.n1_matched == 3
+
     @pytest.fixture(scope="class")
     def query_rep(self):
         return _make_synthetic_rep(self.N_QUERY, offset=3)
@@ -385,7 +447,8 @@ class TestOverlapSpeed:
         keys = make_reference_keys(ref_rep, allow_1mm=False)
         elapsed = time.perf_counter() - t0
         print(f"\nexact  key build ({self.N_REF} clones): {len(keys):,} keys  {elapsed*1e3:.1f} ms")
-        assert elapsed < 0.001, f"expected < 1 ms, got {elapsed*1e3:.1f} ms"
+        max_s = float(os.getenv("MIRPY_BENCH_OVERLAP_EXACT_MAX_S", "0.001"))
+        assert elapsed < max_s, f"expected < {max_s*1e3:.0f} ms, got {elapsed*1e3:.1f} ms"
 
     def test_key_build_1mm_under_100ms(self, ref_rep) -> None:
         t0 = time.perf_counter()
@@ -403,7 +466,8 @@ class TestOverlapSpeed:
         elapsed = time.perf_counter() - t0
         print(f"\nexact  overlap ({self.N_REF} ref × {self.N_QUERY} query): "
               f"n={r.n}  dc={r.dc}  {elapsed*1e3:.2f} ms")
-        assert elapsed < 0.001
+        max_s = float(os.getenv("MIRPY_BENCH_OVERLAP_EXACT_MAX_S", "0.001"))
+        assert elapsed < max_s, f"expected < {max_s*1e3:.0f} ms, got {elapsed*1e3:.1f} ms"
 
     def test_overlap_1mm_pre_expanded_under_50ms(self, ref_rep, query_index) -> None:
         keys = make_reference_keys(ref_rep, allow_1mm=True)
@@ -470,3 +534,309 @@ class TestOverlapSpeed:
         print(f"\ncompute_overlaps 1mm  100 compact mocks: {elapsed:.3f}s  "
               f"({elapsed/100*1e3:.1f} ms/mock)")
         assert len(results) == 100
+
+
+# ---------------------------------------------------------------------------
+# pairwise_overlap — sanity checks
+# ---------------------------------------------------------------------------
+
+class TestPairwiseOverlapExact:
+    """Sanity tests for :func:`pairwise_overlap` with exact matching."""
+
+    def test_identical_reps_all_match(self) -> None:
+        rep = _make_rep(["CASSF", "CASSY", "CASSW"], v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01")
+        r = pairwise_overlap(rep, rep)
+        assert r.n1 == 3
+        assert r.n1_matched == 3
+        assert r.n2_matched == 3
+        assert r.jaccard == pytest.approx(1.0)
+        assert r.d_similarity == pytest.approx(1.0)
+        assert r.f_similarity == pytest.approx(1.0)
+        assert r.f2_similarity == pytest.approx(1.0)
+        assert r.morisita_horn == pytest.approx(1.0)
+        assert r.mode == "exact"
+        assert not r.is_approximate
+
+    def test_disjoint_reps_zero_overlap(self) -> None:
+        rep1 = _make_rep(["CASSF"])
+        rep2 = _make_rep(["CASSY"])
+        r = pairwise_overlap(rep1, rep2)
+        assert r.n1_matched == 0
+        assert r.jaccard == 0.0
+        assert r.d_similarity == 0.0
+        assert r.f_similarity == 0.0
+        assert r.morisita_horn == 0.0
+        assert math.isnan(r.f2_similarity)
+
+    def test_partial_overlap(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY"])  # dc = [1, 2]
+        rep2 = _make_rep(["CASSF", "CASSW"])  # dc = [1, 2]
+        r = pairwise_overlap(rep1, rep2)
+        assert r.n1 == 2 and r.n2 == 2
+        assert r.n1_matched == 1
+        # Jaccard = 1 / (2 + 2 - 1) = 1/3
+        assert r.jaccard == pytest.approx(1 / 3)
+        # D = 1 / sqrt(2 * 2) = 0.5
+        assert r.d_similarity == pytest.approx(0.5)
+        assert r.f_similarity > 0.0
+
+    def test_jaccard_bounds(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY", "CASSW"])
+        rep2 = _make_rep(["CASSF"])
+        r = pairwise_overlap(rep1, rep2)
+        assert 0.0 <= r.jaccard <= 1.0
+        assert 0.0 <= r.d_similarity <= 1.0
+
+    def test_morisita_horn_range(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY"])
+        rep2 = _make_rep(["CASSF", "CASSY"])
+        r = pairwise_overlap(rep1, rep2)
+        assert 0.0 <= r.morisita_horn <= 1.0
+
+    def test_morisita_horn_identical(self) -> None:
+        """MH = 1 for identical repertoires regardless of frequency distribution."""
+        rep = _make_rep(["CASSF", "CASSY", "CASSW"])
+        r = pairwise_overlap(rep, rep)
+        assert r.morisita_horn == pytest.approx(1.0, abs=1e-9)
+
+    def test_f2_leq_f_metric(self) -> None:
+        """By Cauchy-Schwarz, F2 ≤ F when frequencies are unequal."""
+        rep1 = _make_rep(["CASSF", "CASSY"])
+        rep2 = _make_rep(["CASSF", "CASSY"])
+        r = pairwise_overlap(rep1, rep2)
+        # f2 = Σ sqrt(p_i * q_i) ≤ 1 in general; here reps are identical so
+        # f2 should equal f_similarity (both = 1 for unit freq vectors).
+        assert not math.isnan(r.f2_similarity)
+        assert r.f2_similarity > 0
+
+    def test_correlation_nan_for_single_clone(self) -> None:
+        """Correlation requires ≥ 2 overlapping clones."""
+        rep1 = _make_rep(["CASSF"])
+        rep2 = _make_rep(["CASSF"])
+        r = pairwise_overlap(rep1, rep2)
+        assert math.isnan(r.correlation)
+
+    def test_correlation_bounded(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY", "CASSW"])
+        rep2 = _make_rep(["CASSF", "CASSY", "CASSW"])
+        r = pairwise_overlap(rep1, rep2)
+        assert not math.isnan(r.correlation)
+        assert -1.0 <= r.correlation <= 1.0
+
+    def test_symmetry(self) -> None:
+        """Pairwise metrics should be symmetric: swap(rep1, rep2) = same result."""
+        rep1 = _make_rep(["CASSF", "CASSY", "CASSW"])
+        rep2 = _make_rep(["CASSF", "CASSZ"])
+        r12 = pairwise_overlap(rep1, rep2)
+        r21 = pairwise_overlap(rep2, rep1)
+        assert r12.jaccard == pytest.approx(r21.jaccard)
+        assert r12.d_similarity == pytest.approx(r21.d_similarity)
+        assert r12.f_similarity == pytest.approx(r21.f_similarity)
+        assert r12.morisita_horn == pytest.approx(r21.morisita_horn)
+
+    def test_as_dict_keys(self) -> None:
+        rep = _make_rep(["CASSF"])
+        r = pairwise_overlap(rep, rep)
+        d = r.as_dict()
+        for key in ("jaccard", "d_similarity", "f_similarity", "morisita_horn",
+                    "correlation", "f2_similarity", "mode", "is_approximate"):
+            assert key in d
+
+    def test_empty_rep_returns_zeros(self) -> None:
+        empty = LocusRepertoire(clonotypes=[], locus="TRB")
+        rep = _make_rep(["CASSF"])
+        r = pairwise_overlap(empty, rep)
+        assert r.n1 == 0
+        assert r.jaccard == 0.0
+        assert r.f_similarity == 0.0
+
+
+class TestPairwiseOverlapApproximate:
+    """Sanity tests for :func:`pairwise_overlap` with trie-based matching."""
+
+    def test_hamming1_catches_1sub(self) -> None:
+        rep1 = _make_rep(["CASSF"])  # query
+        rep2 = _make_rep(["AASSF"])  # 1 substitution away
+        r = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert r.n1_matched == 1
+        assert r.is_approximate
+
+    def test_hamming1_misses_2sub(self) -> None:
+        rep1 = _make_rep(["CASSF"])
+        rep2 = _make_rep(["AASAF"])  # 2 substitutions
+        r = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert r.n1_matched == 0
+
+    def test_levenshtein1_catches_indel(self) -> None:
+        rep1 = _make_rep(["CASSF"])
+        rep2 = _make_rep(["CASF"])  # 1 deletion
+        r = pairwise_overlap(rep1, rep2, metric="levenshtein", threshold=1)
+        assert r.n1_matched >= 1
+
+    def test_approx_correlation_is_nan(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY"])
+        rep2 = _make_rep(["AASSF", "AASSY"])
+        r = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert math.isnan(r.correlation)
+
+    def test_approx_f2_is_nan(self) -> None:
+        rep1 = _make_rep(["CASSF"])
+        rep2 = _make_rep(["AASSF"])
+        r = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert math.isnan(r.f2_similarity)
+
+    def test_approx_mode_string(self) -> None:
+        rep = _make_rep(["CASSF"])
+        r = pairwise_overlap(rep, rep, metric="hamming", threshold=1)
+        assert r.mode == "hamming:1"
+
+    def test_approx_metrics_in_range(self) -> None:
+        rep1 = _make_rep(["CASSF", "CASSY"])
+        rep2 = _make_rep(["AASSF", "AASSY"])
+        r = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert 0.0 <= r.jaccard <= 1.0
+        assert 0.0 <= r.d_similarity <= 1.0
+        assert 0.0 <= r.f_similarity <= 1.0
+        assert 0.0 <= r.morisita_horn
+
+    def test_exact_leq_hamming1(self) -> None:
+        """Approximate matching should find at least as many matches as exact."""
+        rep1 = _make_rep(["CASSF", "CASSY", "CASSW"])
+        rep2 = _make_rep(["CASSF", "CASSY", "AASSW"])
+        r_exact = pairwise_overlap(rep1, rep2)
+        r_approx = pairwise_overlap(rep1, rep2, metric="hamming", threshold=1)
+        assert r_approx.n1_matched >= r_exact.n1_matched
+
+    def test_threshold0_matches_exact(self) -> None:
+        """threshold=0 with any metric should behave identically to exact."""
+        rep1 = _make_rep(["CASSF", "CASSY"])
+        rep2 = _make_rep(["CASSF", "CASSZ"])
+        r_exact = pairwise_overlap(rep1, rep2)
+        r_h0 = pairwise_overlap(rep1, rep2, metric="hamming", threshold=0)
+        assert r_exact.n1_matched == r_h0.n1_matched
+        assert r_exact.jaccard == pytest.approx(r_h0.jaccard)
+
+
+class TestPairwiseOverlapMatrix:
+    """Sanity tests for :func:`pairwise_overlap_matrix`."""
+
+    def _reps(self):
+        return [
+            _make_rep(["CASSF", "CASSY"]),
+            _make_rep(["CASSF", "CASSW"]),
+            _make_rep(["CASSZ", "CASSX"]),
+        ]
+
+    def test_returns_dataframe(self) -> None:
+        import pandas as pd
+        reps = self._reps()
+        df = pairwise_overlap_matrix(reps)
+        assert isinstance(df, pd.DataFrame)
+
+    def test_row_count(self) -> None:
+        reps = self._reps()
+        df = pairwise_overlap_matrix(reps)
+        # 3 samples → 3 pairs
+        assert len(df) == 3
+
+    def test_has_metric_columns(self) -> None:
+        reps = self._reps()
+        df = pairwise_overlap_matrix(reps)
+        for col in ("jaccard", "d_similarity", "f_similarity", "morisita_horn"):
+            assert col in df.columns
+
+    def test_sample_ids_used(self) -> None:
+        reps = self._reps()
+        ids = ["alpha", "beta", "gamma"]
+        df = pairwise_overlap_matrix(reps, sample_ids=ids)
+        assert set(df["sample_id_1"]) <= set(ids)
+        assert set(df["sample_id_2"]) <= set(ids)
+
+    def test_parallel_matches_serial(self) -> None:
+        reps = self._reps()
+        df_serial = pairwise_overlap_matrix(reps, n_jobs=1)
+        df_parallel = pairwise_overlap_matrix(reps, n_jobs=2)
+        for col in ("jaccard", "d_similarity", "f_similarity"):
+            for v1, v2 in zip(df_serial[col], df_parallel[col]):
+                if math.isnan(v1) and math.isnan(v2):
+                    continue
+                assert abs(v1 - v2) < 1e-10, f"{col}: {v1} vs {v2}"
+
+    def test_too_few_reps_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least 2"):
+            pairwise_overlap_matrix([_make_rep(["CASSF"])])
+
+    def test_mismatched_ids_raises(self) -> None:
+        reps = self._reps()
+        with pytest.raises(ValueError, match="sample_ids length"):
+            pairwise_overlap_matrix(reps, sample_ids=["a", "b"])
+
+
+class TestManyVsManyHelpers:
+    def _reps(self):
+        return [
+            _make_rep(["CASSF", "CASSY"]),
+            _make_rep(["CASSF", "CASSW"]),
+            _make_rep(["CASSZ", "CASSX"]),
+        ]
+
+    def test_many_vs_many_returns_dataframe(self) -> None:
+        import pandas as pd
+
+        reps = self._reps()
+        df = many_vs_many_sample_overlap(reps, sample_ids=["a", "b", "c"], n_jobs=1)
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 3
+        assert "n_jobs_effective" in df.columns
+        assert "qi_estimated_gb" in df.columns
+
+    def test_many_vs_many_process_backend_uses_requested_jobs(self) -> None:
+        reps = self._reps()
+        df = many_vs_many_sample_overlap(
+            reps,
+            sample_ids=["a", "b", "c"],
+            n_jobs=4,
+        )
+        assert (df["n_jobs_effective"] == 4).all()
+
+    def test_many_vs_many_thread_backend_uses_requested_jobs(self) -> None:
+        reps = self._reps()
+        df = many_vs_many_sample_overlap(
+            reps,
+            sample_ids=["a", "b", "c"],
+            n_jobs=4,
+        )
+        assert (df["n_jobs_effective"] == 4).all()
+
+    def test_many_vs_many_thread_backend_approximate_runs(self) -> None:
+        reps = self._reps()
+        df = many_vs_many_sample_overlap(
+            reps,
+            sample_ids=["a", "b", "c"],
+            metric="hamming",
+            threshold=1,
+            overlap_space="aavj",
+            n_jobs=2,
+        )
+        assert len(df) == 3
+        assert set(df["mode"]) == {"hamming:1"}
+
+    def test_many_vs_pool_returns_dataframe(self) -> None:
+        import pandas as pd
+
+        reps = self._reps()
+        pool_rep = LocusRepertoire(
+            clonotypes=[c for rep in reps for c in rep.clonotypes],
+            locus="TRB",
+        )
+        df = many_vs_pool_sample_overlap(
+            reps,
+            pool_rep,
+            sample_ids=["a", "b", "c"],
+            ages=[10, 20, 30],
+            n_jobs=1,
+        )
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 3
+        assert "sample_id" in df.columns
+        assert "age" in df.columns

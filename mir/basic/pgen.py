@@ -12,6 +12,25 @@ Wraps the OLGA library to provide:
 - V/J gene-usage adjustment (importance sampling) via
   :class:`PgenGeneUsageAdjustment`.
 
+Performance notes
+-----------------
+**Theoretical exact Pgen** (``max_mismatches=0``) is slow: OLGA sums over all
+V(D)J recombination scenarios for a single amino-acid sequence, taking
+~1–10 ms per sequence.  For repertoires of 100 K+ clonotypes this becomes the
+dominant cost; use ``n_jobs > 1`` to parallelize.
+
+**Theoretical 1mm Pgen** (``max_mismatches=1``) is *extremely slow*: it
+requires L + 1 OLGA calls per sequence (one for each 1-mismatch variant plus
+self), where L is the CDR3 length.  A 12-AA CDR3 takes ~10–100 ms.  For
+production ALICE runs, prefer ``pgen_mode="mc"`` (Monte-Carlo pool estimation)
+and fall back to OLGA 1mm only for sequences with very few pool matches.
+
+**Synthetic sequence generation** is the fastest path: :meth:`OlgaModel.generate_sequences`
+and :meth:`OlgaModel.generate_pool` stream sequences directly from the OLGA
+recombination model without per-sequence Pgen evaluation.  Use
+:meth:`OlgaModel.generate_sequences_counted` when the total rearrangement
+count is needed as the MC Pgen denominator.
+
 Parallel strategy
 -----------------
 ``compute_pgen_junction_aa_bulk`` uses a ``multiprocessing.Pool`` whose workers
@@ -26,6 +45,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import signal
 from math import ceil
 import math
 from typing import TYPE_CHECKING, Iterable
@@ -54,6 +74,14 @@ translate_bidi = _mirseq.translate_bidi
 # Loci that have a D gene segment in their recombination model.
 _D_PRESENT: frozenset[str] = frozenset({"TRB", "TRD", "IGH"})
 
+# Number of terminal positions to skip when computing 1mm pgen.
+# The first and last residues of a CDR3 are highly conserved (C-anchor at 0,
+# F/W-anchor at the end) and encoded by the V/J genes, so mutating them adds
+# noise rather than signal.  Skipping 2 positions on each end reduces OLGA
+# calls per sequence from L+1 to L-3 (~30% fewer for a 12-AA CDR3).
+# Override with env var MIRPY_PGEN_1MM_SKIP_ENDS=0 to restore full behaviour.
+_PGEN_1MM_SKIP_ENDS: int = max(0, int(os.getenv("MIRPY_PGEN_1MM_SKIP_ENDS", "2")))
+
 
 def _split_n(n: int, k: int) -> list[int]:
     """Split *n* into *k* roughly equal positive chunks."""
@@ -70,6 +98,7 @@ _WORKER_PGEN_MODEL = None  # set by _init_pgen_worker in each child process
 
 def _init_pgen_worker(model_dir: str, is_d_present: bool) -> None:
     """Load the OLGA pgen model once in each pool worker process."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     global _WORKER_PGEN_MODEL
 
     params_file = f"{model_dir}/model_params.txt"
@@ -99,10 +128,32 @@ def _compute_exact_batch(seqs: list[str]) -> list[float]:
     return [float(m.compute_aa_CDR3_pgen(s)) for s in seqs]
 
 
+def _compute_1mm_inner(m, seq: str, skip: int) -> float:
+    """Compute 1mm pgen for *seq*, skipping the first/last *skip* positions.
+
+    Uses the same identity as OLGA's ``compute_hamming_dist_1_pgen``:
+        P_inner = P(self) + sum_{i in inner} [P(X at i) - P(self)]
+    where ``inner = range(skip, L - skip)`` and 'X' is the OLGA wildcard.
+    Falls back to the full OLGA call when the sequence is too short.
+    """
+    L = len(seq)
+    if skip == 0 or L <= 2 * skip:
+        return float(m.compute_hamming_dist_1_pgen(seq, print_warnings=False))
+    # Resolve V/J masks once (None → all genes), matching the internal
+    # contract of compute_hamming_dist_1_pgen before it calls compute_CDR3_pgen.
+    V_mask, J_mask = m.format_usage_masks(None, None, False)
+    p_self = float(m.compute_CDR3_pgen(seq, V_mask, J_mask))
+    tot = p_self
+    for i in range(skip, L - skip):
+        tot += float(m.compute_CDR3_pgen(seq[:i] + "X" + seq[i + 1:], V_mask, J_mask)) - p_self
+    return max(0.0, tot)
+
+
 def _compute_1mm_batch(seqs: list[str]) -> list[float]:
     """Compute 1-mismatch Pgen for a batch in a pool worker."""
     m = _WORKER_PGEN_MODEL
-    return [float(m.compute_hamming_dist_1_pgen(s, print_warnings=False)) for s in seqs]
+    skip = _PGEN_1MM_SKIP_ENDS
+    return [_compute_1mm_inner(m, s, skip) for s in seqs]
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +161,119 @@ def _compute_1mm_batch(seqs: list[str]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 def _generate_chunk(args: tuple) -> list[str]:
-    """Worker: generate CDR3 aa sequences (no Pgen) for generate_sequences_parallel."""
+    """Worker: generate junction aa sequences (no Pgen) for generate_sequences_parallel."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
-    return [model._sample_cdr3_aa() for _ in range(n)]
+    return [model._sample_junction_aa() for _ in range(n)]
+
+
+# ---------------------------------------------------------------------------
+# Attempt-counted generation (for MC Pgen denominator calibration)
+# ---------------------------------------------------------------------------
+
+def _gen_one_counted_junction_vdj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
+    """Return (junction_aa, n_attempts) for one productive VDJ event.
+
+    Counts every recombination event tried, including non-productive ones, so
+    that sum(n_attempts) / n_productive = 1 / P(productive).  This ratio is
+    used to normalise MC Pgen estimates to the OLGA scale.
+    """
+    n = 0
+    while True:
+        n += 1
+        recomb_events = sg.choose_random_recomb_events()
+
+        V_seq_full = sg.cutV_genomic_CDR3_segs[recomb_events["V"]]
+        if len(V_seq_full) <= max(recomb_events["delV"], 0):
+            continue
+
+        D_seq_full = sg.cutD_genomic_CDR3_segs[recomb_events["D"]]
+        J_seq_full = sg.cutJ_genomic_CDR3_segs[recomb_events["J"]]
+
+        if len(D_seq_full) < (recomb_events["delDl"] + recomb_events["delDr"]):
+            continue
+        if len(J_seq_full) < recomb_events["delJ"]:
+            continue
+
+        V_seq = V_seq_full[: len(V_seq_full) - recomb_events["delV"]]
+        D_seq = D_seq_full[recomb_events["delDl"] : len(D_seq_full) - recomb_events["delDr"]]
+        J_seq = J_seq_full[recomb_events["delJ"] :]
+
+        if (
+            len(V_seq) + len(D_seq) + len(J_seq)
+            + recomb_events["insVD"] + recomb_events["insDJ"]
+        ) % 3 != 0:
+            continue
+
+        insVD_seq = seq_gen.rnd_ins_seq(recomb_events["insVD"], sg.C_Rvd, sg.C_first_nt_bias_insVD)
+        insDJ_seq = seq_gen.rnd_ins_seq(recomb_events["insDJ"], sg.C_Rdj, sg.C_first_nt_bias_insDJ)[::-1]
+
+        ntseq = V_seq + insVD_seq + D_seq + insDJ_seq + J_seq
+        aaseq = translate_bidi(ntseq)
+
+        if "*" in aaseq:
+            continue
+        if aaseq[0] != "C" or aaseq[-1] not in conserved_J_residues:
+            continue
+
+        return aaseq, n
+
+
+def _gen_one_counted_junction_vj(sg, conserved_J_residues: str = "FVW") -> tuple[str, int]:
+    """Return (junction_aa, n_attempts) for one productive VJ event."""
+    n = 0
+    while True:
+        n += 1
+        recomb_events = sg.choose_random_recomb_events()
+
+        V_seq_full = sg.cutV_genomic_CDR3_segs[recomb_events["V"]]
+        if len(V_seq_full) <= max(recomb_events["delV"], 0):
+            continue
+
+        J_seq_full = sg.cutJ_genomic_CDR3_segs[recomb_events["J"]]
+        if len(J_seq_full) < recomb_events["delJ"]:
+            continue
+
+        V_seq = V_seq_full[: len(V_seq_full) - recomb_events["delV"]]
+        J_seq = J_seq_full[recomb_events["delJ"] :]
+
+        if (len(V_seq) + len(J_seq) + recomb_events["insVJ"]) % 3 != 0:
+            continue
+
+        insVJ_seq = seq_gen.rnd_ins_seq(recomb_events["insVJ"], sg.C_Rvj, sg.C_first_nt_bias_insVJ)
+
+        ntseq = V_seq + insVJ_seq + J_seq
+        aaseq = translate_bidi(ntseq)
+
+        if "*" in aaseq:
+            continue
+        if aaseq[0] != "C" or aaseq[-1] not in conserved_J_residues:
+            continue
+
+        return aaseq, n
+
+
+def _generate_counted_chunk(args: tuple) -> tuple[list[str], int]:
+    """Worker: generate n sequences and return (seqs, n_total_rearrangements).
+
+    n_total_rearrangements = M + K where M is productive sequences and K is
+    rejected non-productive events.  Used as denominator for MC Pgen.
+    """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    init_kwargs, n, seed = args
+    model = OlgaModel(**init_kwargs, seed=None)
+    np.random.seed(seed)
+    sg = model.seq_gen_model
+    _gen = _gen_one_counted_junction_vdj if model.is_d_present else _gen_one_counted_junction_vj
+    seqs: list[str] = []
+    total = 0
+    for _ in range(n):
+        seq, attempts = _gen(sg)
+        seqs.append(seq)
+        total += attempts
+    return seqs, total
 
 
 def _generate_pool_chunk(args: tuple) -> list[dict]:
@@ -127,6 +286,7 @@ def _generate_pool_chunk(args: tuple) -> list[dict]:
     Record keys: ``junction_aa``, ``junction``, ``v_gene``, ``j_gene``,
     ``v_end``, ``j_start``, ``log2_pgen``.
     """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_kwargs, n, seed = args
     model = OlgaModel(**init_kwargs, seed=None)
     np.random.seed(seed)
@@ -236,6 +396,21 @@ class OlgaModel:
         self._pgen_pool: Pool | None = None
         self._pgen_pool_n_jobs: int = 0
 
+    def close(self) -> None:
+        """Terminate the persistent worker pool and release its resources.
+
+        Call this explicitly when the model will no longer be used.  The
+        pool is also closed on garbage collection, but explicit teardown is
+        safer and avoids relying on CPython's reference-counting finalizer.
+        """
+        self._close_pool()
+
+    def __enter__(self) -> "OlgaModel":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._close_pool()
+
     def __del__(self) -> None:
         self._close_pool()
 
@@ -313,11 +488,11 @@ class OlgaModel:
         batch_fn = _compute_exact_batch if max_mismatches == 0 else _compute_1mm_batch
 
         if n_jobs <= 1 or len(seqs) < 64:
-            # Use this instance's model directly in the main process.
             m = self.pgen_model
             if max_mismatches == 0:
                 return [float(m.compute_aa_CDR3_pgen(s)) for s in seqs]
-            return [float(m.compute_hamming_dist_1_pgen(s, print_warnings=False)) for s in seqs]
+            skip = _PGEN_1MM_SKIP_ENDS
+            return [_compute_1mm_inner(m, s, skip) for s in seqs]
 
         chunk_size = max(1, ceil(len(seqs) / n_jobs))
         chunks = [seqs[i : i + chunk_size] for i in range(0, len(seqs), chunk_size)]
@@ -338,14 +513,14 @@ class OlgaModel:
     # Sequence generation
     # ------------------------------------------------------------------
 
-    def _sample_cdr3_aa(self) -> str:
-        """Draw one productive CDR3 amino-acid sequence from the model."""
+    def _sample_junction_aa(self) -> str:
+        """Draw one productive junction amino-acid sequence from the model."""
         result = self.seq_gen_model.gen_rnd_prod_CDR3()
         assert result is not None
         return result[1]
 
     def generate_sequences(self, n: int = 1000, seed: int | None = 42) -> list[str]:
-        """Generate *n* productive CDR3 amino-acid sequences.
+        """Generate *n* productive junction amino-acid sequences.
 
         Args:
             n: Number of sequences to generate.
@@ -353,11 +528,11 @@ class OlgaModel:
                 to continue from the current RNG state.
 
         Returns:
-            List of CDR3 amino-acid strings.
+            List of junction amino-acid strings.
         """
         if seed is not None:
             np.random.seed(seed)
-        return [self._sample_cdr3_aa() for _ in range(n)]
+        return [self._sample_junction_aa() for _ in range(n)]
 
     def generate_sequences_parallel(
         self,
@@ -386,6 +561,52 @@ class OlgaModel:
         with Pool(n_jobs) as pool:
             chunks = pool.map(_generate_chunk, args)
         return [seq for chunk in chunks for seq in chunk]
+
+    def generate_sequences_counted(
+        self,
+        n: int = 1_000_000,
+        n_jobs: int = 8,
+        seed: int = 42,
+    ) -> tuple[list[str], int]:
+        """Generate *n* sequences and return ``(sequences, n_total_rearrangements)``.
+
+        ``n_total_rearrangements`` = M + K where M is the number of productive
+        sequences and K is the count of rejected non-productive recombination
+        events.  ``n_total_rearrangements`` is the correct denominator for
+        Monte-Carlo Pgen estimation::
+
+            pgen_mc(seq) = n_matches_in_pool / n_total_rearrangements
+
+        This makes ``pgen_mc`` directly comparable to OLGA analytical Pgen,
+        which is defined over all rearrangements (productive *and* non-productive).
+
+        Args:
+            n: Number of productive sequences to generate.
+            n_jobs: Worker processes for parallel generation.
+            seed: Base seed; worker *i* uses ``seed + i``.
+
+        Returns:
+            Tuple ``(sequences, n_total_rearrangements)``.
+        """
+        if n_jobs <= 1:
+            np.random.seed(seed)
+            sg = self.seq_gen_model
+            _gen = _gen_one_counted_junction_vdj if self.is_d_present else _gen_one_counted_junction_vj
+            seqs: list[str] = []
+            total = 0
+            for _ in range(n):
+                seq, attempts = _gen(sg)
+                seqs.append(seq)
+                total += attempts
+            return seqs, total
+
+        sizes = _split_n(n, n_jobs)
+        args = [(self._init_kwargs, size, seed + i) for i, size in enumerate(sizes)]
+        with Pool(n_jobs) as pool:
+            chunks: list[tuple[list[str], int]] = pool.map(_generate_counted_chunk, args)
+        seqs_out = [s for chunk_seqs, _ in chunks for s in chunk_seqs]
+        n_total = sum(n_t for _, n_t in chunks)
+        return seqs_out, n_total
 
     def generate_pool(
         self,
@@ -705,7 +926,290 @@ class PgenGeneUsageAdjustment:
         return pgen * self.factor(locus, v, j)
 
 
+# In-process gene-usage probability cache, keyed by (species, locus, synthetic_n).
+# Written/read by mir.basic.gene_usage.precompute_olga_gene_usage_probabilities;
+# declared here so downstream modules can import it from a single location.
 _GENE_USAGE_PROB_CACHE: dict[tuple[str, str, int], dict[str, dict[object, float]]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Monte-Carlo Pgen pool
+# ---------------------------------------------------------------------------
+
+_AAS = "ACDEFGHIKLMNPQRSTVWY"
+
+# Empirically measured fraction of random V(D)J recombination events that
+# yield a productive CDR3 (calibrated at N=30,000 sequences per locus).
+# Used by McPgenPool.build_synthetic to skip the counting pass and derive
+# n_total = n_productive / p_productive directly.
+_P_PRODUCTIVE_TABLE: dict[tuple[str, str], float] = {
+    ("TRA", "human"): 0.2891,
+    ("TRB", "human"): 0.2441,
+    ("TRG", "human"): 0.2709,
+    ("TRD", "human"): 0.2572,
+    ("IGH", "human"): 0.1281,
+    ("IGK", "human"): 0.2798,
+    ("IGL", "human"): 0.2917,
+    ("TRA", "mouse"): 0.3147,
+    ("TRB", "mouse"): 0.2704,
+}
+_P_PRODUCTIVE_GENERIC: float = 0.20
+
+
+def get_p_productive(locus: str, species: str) -> float:
+    """Return the expected fraction of productive V(D)J recombination events.
+
+    Returns a calibrated constant for known locus/species combinations, or
+    a conservative generic value (0.20) for others.
+
+    Args:
+        locus: Receptor locus, e.g. ``"TRB"``.
+        species: Organism, e.g. ``"human"``.
+
+    Returns:
+        Fraction of random rearrangements that yield a productive CDR3.
+    """
+    return _P_PRODUCTIVE_TABLE.get((locus.upper(), species.lower()), _P_PRODUCTIVE_GENERIC)
+
+
+class McPgenPool:
+    """Monte-Carlo generation-probability pool backed by tcrtrie.
+
+    Stores a large set of productive CDR3 sequences (synthetic or real) and
+    answers Pgen queries by counting exact or Hamming-1 matches.
+
+    **Synthetic pools** (built via :meth:`build_synthetic`) track the total
+    number of recombination attempts M + K, where M is the productive count
+    and K is the number of rejected non-productive events.  Using M + K as
+    the denominator makes ``pgen_mc`` directly comparable to OLGA analytical
+    Pgen, which is defined over all rearrangements::
+
+        pgen_mc(seq) = n_matches / n_total_rearrangements
+
+    **Real-repertoire pools** (built via :meth:`build_real`) use the control
+    size as the denominator.  The resulting ``pgen_mc`` estimates the
+    probability of *observing* a sequence in that specific individual's
+    repertoire, which includes thymic selection effects (Q-factor).
+
+    Relationship to TCRNET
+    ----------------------
+    TCRNET counts Hamming-1 neighbors in a control repertoire and reports a
+    binomial enrichment p-value.  :class:`McPgenPool` with a large synthetic
+    control is the same neighbor-count operation, but converts the count to
+    an absolute Pgen estimate by dividing by the pool size.  ALICE =
+    TCRNET with a large synthetic background plus analytical Pgen fallback
+    for sparse sequences.
+    """
+
+    # Amino acid alphabet for 1mm enumeration — 20 standard AAs
+    _AA_ALPHABET: str = "ACDEFGHIKLMNPQRSTVWY"
+
+    def __init__(
+        self,
+        sequences: list[str],
+        n_total: int,
+        *,
+        skip_ends: int = 2,
+        locus: str = "TRB",
+        species: str = "human",
+    ) -> None:
+        from collections import Counter
+
+        self.n_productive: int = len(sequences)
+        self.n_total: int = n_total
+        self.skip_ends: int = skip_ends
+        self.locus: str = locus
+        self.species: str = species
+        self.p_productive: float = self.n_productive / max(1, self.n_total)
+
+        self._counter: Counter = Counter(sequences)
+
+    # ------------------------------------------------------------------
+    # Single-sequence queries
+    # ------------------------------------------------------------------
+
+    def pgen_exact(self, seq: str) -> float:
+        """Estimate exact-match Pgen for *seq*."""
+        return self._counter.get(seq, 0) / self.n_total
+
+    def pgen_1mm(self, seq: str) -> float:
+        """Estimate 1-mismatch Pgen for *seq* (inner positions only)."""
+        return self.pgen_1mm_bulk([seq])[0]
+
+    # ------------------------------------------------------------------
+    # Bulk queries
+    # ------------------------------------------------------------------
+
+    def pgen_exact_bulk(self, seqs: list[str]) -> list[float]:
+        """Bulk exact-match Pgen estimation.
+
+        Args:
+            seqs: CDR3 amino-acid sequences.
+
+        Returns:
+            Pgen estimates in input order.
+        """
+        inv = 1.0 / self.n_total
+        return [self._counter.get(s, 0) * inv for s in seqs]
+
+    def pgen_1mm_bulk(
+        self,
+        seqs: list[str],
+        n_jobs: int = 1,
+    ) -> list[float]:
+        """Bulk Hamming-1 Pgen estimation via tcrtrie + inner-position filter.
+
+        Searches the pool for sequences within Hamming distance 1 of each
+        query, keeps only matches where the mismatch falls inside the inner
+        window (positions ``[skip_ends, L - skip_ends)``), and sums
+        pool-sequence counts.
+
+        Args:
+            seqs: CDR3 amino-acid sequences.
+            n_jobs: Thread count passed to tcrtrie's batch search.
+
+        Returns:
+            Pgen estimates in input order.
+        """
+        if not seqs:
+            return []
+
+        inv = 1.0 / self.n_total
+        skip = self.skip_ends
+        counter = self._counter
+        AA = self._AA_ALPHABET
+
+        # Hash-enumeration: for each query, look up all Hamming-1 variants
+        # (inner positions only) directly in the pool Counter.
+        # Complexity: O(n_seqs × L × |AA|) dict lookups — far cheaper than
+        # trie traversal over 10M pool sequences, and uses no extra memory.
+        results: list[float] = []
+        for seq in seqs:
+            L = len(seq)
+            total = counter.get(seq, 0)  # exact match counts as Hamming-0
+            arr = list(seq)
+            for i in range(skip, L - skip):
+                orig = arr[i]
+                for aa in AA:
+                    if aa != orig:
+                        arr[i] = aa
+                        total += counter.get("".join(arr), 0)
+                arr[i] = orig
+            results.append(total * inv)
+        return results
+
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def build_synthetic(
+        cls,
+        n: int = 10_000_000,
+        *,
+        locus: str = "TRB",
+        species: str = "human",
+        n_jobs: int = 8,
+        seed: int = 42,
+        skip_ends: int = 2,
+        use_p_productive_table: bool = True,
+    ) -> "McPgenPool":
+        """Build a synthetic Pgen pool.
+
+        When ``use_p_productive_table=True`` (the default) the denominator is
+        derived from the calibrated :data:`_P_PRODUCTIVE_TABLE` constant
+        (``n_total = n / p_productive``), which is ~2–5× faster than tracking
+        actual rejection counts.  Set to ``False`` to measure the true count.
+
+        Args:
+            n: Number of productive sequences to generate.
+            locus: Receptor locus (e.g. ``"TRB"``).
+            species: ``"human"`` or ``"mouse"``.
+            n_jobs: Worker processes for generation.
+            seed: Base RNG seed.
+            skip_ends: Terminal positions to skip for 1mm Pgen (default 2).
+            use_p_productive_table: Derive ``n_total`` from the calibrated
+                table instead of counting rejections.
+
+        Returns:
+            Fully constructed :class:`McPgenPool`.
+        """
+        model = OlgaModel(locus=locus, species=species, seed=None)
+        if use_p_productive_table:
+            seqs = model.generate_sequences_parallel(n, n_jobs=n_jobs, seed=seed)
+            p = get_p_productive(locus, species)
+            n_total = max(n, int(round(len(seqs) / p)))
+        else:
+            seqs, n_total = model.generate_sequences_counted(n, n_jobs=n_jobs, seed=seed)
+        model.close()
+        return cls(seqs, n_total, skip_ends=skip_ends, locus=locus, species=species)
+
+    @classmethod
+    def build_real(
+        cls,
+        sequences: list[str],
+        *,
+        skip_ends: int = 2,
+        locus: str = "TRB",
+        species: str = "human",
+    ) -> "McPgenPool":
+        """Build a pool from real-repertoire sequences.
+
+        For real controls ``n_total = len(sequences)`` (no non-productive
+        correction).  Resulting Pgen estimates include thymic selection effects
+        (Q-factor); use alongside OLGA analytical Pgen to measure Q.
+
+        Args:
+            sequences: CDR3 amino-acid strings from the control repertoire.
+            skip_ends: Terminal positions to skip for 1mm Pgen.
+            locus: Receptor locus.
+            species: Organism.
+        """
+        return cls(sequences, len(sequences), skip_ends=skip_ends, locus=locus, species=species)
+
+
+_MC_POOL_CACHE: dict[tuple[str, str, int, int, int], McPgenPool] = {}
+
+
+def get_or_build_mc_pool(
+    *,
+    locus: str = "TRB",
+    species: str = "human",
+    n: int = 10_000_000,
+    seed: int = 42,
+    skip_ends: int = 2,
+    n_jobs: int = 8,
+) -> McPgenPool:
+    """Return a cached synthetic :class:`McPgenPool`, building it if necessary.
+
+    Pool is keyed by ``(locus, species, n, seed, skip_ends)`` and cached
+    in-process for the session lifetime.  Subsequent calls with the same
+    parameters return the same pool instantly.
+
+    Args:
+        locus: Receptor locus (e.g. ``"TRB"``).
+        species: ``"human"`` or ``"mouse"``.
+        n: Pool size (productive sequences).
+        seed: OLGA generation seed.
+        skip_ends: Terminal positions to skip for 1mm Pgen.
+        n_jobs: Workers used *only* when the pool must be built.
+
+    Returns:
+        Cached or newly built :class:`McPgenPool`.
+    """
+    key = (locus, species, n, seed, skip_ends)
+    pool = _MC_POOL_CACHE.get(key)
+    if pool is None:
+        pool = McPgenPool.build_synthetic(
+            n, locus=locus, species=species, n_jobs=n_jobs, seed=seed, skip_ends=skip_ends,
+        )
+        _MC_POOL_CACHE[key] = pool
+    return pool
+
+
+def clear_mc_pool_cache() -> None:
+    """Clear the in-process MC pool cache, freeing memory."""
+    _MC_POOL_CACHE.clear()
 
 
 def compute_gene_usage_probabilities_from_control_df(

@@ -1,12 +1,42 @@
 """Control/background repertoire management.
 
-This module manages synthetic (OLGA-generated) and real (HuggingFace AIRR)
-control datasets used for neighborhood/enrichment workflows.
+This module **orchestrates** everything needed to provide background controls for
+neighborhood-enrichment workflows (ALICE, TCRNET).  It covers:
 
-Design goals:
-- explicit setup step for expensive control generation/download,
-- reproducible cache/registry of what is available locally,
-- easy use in local development and batch (e.g. Slurm) environments.
+- **Synthetic controls** (OLGA-generated): generate once, cache to disk, reuse
+  across all subsequent mirpy runs without regeneration.  Existing caches can be
+  extended (append) or trimmed (head) to satisfy a new size request without
+  rebuilding from scratch.
+- **Real controls** (downloaded from HuggingFace AIRR dataset): snapshot-aware
+  download that refreshes only when the upstream dataset changes.
+- **Manifest registry**: a ``manifest.json`` file tracks every cached file
+  (type, species, locus, size, source, timestamp) so any run can discover what
+  is available locally without scanning the filesystem.
+- **Thread and Slurm safety**: per-control file locks (``O_CREAT | O_EXCL``)
+  prevent two concurrent processes from building the same control.  Stale locks
+  left by crashed workers are pruned automatically after
+  ``MIRPY_CONTROL_LOCK_STALE_S`` seconds (default 4 h).  A second process that
+  arrives while a build is in progress simply waits (``load_control_df`` with
+  ``wait_if_building=True``) and reads the finished file.
+- **On-demand cleanup and regeneration**: :meth:`ControlManager.cleanup_cache`
+  removes broken/orphan files and reconciles the manifest;
+  ``ensure_*_control(..., overwrite=True)`` forces a full rebuild.
+
+Typical usage
+-------------
+From Python::
+
+    from mir.common.control import ControlManager
+    mgr = ControlManager()
+    mgr.ensure_synthetic_control("human", "TRB", n=10_000_000)
+    df = mgr.load_control_df("synthetic", "human", "TRB", n=10_000_000)
+
+From the CLI (pre-build before a Slurm job array)::
+
+    mirpy-control-setup --type synthetic --species human --loci TRB --n 10000000
+
+Environment variable ``MIRPY_CONTROL_DIR`` overrides the default cache root
+(``~/.cache/mirpy/controls``).
 """
 
 from __future__ import annotations
@@ -25,7 +55,7 @@ _MP_CTX = multiprocessing.get_context("spawn")
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import polars as pl
@@ -382,26 +412,15 @@ class ControlManager:
                     return out_rec
 
             path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                df = generate_synthetic_olga_control(
-                    species=species_c,
-                    locus=locus_c,
-                    n=n,
-                    n_jobs=resolved_n_jobs,
-                    seed=seed,
-                    chunk_size=chunk_size,
-                    progress=progress,
-                )
-            except TypeError:
-                # Backward-compat for monkeypatched helpers with legacy signature.
-                df = generate_synthetic_olga_control(
-                    species=species_c,
-                    locus=locus_c,
-                    n=n,
-                    seed=seed,
-                    chunk_size=chunk_size,
-                    progress=progress,
-                )
+            df = generate_synthetic_olga_control(
+                species=species_c,
+                locus=locus_c,
+                n=n,
+                n_jobs=resolved_n_jobs,
+                seed=seed,
+                chunk_size=chunk_size,
+                progress=progress,
+            )
             _write_pickle(df, path)
 
             rec = ControlRecord(
@@ -1023,6 +1042,74 @@ def _wait_for_lock_release(
         if (time.monotonic() - start) >= timeout_s:
             raise TimeoutError(f"Timeout waiting for build lock release: {lock_path}")
         time.sleep(poll_s)
+
+
+_MC_POOL_SESSION_CACHE: dict[tuple, Any] = {}
+
+
+def get_mc_pool_from_control(
+    *,
+    locus: str = "TRB",
+    species: str = "human",
+    n: int = 10_000_000,
+    seed: int = 42,
+    skip_ends: int = 2,
+    n_jobs: int | None = None,
+) -> "McPgenPool":
+    """Get or build a synthetic McPgenPool, using the disk cache when available.
+
+    Loads sequences from the ControlManager disk cache (if the synthetic control
+    exists for the given ``(species, locus, n)``) and builds an
+    :class:`~mir.basic.pgen.McPgenPool` from them.  If no disk cache exists,
+    the control is generated via OLGA, saved to disk for future runs, and the
+    pool is built from the result.  A session-level in-memory cache avoids
+    rebuilding the pool within the same process.
+
+    Supports any pool size including 100M (matching the original ALICE paper),
+    provided the machine has sufficient RAM (~20 GB for 100M sequences on top
+    of analysis workloads; 10M is the practical default for 32 GB machines).
+
+    Args:
+        locus: Receptor locus (e.g. ``"TRB"``).
+        species: ``"human"`` or ``"mouse"``.
+        n: Pool size (productive sequences).
+        seed: OLGA generation seed.
+        skip_ends: Terminal positions to skip for 1mm Pgen (default 2).
+        n_jobs: Worker processes for pool generation (default: all CPUs).
+
+    Returns:
+        :class:`~mir.basic.pgen.McPgenPool` ready for ``pgen_1mm_bulk`` queries.
+    """
+    from mir.basic.pgen import McPgenPool, get_p_productive
+
+    species_c = ControlManager.canonical_species(species)
+    locus_c = ControlManager.canonical_locus(locus)
+    jobs = _resolve_n_jobs(n_jobs)
+    key = (species_c, locus_c, n, seed, skip_ends)
+
+    cached = _MC_POOL_SESSION_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    mgr = ControlManager()
+    df: pl.DataFrame | None = None
+    try:
+        df = mgr.load_control_df("synthetic", species_c, locus_c, n=n, wait_if_building=False)
+    except Exception:
+        pass
+
+    if df is None:
+        rec = mgr.ensure_synthetic_control(
+            species_c, locus_c, n=n, n_jobs=jobs, seed=seed, progress=True,
+        )
+        df = _read_pickle(Path(rec.path))
+
+    sequences = df["junction_aa"].to_list()
+    p_prod = get_p_productive(locus_c, species_c)
+    n_total = max(len(sequences), int(round(len(sequences) / p_prod)))
+    pool = McPgenPool(sequences, n_total, skip_ends=skip_ends, locus=locus_c, species=species_c)
+    _MC_POOL_SESSION_CACHE[key] = pool
+    return pool
 
 
 def _parse_locus_arg(value: str) -> list[str]:

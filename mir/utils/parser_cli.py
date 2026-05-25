@@ -12,7 +12,8 @@ Usage examples
 Single file (auto-detected as gzipped from extension):
     python -m mir.utils.parser_cli sample.txt.gz -o sample.airr.tsv.gz
 
-Glob mask -> folder, gzipped output, explicit format:
+Glob mask -> folder, gzipped output, explicit format::
+
     python -m mir.utils.parser_cli "data/*.txt.gz" -o airr_out/ -f old_mixcr -z
 
 VDJdb slim, human only:

@@ -10,7 +10,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "mirpy-lib"
-version = "1.1.0"
+version = "1.1.1"
 authors = [
   { name="VEK239", email="elizaveta.k.vlasova@gmail.com" },
   { name="mikessh", email="mikhail.shugay@gmail.com"},
@@ -31,11 +31,13 @@ classifiers = [
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "repertoire", "single-cell", "VDJdb"]
 dependencies = [
   "biopython",
+  "kneed",
   "matplotlib",
   "multipy",
   "numpy",
   "olga",
   "pandas",
+  "pyarrow",
   "polars",
   "pympler",
   "python_igraph",
@@ -46,6 +48,7 @@ dependencies = [
   "textdistance",
   "tcrtrie",
   "tqdm",
+  "adjustText",
 ]
 license = {text = "GPL-3.0 license"}
 
@@ -54,7 +57,6 @@ sc = [
   "scanpy",
   "scirpy",
   "sc-dandelion",
-  "kneed",
   "umap-learn",
 ]
 dev = [
@@ -65,7 +67,6 @@ dev = [
   "scanpy",
   "scirpy",
   "sc-dandelion",
-  "kneed",
   "umap-learn",
 ]
 docs = [
@@ -105,4 +106,6 @@ logging.level = "INFO"
 markers = [
   "benchmark: performance-oriented tests excluded from the default test run",
   "integration: slow or environment-dependent tests excluded from the default test run",
+  "slow_benchmark: long-running benchmark with slow timeout budget",
+  "very_slow_benchmark: extra long benchmark with very-slow timeout budget",
 ]

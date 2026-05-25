@@ -61,7 +61,7 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
         staticmethod(lambda model_root=None: [("human", "TRB")]),
     )
 
-    def _fake_generator(*, species: str, locus: str, n: int, seed: int, chunk_size: int, progress: bool) -> pl.DataFrame:
+    def _fake_generator(*, species: str, locus: str, n: int, n_jobs: int, seed: int, chunk_size: int, progress: bool) -> pl.DataFrame:
         assert species == "human"
         assert locus == "TRB"
         assert n == 3

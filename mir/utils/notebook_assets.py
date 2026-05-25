@@ -7,20 +7,46 @@ bootstrap flow: datasets are downloaded on first use into
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
 
+from tqdm.auto import tqdm as _base_tqdm
+
+
+class _SilentTqdm(_base_tqdm):
+    """A tqdm subclass that never displays anything."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["disable"] = True
+        super().__init__(*args, **kwargs)
+
+
 def find_repo_root(start: Path | None = None) -> Path:
     """Return the repository root from a notebook or script working directory."""
+    def _is_repo_root(path: Path) -> bool:
+        return (path / "pyproject.toml").exists() and (path / "mir").exists()
+
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists() and (candidate / "mir").exists():
+        if _is_repo_root(candidate):
             return candidate
-    raise FileNotFoundError(
-        f"Could not locate the mirpy repository root starting from {current}"
-    )
+
+    # CI may run tests from a temp working directory while the repository is
+    # checked out elsewhere (for example GitHub Actions uses GITHUB_WORKSPACE).
+    for env_name in ("MIRPY_REPO_ROOT", "GITHUB_WORKSPACE"):
+        env_path = os.getenv(env_name)
+        if not env_path:
+            continue
+        candidate = Path(env_path).expanduser().resolve()
+        if _is_repo_root(candidate):
+            return candidate
+
+    # Fall back to the provided start/current directory so helper functions can
+    # still operate in non-repo contexts (for example installed package usage).
+    return current
 
 
 def notebook_assets_root(repo_root: Path | None = None) -> Path:
@@ -51,6 +77,7 @@ def _ensure_dataset(
         repo_type="dataset",
         local_dir=str(dataset_root),
         allow_patterns=allow_patterns,
+        tqdm_class=_SilentTqdm,
     )
     return dataset_root
 
@@ -131,15 +158,11 @@ def ensure_airr_benchmark_alice(
 ) -> Path:
     """Download the ALICE subset of the AIRR benchmark dataset.
 
-    Parameters
-    ----------
-    subsets:
-        Which sub-folders to fetch.  Defaults to ``["yf", "as"]``.
-        Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
+    Args:
+        subsets: Sub-folders to fetch. Defaults to ``["yf", "as"]``.
+            Pass ``["yf"]`` for YF-only or ``["as"]`` for AS-only downloads.
 
-    Returns
-    -------
-    Path
+    Returns:
         ``notebooks/assets/large/airr_benchmark`` root.
     """
     if subsets is None:
@@ -165,6 +188,17 @@ def find_airr_benchmark_dcode_10x_vdj_v1_donor(
             f"Could not find 10x_vdj_v1 donor {donor_id!r} under {dcode_root}"
         )
     return all_contig[0], consensus[0]
+
+
+def find_airr_benchmark_motif_pwms(dataset_root: Path) -> Path:
+    """Return the latest ``motif_pwms.txt.gz`` file inside AIRR benchmark."""
+    candidates = sorted(dataset_root.glob("vdjdb/vdjdb-*/motif_pwms.txt.gz"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find motif_pwms.txt.gz under {dataset_root / 'vdjdb'}.  "
+            "Run ensure_airr_benchmark(allow_patterns=['vdjdb/**']) first."
+        )
+    return candidates[-1]
 
 
 def find_airr_benchmark_dcode_10x_vdj_v1_donor_matrix(

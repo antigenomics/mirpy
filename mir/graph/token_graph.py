@@ -29,8 +29,10 @@ import igraph as ig
 import polars as pl
 
 from mir.basic.token_tables import Kmer, KmerMatch, Clonotype
+from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.repertoire import LocusRepertoire
 from mir.graph.edit_distance_graph import build_edit_distance_graph
+from mir.utils.metaclonotype_clustering import metaclonotypes_from_graph_communities
 
 
 def _locus_repertoire_from_dataframe(df: "pl.DataFrame | pd.DataFrame", *, locus: str = "TRB") -> LocusRepertoire:
@@ -333,3 +335,64 @@ def build_kmer_projection_graph(
 
     token_degree = {token: len(token_to_clones.get(token, set())) for token in tokens}
     return graph, token_degree
+
+
+def metaclonotypes_from_token_clonotype_graph(
+    clonotype_graph: ig.Graph,
+    *,
+    method: str = "components",
+    min_cluster_size: int = 1,
+    vertex_id_attr: str = "name",
+) -> MetaClonotypeClustering:
+    """Convert token/GLIPH clonotype graph communities to metaclonotypes.
+
+    Args:
+        clonotype_graph: Clonotype-only graph (e.g. output from
+            ``build_full_gliph_clonotype_graph``).
+        method: ``components``, ``leiden``, or ``louvain``.
+        min_cluster_size: Minimum retained cluster size.
+        vertex_id_attr: Vertex attribute containing clonotype IDs.
+    """
+    return metaclonotypes_from_graph_communities(
+        clonotype_graph,
+        vertex_id_attr=vertex_id_attr,
+        method=method,
+        min_cluster_size=min_cluster_size,
+        weights="weight",
+    )
+
+
+def build_gliph_metaclonotypes(
+    study_df: pl.DataFrame,
+    token_to_clones: dict[str, set[str]],
+    *,
+    method: str = "leiden",
+    min_cluster_size: int = 2,
+    hamming_threshold: int = 1,
+    hamming_threads: int = 4,
+    expand_hamming_neighbors: bool = True,
+    min_kmer_edge_weight: float = 0.35,
+    hamming_bonus: float = 1.0,
+) -> MetaClonotypeClustering:
+    """Build GLIPH-style clonotype graph and return metaclonotypes.
+
+    This wraps:
+    1. ``build_full_gliph_clonotype_graph``
+    2. community detection (components/Leiden/Louvain)
+    3. conversion to metaclonotype membership table.
+    """
+    clone_graph, _clone_tokens, _ham_graph = build_full_gliph_clonotype_graph(
+        study_df,
+        token_to_clones,
+        hamming_threshold=hamming_threshold,
+        hamming_threads=hamming_threads,
+        expand_hamming_neighbors=expand_hamming_neighbors,
+        min_kmer_edge_weight=min_kmer_edge_weight,
+        hamming_bonus=hamming_bonus,
+    )
+    return metaclonotypes_from_token_clonotype_graph(
+        clone_graph,
+        method=method,
+        min_cluster_size=min_cluster_size,
+        vertex_id_attr="name",
+    )
