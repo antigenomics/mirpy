@@ -43,6 +43,25 @@ Useful Links
 * Notebook source directory: https://github.com/antigenomics/mirpy/tree/main/notebooks
 * LLM agent skill guide: https://github.com/antigenomics/mirpy/blob/main/skills/mirpy/SKILL.md
 
+Copilot Agent And Prompt
+------------------------
+
+The repository includes a dedicated custom agent and companion prompt for
+mirpy-backed notebook analysis workflows.
+
+* Agent file: ``.github/agents/mirpy-analysis.agent.md``
+* Prompt file: ``.github/prompts/mirpy-analysis.prompt.md``
+
+In chat, invoke ``/mirpy-analysis`` and provide:
+
+* input data path(s) or instructions to obtain public/control data,
+* optional metadata path/schema,
+* workflow steps or one or more hypotheses to test.
+
+The agent then creates and executes dedicated notebook(s), and for large data
+first runs benchmark chunks to estimate full runtime and peak memory before
+requesting confirmation for expensive runs.
+
 Core Concepts
 -------------
 
@@ -52,8 +71,9 @@ Clonotype
 ~~~~~~~~~
 
 The smallest unit is a clonotype. Parsers convert rows from tabular repertoire
-formats into ``ClonotypeAA`` or ``ClonotypeNT`` objects with sequence and
-annotation fields attached.
+formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
+``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
+coordinates.
 
 Repertoire
 ~~~~~~~~~~
@@ -86,6 +106,290 @@ Typical Workflow
 2. Wrap clonotypes into a ``LocusRepertoire``, ``SampleRepertoire``, or ``RepertoireDataset``.
 3. Compute repertoire-level summaries such as diversity or segment usage.
 4. Move to matching, graph, or embedding utilities if deeper analysis is needed.
+
+Diversity Analysis APIs
+-----------------------
+
+mirpy provides function-first diversity APIs in ``mir.common.diversity`` for
+native summaries, Hill curves, and rarefaction/coverage curves. Repertoire
+objects expose convenience methods that delegate to these same functions.
+
+Function-first API
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from mir.common.diversity import (
+      summarize_clonotypes,
+      summarize_loci_clonotypes,
+      hill_curve_clonotypes,
+      rarefaction_curve_clonotypes,
+      summarize_count_groups,
+   )
+
+   # Clonotype list -> one summary
+   trb_summary = summarize_clonotypes(sample["TRB"].clonotypes)
+
+   # Mapping[locus, clonotypes] -> per-locus summaries
+   per_locus = summarize_loci_clonotypes({locus: rep.clonotypes for locus, rep in sample.loci.items()})
+
+   # Curves from raw clonotypes
+   trb_hill = hill_curve_clonotypes(sample["TRB"].clonotypes)
+   trb_rare = rarefaction_curve_clonotypes(sample["TRB"].clonotypes, m_steps=[100, 500, 1000, 5000])
+
+   # Generic grouped-count API (useful for single-cell/pair-level counts)
+   pair_counts = {"TRA_TRB": [2, 1, 1], "TRG_TRD": [1]}
+   pair_summary = summarize_count_groups(pair_counts)
+
+Object convenience methods
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These methods call the same function-level implementation shown above.
+
+Metric summary (VDJtools-compatible)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``diversity(...)`` returns:
+
+* ``abundance``: total counts in the selected counting mode
+* ``diversity``: number of unique clonotypes (or paired clonotypes)
+* ``singletons`` / ``doubletons``
+* ``expanded``: clonotypes above 0.1%
+* ``hyperexpanded``: clonotypes above 1%
+* ``chao1``
+* ``gini_simpson``
+* ``shannon``
+
+.. code-block:: python
+
+   # Locus-level diversity (default: duplicate_count)
+   trb_summary = sample["TRB"].diversity()
+
+   # Optional count mode based on UMI counts
+   trb_summary_umi = sample["TRB"].diversity(count_field="umi_count")
+
+   # Sample-level per-locus diversity table
+   per_locus = sample.diversity(per_locus=True)
+
+Single-cell defaults and per-locus behavior
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For single-cell paired data, count mode defaults to ``barcode_count``
+(unique barcodes per clonotype or pair).
+
+.. code-block:: python
+
+   # Paired-clonotype summaries per locus pair (TRA_TRB, TRG_TRD, ...)
+   pair_level = paired_repertoire.diversity()
+
+   # Per-chain-locus summaries (TRA, TRB, ...)
+   chain_level = paired_repertoire.diversity_by_locus()
+
+   # SingleCellSample delegates to the paired repertoire
+   sc_per_locus = single_cell_sample.diversity(per_locus=True)
+
+Hill diversity profiles
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   # Locus-level Hill profile
+   trb_hill = sample["TRB"].hill_curve()
+
+   # Sample-level per-locus Hill curves
+   sample_hill = sample.hill_curve(per_locus=True)
+
+   # Single-cell per-chain-locus Hill curves (barcode_count default)
+   sc_hill = single_cell_sample.hill_curve(per_locus=True)
+
+Rarefaction and sample coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Rarefaction uses abundance-table computations with NumPy/SciPy kernels and
+returns both richness and sample-coverage estimates with confidence bounds.
+
+.. code-block:: python
+
+   # Rarefaction for one locus
+   trb_rare = sample["TRB"].rarefaction_curve(m_steps=[100, 500, 1000, 5000])
+
+   # Per-locus rarefaction for a sample
+   sample_rare = sample.rarefaction_curve(per_locus=True)
+
+   # Single-cell per-chain-locus rarefaction (barcode_count default)
+   sc_rare = single_cell_sample.rarefaction_curve(per_locus=True)
+
+Metaclonotype Workflows
+-----------------------
+
+Metaclonotypes are represented as lightweight membership tables instead of
+re-wrapping repertoire objects. This keeps existing workflows intact while
+adding cluster-level analytics.
+
+Core structures
+~~~~~~~~~~~~~~~
+
+* ``MetaClonotypeClustering`` stores single-chain or paired cluster membership.
+* ``LocusRepertoire.set_metaclonotypes(...)`` and paired-repertoire attachment
+   methods keep clustering alongside existing repertoire objects.
+
+Point-by-point clustering entry points
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ALICE and TCRNET enriched seeds + first neighbors:
+
+   * ``mir.biomarkers.metaclonotypes_from_alice``
+   * ``mir.biomarkers.metaclonotypes_from_tcrnet``
+
+* tcrtrie/custom search scope clustering (substitutions/indels/total edits):
+
+   * ``mir.common.metaclonotypes_from_search_scope``
+   * ``mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope``
+
+* Continuous-radius / TCRdist-like representative clustering:
+
+   * ``mir.common.metaclonotypes_from_radius_threshold``
+
+* Edit-distance graph connected components / Leiden / Louvain:
+
+   * ``mir.graph.metaclonotypes_from_edit_distance_graph``
+
+* TCREmp DBSCAN/OPTICS/VDBSCAN label arrays:
+
+   * ``mir.embedding.metaclonotypes_from_tcremp_labels``
+   * ``mir.embedding.paired_metaclonotypes_from_tcremp_labels``
+
+* Token bigraph / GLIPH clonotype graph communities:
+
+   * ``mir.graph.metaclonotypes_from_token_clonotype_graph``
+   * ``mir.graph.build_gliph_metaclonotypes``
+
+Unified clustering interface
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``mir.biomarkers.metaclonotype_cluster`` provides a single config-driven entry
+point for all six clustering methods and supports paired-chain analysis.
+
+.. code-block:: python
+
+   from mir.biomarkers.metaclonotype_cluster import (
+       MetaclonotypeClusterConfig,
+       cluster_metaclonotypes,
+       cluster_paired_metaclonotypes,
+   )
+
+   cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus="TRB",
+       max_distance=1,
+       graph_algo="louvain",
+       min_cluster_size=2,
+   )
+   meta = cluster_metaclonotypes(repertoire, cfg)
+
+   # Paired analysis: per-chain clusters combined as "chain1_id.chain2_id"
+   paired_cfg = MetaclonotypeClusterConfig(
+       method="edit_distance",
+       locus_pair="TRA_TRB",
+       max_distance=1,
+       graph_algo="components",
+   )
+   paired_meta = cluster_paired_metaclonotypes(paired_locus_repertoire, paired_cfg)
+
+Paired-from-single combining
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Any single-chain metaclonotype results can be combined into paired-chain
+clusters using ``paired_metaclonotypes_from_single_chain``:
+
+.. code-block:: python
+
+   from mir.utils.metaclonotype_clustering import paired_metaclonotypes_from_single_chain
+
+   paired_meta = paired_metaclonotypes_from_single_chain(
+       paired_clonotypes,
+       meta_chain1=meta_tra,
+       meta_chain2=meta_trb,
+       cluster_separator=".",
+   )
+
+Each combined cluster ID has the form ``"<chain1_cluster>.<chain2_cluster>"``.
+Pairs where one or both chains are unassigned are excluded by default; pass
+``include_unassigned=True`` to keep them with a placeholder label.
+
+Downstream metaclonotype analytics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Functional diversity and rarefaction from aggregated cluster counts:
+
+   * ``functional_diversity``
+   * ``functional_hill_curve``
+   * ``functional_rarefaction_curve``
+
+* Functional overlap-1 (clusters match if they share at least one clonotype):
+
+   * ``functional_overlap_1``
+
+* Entropy decomposition for pooled-vs-separate clustering:
+
+   * ``pooled_entropy_difference`` computes
+      ``H(A pooled with B) - H(A) - H(B)``
+
+* Motif logo inputs from metaclonotypes:
+
+   * ``metaclonotype_junctions`` provides sequence lists for
+      ``compute_pwm`` / ``compute_logo`` workflows.
+
+Pairwise Overlap Spaces
+-----------------------
+
+``mir.comparative.overlap`` supports four identity spaces:
+
+* ``"ntvj"``: nucleotide CDR3 + V + J
+* ``"nt"``: nucleotide CDR3 only
+* ``"aavj"``: amino-acid CDR3 + V + J
+* ``"aa"``: amino-acid CDR3 only
+
+Only amino-acid spaces (``"aa"`` and ``"aavj"``) support approximate
+matching (Hamming/Levenshtein with ``threshold > 0``).
+
+.. code-block:: python
+
+   from mir.comparative.overlap import pairwise_overlap
+
+   # Exact nucleotide+V+J overlap
+   r_ntvj = pairwise_overlap(rep_a, rep_b, overlap_space="ntvj")
+
+   # Approximate amino-acid overlap (1 mismatch)
+   r_aa_1mm = pairwise_overlap(
+      rep_a,
+      rep_b,
+      overlap_space="aavj",
+      metric="hamming",
+      threshold=1,
+      n_jobs=-1,
+   )
+
+By default, overlap APIs use all physical CPU cores (``n_jobs=-1``). Pass
+``n_jobs=1`` for deterministic single-core timing.
+
+The pairwise API reports similarity-centric outputs:
+
+* ``f_similarity``
+* ``d_similarity``
+* ``f2_similarity``
+* ``jaccard``
+* ``szymkiewicz_simpson``
+* ``morisita_horn``
+
+Use distance-like conversions only where required by downstream methods (for
+example UMAP/MDS with precomputed dissimilarities):
+
+* ``f_metric = 1 - f_similarity``
+* ``d_metric = 1 / d_similarity`` (for ``d_similarity > 0``)
+
+In amino-acid overlap spaces, non-coding clonotypes are excluded from overlap
+matching and reported with bounded warnings.
 
 Single-Cell 10x Paired-Chain Loading
 ------------------------------------
@@ -531,7 +835,7 @@ optional.
       control=control_repertoire,
       metric="hamming",
       threshold=1,
-      n_jobs=4,
+      n_jobs=-1,
       match_mode="none",       # one of: none, v, j, vj
       pvalue_mode="binomial",  # or "beta-binomial"
       pseudocount=1.0,         # added to control m and M before density calculation
@@ -552,7 +856,7 @@ You can also use managed controls directly:
       target_repertoire,
       control_type="real",   # or "synthetic"
       species="human",
-      n_jobs=4,
+      n_jobs=-1,
       normalize_control_vj_usage=True,
       pvalue_mode="beta-binomial",
    )
@@ -563,7 +867,7 @@ You can also add neighborhood stats directly to clonotype metadata:
 
    from mir.graph import add_neighborhood_metadata
 
-   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=4)
+   add_neighborhood_metadata(repertoire, metric="hamming", threshold=1, n_jobs=-1)
    # Adds neighborhood_count and neighborhood_potential to each clonotype's metadata
 
 Benchmark Reference

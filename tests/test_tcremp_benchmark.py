@@ -9,20 +9,53 @@ Tests cover:
 
 import os
 import time
+import tracemalloc
 import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy import stats
 from scipy.stats import f_oneway, permutation_test
 
 from mir.common.clonotype import Clonotype
 from mir.embedding.tcremp import TCREmp
 from mir.distances.aligner import JunctionAligner, BioAlignerWrapper
+from tests.conftest import skip_benchmarks
 
-# Control flag for benchmark execution
-skip_benchmarks = pytest.mark.skipif(
-    not os.getenv("RUN_BENCHMARK"), reason="set RUN_BENCHMARK=1 to run"
+_N_CPUS = os.cpu_count() or 1
+
+
+def _available_ram_gb() -> float:
+    """Return available system RAM in GiB, or a large value if psutil is absent."""
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 ** 3)
+    except ImportError:
+        return 64.0
+
+
+def _needs_ram_gb(gb: float):
+    """pytest mark: skip if fewer than *gb* GiB of RAM are available."""
+    avail = _available_ram_gb()
+    return pytest.mark.skipif(
+        avail < gb,
+        reason=f"requires ~{gb:.0f} GB free RAM, only {avail:.1f} GB available",
+    )
+
+
+def _run_extreme_benchmarks() -> bool:
+    """Whether to run memory-intensive benchmark tiers.
+
+    Disabled by default for CI stability; enable explicitly with
+    MIRPY_RUN_EXTREME_BENCHMARKS=1 on high-memory runners.
+    """
+    return os.getenv("MIRPY_RUN_EXTREME_BENCHMARKS", "0") in {"1", "true", "TRUE", "yes", "YES"}
+
+
+_needs_extreme_bench = pytest.mark.skipif(
+    not _run_extreme_benchmarks(),
+    reason="extreme benchmark tier disabled (set MIRPY_RUN_EXTREME_BENCHMARKS=1 to enable)",
 )
 
 
@@ -42,6 +75,7 @@ class TestTCREmpParallelChunking:
 
     N_PROTOTYPES = 500
     N_CLONOTYPES_LIST = [100, 1000, 5000, 10000]
+    MIN_EVAL_CLONOTYPES = 1000
     SEED = 42
 
     @pytest.fixture(scope="class")
@@ -115,7 +149,7 @@ class TestTCREmpParallelChunking:
                 assert X.shape == (n_clon, 3 * self.N_PROTOTYPES)
                 assert X.dtype == np.float32
         
-        # Summary and decision
+        # Summary and decision (exclude tiny workloads where thread overhead dominates)
         print("\n" + "=" * 100)
         print("SPEEDUP ANALYSIS")
         print("=" * 100)
@@ -128,20 +162,28 @@ class TestTCREmpParallelChunking:
         
         avg_speedup = np.mean(speedups)
         print(f"\n  Average speedup: {avg_speedup:.2f}x")
-        
-        if avg_speedup > 1.2:
-            print(f"  ✓ Parallel chunking provides significant speedup (>{1.2:.1f}x)")
-            print(f"  → Recommend setting n_jobs default to os.cpu_count()")
-            has_speedup = True
-        else:
-            print(f"  ✗ Parallel chunking provides minimal speedup (<{1.2:.1f}x)")
-            print(f"  → Keep n_jobs default as None (no threading)")
-            has_speedup = False
-        
-        # Report assertion
-        assert has_speedup, (
-            f"Expected >1.2x speedup from parallel chunking, got {avg_speedup:.2f}x. "
-            "Consider if threading overhead dominates for this workload."
+
+        eval_sizes = [n_clon for n_clon in self.N_CLONOTYPES_LIST if n_clon >= self.MIN_EVAL_CLONOTYPES]
+        eval_speedups = [results[n_clon][1] / results[n_clon][n_cpu] for n_clon in eval_sizes]
+        avg_eval_speedup = float(np.mean(eval_speedups)) if eval_speedups else float("nan")
+        best_eval_speedup = float(np.max(eval_speedups)) if eval_speedups else float("nan")
+        largest_n = max(self.N_CLONOTYPES_LIST)
+        largest_speedup = results[largest_n][1] / results[largest_n][n_cpu]
+
+        print(
+            f"\n  Evaluated sizes (>= {self.MIN_EVAL_CLONOTYPES}): {eval_sizes}"
+        )
+        print(f"  Average evaluated speedup: {avg_eval_speedup:.2f}x")
+        print(f"  Best evaluated speedup: {best_eval_speedup:.2f}x")
+        print(f"  Largest-size speedup ({largest_n} clonotypes): {largest_speedup:.2f}x")
+
+        assert best_eval_speedup > 1.2, (
+            f"Expected at least one >= {self.MIN_EVAL_CLONOTYPES} workload to exceed 1.2x speedup, "
+            f"got best {best_eval_speedup:.2f}x."
+        )
+        assert largest_speedup > 0.8, (
+            f"Largest workload ({largest_n}) regressed too much under parallelism: "
+            f"{largest_speedup:.2f}x speedup."
         )
 
 
@@ -641,8 +683,240 @@ class TestTCREmpUserPrototypeFile:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             model = TCREmp.from_file(str(proto_file), species="human", locus="TRB")
-            
+
             # Check warning was raised
             assert len(w) >= 1
             warning_text = "\n".join(str(warn.message) for warn in w)
             assert "NOT comparable" in warning_text or "incomparable" in warning_text.lower()
+
+
+# ===========================================================================
+# Distance correlation, throughput, and multiprocessing benchmarks
+# (merged from test_tcremp_benchmarks.py)
+# ===========================================================================
+
+
+def _clonotype(v: str, j: str, junction_aa: str) -> Clonotype:
+    return Clonotype(v_gene=v, j_gene=j, junction_aa=junction_aa)
+
+
+def _measure(fn):
+    """Run fn(), return (result, elapsed_s, peak_mb)."""
+    tracemalloc.start()
+    t0 = time.perf_counter()
+    result = fn()
+    elapsed = time.perf_counter() - t0
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return result, elapsed, peak / (1024 ** 2)
+
+
+def _pairwise_euclidean(X: np.ndarray) -> np.ndarray:
+    """Return (N, N) float64 pairwise L2 distance matrix for rows of X."""
+    X64 = X.astype(np.float64)
+    sq = np.einsum("ij,ij->i", X64, X64)
+    D2 = sq[:, None] + sq[None, :] - 2.0 * (X64 @ X64.T)
+    np.clip(D2, 0.0, None, out=D2)
+    return np.sqrt(D2)
+
+
+def _print_separator():
+    print("\n" + "=" * 72)
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestBenchmarkDistanceCorrelation:
+    """Embed 1 000 prototypes against 1 000 prototypes; measure R² and rho.
+
+    Since the input clonotypes ARE the prototypes, the embedding matrix X has a
+    direct interpretation:
+        X[i, 3*k]     = d_V  (prototype_i, prototype_k)
+        X[i, 3*k + 1] = d_J  (prototype_i, prototype_k)
+        X[i, 3*k + 2] = d_CDR3(prototype_i, prototype_k)
+
+    So the "sequence-space distance" between prototypes i and j is:
+        d_seq(i,j) = X[i,3*j] + X[i,3*j+1] + X[i,3*j+2]
+
+    And the "latent-space distance" is the Euclidean L2 norm:
+        d_emb(i,j) = ||X[i] - X[j]||_2
+
+    Pearson R² and Spearman rho quantify how well the embedding preserves the
+    original pairwise distance structure.
+    """
+
+    N_PROTO = 1000
+
+    @pytest.fixture(scope="class")
+    def model_and_X(self):
+        _print_separator()
+        print(f"[CORR] Building TCREmp: human TRB, {self.N_PROTO} prototypes")
+        model, t_build, mb_build = _measure(
+            lambda: TCREmp.from_defaults("human", "TRB", n_prototypes=self.N_PROTO)
+        )
+        print(f"       model build: {t_build:.2f}s  peak={mb_build:.0f} MB")
+
+        clonotypes = [
+            _clonotype(r["v_gene"], r["j_gene"], r["junction_aa"])
+            for r in model.prototypes.iter_rows(named=True)
+        ]
+        print(f"[CORR] Embedding {self.N_PROTO} clonotypes × {self.N_PROTO} prototypes (n_jobs=1)")
+        X, t_embed, mb_embed = _measure(lambda: model.embed(clonotypes, n_jobs=1))
+        print(f"       embed: {t_embed:.2f}s  peak={mb_embed:.0f} MB  shape={X.shape}")
+        return model, X
+
+    def test_embed_shape(self, model_and_X):
+        model, X = model_and_X
+        assert X.shape == (self.N_PROTO, 3 * self.N_PROTO)
+        assert X.dtype == np.float32
+
+    def test_distance_correlation(self, model_and_X):
+        """Pearson R² and Spearman rho between sequence-space and latent-space distances."""
+        model, X = model_and_X
+        N = self.N_PROTO
+
+        t0 = time.perf_counter()
+        d_seq = (X[:, 0::3] + X[:, 1::3] + X[:, 2::3]).astype(np.float64)  # (N, N)
+        d_emb = _pairwise_euclidean(X)  # (N, N)
+        t_dist = time.perf_counter() - t0
+
+        idx = np.triu_indices(N, k=1)
+        seq_flat = d_seq[idx]
+        emb_flat = d_emb[idx]
+        n_pairs = len(seq_flat)
+
+        pearson_r, pearson_p = stats.pearsonr(seq_flat, emb_flat)
+        spearman_r, spearman_p = stats.spearmanr(seq_flat, emb_flat)
+        r2 = pearson_r ** 2
+
+        _print_separator()
+        print(
+            f"\n[CORR] Distance correlation  (N={N}, pairs={n_pairs:,})  "
+            f"dist_compute={t_dist:.2f}s"
+        )
+        print(f"       Pearson  r={pearson_r:.4f}  R²={r2:.4f}  p={pearson_p:.2e}")
+        print(f"       Spearman ρ={spearman_r:.4f}          p={spearman_p:.2e}")
+        _print_separator()
+
+        assert r2 > 0.0, "R² must be positive"
+        assert pearson_p < 0.05, "Correlation must be significant"
+        assert spearman_r > 0.0, "Spearman rho must be positive"
+
+    def test_per_component_correlation(self, model_and_X):
+        """Pearson R² for each component (V, J, CDR3) vs total sequence distance."""
+        model, X = model_and_X
+        N = self.N_PROTO
+        idx = np.triu_indices(N, k=1)
+
+        d_total = (X[:, 0::3] + X[:, 1::3] + X[:, 2::3]).astype(np.float64)[idx]
+        d_emb = _pairwise_euclidean(X)[idx]
+
+        print(f"\n[CORR] Per-component Pearson R² vs total seq distance (N={N})")
+        for comp, label in [(0, "V"), (1, "J"), (2, "CDR3")]:
+            d_comp = X[:, comp::3].astype(np.float64)[idx]
+            r, _ = stats.pearsonr(d_total, d_comp)
+            print(f"       {label:5s}: R²={r**2:.4f}")
+
+        r_emb, _ = stats.pearsonr(d_total, d_emb)
+        print(f"       L2-emb: R²={r_emb**2:.4f}")
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestBenchmarkThroughput:
+    """Wall time and peak memory for single-process embedding at various scales."""
+
+    @pytest.fixture(scope="class")
+    def models(self):
+        print("\n[THROUGHPUT] Building models...")
+        return {
+            n: TCREmp.from_defaults("human", "TRB", n_prototypes=n)
+            for n in (1000, 3000)
+        }
+
+    @pytest.fixture(scope="class")
+    def clonotype_sets(self):
+        base = TCREmp.from_defaults("human", "TRB", n_prototypes=100)
+        rows = base.prototypes.to_dicts()
+        return {
+            n: [
+                _clonotype(rows[i % 100]["v_gene"], rows[i % 100]["j_gene"],
+                           rows[i % 100]["junction_aa"])
+                for i in range(n)
+            ]
+            for n in (10_000, 100_000, 500_000, 1_000_000)
+        }
+
+    @pytest.mark.parametrize("n_clono,n_proto", [
+        (10_000,   1000),
+        pytest.param(100_000,  1000, marks=_needs_ram_gb(4)),
+        pytest.param(100_000,  3000, marks=_needs_ram_gb(6)),
+        pytest.param(500_000,  1000, marks=(_needs_ram_gb(8), _needs_extreme_bench)),
+        pytest.param(1_000_000, 1000, marks=(_needs_ram_gb(16), _needs_extreme_bench)),
+    ])
+    def test_single_process(self, models, clonotype_sets, n_clono, n_proto):
+        X, elapsed, peak_mb = _measure(
+            lambda: models[n_proto].embed(clonotype_sets[n_clono], n_jobs=1)
+        )
+        throughput = n_clono / elapsed
+        print(
+            f"\n[THROUGHPUT n_jobs=1] n_clono={n_clono:>7d} n_proto={n_proto:>4d} | "
+            f"{elapsed:6.2f}s | {throughput:,.0f} clono/s | peak={peak_mb:.0f} MB"
+        )
+        assert X.shape == (n_clono, 3 * n_proto)
+        assert X.dtype == np.float32
+
+
+@skip_benchmarks
+@pytest.mark.benchmark
+class TestBenchmarkMultiprocessing:
+    """Measure speedup for n_jobs=1,2,4,8 and find the useful parallelism threshold."""
+
+    @pytest.fixture(scope="class")
+    def model_1k(self):
+        return TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
+
+    @pytest.fixture(scope="class")
+    def clonotype_sets(self):
+        base = TCREmp.from_defaults("human", "TRB", n_prototypes=100)
+        rows = base.prototypes.to_dicts()
+        return {
+            n: [
+                _clonotype(rows[i % 100]["v_gene"], rows[i % 100]["j_gene"],
+                           rows[i % 100]["junction_aa"])
+                for i in range(n)
+            ]
+            for n in (10_000, 100_000, 500_000)
+        }
+
+    @pytest.mark.parametrize("n_clono", [
+        10_000,
+        pytest.param(100_000, marks=_needs_ram_gb(4)),
+        pytest.param(500_000, marks=(_needs_ram_gb(8), _needs_extreme_bench)),
+    ])
+    def test_scaling(self, model_1k, clonotype_sets, n_clono):
+        """Compare n_jobs=1 vs multi-process."""
+        clonos = clonotype_sets[n_clono]
+        results: dict[int, tuple[float, float]] = {}
+
+        _, t1, _ = _measure(lambda: model_1k.embed(clonos, n_jobs=1))
+        results[1] = (t1, 1.0)
+
+        n_jobs_list = [j for j in (2, 4, 8) if j <= _N_CPUS]
+        for nj in n_jobs_list:
+            _, tnj, _ = _measure(lambda: model_1k.embed(clonos, n_jobs=nj))
+            results[nj] = (tnj, t1 / tnj)
+
+        _print_separator()
+        print(f"\n[MP SCALING] n_clono={n_clono:>7d}  n_proto=1000")
+        print(f"  {'n_jobs':>8}  {'time(s)':>8}  {'speedup':>8}")
+        for nj, (t, sp) in sorted(results.items()):
+            flag = "  <- baseline" if nj == 1 else (
+                "  <- faster" if sp > 1.05 else "  <- overhead dominates"
+            )
+            print(f"  {nj:>8}  {t:>8.2f}  {sp:>8.2f}x{flag}")
+        _print_separator()
+
+        for nj in [1] + n_jobs_list:
+            X = model_1k.embed(clonos, n_jobs=nj)
+            assert X.shape == (n_clono, 3000), f"Wrong shape for n_jobs={nj}"

@@ -381,7 +381,7 @@ class TestTokenGraphFiltered(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 ASSETS = Path(__file__).parent / "assets"
-GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
+GILG_FILE = ASSETS / "gilgfvftl_trb_junctions.txt.gz"
 _BENCH_K = 3
 _NONRS_LOSS_THRESHOLD = 0.90  # filtering must remove ≥90% of non-RS rearrangements from the major CC
 

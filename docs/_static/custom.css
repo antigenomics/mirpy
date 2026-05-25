@@ -21,6 +21,20 @@ main.bd-main .bd-content .bd-article-container {
   height: auto;
 }
 
+.mirpy-intro__logo--dark {
+  display: none;
+}
+
+html[data-theme="dark"] .mirpy-intro__logo--light,
+body[data-theme="dark"] .mirpy-intro__logo--light {
+  display: none;
+}
+
+html[data-theme="dark"] .mirpy-intro__logo--dark,
+body[data-theme="dark"] .mirpy-intro__logo--dark {
+  display: block;
+}
+
 .mirpy-intro__eyebrow {
   margin: 0 0 0.35rem;
   font-size: 0.75rem;

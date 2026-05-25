@@ -24,6 +24,45 @@ from .single_cell import (
 )
 from .single_cell_parser import load_10x_vdj_v1_cell_clonotypes, load_10x_vdj_v1_cell_clonotypes_donor
 from .single_cell_repair import cleanup_cell_clonotypes, impute_missing_chains
+from .diversity import (
+	CountField,
+	DiversitySummary,
+	RarefactionResult,
+	build_abundance_table,
+	hill_curve_clonotypes,
+	hill_curve_count_groups,
+	hill_curve_loci_clonotypes,
+	hill_curve,
+	pooled_count_values,
+	rarefaction_curve_clonotypes,
+	rarefaction_curve_count_groups,
+	rarefaction_curve_loci_clonotypes,
+	rarefaction_curve,
+	summarize_clonotypes,
+	summarize_count_groups,
+	summarize_loci_clonotypes,
+	summarize_counts,
+	summaries_to_polars,
+)
+from .metaclonotype import (
+	MetaClonotypeClustering,
+	default_clonotype_identity,
+	functional_diversity,
+	functional_hill_curve,
+	functional_overlap_1,
+	functional_rarefaction_curve,
+	metaclonotype_count_vector,
+	metaclonotype_junctions,
+	metaclonotypes_from_components,
+	metaclonotypes_from_igraph,
+	metaclonotypes_from_labels,
+	metaclonotypes_from_seed_neighbors,
+	metaclonotypes_from_search_scope,
+	metaclonotypes_from_radius_threshold,
+	pooled_entropy_difference,
+	summarize_metaclonotypes,
+	summarize_paired_metaclonotypes,
+)
 from .parser import VDJdbFullPairedParser
 from mir.graph.single_cell_pairing import PairingGraph, build_pairing_graph
 from mir.basic.gene_usage import compute_batch_corrected_gene_usage
@@ -62,17 +101,45 @@ __all__ = [
 	'load_10x_vdj_v1_cell_clonotypes_donor',
 	'cleanup_cell_clonotypes',
 	'impute_missing_chains',
+	'CountField',
+	'DiversitySummary',
+	'RarefactionResult',
+	'build_abundance_table',
+	'hill_curve_clonotypes',
+	'hill_curve_count_groups',
+	'hill_curve_loci_clonotypes',
+	'hill_curve',
+	'pooled_count_values',
+	'rarefaction_curve_clonotypes',
+	'rarefaction_curve_count_groups',
+	'rarefaction_curve_loci_clonotypes',
+	'rarefaction_curve',
+	'summarize_clonotypes',
+	'summarize_count_groups',
+	'summarize_loci_clonotypes',
+	'summarize_counts',
+	'summaries_to_polars',
+	'MetaClonotypeClustering',
+	'default_clonotype_identity',
+	'functional_diversity',
+	'functional_hill_curve',
+	'functional_overlap_1',
+	'functional_rarefaction_curve',
+	'metaclonotype_count_vector',
+	'metaclonotype_junctions',
+	'metaclonotypes_from_components',
+	'metaclonotypes_from_igraph',
+	'metaclonotypes_from_labels',
+	'metaclonotypes_from_seed_neighbors',
+	'metaclonotypes_from_search_scope',
+	'metaclonotypes_from_radius_threshold',
+	'pooled_entropy_difference',
+	'summarize_metaclonotypes',
+	'summarize_paired_metaclonotypes',
 	'VDJdbFullPairedParser',
 	'PairingGraph',
 	'build_pairing_graph',
 	'compute_batch_corrected_gene_usage',
-	'Segment',
-	'SegmentLibrary',
 ]
-
-# Compatibility aliases for older notebooks/import paths without a dedicated
-# mir.common.segments shim module.
-Segment = GeneEntry
-SegmentLibrary = GeneLibrary
 # from .parser import ClonotypeTableParser, VDJdbSlimParser, OlgaParser, VDJtoolsParser, ImmrepParser
 # from .repertoire import Repertoire, RepertoireDataset

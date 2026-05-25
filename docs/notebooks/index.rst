@@ -5,7 +5,7 @@ Rendered walkthroughs for the key mirpy workflows. All notebooks are included
 as-is with pre-computed outputs; they are not re-executed during the docs build.
 
 Parsing And Repertoire Basics
-==============================
+-----------------------------
 
 .. toctree::
    :maxdepth: 1
@@ -13,6 +13,7 @@ Parsing And Repertoire Basics
    parsing_example
    sample_repertoire_overview
    gene_usage_correction
+   diversity_analysis
 
 **parsing_example** — Parse VDJdb, AIRR, and VDJtools files into repertoire objects.
 
@@ -20,8 +21,10 @@ Parsing And Repertoire Basics
 
 **gene_usage_correction** — Batch-correct V/J gene usage across donors and derive PCA/UMAP embeddings.
 
+**diversity_analysis** — Reproduce diversity tables, rarefaction, coverage, Hill curves, and MS vs healthy cohort comparisons.
+
 Graph And Sequence Analysis
-============================
+---------------------------
 
 .. toctree::
    :maxdepth: 1
@@ -29,18 +32,24 @@ Graph And Sequence Analysis
    gene_similarity
    token_graph
    edit_distance_graph
-   vdjdb_cdr3_graph
+   vdjdb_junction_graph
+   metaclonotype_examples
+   metaclonotype_method_compare
 
 **gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
 
 **token_graph** — Build bipartite k-mer/clonotype graphs and filter by sequence motifs.
 
-**edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from CDR3 sequences.
+**edit_distance_graph** — Construct Hamming/Levenshtein edit-distance graphs from junction sequences.
 
-**vdjdb_cdr3_graph** — Analyse multi-epitope CDR3 Hamming graphs from VDJdb.
+**vdjdb_junction_graph** — Analyse multi-epitope junction Hamming graphs from VDJdb.
+
+**metaclonotype_examples** — Build, attach, summarize, and analyze metaclonotypes for functional diversity workflows.
+
+**metaclonotype_method_compare** — Compare ALICE, TCRnet, TCRdist, edit-distance, TCREmp, and GLIPH metaclonotype clustering methods; benchmark paired-chain combined vs native TCREmp; concordance via ARI.
 
 Biomarker Detection
-====================
+-------------------
 
 .. toctree::
    :maxdepth: 1
@@ -58,15 +67,51 @@ Biomarker Detection
 
 **vdjbet_yf** — VDJBet disease-associated overlap analysis on YFV vaccine time-series samples.
 
-TCREmp Embeddings
-==================
+**motif_logos** — PWM construction, standard IC logos, and background-normalised logos for GILGFVFTL and B27 AS CDR3 motifs.
+
+Sequence Logo Analysis
+----------------------
 
 .. toctree::
    :maxdepth: 1
 
+   motif_logos
+
+Aging And Cohort Overlap
+------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   aging_analysis
+   aging_analysis_functional
+
+**aging_analysis** — Donor-vs-pool overlap trends across aging, using the shared-worker many-vs-pool overlap path for faster repeated scoring.
+
+**aging_analysis_functional** — Compare clonotypic and functional diversity, rarefaction, and F overlap for the AIRR benchmark aging cohort. Metaclonotypes built via 1-mismatch Hamming edit graph + Louvain clustering.
+
+Pgen And Selection Analysis
+---------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   pgen_analysis
+
+**pgen_analysis** — Benchmark OLGA exact, Monte-Carlo, and hash-enumeration Pgen strategies; analyse the Q-factor (thymic selection correction) on VDJdb clonotypes.
+
+TCREmp Embeddings
+-----------------
+
+.. toctree::
+   :maxdepth: 1
+
+   tcrdist_analysis
    tcremp_vdjdb_analysis
    tcremp_vdjdb_analysis_paired
    tcremp_10xdcode_analysis
+
+**tcrdist_analysis** — Compute TCRdist matrices, score radius-based neighborhoods, and derive metaclonotypes.
 
 **tcremp_vdjdb_analysis** — Single-chain TCREmp on VDJdb epitope-labelled clonotypes with UMAP projection.
 
@@ -75,7 +120,7 @@ TCREmp Embeddings
 **tcremp_10xdcode_analysis** — 10x CITE-seq + TCREmp embedding with DBSCAN epitope clustering.
 
 Single-Cell Analysis
-=====================
+--------------------
 
 .. toctree::
    :maxdepth: 1

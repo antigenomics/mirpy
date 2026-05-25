@@ -82,20 +82,10 @@ from mir.common.repertoire import LocusRepertoire
 class GliphTokenArtifacts:
     """Token counts and bidirectional clonotype ↔ token mappings.
 
-    Attributes
-    ----------
-    counts : dict[str, int]
-        Active token count dictionary used for enrichment denominators.
-    token_to_clone : dict[str, set[str]]
-        Maps each token string to the set of clonotype row-IDs containing it.
-    clone_to_tokens : dict[str, set[str]]
-        Maps each clonotype row-ID to the set of tokens it contains.
-    occurrence_counts : dict[str, int]
-        Raw token occurrence counts across all windows.
-    clonotype_counts : dict[str, int]
-        Number of unique clonotypes containing each token.
-    count_mode : {"occurrence", "clonotype"}
-        Which count dictionary populates ``counts``.
+    ``counts`` is the active denominator dict (``occurrence_counts`` or
+    ``clonotype_counts``) selected by ``count_mode``.
+    ``token_to_clone`` maps token → set of clonotype row-IDs;
+    ``clone_to_tokens`` maps row-ID → set of tokens.
     """
 
     counts: dict[str, int]

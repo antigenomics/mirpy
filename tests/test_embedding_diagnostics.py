@@ -46,6 +46,8 @@ def test_analyze_embedding_dbscan_returns_expected_keys() -> None:
         "median_4nn",
         "kth",
         "knee_idx",
+        "eps_selection_mode",
+        "eps_selector_meta",
         "cum",
         "X_pca",
         "clusters",
@@ -56,6 +58,33 @@ def test_analyze_embedding_dbscan_returns_expected_keys() -> None:
     assert 0.0 <= result["retention"] <= 1.0
     assert 0.0 <= result["purity"] <= 1.0
     assert 0.0 <= result["consistency"] <= 1.0
+
+
+def test_analyze_embedding_dbscan_stable_mode_returns_selector_meta() -> None:
+    rng = np.random.default_rng(7)
+    X = np.vstack(
+        [
+            rng.normal(loc=0.0, scale=0.25, size=(30, 6)),
+            rng.normal(loc=1.5, scale=0.25, size=(30, 6)),
+        ]
+    )
+    labels = np.array(["A"] * 30 + ["B"] * 30)
+
+    result = analyze_embedding_dbscan(
+        X,
+        labels,
+        seed=7,
+        eps_selection_mode="stable_kneedle",
+    )
+
+    assert result["eps"] > 0.0
+    assert result["eps_selection_mode"] == "stable_kneedle"
+    selector_meta = result["eps_selector_meta"]
+    assert isinstance(selector_meta, dict)
+    assert "knee_found" in selector_meta
+    assert "eps_floor" in selector_meta
+    assert "eps_cap" in selector_meta
+    assert isinstance(selector_meta["knee_found"], bool)
 
 
 def test_majority_vote_predictions_and_scores() -> None:

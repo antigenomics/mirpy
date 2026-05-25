@@ -15,6 +15,7 @@ Subpackages
    mir.embedding
    mir.graph
    mir.ml
+   mir.utils
 
 Module contents
 ---------------

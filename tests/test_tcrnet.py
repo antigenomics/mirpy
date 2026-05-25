@@ -174,6 +174,55 @@ def test_tcrnet_parallel_matches_single_worker() -> None:
     assert serial.table.sort("sequence_id").equals(parallel.table.sort("sequence_id"))
 
 
+def test_tcrnet_q_factor_scales_enrichment() -> None:
+    """q_factor > 1 raises the effective background density → more conservative p_value."""
+    base = compute_tcrnet(
+        _toy_target(),
+        control=_toy_control(),
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="binomial",
+        q_factor=1.0,
+        n_jobs=1,
+    )
+    corrected = compute_tcrnet(
+        _toy_target(),
+        control=_toy_control(),
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="binomial",
+        q_factor=3.0,
+        n_jobs=1,
+    )
+
+    # Higher q_factor → higher effective background → p_value must be ≥ baseline
+    for b_row, c_row in zip(
+        base.table.sort("sequence_id").iter_rows(named=True),
+        corrected.table.sort("sequence_id").iter_rows(named=True),
+    ):
+        assert float(c_row["p_value"]) >= float(b_row["p_value"]) - 1e-9, (
+            f"seq {b_row['sequence_id']}: q_factor=3 p_value={c_row['p_value']:.4f} "
+            f"< q_factor=1 p_value={b_row['p_value']:.4f}"
+        )
+        # Raw m_control_neighbors must be identical (q_factor applied after storage)
+        assert float(c_row["m_control_neighbors"]) == pytest.approx(
+            float(b_row["m_control_neighbors"])
+        ), "m_control_neighbors must be raw (unaffected by q_factor)"
+        # control_density must be q_factor × baseline (when baseline > 0)
+        if float(b_row["control_density"]) > 0:
+            assert float(c_row["control_density"]) == pytest.approx(
+                3.0 * float(b_row["control_density"]), rel=1e-6
+            ), "control_density must scale by q_factor"
+
+
+def test_tcrnet_q_factor_invalid() -> None:
+    """q_factor <= 0 raises ValueError."""
+    with pytest.raises(ValueError, match="q_factor"):
+        compute_tcrnet(_toy_target(), control=_toy_control(), q_factor=0.0)
+
+
 def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:
     from mir.biomarkers import tcrnet as tcrnet_mod
     monkeypatch.setenv("MIRPY_TCRNET_PVALUE_EXECUTOR", "thread")
@@ -197,6 +246,7 @@ def test_compute_tcrnet_parallelizes_pvalue_calls(monkeypatch) -> None:
         threshold=0,
         match_mode="none",
         pvalue_mode="binomial",
+        min_neighbors=0,
         n_jobs=8,
     )
 
