@@ -28,18 +28,19 @@ biopython==1.81
 multipy==0.16
 olga==1.2.4
 pandas==2.0.3
+pyarrow>=15
 polars==1.39.3
 pympler==1.1
 seaborn==0.12.2
 textdistance==4.5.0
 tcrtrie>=0.2.3
 tqdm==4.66.2
+kneed>=0.8.1
 
 # ── Notebook / analysis extras (not required by library at runtime) ────────────
 scanpy>=1.10          # single-cell analysis (optional; pip install mirpy-lib[sc])
 umap-learn>=0.5.6     # UMAP projections in notebooks
 plotnine==0.12.3      # grammar-of-graphics plots in notebooks
-kneed>=0.8.1          # Kneedle elbow detection in embedding notebooks
 
 # ── Dev / tooling ─────────────────────────────────────────────────────────────
 # Documentation-specific packages live in docs/requirements.txt.

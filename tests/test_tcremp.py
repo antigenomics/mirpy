@@ -54,8 +54,8 @@ def paired_tcremp_small():
     return PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=10)
 
 
-def _clonotype(v, j, cdr3):
-    return Clonotype(v_gene=v, j_gene=j, junction_aa=cdr3)
+def _clonotype(v, j, junction_aa):
+    return Clonotype(v_gene=v, j_gene=j, junction_aa=junction_aa)
 
 
 def _paired_clonotype(pair_id, tra, trb):
@@ -329,11 +329,11 @@ class TestTCREmpEmbedValues:
                 if (
                     tcremp_small._proto_v[k] == row["v_gene"]
                     and tcremp_small._proto_j[k] == row["j_gene"]
-                    and tcremp_small._proto_cdr3[k] == row["junction_aa"]
+                    and tcremp_small._proto_junction[k] == row["junction_aa"]
                 ):
                     assert X[0, 3 * k] == pytest.approx(0.0, abs=1e-4), f"V dist nonzero at k={k}"
                     assert X[0, 3 * k + 1] == pytest.approx(0.0, abs=1e-4), f"J dist nonzero at k={k}"
-                    assert X[0, 3 * k + 2] == pytest.approx(0.0, abs=1e-4), f"CDR3 dist nonzero at k={k}"
+                    assert X[0, 3 * k + 2] == pytest.approx(0.0, abs=1e-4), f"junction dist nonzero at k={k}"
                     break
 
     def test_all_distances_nonneg(self, tcremp_small):
@@ -360,14 +360,14 @@ class TestTCREmpEmbedValues:
             expected_v = trb_aligner.gene_dist("TRB", c.v_gene, tcremp_small._proto_v[k])
             assert X[0, 3 * k] == pytest.approx(expected_v, abs=1e-3), f"V mismatch at k={k}"
 
-    def test_by_hand_cdr3_component(self, tcremp_small):
-        """Check that CDR3 distance in embedding matches CDRAligner.score_dist."""
+    def test_by_hand_junction_component(self, tcremp_small):
+        """Check that junction distance in embedding matches CDRAligner.score_dist."""
         ca = CDRAligner()
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
         X = tcremp_small.embed([c])
         for k in range(tcremp_small.n_prototypes):
-            expected_cdr3 = ca.score_dist(c.junction_aa, tcremp_small._proto_cdr3[k])
-            assert X[0, 3 * k + 2] == pytest.approx(expected_cdr3, abs=1e-3), f"CDR3 mismatch at k={k}"
+            expected_junction = ca.score_dist(c.junction_aa, tcremp_small._proto_junction[k])
+            assert X[0, 3 * k + 2] == pytest.approx(expected_junction, abs=1e-3), f"junction mismatch at k={k}"
 
 
 # ---------------------------------------------------------------------------
@@ -397,9 +397,9 @@ class TestTCREmpSymmetricMatrix:
         for i in range(10):
             assert X_self[i, 3 * i + 1] == pytest.approx(0.0, abs=1e-4), f"J diag nonzero at {i}"
 
-    def test_diagonal_cdr3_is_zero(self, X_self):
+    def test_diagonal_junction_is_zero(self, X_self):
         for i in range(10):
-            assert X_self[i, 3 * i + 2] == pytest.approx(0.0, abs=1e-4), f"CDR3 diag nonzero at {i}"
+            assert X_self[i, 3 * i + 2] == pytest.approx(0.0, abs=1e-4), f"junction diag nonzero at {i}"
 
     def test_v_symmetry(self, X_self):
         for i in range(10):
@@ -415,12 +415,12 @@ class TestTCREmpSymmetricMatrix:
                 j_ji = float(X_self[j, 3 * i + 1])
                 assert j_ij == pytest.approx(j_ji, abs=1e-3), f"J asymmetry at ({i},{j})"
 
-    def test_cdr3_symmetry(self, X_self):
+    def test_junction_symmetry(self, X_self):
         for i in range(10):
             for j in range(10):
                 c_ij = float(X_self[i, 3 * j + 2])
                 c_ji = float(X_self[j, 3 * i + 2])
-                assert c_ij == pytest.approx(c_ji, abs=1e-3), f"CDR3 asymmetry at ({i},{j})"
+                assert c_ij == pytest.approx(c_ji, abs=1e-3), f"junction asymmetry at ({i},{j})"
 
     def test_all_nonneg(self, X_self):
         assert (X_self >= 0).all()
@@ -527,7 +527,7 @@ class TestTCREmpConsistencyWithClonotypeAligner:
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
         X = model.embed([c], n_jobs=1)
         for k in range(model.n_prototypes):
-            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_cdr3[k])
+            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_junction[k])
             expected = clono_aligner.score_dist(c, proto_c).v_score
             assert X[0, 3 * k] == pytest.approx(expected, abs=1e-2), (
                 f"V mismatch at k={k}: TCREmp={X[0, 3*k]:.4f} vs ClonoAligner={expected:.4f}"
@@ -537,14 +537,14 @@ class TestTCREmpConsistencyWithClonotypeAligner:
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
         X = model.embed([c], n_jobs=1)
         for k in range(model.n_prototypes):
-            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_cdr3[k])
+            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_junction[k])
             expected = clono_aligner.score_dist(c, proto_c).j_score
             assert X[0, 3 * k + 1] == pytest.approx(expected, abs=1e-2), (
                 f"J mismatch at k={k}: TCREmp={X[0, 3*k+1]:.4f} vs ClonoAligner={expected:.4f}"
             )
 
-    def test_cdr3_component_close_to_clono_aligner(self, model, clono_aligner):
-        """CDR3 component matches ClonotypeAligner.score_dist within tolerance.
+    def test_junction_component_close_to_clono_aligner(self, model, clono_aligner):
+        """Junction component matches ClonotypeAligner.score_dist within tolerance.
 
         TCREmp uses CDRAligner (fixed-gap model) by default; ClonotypeAligner
         also uses CDRAligner by default, so values should match exactly.
@@ -552,10 +552,10 @@ class TestTCREmpConsistencyWithClonotypeAligner:
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
         X = model.embed([c], n_jobs=1)
         for k in range(model.n_prototypes):
-            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_cdr3[k])
-            expected = clono_aligner.score_dist(c, proto_c).cdr3_score
+            proto_c = _clonotype(model._proto_v[k], model._proto_j[k], model._proto_junction[k])
+            expected = clono_aligner.score_dist(c, proto_c).junction_score
             assert X[0, 3 * k + 2] == pytest.approx(expected, abs=1e-2), (
-                f"CDR3 mismatch at k={k}: TCREmp={X[0, 3*k+2]:.4f} vs ClonoAligner={expected:.4f}"
+                f"junction mismatch at k={k}: TCREmp={X[0, 3*k+2]:.4f} vs ClonoAligner={expected:.4f}"
             )
 
 

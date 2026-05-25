@@ -4,6 +4,21 @@ All gene-name fields store plain strings (IMGT allele names, e.g.
 ``"TRBV3-1*01"``).  Junction coordinates follow the AIRR Rearrangement
 schema naming: *v_sequence_end*, *d_sequence_start*, *d_sequence_end*,
 *j_sequence_start*.
+
+Terminology note — **junction** vs **CDR3**:
+
+* **junction** (``junction_aa`` field): the full V–D–J joining region from
+  the conserved Cys (C) at the end of the V segment to the conserved
+  [FW]GXG motif at the start of the J segment, inclusive of those
+  flanking residues.  This is the AIRR / IMGT definition stored in this
+  library.
+
+* **CDR3**: the hypervariable omega-loop *between* the flanking C and [FW]
+  residues, i.e. ``junction_aa[1:-1]`` in the simplest case.  Omega loops
+  are non-regular, non-repeating secondary structural units whose N- and
+  C-termini are close together in space.  Scientific literature and
+  databases (e.g. VDJdb, IEDB) sometimes use "CDR3" loosely to mean the
+  full junction; prefer "junction" in new code for AIRR compliance.
 """
 
 from __future__ import annotations

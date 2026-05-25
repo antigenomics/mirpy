@@ -88,6 +88,20 @@ def _log2_pgen_bin(log2_pgen: float) -> int:
     return round(log2_pgen)
 
 
+def _resolve_n_jobs(n_jobs: int) -> int:
+    if n_jobs == -1:
+        try:
+            import psutil
+            n = psutil.cpu_count(logical=False)
+            if n:
+                return n
+        except Exception:
+            pass
+        import os
+        return os.cpu_count() or 1
+    return max(1, int(n_jobs))
+
+
 def compute_pgen_histogram(
     clonotypes: Sequence[Clonotype],
     model: OlgaModel,
@@ -176,7 +190,7 @@ class PgenBinPool:
         self,
         locus: str,
         n: int = 1_000_000,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
@@ -206,7 +220,7 @@ class PgenBinPool:
         control_type: str,
         species: str = "human",
         n: int | None = None,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
@@ -215,6 +229,7 @@ class PgenBinPool:
         control_kwargs: dict | None = None,
     ) -> "PgenBinPool":
         """Build pool from managed controls (synthetic or real)."""
+        n_jobs = _resolve_n_jobs(n_jobs)
         manager = control_manager or ControlManager()
         kwargs = dict(control_kwargs or {})
         if control_type.strip().lower() == "synthetic":
@@ -231,8 +246,8 @@ class PgenBinPool:
             presample_cap = max(int(n) * 20, 200_000)
             if presample_cap < len(control_df):
                 control_df = control_df.sample(
-                    n=presample_cap, replace=False, random_state=seed
-                ).reset_index(drop=True)
+                    n=presample_cap, with_replacement=False, seed=seed
+                )
         return cls.from_control_df(
             control_df,
             locus=locus,
@@ -253,41 +268,34 @@ class PgenBinPool:
         locus: str,
         species: str = "human",
         n: int | None = None,
-        n_jobs: int = 4,
+        n_jobs: int = -1,
         seed: int = 42,
         floor_quantile: float = 0.001,
         ceil_quantile: float = 0.999,
         pgen_adjustment=None,
     ) -> "PgenBinPool":
         """Build pool directly from control repertoire rows with Pgen recomputation."""
+        n_jobs = _resolve_n_jobs(n_jobs)
         df = control_df
         if n is not None and n > 0:
             n_int = int(n)
             if len(df) > n_int:
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(
-                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
-                    )
-                    df = df.sample(
-                        n=n_int,
-                        with_replacement=False,
-                        seed=seed,
-                        weights=weights.tolist(),
-                    )
+                    w = np.clip(df["duplicate_count"].cast(float).to_numpy(), 1.0, None)
+                    probs = w / w.sum()
+                    idx = np.random.default_rng(seed).choice(len(df), size=n_int, replace=False, p=probs)
+                    df = df[idx]
                 else:
                     df = df.sample(n=n_int, with_replacement=False, seed=seed)
             elif len(df) > 0 and len(df) < n_int:
-                weights = None
+                rng = np.random.default_rng(seed)
                 if "duplicate_count" in df.columns:
-                    weights = np.clip(
-                        df["duplicate_count"].cast(float).to_numpy(), 1.0, None
-                    )
-                df = df.sample(
-                    n=n_int,
-                    with_replacement=True,
-                    seed=seed,
-                    weights=weights.tolist() if weights is not None else None,
-                )
+                    w = np.clip(df["duplicate_count"].cast(float).to_numpy(), 1.0, None)
+                    probs = w / w.sum()
+                    idx = rng.choice(len(df), size=n_int, replace=True, p=probs)
+                else:
+                    idx = rng.choice(len(df), size=n_int, replace=True)
+                df = df[idx]
 
         records = compute_control_pgen_records(
             df,
@@ -432,19 +440,6 @@ class OverlapResult:
 
     Produced by :meth:`VDJBetOverlapAnalysis.score`.  Per-mock distributions
     are stored so the object is self-contained; z/p-scores are computed lazily.
-
-    Attributes
-    ----------
-    n_total, dc_total:
-        Total unique clonotypes and total duplicate count in the query.
-    n, dc:
-        Unique clonotypes and cells overlapping the reference.
-    mock_n, mock_dc:
-        Per-mock overlap counts (length == n_mocks).
-    allow_1mm:
-        Whether 1-substitution CDR3 matching was used.
-    match_v, match_j:
-        Whether V-gene / J-gene matching was required.
     """
 
     n_total: int
@@ -525,13 +520,14 @@ def _compute_ref_bins(
     pool: PgenBinPool,
     *,
     pgen_adjustment=None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> dict[int, int]:
     """Compute winsorized log2-Pgen bin counts for *reference*.
 
     Bins are clamped to [pool.floor_bin, pool.ceil_bin] so every reference
     clonotype contributes even if its Pgen is extremely low.
     """
+    n_jobs = _resolve_n_jobs(n_jobs)
     locus = _resolve_locus(reference)
     hist: dict[int, int] = defaultdict(int)
     unique_aas = list(dict.fromkeys(clone.junction_aa for clone in reference.clonotypes))
@@ -604,7 +600,7 @@ class VDJBetOverlapAnalysis:
         pool: "PgenBinPool | None" = None,
         n_mocks: int = 200,
         pool_size: int = 100_000,
-        n_jobs: int = 1,
+        n_jobs: int = -1,
         seed: int = 42,
         pgen_adjustment=None,
         # Legacy compat — silently accepted but not used:
@@ -617,7 +613,7 @@ class VDJBetOverlapAnalysis:
     ) -> None:
         self._reference = reference
         self._n_mocks = n_mocks
-        self._n_jobs = n_jobs
+        self._n_jobs = _resolve_n_jobs(n_jobs)
         self._seed = seed
         self._pgen_adjustment = pgen_adjustment
 
@@ -627,7 +623,7 @@ class VDJBetOverlapAnalysis:
             pool = PgenBinPool(
                 locus,
                 n=pool_size,
-                n_jobs=n_jobs,
+                n_jobs=self._n_jobs,
                 seed=seed,
                 pgen_adjustment=pgen_adjustment,
             )

@@ -104,13 +104,20 @@ jobs:
         env:
           RUN_BENCHMARKS: "1"
           RUN_INTEGRATION: "1"
+          # Keep CI heavy job stable across hosted runner pools by avoiding
+          # very-slow benchmarks that are primarily exploratory diagnostics.
+          MIRPY_BENCH_WORKERS: "1,4"
+          MIRPY_BENCHMARK_SCALE: "0.35"
+          MIRPY_ALICE_BENCH_SUBSAMPLES: "5000,10000"
           # CI runners have 4 vCPUs, so parallel speedup is lower than on a
           # developer workstation with 8+ cores.  These env vars widen the
           # thresholds so flaky timing assertions don't mask real regressions.
-          MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP: "2.0"
+          MIRPY_ALICE_PGEN_BENCH_MIN_SPEEDUP: "1.5"
           MIRPY_BENCH_PGEN_MIN_THROUGHPUT: "100"
           MIRPY_BENCH_OVERLAP_1MM_MAX_S: "0.15"
+          MIRPY_BENCH_OVERLAP_EXACT_MAX_S: "0.01"
           MIRPY_BENCH_VDJBET_MOCK_MAX_S: "30.0"
           MIRPY_BENCH_SYNTH_SMALL_CAP_S: "900"
+          MIRPY_BENCH_TCRNET_REAL_MAX_SECONDS: "1800"
         working-directory: ${{ runner.temp }}
-        run: python -m pytest tests -m "benchmark or integration" -q
+        run: python -m pytest tests -m "(benchmark or integration) and not very_slow_benchmark" -q

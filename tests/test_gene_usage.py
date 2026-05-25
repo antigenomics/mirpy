@@ -472,6 +472,7 @@ class TestPgenGeneUsageAdjustment:
 
     @skip_benchmarks
     @pytest.mark.benchmark
+    @pytest.mark.very_slow_benchmark
     def test_weighted_count_ratio_matches_target(
         self, target_gu: GeneUsage, adj_large: PgenGeneUsageAdjustment
     ) -> None:

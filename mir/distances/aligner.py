@@ -743,8 +743,8 @@ class PairedCloneScore:
         self.beta_chain_score = beta_chain_score
 
     def get_flatten_score(self):
-        return [self.alpha_chain_score.v_score, self.alpha_chain_score.j_score, self.alpha_chain_score.cdr3_score,
-                self.beta_chain_score.v_score, self.beta_chain_score.j_score, self.beta_chain_score.cdr3_score]
+        return [self.alpha_chain_score.v_score, self.alpha_chain_score.j_score, self.alpha_chain_score.junction_score,
+                self.beta_chain_score.v_score, self.beta_chain_score.j_score, self.beta_chain_score.junction_score]
 
 
 class ClonotypeAligner:

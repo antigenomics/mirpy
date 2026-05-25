@@ -7,8 +7,9 @@ whether the underlying extension exports them.
 from __future__ import annotations
 
 from mir.basic.mirseq import translate_bidi
+from mir.basic.alphabets import AA_STANDARD_CHARS
 
-_STANDARD_AA = frozenset("ACDEFGHIKLMNPQRSTVWY")
+_STANDARD_AA = frozenset(AA_STANDARD_CHARS)
 
 
 try:

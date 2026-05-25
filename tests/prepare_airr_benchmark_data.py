@@ -11,12 +11,17 @@ csv.field_size_limit(10_000_000)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ID = "isalgo/airr_benchmark"
+COVID19_DATASET_ID = "isalgo/airr_covid19"
 
 DATASET_ROOT = REPO_ROOT / "airr_benchmark"
 TESTS_DIR = REPO_ROOT / "tests"
 ASSETS_DIR = TESTS_DIR / "assets"
 REAL_REPS_DIR = ASSETS_DIR / "real_repertoires"
 SRX_DIR = ASSETS_DIR / "srx_repertoires"
+NOTEBOOK_LARGE_ASSETS_DIR = REPO_ROOT / "notebooks" / "assets" / "large"
+COVID19_DATASET_ROOT = NOTEBOOK_LARGE_ASSETS_DIR / "airr_covid19"
+
+_COVID19_SENTINEL = COVID19_DATASET_ROOT / ".test_data_ready"
 
 # Written after a successful bootstrap so we can skip on subsequent runs.
 _SENTINEL = DATASET_ROOT / ".test_data_ready"
@@ -168,20 +173,20 @@ def _write_gilg_and_llw(vdjdb_slim: Path) -> tuple[int, int]:
         reader = csv.DictReader(fh, delimiter="\t")
         for row in reader:
             gene = (row.get("gene") or "").strip().upper()
-            cdr3 = (row.get("cdr3") or "").strip()
+            junction_aa = (row.get("cdr3") or "").strip()
             epitope = (row.get("antigen.epitope") or "").strip().upper()
             mhc_a = (row.get("mhc.a") or "").strip()
             v_gene = (row.get("v.segm") or "").strip()
             j_gene = (row.get("j.segm") or "").strip()
 
-            if gene == "TRB" and epitope == "GILGFVFTL" and cdr3 and cdr3 not in seen:
-                seen.add(cdr3)
-                gilg.append(cdr3)
+            if gene == "TRB" and epitope == "GILGFVFTL" and junction_aa and junction_aa not in seen:
+                seen.add(junction_aa)
+                gilg.append(junction_aa)
 
-            if gene == "TRB" and epitope == "LLWNGPMAV" and "A*02" in mhc_a and cdr3 and v_gene and j_gene:
+            if gene == "TRB" and epitope == "LLWNGPMAV" and "A*02" in mhc_a and junction_aa and v_gene and j_gene:
                 llw_rows.append(
                     {
-                        "junction_aa": cdr3,
+                        "junction_aa": junction_aa,
                         "v_gene": v_gene,
                         "j_gene": j_gene,
                         "duplicate_count": "1",
@@ -189,7 +194,7 @@ def _write_gilg_and_llw(vdjdb_slim: Path) -> tuple[int, int]:
                     }
                 )
 
-    gilg_path = ASSETS_DIR / "gilgfvftl_trb_cdr3.txt.gz"
+    gilg_path = ASSETS_DIR / "gilgfvftl_trb_junctions.txt.gz"
     with gzip.open(gilg_path, "wt", encoding="utf-8") as out:
         for seq in gilg:
             out.write(seq + "\n")
@@ -214,13 +219,13 @@ def _write_olga_1000(vdjdb_slim: Path) -> int:
         for row in reader:
             if (row.get("gene") or "").strip().upper() != "TRB":
                 continue
-            cdr3 = (row.get("cdr3") or "").strip()
+            junction_aa = (row.get("cdr3") or "").strip()
             v_gene = (row.get("v.segm") or "TRBV7-9*01").strip() or "TRBV7-9*01"
             j_gene = (row.get("j.segm") or "TRBJ2-1*01").strip() or "TRBJ2-1*01"
-            if not cdr3:
+            if not junction_aa:
                 continue
-            nt = "NNN" * len(cdr3)
-            rows.append((nt, cdr3, v_gene, j_gene))
+            nt = "NNN" * len(junction_aa)
+            rows.append((nt, junction_aa, v_gene, j_gene))
 
     if not rows:
         raise RuntimeError("No TRB rows available in VDJdb slim to build OLGA test asset")
@@ -296,7 +301,7 @@ def _derive_assets(*, verbose: bool = False) -> None:
         print(f"prepared test data under {TESTS_DIR}")
         print(f"vdjdb source: {vdjdb_local.relative_to(DATASET_ROOT)}")
         print(f"vdjdb full source: {vdjdb_full_local.relative_to(DATASET_ROOT)}")
-        print(f"derived GILG cdr3 count: {gilg_n}")
+        print(f"derived GILG junction count: {gilg_n}")
         print(f"derived LLW rows: {llw_n}")
         print(f"derived OLGA rows: {olga_n}")
 
@@ -343,6 +348,39 @@ def ensure_test_data(
 
     _derive_assets(verbose=verbose)
     _SENTINEL.touch()
+
+
+def ensure_test_airr_covid19(*, force: bool = False, verbose: bool = False) -> Path:
+    """Ensure benchmark tests have access to AIRR COVID-19 notebook assets.
+
+    The test suite intentionally keeps its own bootstrap helpers rather than
+    importing notebook-facing asset utilities.
+    """
+    if (
+        not force
+        and _COVID19_SENTINEL.exists()
+        and any(COVID19_DATASET_ROOT.glob("*.TRA.vdjtools.tsv.gz"))
+    ):
+        return COVID19_DATASET_ROOT
+
+    from huggingface_hub import snapshot_download
+
+    NOTEBOOK_LARGE_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot_download(
+        repo_id=COVID19_DATASET_ID,
+        repo_type="dataset",
+        local_dir=str(COVID19_DATASET_ROOT),
+    )
+
+    if not any(COVID19_DATASET_ROOT.glob("*.TRA.vdjtools.tsv.gz")):
+        raise RuntimeError(
+            f"Downloaded dataset at {COVID19_DATASET_ROOT} has no TRA repertoire files"
+        )
+
+    _COVID19_SENTINEL.touch()
+    if verbose:
+        print(f"prepared AIRR COVID-19 test data under {COVID19_DATASET_ROOT}")
+    return COVID19_DATASET_ROOT
 
 
 def main() -> None:

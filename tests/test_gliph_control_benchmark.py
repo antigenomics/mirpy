@@ -83,9 +83,9 @@ _REAL_CONTROL_CAP = int(os.getenv("MIRPY_BENCH_REAL_CONTROL_N", "2000000"))
 def _canonical_control_df() -> pd.DataFrame:
     ctrl_raw_full = ControlManager().ensure_and_load_control_df("real", "human", "TRB")
     if _REAL_CONTROL_CAP < len(ctrl_raw_full):
-        ctrl_raw = ctrl_raw_full.sample(n=_REAL_CONTROL_CAP, random_state=42).reset_index(drop=True)
+        ctrl_raw = ctrl_raw_full.sample(n=_REAL_CONTROL_CAP, seed=42).to_pandas()
     else:
-        ctrl_raw = ctrl_raw_full
+        ctrl_raw = ctrl_raw_full.to_pandas()
     del ctrl_raw_full
     df = pd.DataFrame(
         {
@@ -158,7 +158,7 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     min_len = _min_raw_len_for_tokenization()
     out = out[out["junction_aa"].str.len() >= min_len].copy()
     out = out[out["junction_aa"].str.match(AA_RE)].copy()
-    out = deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa"))
+    out = deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa")).to_pandas()
     out = out.reset_index(drop=True)
     out["row_id"] = out.index.astype(str)
     return out

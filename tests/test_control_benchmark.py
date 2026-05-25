@@ -15,29 +15,7 @@ import pytest
 
 from mir.common.control import ControlManager
 from tests.benchmark_helpers import benchmark_log_line
-from tests.conftest import benchmark_max_seconds, skip_benchmarks
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        val = float(raw)
-    except ValueError:
-        return default
-    return max(1.0, val)
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        val = int(raw)
-    except ValueError:
-        return default
-    return max(1, val)
+from tests.conftest import _env_float, _env_int, benchmark_max_seconds, skip_benchmarks
 
 
 def _is_full_benchmark_enabled() -> bool:
@@ -55,6 +33,7 @@ def _diagnose_synth_record(rec_path: Path, df_rows: int) -> tuple[int, int]:
 @skip_benchmarks
 @pytest.mark.benchmark
 @pytest.mark.slow_benchmark
+@pytest.mark.very_slow_benchmark
 def test_synthetic_control_generation_small_matrix(capsys, tmp_path: Path) -> None:
     """Generate 1e4 and 1e5 synthetic controls in separate timed steps.
 

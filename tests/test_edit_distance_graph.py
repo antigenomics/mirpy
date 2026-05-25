@@ -338,7 +338,7 @@ def test_long_queries_over_33_and_64_aa_work() -> None:
 
 
 def test_fallback_hamming_compares_only_equal_lengths(monkeypatch) -> None:
-    monkeypatch.setattr("mir.graph.edit_distance_graph.Trie", _FailingTrie)
+    monkeypatch.setattr("mir.graph._trie_utils.Trie", _FailingTrie)
 
     seq_len10 = "CASSRSGYTF"
     seq_len10_1mm = "XASSRSGYTF"
@@ -354,7 +354,7 @@ def test_fallback_hamming_compares_only_equal_lengths(monkeypatch) -> None:
 
 
 def test_fallback_levenshtein_applies_length_window(monkeypatch) -> None:
-    monkeypatch.setattr("mir.graph.edit_distance_graph.Trie", _FailingTrie)
+    monkeypatch.setattr("mir.graph._trie_utils.Trie", _FailingTrie)
 
     seq_len10 = "CASSRSGYTF"
     seq_len11 = "CASSRSGYTFF"       # lev=1 vs len10
@@ -375,7 +375,7 @@ def test_fallback_levenshtein_applies_length_window(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 ASSETS = Path(__file__).parent / "assets"
-GILG_FILE = ASSETS / "gilgfvftl_trb_cdr3.txt.gz"
+GILG_FILE = ASSETS / "gilgfvftl_trb_junctions.txt.gz"
 
 
 def _load_gilg_rearrangements() -> list[Clonotype]:

@@ -6,10 +6,12 @@ import pytest
 
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+import mir.graph.neighborhood_enrichment as _ne_mod
 from mir.graph.neighborhood_enrichment import (
     add_neighborhood_enrichment_metadata,
     add_neighborhood_metadata,
     compute_neighborhood_stats,
+    compute_neighborhood_stats_by_locus,
 )
 
 
@@ -436,6 +438,129 @@ def test_neighborhood_fallback_hamming_equal_length_only() -> None:
 
     assert stats["c1"]["neighbor_count"] == 1
     assert stats["c2"]["neighbor_count"] == 1
+
+
+def test_neighborhood_grouped_vj_explicit_values() -> None:
+    """Grouped-trie VJ search counts only same-V+J neighbours; potential = group size."""
+    # c1/c2/c3 share TRBV1/TRBJ1; c4 has TRBV2/TRBJ1; c5 has TRBV2/TRBJ2.
+    # c1 vs c2: Hamming-1 (pos 10 Y→F). c1 vs c3: Hamming-1 (pos 7 E→D).
+    # c2 vs c3: Hamming-2 (pos 7 E→D, pos 10 Y→F) — NOT neighbours.
+    # c4 is Hamming-1 from c1 (pos 4 L→P) but different V — invisible in vj mode.
+    # c4 and c5 share the same CDR3 but differ in J — each isolated in its own group.
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(rep, match_v_gene=True, match_j_gene=True)
+    trb = stats
+
+    # (TRBV1, TRBJ1) group has 3 members; c1 sees c2 and c3 (both 1mm)
+    assert trb["c1"]["neighbor_count"] == 3
+    assert trb["c1"]["potential_neighbors"] == 3
+    # c2 sees only c1 (c3 is 2mm away); c3 sees only c1
+    assert trb["c2"]["neighbor_count"] == 2
+    assert trb["c2"]["potential_neighbors"] == 3
+    assert trb["c3"]["neighbor_count"] == 2
+    assert trb["c3"]["potential_neighbors"] == 3
+    # c4 is Hamming-1 from c1 but in a different V group — must be invisible
+    assert trb["c4"]["neighbor_count"] == 1   # self only
+    assert trb["c4"]["potential_neighbors"] == 1
+    # c5 shares CDR3 with c4 but different J — isolated group
+    assert trb["c5"]["neighbor_count"] == 1   # self only
+    assert trb["c5"]["potential_neighbors"] == 1
+
+
+def test_neighborhood_grouped_v_only_explicit_values() -> None:
+    """match_v_gene=True, match_j_gene=False: groups by V only; J is ignored."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ2"),
+            _clonotype("c3", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(rep, match_v_gene=True, match_j_gene=False)
+
+    # c1 and c2 share TRBV1 (different J, but J not required); c1↔c2 are 1mm
+    assert stats["c1"]["neighbor_count"] == 2
+    assert stats["c1"]["potential_neighbors"] == 2
+    assert stats["c2"]["neighbor_count"] == 2
+    assert stats["c2"]["potential_neighbors"] == 2
+    # c3 is in a separate V group
+    assert stats["c3"]["neighbor_count"] == 1
+    assert stats["c3"]["potential_neighbors"] == 1
+
+
+def test_neighborhood_grouped_cross_background_query_absent() -> None:
+    """Cross-background: query V/J absent from background → pseudocount only."""
+    query = LocusRepertoire(
+        clonotypes=[
+            _clonotype("q1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+    # Background has no TRBV1/TRBJ1 sequences
+    background = LocusRepertoire(
+        clonotypes=[
+            _clonotype("b1", "CCC", "CASSLGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(
+        query, background=background, metric="hamming", threshold=1,
+        match_v_gene=True, match_j_gene=True,
+    )
+
+    # No background group for TRBV1/TRBJ1 → only the pseudocount for self
+    assert stats["q1"]["neighbor_count"] == 1
+    assert stats["q1"]["potential_neighbors"] == 1
+
+
+def test_neighborhood_parallel_grouped_matches_serial_grouped() -> None:
+    """Parallel grouped-trie path produces identical results to the serial path."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+        ],
+        locus="TRB",
+    )
+
+    original_min = _ne_mod._NEIGHBOR_PARALLEL_MIN_CLONOTYPES
+    try:
+        _ne_mod._NEIGHBOR_PARALLEL_MIN_CLONOTYPES = 2  # force parallel path for small rep
+
+        serial = compute_neighborhood_stats_by_locus(
+            rep, match_v_gene=True, match_j_gene=True, n_jobs=1,
+        )
+        parallel = compute_neighborhood_stats_by_locus(
+            rep, match_v_gene=True, match_j_gene=True, n_jobs=4,
+        )
+    finally:
+        _ne_mod._NEIGHBOR_PARALLEL_MIN_CLONOTYPES = original_min
+
+    # Parallel and serial must agree exactly
+    assert parallel == serial
+    # Spot-check values: c1 sees c2 and c3 (both 1mm, same V+J group)
+    trb_serial = serial["TRB"]
+    assert trb_serial["c1"]["neighbor_count"] == 3
+    assert trb_serial["c1"]["potential_neighbors"] == 3
+    # c4 and c5 share the same CDR3 but are in different (V, J) groups
+    assert trb_serial["c4"]["neighbor_count"] == 1
+    assert trb_serial["c5"]["neighbor_count"] == 1
 
 
 def test_neighborhood_fallback_levenshtein_length_window() -> None:

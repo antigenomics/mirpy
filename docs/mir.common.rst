@@ -12,6 +12,14 @@ mir.common.clonotype module
    :undoc-members:
    :show-inheritance:
 
+mir.common.diversity module
+---------------------------
+
+.. automodule:: mir.common.diversity
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.filter module
 ------------------------
 
@@ -48,6 +56,14 @@ mir.common.repertoire module
 ----------------------------
 
 .. automodule:: mir.common.repertoire
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+mir.common.metaclonotype module
+-------------------------------
+
+.. automodule:: mir.common.metaclonotype
    :members:
    :undoc-members:
    :show-inheritance:
@@ -176,3 +192,4 @@ Module contents
    :members:
    :undoc-members:
    :show-inheritance:
+   :no-index:
