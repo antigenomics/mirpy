@@ -62,8 +62,9 @@ jobs:
           # Skip 32-bit targets — not needed for a scientific library.
           # Skip musl (Alpine) Linux — heavy scipy/numpy stack builds poorly there.
           CIBW_SKIP: "*-musllinux_* *-manylinux_i686 *-win32"
-          # Verify the compiled extension loads correctly after each wheel build.
-          CIBW_TEST_COMMAND: "python -c \"import mir; print('mirpy-lib OK')\""
+          # Skip testing: dependencies with compilation requirements (Rust, C++) aren't available in CI.
+          # Package testing happens in separate tests.yml workflow; publish should only build wheels.
+          CIBW_TEST_SKIP: "*"
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
@@ -71,11 +72,42 @@ jobs:
           name: python-wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
 
+  test-wheels:
+    name: Test wheels
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-wheels-*
+          merge-multiple: true
+          path: wheels/
+
+      - name: List wheels
+        run: ls -la wheels/
+
+      - name: Install and test wheel
+        run: |
+          pip install --upgrade pip
+          pip install wheels/mirpy_lib-*-cp${{ matrix.python-version }}-*.whl
+          python -c "import mir; print('✓ mir module imports successfully')"
+
   publish:
     name: Publish To PyPI
     needs:
       - build-sdist
       - build-wheels
+      - test-wheels
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
