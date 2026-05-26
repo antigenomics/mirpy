@@ -162,6 +162,9 @@ jobs:
       id-token: write  # required for OIDC trusted publishing
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download distributions
         uses: actions/download-artifact@v4
         with:
