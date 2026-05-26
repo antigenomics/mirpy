@@ -48,7 +48,6 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-13       # Intel x86_64
           - macos-latest   # Apple Silicon arm64
 
     steps:
@@ -103,18 +102,6 @@ jobs:
             artifact: python-wheels-windows-latest
             python-version: "3.13"
             py_tag: cp313
-          - os: macos-13
-            artifact: python-wheels-macos-13
-            python-version: "3.11"
-            py_tag: cp311
-          - os: macos-13
-            artifact: python-wheels-macos-13
-            python-version: "3.12"
-            py_tag: cp312
-          - os: macos-13
-            artifact: python-wheels-macos-13
-            python-version: "3.13"
-            py_tag: cp313
           - os: macos-latest
             artifact: python-wheels-macos-latest
             python-version: "3.11"
@@ -142,9 +129,11 @@ jobs:
           path: wheels/
 
       - name: List wheels
+        shell: bash
         run: ls -la wheels/
 
       - name: Install and test wheel
+        shell: bash
         run: |
           pip install --upgrade pip
           python - <<'PY'
