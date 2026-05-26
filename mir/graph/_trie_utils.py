@@ -14,6 +14,7 @@ _logger = logging.getLogger(__name__)
 # cause tcrtrie to emit per-sequence warnings to stdout (compiled C++ code).
 # Pre-filtering to "" silences those warnings; the empty string is never matched.
 _STANDARD_AA = frozenset("ACDEFGHIKLMNPQRSTVWY")
+_TRIE_WARNING_EMITTED = False
 
 
 def _is_trie_safe(seq: str) -> bool:
@@ -36,13 +37,16 @@ def make_trie(seqs: list[str], v_genes: list[str], j_genes: list[str]) -> tuple:
     """
     from tcrtrie import Trie
 
+    global _TRIE_WARNING_EMITTED
+
     trie_to_orig = [i for i, s in enumerate(seqs) if _is_trie_safe(s)]
     n_skip = len(seqs) - len(trie_to_orig)
-    if n_skip:
+    if n_skip and not _TRIE_WARNING_EMITTED:
         _logger.warning(
             "Skipping %d sequences with non-canonical amino acids (*, _, or non-standard chars)",
             n_skip,
         )
+        _TRIE_WARNING_EMITTED = True
 
     if trie_to_orig:
         canon_seqs = [seqs[i] for i in trie_to_orig]
