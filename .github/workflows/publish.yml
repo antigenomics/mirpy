@@ -62,8 +62,10 @@ jobs:
           # Skip 32-bit targets — not needed for a scientific library.
           # Skip musl (Alpine) Linux — heavy scipy/numpy stack builds poorly there.
           CIBW_SKIP: "*-musllinux_* *-manylinux_i686 *-win32"
+          # Only use pre-built wheels during test to avoid requiring compiler toolchain
+          CIBW_ENVIRONMENT: "PIP_ONLY_BINARY=:all:"
           # Install runtime dependencies in the test environment
-          CIBW_TEST_REQUIRES: "numpy scipy pandas biopython"
+          CIBW_TEST_REQUIRES: "numpy scipy pandas biopython kneed matplotlib multipy olga pyarrow polars pympler python_igraph scikit-learn seaborn statsmodels textdistance tcrtrie tqdm adjustText"
           # Verify the compiled extension loads correctly after each wheel build.
           CIBW_TEST_COMMAND: "python -c \"import mir; print('mirpy-lib OK')\""
 
