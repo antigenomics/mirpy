@@ -75,10 +75,59 @@ jobs:
   test-wheels:
     name: Test wheels
     needs: build-wheels
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            artifact: python-wheels-ubuntu-latest
+            python-version: "3.11"
+            py_tag: cp311
+          - os: ubuntu-latest
+            artifact: python-wheels-ubuntu-latest
+            python-version: "3.12"
+            py_tag: cp312
+          - os: ubuntu-latest
+            artifact: python-wheels-ubuntu-latest
+            python-version: "3.13"
+            py_tag: cp313
+          - os: windows-latest
+            artifact: python-wheels-windows-latest
+            python-version: "3.11"
+            py_tag: cp311
+          - os: windows-latest
+            artifact: python-wheels-windows-latest
+            python-version: "3.12"
+            py_tag: cp312
+          - os: windows-latest
+            artifact: python-wheels-windows-latest
+            python-version: "3.13"
+            py_tag: cp313
+          - os: macos-13
+            artifact: python-wheels-macos-13
+            python-version: "3.11"
+            py_tag: cp311
+          - os: macos-13
+            artifact: python-wheels-macos-13
+            python-version: "3.12"
+            py_tag: cp312
+          - os: macos-13
+            artifact: python-wheels-macos-13
+            python-version: "3.13"
+            py_tag: cp313
+          - os: macos-latest
+            artifact: python-wheels-macos-latest
+            python-version: "3.11"
+            py_tag: cp311
+          - os: macos-latest
+            artifact: python-wheels-macos-latest
+            python-version: "3.12"
+            py_tag: cp312
+          - os: macos-latest
+            artifact: python-wheels-macos-latest
+            python-version: "3.13"
+            py_tag: cp313
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Set up Python
@@ -89,8 +138,7 @@ jobs:
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: python-wheels-*
-          merge-multiple: true
+          name: ${{ matrix.artifact }}
           path: wheels/
 
       - name: List wheels
@@ -99,7 +147,17 @@ jobs:
       - name: Install and test wheel
         run: |
           pip install --upgrade pip
-          pip install wheels/mirpy_lib-*-cp${{ matrix.python-version }}-*.whl
+          python - <<'PY'
+          from glob import glob
+          from subprocess import check_call
+          import sys
+
+          pattern = "wheels/mirpy_lib-*-${{ matrix.py_tag }}-*.whl"
+          matches = sorted(glob(pattern))
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one wheel for pattern {pattern}, found {len(matches)}: {matches}")
+          check_call([sys.executable, "-m", "pip", "install", matches[0]])
+          PY
           python -c "import mir; print('✓ mir module imports successfully')"
 
   publish:
