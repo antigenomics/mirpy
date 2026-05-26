@@ -129,9 +129,11 @@ jobs:
           path: wheels/
 
       - name: List wheels
+        shell: bash
         run: ls -la wheels/
 
       - name: Install and test wheel
+        shell: bash
         run: |
           pip install --upgrade pip
           python - <<'PY'
