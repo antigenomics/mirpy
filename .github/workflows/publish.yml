@@ -147,7 +147,7 @@ jobs:
               raise SystemExit(f"Expected exactly one wheel for pattern {pattern}, found {len(matches)}: {matches}")
           check_call([sys.executable, "-m", "pip", "install", matches[0]])
           PY
-          python -c "import mir; print('✓ mir module imports successfully')"
+          python -c "import mir; print('[OK] mir module imports successfully')"
 
   publish:
     name: Publish To PyPI
