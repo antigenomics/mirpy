@@ -95,5 +95,7 @@ def test_majority_vote_predictions_and_scores() -> None:
     scores = classification_scores_by_label(labels, predicted)
 
     assert predicted.shape == labels.shape
-    assert float(scores["accuracy"]) >= 0.0
+    # With the constructed clusters (majority vote maps cluster 0→E1, cluster 1→E2),
+    # at least 4 of 6 items are correctly classified → accuracy > 0.5.
+    assert float(scores["accuracy"]) > 0.5
     assert len(scores["per_label"]) == len(np.unique(labels))

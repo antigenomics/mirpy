@@ -21,7 +21,7 @@ mir.comparative.vdjbet module
    :show-inheritance:
 
 mir.comparative.vdjbet\_workflow module
-----------------------------------------
+---------------------------------------
 
 .. automodule:: mir.comparative.vdjbet_workflow
    :members:

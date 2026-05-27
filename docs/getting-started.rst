@@ -149,6 +149,11 @@ These methods call the same function-level implementation shown above.
 Metric summary (VDJtools-compatible)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. note::
+
+   Diversity indices follow `VDJtools <https://pubmed.ncbi.nlm.nih.gov/26606115/>`_
+   (Shugay *et al.* 2015, *PLoS Comput. Biol.*, PMID:26606115).
+
 ``diversity(...)`` returns:
 
 * ``abundance``: total counts in the selected counting mode
@@ -265,7 +270,7 @@ Point-by-point clustering entry points
    * ``mir.graph.build_gliph_metaclonotypes``
 
 Unified clustering interface
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``mir.biomarkers.metaclonotype_cluster`` provides a single config-driven entry
 point for all six clustering methods and supports paired-chain analysis.
@@ -297,7 +302,7 @@ point for all six clustering methods and supports paired-chain analysis.
    paired_meta = cluster_paired_metaclonotypes(paired_locus_repertoire, paired_cfg)
 
 Paired-from-single combining
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Any single-chain metaclonotype results can be combined into paired-chain
 clusters using ``paired_metaclonotypes_from_single_chain``:
@@ -343,7 +348,10 @@ Downstream metaclonotype analytics
 Pairwise Overlap Spaces
 -----------------------
 
-``mir.comparative.overlap`` supports four identity spaces:
+``mir.comparative.overlap`` supports four identity spaces (see also
+Shugay *et al.* 2018, *PNAS*,
+`PMID:30158170 <https://pubmed.ncbi.nlm.nih.gov/30158170/>`_ for a
+high-resolution repertoire overlap analysis use case):
 
 * ``"ntvj"``: nucleotide CDR3 + V + J
 * ``"nt"``: nucleotide CDR3 only
@@ -595,7 +603,7 @@ reuse ``marginalize_batch_corrected_gene_usage(..., scope='v'|'j')`` from the
 same module instead of ad-hoc notebook ``groupby`` code.
 
 Pooling Repertoires Across Samples
------------------------------------
+----------------------------------
 
 Use ``pool_samples`` to combine clonotypes across samples with explicit
 identity rules.
@@ -624,7 +632,7 @@ Each pooled clonotype stores:
 * ``occurrences`` in clonotype metadata (number of grouped rows).
 
 Neighborhood Enrichment and Clonotype Similarity
--------------------------------------------------
+------------------------------------------------
 
 Use ``compute_neighborhood_stats`` to find clonotypes similar to each other
 based on edit distance in the CDR3 junction region. This is useful for
@@ -725,7 +733,7 @@ Available species aliases: ``human``/``hsa``/``HomoSapiens`` and
 such as ``Talpha``/``Tbeta``.
 
 Bag-of-K-mers Control Profiles
---------------------------------
+------------------------------
 
 Use ``mir.embedding.bag_of_kmers`` to compute background k-mer statistics for
 enrichment workflows.
@@ -769,11 +777,13 @@ Cached profile writes are lock-protected to avoid race conditions under
 concurrent workers.
 
 ALICE-Style Neighborhood Enrichment
-------------------------------------
+-----------------------------------
 
 Use ``mir.biomarkers.alice`` to compute per-clonotype neighborhood enrichment
-using OLGA generation probabilities as null model. ALICE estimates how many
-neighbors each clonotype would accumulate by chance given its sequence's Pgen.
+using OLGA generation probabilities as null model (Pogorelyy *et al.* 2019,
+*PLoS Biol.*, `PMID:31194732 <https://pubmed.ncbi.nlm.nih.gov/31194732/>`_).
+ALICE estimates how many neighbors each clonotype would accumulate by chance
+given its sequence's Pgen.
 
 ALICE is metadata-first: neighbor counts, expected neighbors, fold enrichment,
 p-values, and BH-adjusted q-values are written directly into clonotype
@@ -815,11 +825,12 @@ achieve true CPU parallelism; set ``MIRPY_..._EXECUTOR=thread`` only when
 debugging thread-local behavior.
 
 TCRNET-Style Neighborhood Enrichment
---------------------------------------
+------------------------------------
 
 Use ``mir.biomarkers.tcrnet`` to compute per-clonotype neighborhood
 enrichment against either user-provided controls or built-in real/synthetic
-controls managed by ``ControlManager``.
+controls managed by ``ControlManager`` (Shugay *et al.* 2025,
+*Briefings Bioinform.*, `PMID:40996146 <https://pubmed.ncbi.nlm.nih.gov/40996146/>`_).
 
 TCRNET is metadata-first: neighbor counts, p-values, and BH-adjusted
 q-values are written directly into clonotype metadata. A tabular result is

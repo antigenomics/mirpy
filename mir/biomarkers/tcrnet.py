@@ -16,7 +16,9 @@ For each query clonotype:
 Statistical tests:
 
 - ``pvalue_mode="binomial"`` — ``P(X ≥ n)`` where ``X ~ Binomial(N, m/M)``
-- ``pvalue_mode="beta-binomial"`` — ``P(X ≥ n)`` where ``X ~ BetaBinomial(N, m+1, M-m+1)``
+- ``pvalue_mode="beta-binomial"`` — ``P(X ≥ n)`` where ``X ~ BetaBinomial(N, α, M-m+1)``
+  with ``α = (m+pc)*q_factor``; q_factor scales the alpha (effective successes) identically to
+  how it scales the binomial probability numerator
   (recommended when control is noisy or sample size is small)
 
 Control options
@@ -283,6 +285,9 @@ def _p_value(n: int, N: int, m: float, M: float, mode: PValueMode) -> float:
         p = min(1.0, max(0.0, m / M))
         return float(binom.sf(n - 1, N, p))
 
+    # Degenerate: q-adjusted alpha ≥ M means effective background density ≥ 1 (miscalibration).
+    if m >= M:
+        return 1.0
     alpha = float(m + 1)
     beta = float((M - m) + 1)
     return float(betabinom.sf(n - 1, N, alpha, beta))
@@ -317,11 +322,13 @@ def _compute_tcrnet_metrics_batch(
     ``neighbor_count < min_neighbors`` receive ``p_value = 1.0`` without any
     statistical computation.
 
-    ``q_factor`` scales the control density before the enrichment test:
-    ``p_ctrl_adj = q_factor × (m + pc) / (M + pc)``.  Use ``q_factor > 1``
-    to correct synthetic controls for thymic selection.  Raw counts ``m`` and
-    ``M`` are stored in metadata without pseudocount or q-scaling; pseudocount
-    and q_factor are applied only inside the statistical computation.
+    ``q_factor`` scales the effective number of control successes: ``alpha =
+    (m + pc) * q_factor``.  For the binomial this is equivalent to scaling the
+    null probability numerator; for the beta-binomial it scales the alpha shape
+    parameter identically.  Use ``q_factor > 1`` to correct synthetic controls
+    for thymic selection.  Raw counts ``m`` and ``M`` are stored in metadata
+    without pseudocount or q-scaling; pseudocount and q_factor are applied only
+    inside the statistical computation.
 
     When ``match_mode != "none"`` and ``gene_usage_fracs`` is provided, *M* is
     replaced by ``P_ctrl(gene) × m_background_total`` so the denominator uses
@@ -340,7 +347,7 @@ def _compute_tcrnet_metrics_batch(
         N = int(s_stat["potential_neighbors"])
         c_stat = locus_ctrl.get(sid, {"neighbor_count": 0, "potential_neighbors": 0})
         m_count = int(c_stat["neighbor_count"])  # true raw count, stored in metadata as-is
-        m_stat = (m_count + pseudocount) * q_factor  # pseudocount + q-scaling for statistics only
+        m_stat = (m_count + pseudocount) * q_factor  # alpha: q scales effective successes for both modes
         if use_gene_scaling:
             p_gene = lookup_gene_frac(
                 match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
@@ -365,7 +372,7 @@ def _compute_tcrnet_metrics_batch(
 
 def _compute_tcrnet_metrics_batch_from_args(
     args: tuple,
-) -> list[tuple[str, int, int, float, int, float, float, float, float]]:
+) -> list[tuple[str, int, int, int, float, float, float, float, float]]:
     """Pickle-friendly wrapper for process-pool batch execution."""
     (clonotypes, locus_self, locus_ctrl, pvalue_mode, pseudocount, min_neighbors, q_factor,
      match_mode, gene_usage_fracs, m_background_total) = args

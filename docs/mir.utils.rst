@@ -5,7 +5,7 @@ Submodules
 ----------
 
 mir.utils.embedding\_diagnostics module
------------------------------------------
+---------------------------------------
 
 .. automodule:: mir.utils.embedding_diagnostics
    :members:
@@ -13,7 +13,7 @@ mir.utils.embedding\_diagnostics module
    :show-inheritance:
 
 mir.utils.stats module
------------------------
+----------------------
 
 .. automodule:: mir.utils.stats
    :members:
@@ -21,7 +21,7 @@ mir.utils.stats module
    :show-inheritance:
 
 mir.utils.notebook\_assets module
------------------------------------
+---------------------------------
 
 .. automodule:: mir.utils.notebook_assets
    :members:
@@ -29,7 +29,7 @@ mir.utils.notebook\_assets module
    :show-inheritance:
 
 mir.utils.memory\_debug module
---------------------------------
+------------------------------
 
 .. automodule:: mir.utils.memory_debug
    :members:
@@ -37,7 +37,7 @@ mir.utils.memory\_debug module
    :show-inheritance:
 
 mir.utils.shared\_memory module
----------------------------------
+-------------------------------
 
 .. automodule:: mir.utils.shared_memory
    :members:
@@ -45,7 +45,7 @@ mir.utils.shared\_memory module
    :show-inheritance:
 
 mir.utils.metaclonotype\_clustering module
---------------------------------------------
+------------------------------------------
 
 .. automodule:: mir.utils.metaclonotype_clustering
    :members:
@@ -53,7 +53,7 @@ mir.utils.metaclonotype\_clustering module
    :show-inheritance:
 
 mir.utils.parser\_cli module
-------------------------------
+----------------------------
 
 .. automodule:: mir.utils.parser_cli
    :members:

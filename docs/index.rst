@@ -36,6 +36,10 @@ mirpy documentation
        <h3>Repository</h3>
        <p>Jump to the GitHub repository for source code, issues, notebooks, and the current development state.</p>
      </a>
+     <a class="mirpy-card" href="references.html">
+       <h3>References</h3>
+       <p>Cite the algorithms and databases in mirpy: ALICE, TCRNET, TCREmp, VDJdb, TCRdist, and more.</p>
+     </a>
    </div>
 
 What mirpy covers
@@ -123,3 +127,4 @@ Explore next
    getting-started
    examples
    modules
+   references

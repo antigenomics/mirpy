@@ -14,7 +14,6 @@ Subpackages
    mir.distances
    mir.embedding
    mir.graph
-   mir.ml
    mir.utils
 
 Module contents

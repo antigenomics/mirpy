@@ -16,7 +16,7 @@ Submodules
 ----------
 
 mir.graph.distance\_utils module
----------------------------------
+--------------------------------
 
 .. automodule:: mir.graph.distance_utils
    :members:
@@ -32,7 +32,7 @@ mir.graph.edit\_distance\_graph module
    :show-inheritance:
 
 mir.graph.neighborhood\_enrichment module
-------------------------------------------
+-----------------------------------------
 
 .. automodule:: mir.graph.neighborhood_enrichment
    :members:
@@ -48,7 +48,7 @@ mir.graph.token\_graph module
    :show-inheritance:
 
 mir.graph.single\_cell\_pairing module
----------------------------------------
+--------------------------------------
 
 .. automodule:: mir.graph.single_cell_pairing
    :members:

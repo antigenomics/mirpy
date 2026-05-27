@@ -37,7 +37,7 @@ mir.common.alleles module
    :show-inheritance:
 
 mir.common.gene\_library module
---------------------------------
+-------------------------------
 
 .. automodule:: mir.common.gene_library
    :members:
@@ -77,7 +77,7 @@ mir.common.single\_cell module
    :show-inheritance:
 
 mir.common.single\_cell\_parser module
----------------------------------------
+--------------------------------------
 
 .. automodule:: mir.common.single_cell_parser
    :members:
@@ -85,7 +85,7 @@ mir.common.single\_cell\_parser module
    :show-inheritance:
 
 mir.common.single\_cell\_repair module
----------------------------------------
+--------------------------------------
 
 .. automodule:: mir.common.single_cell_repair
    :members:
@@ -93,7 +93,7 @@ mir.common.single\_cell\_repair module
    :show-inheritance:
 
 mir.common.single\_cell\_util module
--------------------------------------
+------------------------------------
 
 .. automodule:: mir.common.single_cell_util
    :members:
@@ -133,7 +133,7 @@ mir.common.io\_parallel module
    :show-inheritance:
 
 Parallel Default And Fallback Policy
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Default mode uses parallel parsing with 4 workers.
 - Sequential fallback is used when any of these are true:
@@ -154,7 +154,7 @@ Parallel Default And Fallback Policy
    - If it is above about 0.23 MB, parallel loading is typically beneficial and selected by default.
 
 mir.common.repertoire\_dataset module
---------------------------------------
+-------------------------------------
 
 .. automodule:: mir.common.repertoire_dataset
    :members:

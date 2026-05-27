@@ -57,7 +57,7 @@ from mir.comparative.overlap import (
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _strip_allele(gene: str) -> str:
+def _to_major_allele(gene: str) -> str:
     """Normalize to major allele (e.g. TRBV1*02 -> TRBV1*01)."""
     return allele_to_major(gene)
 
@@ -409,8 +409,8 @@ class PgenBinPool:
                 rec = pool[int(i)]
                 result.append((
                     rec["junction_aa"],
-                    _strip_allele(rec.get("v_gene", "")),
-                    _strip_allele(rec.get("j_gene", "")),
+                    _to_major_allele(rec.get("v_gene", "")),
+                    _to_major_allele(rec.get("j_gene", "")),
                 ))
         return result
 

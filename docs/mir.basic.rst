@@ -61,7 +61,7 @@ mir.basic.aliases module
    :show-inheritance:
 
 mir.basic.mirseq\_compat module
---------------------------------
+-------------------------------
 
 .. automodule:: mir.basic.mirseq_compat
    :members:
