@@ -387,9 +387,13 @@ class TestBackwardCompat:
 
     def test_distances_init_exports(self):
         from mir.distances import GermlineAligner, ClonotypeAligner, ClonotypeScore
-        assert GermlineAligner is not None
-        assert ClonotypeAligner is not None
-        assert ClonotypeScore is not None
+        assert callable(GermlineAligner)
+        assert callable(ClonotypeAligner)
+        # ClonotypeScore stores per-component scores; verify structure
+        cs = ClonotypeScore(1.0, 2.0, 3.0)
+        assert cs.v_score == 1.0
+        assert cs.j_score == 2.0
+        assert cs.junction_score == 3.0
 
     def test_seqdist_c_has_all_functions(self):
         """The merged seqdist_c module must expose all original functions."""

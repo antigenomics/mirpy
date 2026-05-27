@@ -24,6 +24,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Union
 
+from mir.common.alleles import strip_allele
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -111,11 +113,6 @@ def _safe_group_renormalize(
         else:
             out[idx_arr] = 1.0 / len(idx_arr)
     return pd.Series(out, index=df.index)
-
-
-def _strip_allele(gene: str) -> str:
-    """Strip allele suffix: ``"TRBV1*01"`` → ``"TRBV1"``."""
-    return gene.split("*")[0] if gene else ""
 
 
 def precompute_olga_gene_usage_probabilities(
@@ -221,8 +218,6 @@ def get_gene_usage_from_olga_model(
     from collections import defaultdict
 
     import numpy as np
-
-    from mir.common.alleles import strip_allele
 
     gm = model.gen_model
     v_alleles: list[str] = model.v_names
@@ -536,7 +531,7 @@ class GeneUsage:
 
     def _normalize_gene(self, gene: str) -> str:
         """Apply gene normalization based on strip_alleles setting."""
-        return _strip_allele(gene) if self.strip_alleles else gene
+        return strip_allele(gene) if self.strip_alleles else gene
 
     # ------------------------------------------------------------------
     # Loci

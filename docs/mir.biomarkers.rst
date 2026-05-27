@@ -25,10 +25,9 @@ the background: ``λ = N × pgen_1mm`` (Pogorelyy et al. *PLoS Biol.* 2019).
 
 - A 10 M synthetic MC pool estimates ``pgen_1mm`` rapidly; sequences with < 2
   pool matches fall back to OLGA analytical 1mm Pgen.
-- The paper's original pool size is 100 M and uses V+J gene matching
-  (``match_mode="vj"``).  Our default is ``match_mode="none"`` for speed.
+- The paper's original pool size is 100 M; the default ``match_mode="vj"``
+  applies V+J gene restriction for both speed and specificity.
 - Use ``pgen_mode="mc"`` for production; ``"exact"`` underestimates λ.
-- Default ``match_mode="vj"`` (V+J gene restriction, matching the original paper).
 
 **TCRNET** (``mir.biomarkers.tcrnet``) is a **purely MC-control** algorithm:
 no OLGA Pgen is computed.  Neighbor density is compared between sample and a
@@ -37,8 +36,8 @@ provided control using a binomial (or beta-binomial) test.
 - Works with any control: real repertoire (captures V/J and length biases
   automatically) or a synthetic :class:`~mir.basic.pgen.McPgenPool`.
 - When using a *synthetic* control, apply ``q_factor ≈ 3–5`` to correct for
-  pre-selection bias (OLGA sequences are at recombination, not post-thymic,
-  frequencies).  Estimate Q as ``median(pgen_real / pgen_olga)`` using
+  pre-selection bias (OLGA sequences are pre-thymic, at recombination, before
+  thymic selection frequencies).  Estimate Q as ``median(pgen_real / pgen_olga)`` using
   :meth:`~mir.basic.pgen.McPgenPool.build_real` on a real control.
 - To fully reproduce the original ALICE paper using TCRNET: use a 100 M
   synthetic pool, ``match_mode="vj"``, ``pvalue_mode="beta-binomial"``, and
@@ -47,7 +46,7 @@ provided control using a binomial (or beta-binomial) test.
   present in the control but lost in the sample).
 
 Sequence logos and motif selection logos
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``mir.biomarkers.motif_logo`` implements CDR3 sequence logos with OLGA-derived
 background normalisation following Pogorelyy *et al.* (2019 *PLoS Biol.*).
@@ -144,7 +143,7 @@ Submodules
 ----------
 
 mir.biomarkers.motif_logo module
----------------------------------
+--------------------------------
 
 .. automodule:: mir.biomarkers.motif_logo
    :members:

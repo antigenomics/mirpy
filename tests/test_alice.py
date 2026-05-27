@@ -410,26 +410,17 @@ def test_compute_alice_mc_mode_invalid_n_pool(monkeypatch) -> None:
         compute_alice(rep, pgen_mode="mc", mc_n_pool=1000, n_jobs=1)
 
 
-def test_alice_tcrnet_equivalence_note() -> None:
-    """Documenting the ALICE / TCRNET relationship via assertion on shared concepts.
+def test_alice_tcrnet_shared_output_schema() -> None:
+    """Both AliceResult and TcrnetResult expose .table (pl.DataFrame) and .params."""
+    from mir.biomarkers.alice import AliceResult
+    from mir.biomarkers.tcrnet import TcrnetResult
+    import dataclasses
 
-    ALICE (pgen_mode='mc', large pool) and TCRNET both:
-    - compute Hamming-1 neighbor counts in a repertoire,
-    - compare observed counts to a background (MC pool vs real control),
-    - assign enrichment p-values.
+    alice_fields = {f.name for f in dataclasses.fields(AliceResult)}
+    tcrnet_fields = {f.name for f in dataclasses.fields(TcrnetResult)}
 
-    The key difference: ALICE falls back to OLGA analytical Pgen for sparse
-    sequences; TCRNET uses a pseudocount-adjusted binomial model throughout.
-    This test records that shared interface expectation (both return tables
-    with n_neighbors, N_possible, p_value columns).
-    """
-    from mir.biomarkers.tcrnet import compute_tcrnet
-
-    assert hasattr(compute_tcrnet, "__call__")
-    from mir.biomarkers.alice import compute_alice as _compute_alice
-    assert hasattr(_compute_alice, "__call__")
-    # Both expose a table with enrichment statistics — verified structurally
-    # in their respective test modules.
+    assert "table" in alice_fields and "params" in alice_fields
+    assert "table" in tcrnet_fields and "params" in tcrnet_fields
 
 
 def test_alice_hit_clusters_vgene_restriction() -> None:

@@ -5,7 +5,7 @@ Submodules
 ----------
 
 mir.embedding.bag\_of\_kmers module
-------------------------------------
+-----------------------------------
 
 .. automodule:: mir.embedding.bag_of_kmers
    :members:
@@ -13,7 +13,7 @@ mir.embedding.bag\_of\_kmers module
    :show-inheritance:
 
 mir.embedding.prototypes module
---------------------------------
+-------------------------------
 
 .. automodule:: mir.embedding.prototypes
    :members:
@@ -21,7 +21,7 @@ mir.embedding.prototypes module
    :show-inheritance:
 
 mir.embedding.tcremp module
-----------------------------
+---------------------------
 
 .. automodule:: mir.embedding.tcremp
    :members:

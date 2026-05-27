@@ -96,6 +96,38 @@ def test_compute_tcrnet_beta_binomial_runs() -> None:
         assert 0.0 <= p <= 1.0
 
 
+def test_beta_binomial_q_factor_scales_enrichment() -> None:
+    """q_factor > 1 in beta-binomial mode scales alpha → more conservative p_value."""
+    base = compute_tcrnet(
+        _toy_target(),
+        control=_toy_control(),
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="beta-binomial",
+        q_factor=1.0,
+        n_jobs=1,
+    )
+    corrected = compute_tcrnet(
+        _toy_target(),
+        control=_toy_control(),
+        metric="hamming",
+        threshold=1,
+        match_mode="none",
+        pvalue_mode="beta-binomial",
+        q_factor=3.0,
+        n_jobs=1,
+    )
+    for b_row, c_row in zip(
+        base.table.sort("sequence_id").iter_rows(named=True),
+        corrected.table.sort("sequence_id").iter_rows(named=True),
+    ):
+        assert float(c_row["p_value"]) >= float(b_row["p_value"]) - 1e-9, (
+            f"seq {b_row['sequence_id']}: beta-binom q=3 p={c_row['p_value']:.4f} "
+            f"< q=1 p={b_row['p_value']:.4f}"
+        )
+
+
 def test_add_tcrnet_metadata_inplace() -> None:
     rep = _toy_target()
     out = add_tcrnet_metadata(rep, control=_toy_control(), match_mode="none")

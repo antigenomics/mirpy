@@ -68,7 +68,7 @@ from mir.basic.aliases import (
     normalize_locus_alias,
     normalize_species_alias,
 )
-from mir.basic.pgen import OlgaModel
+from mir.basic.pgen import McPgenPool, OlgaModel
 
 _CONTROL_ENV = "MIRPY_CONTROL_DIR"
 _MANIFEST_FILE = "manifest.json"
@@ -754,6 +754,17 @@ def compute_control_pgen_records(
 
     The returned records contain ``junction_aa``, normalized ``v_gene``/``j_gene``,
     and ``log2_pgen`` for direct use in Pgen-bin mock sampling.
+
+    Args:
+        control_df: DataFrame with ``junction_aa``, ``v_gene``, ``j_gene`` columns.
+            An optional ``log2_pgen`` column enables the fast path (no OLGA calls).
+        locus: Receptor locus (e.g. ``"TRB"``).
+        species: Species name (default ``"human"``).
+        seed: Random seed for OLGA model initialization.
+        n_jobs: Worker processes for Pgen computation (default: all CPUs).
+        pgen_adjustment: Optional :class:`~mir.basic.pgen.PgenGeneUsageAdjustment`
+            for V/J-specific Pgen scaling.  When provided, each record's
+            ``log2_pgen`` is adjusted by ``log2(factor(locus, v, j))``.
     """
     required = ["junction_aa", "v_gene", "j_gene"]
     missing = [c for c in required if c not in control_df.columns]
@@ -1055,7 +1066,7 @@ def get_mc_pool_from_control(
     seed: int = 42,
     skip_ends: int = 2,
     n_jobs: int | None = None,
-) -> "McPgenPool":
+) -> McPgenPool:
     """Get or build a synthetic McPgenPool, using the disk cache when available.
 
     Loads sequences from the ControlManager disk cache (if the synthetic control
@@ -1080,7 +1091,7 @@ def get_mc_pool_from_control(
     Returns:
         :class:`~mir.basic.pgen.McPgenPool` ready for ``pgen_1mm_bulk`` queries.
     """
-    from mir.basic.pgen import McPgenPool, get_p_productive
+    from mir.basic.pgen import get_p_productive
 
     species_c = ControlManager.canonical_species(species)
     locus_c = ControlManager.canonical_locus(locus)
@@ -1112,26 +1123,24 @@ def get_mc_pool_from_control(
     return pool
 
 
-def _parse_locus_arg(value: str) -> list[str]:
-    parts = [x.strip() for x in value.split(",") if x.strip()]
-    if not parts:
-        raise ValueError("At least one locus must be provided")
-    return parts
-
-
-def _parse_species_arg(value: str) -> list[str]:
-    parts = [x.strip() for x in value.split(",") if x.strip()]
-    if not parts:
-        raise ValueError("At least one species must be provided")
-    return parts
-
-
 def control_setup_cli(argv: list[str] | None = None) -> int:
     """CLI for prebuilding/downloading controls.
 
     Example:
       mirpy-control-setup --type synthetic --species human,mouse --loci TRA,TRB --n 1000000
     """
+    def _parse_locus_arg(value: str) -> list[str]:
+        parts = [x.strip() for x in value.split(",") if x.strip()]
+        if not parts:
+            raise ValueError("At least one locus must be provided")
+        return parts
+
+    def _parse_species_arg(value: str) -> list[str]:
+        parts = [x.strip() for x in value.split(",") if x.strip()]
+        if not parts:
+            raise ValueError("At least one species must be provided")
+        return parts
+
     parser = argparse.ArgumentParser(description="Setup mirpy control/background data")
     parser.add_argument("--type", choices=["synthetic", "real"], required=False)
     parser.add_argument("--species", required=True, help="Comma-separated species aliases")

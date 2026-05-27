@@ -18,7 +18,8 @@ from typing import Any, TypeAlias, cast
 
 import numpy as np
 
-from mir.basic.gene_usage import GeneUsage, _strip_allele
+from mir.basic.gene_usage import GeneUsage
+from mir.common.alleles import strip_allele as _strip_allele
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 
 GeneUsageMap: TypeAlias = dict[Any, int]

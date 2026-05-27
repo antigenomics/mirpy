@@ -112,6 +112,7 @@ clonotypes = parser.parse("example.tsv")
 
 Supported parsers: `VDJtoolsParser`, `AIRRParser`, `AdaptiveParser`,
 `VDJdbFullPairedParser`, and others in `mir.common.parser`.
+VDJdb reference: Bagaev *et al.* 2018, *Nucleic Acids Res.*, PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/).
 
 ### Work with repertoires
 
@@ -415,7 +416,8 @@ trie per (V, J) gene group.  This makes `match_mode="vj"` 1.5–2× *faster*
 than `match_mode="none"` on natural repertoires (benchmark: 300 K sequences,
 8 workers — unrestricted 9.9 s, V+J restricted 5.5 s).
 
-**TCRNET** (`mir.biomarkers.tcrnet`) is a purely MC-control algorithm.
+**TCRNET** (`mir.biomarkers.tcrnet`) is a purely MC-control algorithm
+(Lupyr *et al.* 2025, *Brief. Bioinform.*, PMID:[40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/)).
 When used with a real control it captures V/J bias automatically.  Pass
 `q_factor ≈ 3–5` when using a synthetic OLGA pool to correct for the
 pre-thymic selection deficit.  TCRNET with a 100 M synthetic pool,
@@ -428,7 +430,8 @@ original ALICE paper.
 
 `TCREmp` embeds immune receptor clonotypes as distance vectors to a fixed set
 of prototype clonotypes, enabling rapid downstream analysis, dimensionality
-reduction, and machine learning.
+reduction, and machine learning
+(Kremlyakova *et al.* 2025, *J. Mol. Biol.*, PMID:[40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/)).
 
 ```python
 from mir.embedding.tcremp import TCREmp
@@ -509,6 +512,27 @@ any run expected to exceed ~10–15 min on 4–8 cores or ~12–16 GB RAM.
 - Docs source: [docs/](docs/)
 - Agent skill guide (Claude, GitHub Copilot): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 - Benchmark baselines: [benchmarks.md](benchmarks.md)
+
+---
+
+## References
+
+If you use mirpy in your work, please cite the relevant methods:
+
+| Method / data | Citation |
+| --- | --- |
+| VDJtools diversity metrics | Shugay M *et al.* (2015) *Nucleic Acids Res.* [PMID:26606115](https://pubmed.ncbi.nlm.nih.gov/26606115/) |
+| ALICE enrichment | Pogorelyy MV *et al.* (2019) *PLoS Biol.* [PMID:31194732](https://pubmed.ncbi.nlm.nih.gov/31194732/) |
+| TCRNET neighbourhood enrichment | Lupyr R *et al.* (2025) *Brief. Bioinform.* [PMID:40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/) |
+| TCREmp prototype embeddings | Kremlyakova M *et al.* (2025) *J. Mol. Biol.* [PMID:40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/) |
+| VDJdb antigen-specific TCR database | Bagaev DV *et al.* (2018) *Nucleic Acids Res.* [PMID:28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/) |
+| VDJdb SARS-CoV-2 update | Shugay M *et al.* (2022) *Nature Methods* [PMID:35970936](https://pubmed.ncbi.nlm.nih.gov/35970936/) |
+| Antigen-specificity annotation framework | Shugay M *et al.* (2019) *Front. Immunol.* [PMID:31616409](https://pubmed.ncbi.nlm.nih.gov/31616409/) |
+| TCRdist (V-gene + CDR3 distance) | Dash P *et al.* (2017) *Nature* [PMID:28636592](https://pubmed.ncbi.nlm.nih.gov/28636592/) |
+| CDR3 motif logos / selection logos | Pogorelyy MV *et al.* (2019) *PLoS Biol.* [PMID:31194732](https://pubmed.ncbi.nlm.nih.gov/31194732/) |
+| T cell repertoire aging dynamics | Britanova OV *et al.* (2016) *J. Immunol.* [PMID:27183615](https://pubmed.ncbi.nlm.nih.gov/27183615/) |
+| Pre-immune antigen-specific landscape | Pogorelyy MV *et al.* (2018) *Genome Medicine* [PMID:30144804](https://pubmed.ncbi.nlm.nih.gov/30144804/) |
+| Immunogenomics diversity | Shugay M *et al.* (2021) *Nature Methods* [PMID:34002093](https://pubmed.ncbi.nlm.nih.gov/34002093/) |
 
 ---
 

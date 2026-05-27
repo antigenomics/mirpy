@@ -6,8 +6,8 @@ ROOT = os.path.abspath("..")
 sys.path.insert(0, ROOT)
 
 project = "mirpy"
-copyright = "2026, antigenomics"
-author = "antigenomics"
+copyright = "2026, Immunosequencing Algorithms Laboratory (ISALGO lab)"
+author = "Immunosequencing Algorithms Laboratory (ISALGO lab)"
 release = "1.0.0"
 
 extensions = [

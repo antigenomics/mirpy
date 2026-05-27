@@ -12,8 +12,7 @@ build-backend = "scikit_build_core.build"
 name = "mirpy-lib"
 version = "1.1.1"
 authors = [
-  { name="VEK239", email="elizaveta.k.vlasova@gmail.com" },
-  { name="mikessh", email="mikhail.shugay@gmail.com"},
+  { name="ISALGO lab", email="mikhail.shugay@gmail.com"}
 ]
 description = "A library for managing and analyzing immunosequencing data"
 readme = "README.md"
@@ -83,6 +82,7 @@ Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
 
 [project.scripts]
+mirpy = "mir._cli:main"
 mirpy-control-setup = "mir.common.control:control_setup_cli"
 
 [tool.scikit-build]

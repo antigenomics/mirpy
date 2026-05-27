@@ -82,7 +82,7 @@ from mir.basic.pgen import OlgaModel, PgenGeneUsageAdjustment
 from mir.comparative.vdjbet import (
     PgenBinPool,
     VDJBetOverlapAnalysis,
-    _strip_allele,
+    _to_major_allele,
 )
 from mir.comparative.vdjbet_workflow import score_samples_dataframe
 from mir.common.clonotype import Clonotype
@@ -1172,13 +1172,13 @@ class TestSyntheticVsRealMockComparison:
         In TCRNET-style V/J matching, base genes (without *01 suffix) should
         be compared to avoid collapsing M_control_possible to 0.
         """
-        # Test that _strip_allele handles both formats
-        assert _strip_allele("TRBV1*01") == "TRBV1*01"  # already has allele
-        assert _strip_allele("TRBV1") == "TRBV1*01"     # adds default allele
+        # Test that _to_major_allele handles both formats
+        assert _to_major_allele("TRBV1*01") == "TRBV1*01"  # already has allele
+        assert _to_major_allele("TRBV1") == "TRBV1*01"     # adds default allele
         
         # Verify that base names match when alleles differ
-        v_with_allele_1 = _strip_allele("TRBV1*01")
-        v_with_allele_2 = _strip_allele("TRBV1*02")
+        v_with_allele_1 = _to_major_allele("TRBV1*01")
+        v_with_allele_2 = _to_major_allele("TRBV1*02")
         
         # Both should normalize to the same base (actually both get *01)
         # The real matching should strip the allele for comparison
