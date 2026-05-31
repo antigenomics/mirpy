@@ -92,6 +92,9 @@ fi
 if [ "$INSTALL_DOCS" -eq 1 ]; then
     echo "Installing documentation dependencies..."
     "$PYTHON_BIN" -m pip install -r docs/requirements.txt --quiet
+
+    echo "Synchronising notebook symlinks in docs/notebooks/..."
+    "$PYTHON_BIN" docs/sync_notebooks.py
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
