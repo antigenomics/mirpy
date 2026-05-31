@@ -24,6 +24,7 @@ characterising T-cell and B-cell receptor repertoires.
 - [Metaclonotypes](#metaclonotypes)
 - [TCRdist](#tcrdist)
 - [CDR3 Motif Logos](#cdr3-motif-logos)
+- [Clonotype Association Scan](#clonotype-association-scan)
 - [ALICE and TCRNET](#alice-and-tcrnet)
 - [Prototype-based embeddings (TCREmp)](#prototype-based-embeddings-with-tcremp)
 - [Copilot Agent Workflow](#copilot-agent-workflow)
@@ -78,7 +79,7 @@ Use the cloned repo setup when developing or running docs/notebooks locally.
 | `mir.graph` | Edit-distance graphs, neighbourhood enrichment, token graphs, single-cell pairing |
 | `mir.embedding` | Prototype embeddings: TCREmp, PairedTCREmp |
 | `mir.comparative` | Pairwise overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching, VDJBet Pgen-matched null distributions |
-| `mir.biomarkers` | ALICE enrichment, TCRNET, CDR3 sequence logos |
+| `mir.biomarkers` | ALICE enrichment, TCRNET, clonotype association scans, CDR3 sequence logos |
 | `mir.utils` | Embedding diagnostics, shared memory, notebook asset helpers |
 
 ---
@@ -390,6 +391,53 @@ worked examples.
 
 ---
 
+## Clonotype Association Scan
+
+`mir.biomarkers.associations` provides direct clonotype-to-metadata association
+analysis for sample cohorts, including binary/multiclass labels, paired
+clonotype support, and co-occurrence tests.
+
+```python
+from mir.biomarkers.associations import (
+    AssociationParams,
+    associate_clonotype_metadata,
+    build_public_clonotype_panel,
+)
+
+# build candidate targets from public clonotypes in the cohort
+targets = build_public_clonotype_panel(samples, locus="TRB", min_sample_fraction=0.03)
+
+# sample-level Fisher test (auto-selects Fisher for binary labels)
+res = associate_clonotype_metadata(
+    samples,
+    targets,
+    metadata_field="COVID_status",
+    metadata_value=["COVID", "healthy"],
+    params=AssociationParams(count_mode="sample", test="auto"),
+)
+
+# depth-aware mode (GLM with depth covariate) for uneven sequencing depth
+res_depth = associate_clonotype_metadata(
+    samples,
+    targets,
+    metadata_field="COVID_status",
+    metadata_value=["COVID", "healthy"],
+    params=AssociationParams(count_mode="rearrangement", test="depth_glm"),
+)
+```
+
+Returned table fields include per-group detected/background counts, p-values,
+BH-adjusted q-values, and odds-ratio estimates. Depth-aware mode reports a
+depth-adjusted group effect and falls back to table tests if GLM assumptions are
+not satisfied.
+
+For an end-to-end COVID biomarker workflow (functional filtering, first-pass
+batch correction, re-normalization, Fisher + depth-aware scans, and reference
+concordance checks), see `notebooks/covid19_biomarkers.ipynb` and
+`tests/test_associations_covid19_benchmark.py`.
+
+---
+
 ## ALICE and TCRNET
 
 Both modules detect antigen-driven CDR3 clusters, but differ in how they model
@@ -512,6 +560,10 @@ any run expected to exceed ~10–15 min on 4–8 cores or ~12–16 GB RAM.
 - Docs source: [docs/](docs/)
 - Agent skill guide (Claude, GitHub Copilot): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 - Benchmark baselines: [benchmarks.md](benchmarks.md)
+
+Skill packaging note: `mir/_skills/mirpy` is an intentional symlink to
+`skills/mirpy`, used by the `mirpy install skills` CLI path. Keep
+`skills/mirpy` as the single source of truth.
 
 ---
 

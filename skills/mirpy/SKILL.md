@@ -252,6 +252,45 @@ Read [references/biomarkers.md](references/biomarkers.md) when you need:
 full `AliceParams`, pgen_mode comparison table, MC pool internals, `alice_hit_clusters`,
 TCRNET–ALICE relationship, or the GLIPH k-mer reference.
 
+## 12.6. Clonotype Metadata Associations
+
+```python
+from mir.biomarkers.associations import (
+    AssociationParams,
+    associate_clonotype_metadata,
+    build_public_clonotype_panel,
+)
+
+targets = build_public_clonotype_panel(samples, locus="TRB", min_sample_fraction=0.03)
+
+res = associate_clonotype_metadata(
+    samples,
+    targets,
+    metadata_field="COVID_status",
+    metadata_value=["COVID", "healthy"],
+    params=AssociationParams(count_mode="sample", test="auto"),
+)
+
+res_depth = associate_clonotype_metadata(
+    samples,
+    targets,
+    metadata_field="COVID_status",
+    metadata_value=["COVID", "healthy"],
+    params=AssociationParams(count_mode="rearrangement", test="depth_glm"),
+)
+```
+
+Use cases:
+
+- Binary or multiclass association tests with BH/FDR correction.
+- Paired-chain association via `associate_paired_clonotype_metadata`.
+- Depth-aware mode (`test="depth_glm"`) for uneven sequencing depth.
+- Co-occurrence screens with `associate_clonotype_cooccurrence`.
+
+For the full COVID workflow (functional filtering, first batch correction,
+sample re-normalization, Fisher + depth-aware scans, and reference concordance)
+see `notebooks/covid19_biomarkers.ipynb`.
+
 ## 13. Single-Cell 10x
 
 > Clonal expansion analysis: Pavlova *et al.* (2024) *Front. Immunol.* PMID:[38633256](https://pubmed.ncbi.nlm.nih.gov/38633256/)

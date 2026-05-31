@@ -2,6 +2,10 @@
 
 This reference covers mirpy's three primary biomarker enrichment modules: ALICE, TCRNET, and GLIPH-style k-mer analysis. These methods identify antigen-enriched T-cell receptor sequences by comparing neighborhood density in a study repertoire against a background model or control repertoire.
 
+It also covers cohort-level clonotype association scans in
+`mir.biomarkers.associations`, including sample/rearrangement count modes,
+Fisher/chi-square tests, and depth-aware GLM mode (`test="depth_glm"`).
+
 Relevant publications:
 
 - **ALICE**: Pogorelyy et al. (2019) *PLoS Biology* — PMID:31194732, doi:[10.1371/journal.pbio.3000314](https://doi.org/10.1371/journal.pbio.3000314)
@@ -10,6 +14,52 @@ Relevant publications:
 - **Pre-immune landscape**: Pogorelyy et al. (2018) *Genome Medicine* — PMID:30144804, doi:[10.1186/s13073-018-0577-7](https://doi.org/10.1186/s13073-018-0577-7)
 - **VDJdb**: Shugay et al. (2018) *Nucleic Acids Res.* — PMID:28977646, doi:[10.1093/nar/gkx760](https://doi.org/10.1093/nar/gkx760)
 - **Regulatory Treg repertoire**: Feng et al. (2015) *Nature* — PMID:26605529, doi:[10.1038/nature16141](https://doi.org/10.1038/nature16141)
+
+---
+
+## Clonotype Metadata Association (Whole-Cohort)
+
+```python
+from mir.biomarkers.associations import (
+    AssociationParams,
+    associate_clonotype_metadata,
+    build_public_clonotype_panel,
+)
+
+targets = build_public_clonotype_panel(samples, locus="TRB", min_sample_fraction=0.03)
+
+result = associate_clonotype_metadata(
+    samples,
+    targets,
+    metadata_field="COVID_status",
+    metadata_value=["COVID", "healthy"],
+    params=AssociationParams(
+        match_mode="none",
+        count_mode="sample",         # or "rearrangement"
+        test="auto",                 # "auto" | "fisher" | "chi2" | "depth_glm"
+        correction_method="fdr_bh",
+    ),
+)
+```
+
+### Key behavior notes
+
+- `count_mode="sample"`: per-sample presence/absence counts.
+- `count_mode="rearrangement"`: depth-weighted counts by clonotype multiplicity.
+- `test="auto"`: Fisher for binary labels, chi-square for multiclass labels.
+- `test="depth_glm"`: logistic/binomial GLM with `log1p(depth)` covariate for
+  binary labels; automatically falls back to table tests when unavailable.
+- Output includes `detected_counts`, `background_counts`, `p_value`, `q_value`,
+  `odds_ratio`, and `log2_odds_ratio`.
+
+### Recommended COVID workflow
+
+1. Keep only functional/productive clonotypes before counting.
+2. Apply first-pass batch correction (see `mir.basic.gene_usage`).
+3. Re-normalize per-sample totals after correction.
+4. Run Fisher scan (`count_mode="sample"`) for a baseline ranking.
+5. Run depth-aware scan (`count_mode="rearrangement", test="depth_glm"`) to
+   quantify depth-related rank shifts.
 
 ---
 
