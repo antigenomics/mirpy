@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from sklearn.metrics import roc_auc_score
 
 from mir.biomarkers.associations import (
     AssociationParams,
@@ -61,6 +62,41 @@ def _load_metadata(dataset_root: Path) -> pd.DataFrame:
     return meta
 
 
+def _reference_file(dataset_root: Path) -> Path | None:
+    candidates = [
+        dataset_root / "covid19_biomarker_clonotypes.csv",
+        dataset_root / "covid_associated_clonotypes.csv",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _reference_cdr3_set(path: Path) -> set[str]:
+    df = pd.read_csv(path)
+    for col in ("cdr3", "junction_aa", "sequence"):
+        if col in df.columns:
+            return {str(x) for x in df[col].dropna().astype(str)}
+    return set()
+
+
+def _sample_biomarker_scores(samples: list[SampleRepertoire], biomarker_cdr3: set[str]) -> pd.DataFrame:
+    rows = []
+    for sample in samples:
+        rep = sample.get_locus("TRB")
+        seqs = {str(c.junction_aa) for c in rep.clonotypes if c.junction_aa}
+        score = float(len(seqs & biomarker_cdr3))
+        rows.append(
+            {
+                "sample_id": sample.sample_id,
+                "covid": 1 if str(sample.sample_metadata.get("COVID_status", "")) == "COVID" else 0,
+                "score": score,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _build_samples(dataset_root: Path, meta: pd.DataFrame, max_samples: int) -> list[SampleRepertoire]:
     parser = ClonotypeTableParser()
     selected = meta.sort_values(["COVID_status", "sample_id"]).head(max_samples)
@@ -73,7 +109,9 @@ def _build_samples(dataset_root: Path, meta: pd.DataFrame, max_samples: int) -> 
         if not path.exists():
             continue
 
-        clones = parser.parse(str(path))
+        clones = [c for c in parser.parse(str(path)) if str(c.locus).upper() == "TRB"]
+        if not clones:
+            continue
         rep = LocusRepertoire(clonotypes=clones, locus="TRB", repertoire_id=sample_id)
         rep = filter_functional(rep)
         if rep.clonotype_count == 0:
@@ -158,24 +196,34 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
     fisher_df = fisher_res.table.to_pandas().sort_values("p_value", ascending=True).reset_index(drop=True)
     depth_df = depth_res.table.to_pandas().sort_values("p_value", ascending=True).reset_index(drop=True)
 
+    positive_hits = fisher_df[
+        (pd.to_numeric(fisher_df["odds_ratio"], errors="coerce").fillna(0.0) > 1.0)
+        & (fisher_df["p_value_adj"] < 0.2)
+    ]
+    if positive_hits.empty:
+        positive_hits = fisher_df.head(30)
+    biomarker_set = set(positive_hits["junction_aa"].astype(str))
+    score_df = _sample_biomarker_scores(samples, biomarker_set)
+    auc = float("nan")
+    if score_df["covid"].nunique() == 2 and score_df["score"].nunique() > 1:
+        auc = float(roc_auc_score(score_df["covid"], score_df["score"]))
+
     fisher_top = set(fisher_df.head(100)["junction_aa"].astype(str))
     depth_top = set(depth_df.head(100)["junction_aa"].astype(str))
     top_overlap = len(fisher_top & depth_top)
 
-    ref_path = dataset_root / "covid_associated_clonotypes.csv"
+    ref_path = _reference_file(dataset_root)
     ref_overlap = None
-    if ref_path.exists():
-        ref_df = pd.read_csv(ref_path)
-        if "junction_aa" in ref_df.columns:
-            ref_set = set(ref_df["junction_aa"].astype(str))
-            ref_overlap = len(fisher_top & ref_set)
+    if ref_path is not None:
+        ref_set = _reference_cdr3_set(ref_path)
+        ref_overlap = len(fisher_top & ref_set)
 
     benchmark_log_line(
         "COVID_ASSOC_BENCH "
         f"samples={len(samples)} targets={len(targets)} load_s={load_s:.3f} "
         f"fisher_s={fisher_s:.3f} depth_s={depth_s:.3f} top100_overlap={top_overlap} "
-        f"peak_mem_mib={peak_mem_mib:.2f} ref_overlap={ref_overlap}"
-    )
+        f"peak_mem_mib={peak_mem_mib:.2f} ref_overlap={ref_overlap} auc={auc:.4f}"
+    )  # auc may be nan when samples are too small
 
     with capsys.disabled():
         print("\n" + "=" * 90)
@@ -184,10 +232,10 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
         print(
             f"samples={len(samples)} targets={len(targets)} "
             f"load_s={load_s:.2f} fisher_s={fisher_s:.2f} depth_s={depth_s:.2f} "
-            f"top100_overlap={top_overlap} peak_mem_mib={peak_mem_mib:.2f}"
+            f"top100_overlap={top_overlap} peak_mem_mib={peak_mem_mib:.2f} auc={auc:.4f}"
         )
-        if ref_overlap is None:
-            print("reference comparison: covid_associated_clonotypes.csv not present in local dataset")
+        if ref_overlap is None or ref_path is None:
+            print("reference comparison: covid_associated_clonotypes.csv / covid19_biomarker_clonotypes.csv not present")
         else:
             print(f"reference comparison: top100 fisher overlap with reference={ref_overlap}")
         print("=" * 90)
@@ -195,5 +243,6 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
     assert not fisher_df.empty
     assert not depth_df.empty
     assert top_overlap > 0
+    assert float(auc) > 0.5
     assert float(fisher_s) < benchmark_max_seconds(default=900.0)
     assert float(depth_s) < benchmark_max_seconds(default=900.0)
