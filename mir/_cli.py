@@ -29,7 +29,26 @@ from pathlib import Path
 # --------------------------------------------------------------------------- #
 
 _CONTROL_ENV = "MIRPY_CONTROL_DIR"
-_SKILLS_DIR = Path(__file__).parent / "_skills"
+
+# Skills directory: look in <repo_root>/skills/ (editable/git clone install).
+# When installed from PyPI the skills source is not bundled; users should
+# install from a git clone or copy skills manually.
+def _skills_source() -> Path:
+    """Return the mirpy skills source directory, or raise if not found."""
+    # Two candidates in priority order:
+    candidates = [
+        Path(__file__).parent.parent / "skills",  # repo root / skills/ (git clone)
+        Path(__file__).parent / "_skills",         # legacy symlink location (backward compat)
+    ]
+    for candidate in candidates:
+        skill_dir = candidate / "mirpy"
+        if skill_dir.exists():
+            return skill_dir
+    raise FileNotFoundError(
+        "mirpy skills not found. Run 'mirpy install skills' from a git clone "
+        "(./setup.sh installs mirpy in editable mode). "
+        f"Searched: {[str(c / 'mirpy') for c in candidates]}"
+    )
 
 
 def _get_cache_dir() -> Path:
@@ -58,9 +77,10 @@ _SKILL_DESTINATIONS: dict[str, object] = {
 
 def _install_skills(target_dir: str, force: bool) -> None:
     target = Path(target_dir).resolve()
-    source = _SKILLS_DIR / "mirpy"
-    if not source.exists():
-        print(f"error: bundled skills not found at {source}", file=sys.stderr)
+    try:
+        source = _skills_source()
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Installing mirpy agent skills into {target}\n")

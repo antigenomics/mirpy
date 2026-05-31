@@ -291,6 +291,28 @@ For the full COVID workflow (functional filtering, first batch correction,
 sample re-normalization, Fisher + depth-aware scans, and reference concordance)
 see `notebooks/covid19_biomarkers.ipynb`.
 
+For the Vlasova 2026 SVM replication (log-frequency features, RBF-SVM, 1137 paired
+donors, AUC=0.70 target) see `benchmarks/covid19_svm_benchmark.py` and
+`tests/test_associations_covid19_benchmark.py::test_covid19_svm_classifier_auc`.
+
+```python
+# Minimal SVM pipeline (Vlasova 2026 approach)
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.metrics import roc_auc_score
+
+# X: (n_donors, n_biomarkers) log-frequency matrix
+# y: (n_donors,) binary labels (1=COVID, 0=healthy)
+X_log = np.log(X + 1e-7)
+clf = SVC(kernel="rbf", probability=True, class_weight="balanced", C=1.0, gamma="scale")
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+y_prob = cross_val_predict(clf, X_log, y, cv=cv, method="predict_proba")[:, 1]
+auc = roc_auc_score(y, y_prob)  # target ≥ 0.70
+```
+
+> Vlasova *et al.* (2026) *Genome Med.* [DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4)
+
 ## 13. Single-Cell 10x
 
 > Clonal expansion analysis: Pavlova *et al.* (2024) *Front. Immunol.* PMID:[38633256](https://pubmed.ncbi.nlm.nih.gov/38633256/)
@@ -468,18 +490,18 @@ AIRR SRA files often lack a `locus` column — infer from the first four chars o
 |-------|----------|
 | VDJtools / diversity indices | Shugay *et al.* (2015) *PLoS Comput. Biol.* PMID:[26606115](https://pubmed.ncbi.nlm.nih.gov/26606115/) |
 | ALICE enrichment | Pogorelyy *et al.* (2019) *PLoS Biol.* PMID:[31194732](https://pubmed.ncbi.nlm.nih.gov/31194732/) |
-| TCRNET / neighbourhood enrichment | Lupyr *et al.* (2025) *Brief. Bioinform.* PMID:[40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/) |
-| TCREmp prototype embeddings | Kremlyakova *et al.* (2025) *J. Mol. Biol.* PMID:[40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/) |
-| TCRdist distance metric | Dash *et al.* (2017) *Nature* PMID:[28636592](https://pubmed.ncbi.nlm.nih.gov/28636592/) |
+| TCRNET / neighbourhood enrichment | Lupyr KR *et al.* (2025) *Brief. Bioinform.* PMID:[40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/) |
+| TCREmp prototype embeddings | Kremlyakova Y *et al.* (2025) *J. Mol. Biol.* PMID:[40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/) |
+| TCRdist distance metric | Dash P *et al.* (2017) *Nature* PMID:[28636592](https://pubmed.ncbi.nlm.nih.gov/28636592/) |
 | GLIPH CDR3 motif clustering | Glanville *et al.* (2017) *Nature* PMID:[28636589](https://pubmed.ncbi.nlm.nih.gov/28636589/) |
 | GLIPH2 (large-scale) | Huang *et al.* (2020) *Nat. Biotechnol.* PMID:[32341563](https://pubmed.ncbi.nlm.nih.gov/32341563/) |
-| VDJdb database | Shugay *et al.* (2018) *Nucleic Acids Res.* PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/) |
+| VDJdb database | Shugay M *et al.* (2018) *Nucleic Acids Res.* PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/) |
 | VDJdb 2019 update | Bagaev *et al.* (2020) *Nucleic Acids Res.* PMID:[31588507](https://pubmed.ncbi.nlm.nih.gov/31588507/) |
-| VDJdb SARS-CoV-2 update | Goncharov *et al.* (2022) *Nat. Methods* PMID:[35970936](https://pubmed.ncbi.nlm.nih.gov/35970936/) |
-| Antigen-specificity annotation | Pogorelyy *et al.* (2019) *Front. Immunol.* PMID:[31616409](https://pubmed.ncbi.nlm.nih.gov/31616409/) |
-| TCR aging dynamics | Britanova *et al.* (2016) *J. Immunol.* PMID:[27183615](https://pubmed.ncbi.nlm.nih.gov/27183615/) |
-| Pre-immune TCR landscape | Pogorelyy *et al.* (2018) *Genome Med.* PMID:[30144804](https://pubmed.ncbi.nlm.nih.gov/30144804/) |
-| Immunogenomics diversity | Peng *et al.* (2021) *Nat. Methods* PMID:[34002093](https://pubmed.ncbi.nlm.nih.gov/34002093/) |
+| VDJdb SARS-CoV-2 update | Goncharov M *et al.* (2022) *Nat. Methods* PMID:[35970936](https://pubmed.ncbi.nlm.nih.gov/35970936/) |
+| Antigen-specificity annotation | Pogorelyy MV & Shugay M (2019) *Front. Immunol.* PMID:[31616409](https://pubmed.ncbi.nlm.nih.gov/31616409/) |
+| TCR aging dynamics | Britanova OV *et al.* (2016) *J. Immunol.* PMID:[27183615](https://pubmed.ncbi.nlm.nih.gov/27183615/) |
+| Pre-immune TCR landscape | Pogorelyy MV *et al.* (2018) *Genome Med.* PMID:[30144804](https://pubmed.ncbi.nlm.nih.gov/30144804/) |
+| COVID-19 TCR biomarker classifier | Vlasova EK *et al.* (2026) *Genome Med.* [DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4) |
 | TCR structural modeling | Shcherbinin *et al.* (2023) *Front. Immunol.* PMID:[37649481](https://pubmed.ncbi.nlm.nih.gov/37649481/) |
 | TCRen structural prediction | Karnaukhov *et al.* (2024) *Nat. Comput. Sci.* PMID:[38987378](https://pubmed.ncbi.nlm.nih.gov/38987378/) |
 | Thymic selection repertoire | Luppov *et al.* (2025) *Front. Immunol.* PMID:[41050667](https://pubmed.ncbi.nlm.nih.gov/41050667/) |
