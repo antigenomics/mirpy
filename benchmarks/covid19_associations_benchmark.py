@@ -132,8 +132,8 @@ def main() -> int:
     _, depth_peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    fisher_df = fisher_res.table.to_pandas().sort_values(["q_value", "p_value"]).reset_index(drop=True)
-    positive_hits = fisher_df[(fisher_df["odds_ratio"].fillna(0.0) > 1.0) & (fisher_df["q_value"] < 0.2)]
+    fisher_df = fisher_res.table.to_pandas().sort_values(["p_value_adj", "p_value"]).reset_index(drop=True)
+    positive_hits = fisher_df[(fisher_df["odds_ratio"].fillna(0.0) > 1.0) & (fisher_df["p_value_adj"] < 0.2)]
     if positive_hits.empty:
         positive_hits = fisher_df.head(30)
     biomarker_set = set(positive_hits["junction_aa"].astype(str))

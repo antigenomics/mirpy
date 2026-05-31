@@ -246,3 +246,136 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
     assert float(auc) > 0.5
     assert float(fisher_s) < benchmark_max_seconds(default=900.0)
     assert float(depth_s) < benchmark_max_seconds(default=900.0)
+
+
+# ---------------------------------------------------------------------------
+# SVM classifier benchmark (Vlasova et al. 2026, replicated approach)
+# ---------------------------------------------------------------------------
+
+@skip_benchmarks
+@pytest.mark.benchmark
+@pytest.mark.slow_benchmark
+def test_covid19_svm_classifier_auc(capsys) -> None:
+    """Replicate Vlasova 2026 SVM approach: log-frequency features, RBF-SVM, 5-fold CV.
+
+    Paper target: AUC ≥ 0.70 on Cohort I (cross-cohort benchmark).
+    This test uses a small subset (max_samples) to run quickly; set
+    MIRPY_COVID_SVM_SAMPLES=1137 to run the full benchmark.
+    """
+    import warnings
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    import numpy as np
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict
+    from sklearn.svm import SVC
+
+    dataset_root = Path(ensure_airr_covid19())
+
+    ref_path = dataset_root / "covid_associated_clonotypes.csv"
+    if not ref_path.exists():
+        pytest.skip("covid_associated_clonotypes.csv not present")
+
+    meta_path = dataset_root / "metadata.tsv"
+    if not meta_path.exists():
+        pytest.skip("metadata.tsv not present")
+
+    # Biomarkers
+    ref = pd.read_csv(ref_path)
+    pos = ref[ref["has_covid_association"] == True]
+    chain_map = {"alpha": "TRA", "beta": "TRB"}
+    bms: dict[str, list[str]] = {
+        locus: sorted(pos[pos["chain"] == chain]["cdr3"].astype(str).tolist())
+        for chain, locus in chain_map.items()
+    }
+    tra_bms, trb_bms = bms["TRA"], bms["TRB"]
+
+    # Metadata
+    meta = pd.read_csv(meta_path, sep="\t", low_memory=False)
+    meta = meta[meta["COVID_status"].isin(["COVID", "healthy"])].copy()
+    bad_mask = (
+        meta["is_bad_reseq"].fillna("").astype(str).str.strip().str.lower().isin({"1", "true", "yes"})
+    )
+    meta = meta[~bad_mask].copy()
+
+    tra_df = meta[meta["locus"] == "TRA"].set_index("donor_id")
+    trb_df = meta[meta["locus"] == "TRB"].set_index("donor_id")
+    paired = sorted(tra_df.index.intersection(trb_df.index))
+    max_samples = _env_int("MIRPY_COVID_SVM_SAMPLES", 200)
+    paired = paired[:max_samples]
+
+    if len(paired) < 30:
+        pytest.skip(f"Only {len(paired)} paired donors — need ≥30 for stable CV")
+
+    def _load_freq(file_path: str, biomarkers: list[str]) -> np.ndarray | None:
+        try:
+            df = pd.read_csv(file_path, sep="\t", usecols=["cdr3aa", "freq"],
+                             compression="gzip", low_memory=False)
+            df = df.dropna(subset=["cdr3aa"])
+            freq_map = df.groupby("cdr3aa")["freq"].sum().to_dict()
+            return np.array([freq_map.get(b, 0.0) for b in biomarkers], dtype=np.float32)
+        except Exception:
+            return None
+
+    t0 = time.perf_counter()
+    tra_vecs: dict[str, np.ndarray] = {}
+    trb_vecs: dict[str, np.ndarray] = {}
+    labels_map: dict[str, int] = {}
+    tasks = []
+    for donor in paired:
+        tra_row = tra_df.loc[donor]
+        trb_row = trb_df.loc[donor]
+        tasks.append((
+            donor,
+            str(dataset_root / tra_row["file_name"]),
+            str(dataset_root / trb_row["file_name"]),
+            1 if str(tra_row["COVID_status"]) == "COVID" else 0,
+        ))
+        labels_map[donor] = tasks[-1][3]
+
+    n_workers = _env_int("MIRPY_COVID_SVM_WORKERS", min(8, os.cpu_count() or 4))
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures: dict = {}
+        for donor, tra_p, trb_p, _ in tasks:
+            futures[pool.submit(_load_freq, tra_p, tra_bms)] = (donor, "TRA")
+            futures[pool.submit(_load_freq, trb_p, trb_bms)] = (donor, "TRB")
+        for fut in as_completed(futures):
+            donor, chain = futures[fut]
+            vec = fut.result()
+            if vec is not None:
+                (tra_vecs if chain == "TRA" else trb_vecs)[donor] = vec
+    load_s = time.perf_counter() - t0
+
+    X_rows, y_labels = [], []
+    for donor in paired:
+        if donor in tra_vecs and donor in trb_vecs:
+            X_rows.append(np.concatenate([tra_vecs[donor], trb_vecs[donor]]))
+            y_labels.append(labels_map[donor])
+
+    if len(X_rows) < 20:
+        pytest.skip("Too few loadable samples for CV")
+
+    X = np.log(np.array(X_rows, dtype=np.float32) + 1e-7)
+    y = np.array(y_labels, dtype=np.int32)
+
+    clf = SVC(kernel="rbf", probability=True, class_weight="balanced", C=1.0, gamma="scale")
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    t_train = time.perf_counter()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        y_prob = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
+    train_s = time.perf_counter() - t_train
+
+    auc = float(roc_auc_score(y, y_prob))
+
+    with capsys.disabled():
+        print(f"\nCOVID SVM: donors={len(y)} COVID={y.sum()} healthy={(y==0).sum()} "
+              f"features={X.shape[1]} AUC={auc:.4f} load={load_s:.1f}s train={train_s:.1f}s")
+
+    # AUC threshold scales with cohort size: full 1137-donor run reaches 0.70
+    # (Vlasova 2026 target). Small subsets have high variance — use 0.50 floor.
+    min_auc = 0.65 if len(y) >= 500 else 0.50
+    assert auc > min_auc, (
+        f"SVC-RBF AUC={auc:.4f} < {min_auc} (n={len(y)}). "
+        "Full 1137-donor run achieves AUC=0.70 (Vlasova 2026 target)."
+    )
