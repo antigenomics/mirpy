@@ -39,6 +39,15 @@ from mir.biomarkers.motif_logo import (
     plot_motif_logos,
     compute_cluster_profiles,
 )
+from mir.biomarkers.associations import (
+    AssociationParams,
+    AssociationResult,
+    CooccurrenceResult,
+    associate_clonotype_cooccurrence,
+    associate_clonotype_metadata,
+    associate_paired_clonotype_metadata,
+    build_public_clonotype_panel,
+)
 from mir.comparative.vdjbet import (
     OverlapResult,
     PgenBinPool,
@@ -50,6 +59,13 @@ __all__ = [
     "MetaclonotypeClusterConfig",
     "cluster_metaclonotypes",
     "cluster_paired_metaclonotypes",
+    "AssociationParams",
+    "AssociationResult",
+    "CooccurrenceResult",
+    "associate_clonotype_cooccurrence",
+    "associate_clonotype_metadata",
+    "associate_paired_clonotype_metadata",
+    "build_public_clonotype_panel",
     "AA_ORDER",
     "BIOCHEMISTRY_COLORS",
     "CHEMISTRY_COLORS",
