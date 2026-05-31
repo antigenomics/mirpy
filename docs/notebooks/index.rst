@@ -55,11 +55,14 @@ Biomarker Detection
    :maxdepth: 1
 
    alice_analysis
+   covid19_biomarkers
    tcrnet_analysis
    gliph_analysis
    vdjbet_yf
 
 **alice_analysis** — ALICE antigen-expanded clone detection on YF, AS, and MLR datasets.
+
+**covid19_biomarkers** — Whole-cohort COVID vs healthy clonotype association scan with functional filtering, batch correction parity, re-normalization, Fisher + depth-aware (`depth_glm`) modes, and reference concordance diagnostics.
 
 **tcrnet_analysis** — TCRNET enrichment for CMV+ vs B35+ donors with VDJdb annotation.
 

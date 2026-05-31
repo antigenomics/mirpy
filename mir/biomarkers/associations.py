@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from math import exp
 from math import log2
 import re
 from typing import Iterable, Literal, Sequence
 
+import numpy as np
 import polars as pl
 from scipy.stats import chi2_contingency, fisher_exact
+import statsmodels.api as sm
 from statsmodels.stats.multitest import multipletests
 
 from mir.biomarkers._shared import MatchMode, match_flags, normalize_match_mode
@@ -24,7 +27,7 @@ from mir.common.single_cell import PairedClonotype, PairedRepertoire
 from mir.graph.distance_utils import is_within_threshold
 
 AssociationCountMode = Literal["sample", "rearrangement"]
-AssociationTest = Literal["auto", "fisher", "chi2"]
+AssociationTest = Literal["auto", "fisher", "chi2", "depth_glm"]
 
 _METADATA_SPLIT_RE = re.compile(r"[,;|]")
 
@@ -57,8 +60,8 @@ class AssociationParams:
             raise ValueError("max_distance must be >= 0")
         if self.count_mode not in {"sample", "rearrangement"}:
             raise ValueError("count_mode must be 'sample' or 'rearrangement'")
-        if self.test not in {"auto", "fisher", "chi2"}:
-            raise ValueError("test must be 'auto', 'fisher', or 'chi2'")
+        if self.test not in {"auto", "fisher", "chi2", "depth_glm"}:
+            raise ValueError("test must be 'auto', 'fisher', 'chi2', or 'depth_glm'")
 
 
 @dataclass(frozen=True)
@@ -157,7 +160,7 @@ def associate_clonotype_metadata(
     contrasts: list[dict] = []
 
     for target in targets:
-        categories, detected, background = _counts_for_single_chain_target(
+        categories, detected, background, sample_rows = _counts_for_single_chain_target(
             samples=samples,
             target=target,
             metadata_field=metadata_field,
@@ -168,10 +171,19 @@ def associate_clonotype_metadata(
             continue
 
         table = [[int(detected[i]), int(background[i])] for i in range(len(categories))]
-        p_value, test_name = _run_table_test(table, effective.test)
+        p_value, test_name, depth_or = _run_table_test(
+            table,
+            effective.test,
+            categories=categories,
+            sample_rows=sample_rows,
+            count_mode=effective.count_mode,
+        )
         odds_ratio, log2_odds_ratio = (None, None)
         if len(categories) == 2:
             odds_ratio, log2_odds_ratio = _compute_or(table[0][0], table[0][1], table[1][0], table[1][1])
+        if depth_or is not None:
+            odds_ratio = depth_or
+            log2_odds_ratio = float(log2(depth_or)) if depth_or > 0 else None
 
         summaries.append(
             {
@@ -225,7 +237,7 @@ def associate_paired_clonotype_metadata(
 
     normalized_targets = [_coerce_paired_target(target) for target in targets]
     for paired_target in normalized_targets:
-        categories, detected, background = _counts_for_paired_target(
+        categories, detected, background, sample_rows = _counts_for_paired_target(
             samples=samples,
             sample_metadata=sample_metadata,
             target=paired_target,
@@ -237,10 +249,19 @@ def associate_paired_clonotype_metadata(
             continue
 
         table = [[int(detected[i]), int(background[i])] for i in range(len(categories))]
-        p_value, test_name = _run_table_test(table, effective.test)
+        p_value, test_name, depth_or = _run_table_test(
+            table,
+            effective.test,
+            categories=categories,
+            sample_rows=sample_rows,
+            count_mode=effective.count_mode,
+        )
         odds_ratio, log2_odds_ratio = (None, None)
         if len(categories) == 2:
             odds_ratio, log2_odds_ratio = _compute_or(table[0][0], table[0][1], table[1][0], table[1][1])
+        if depth_or is not None:
+            odds_ratio = depth_or
+            log2_odds_ratio = float(log2(depth_or)) if depth_or > 0 else None
 
         summaries.append(
             {
@@ -322,9 +343,10 @@ def _counts_for_single_chain_target(
     metadata_field: str,
     metadata_value: str | None,
     params: AssociationParams,
-) -> tuple[list[str], list[int], list[int]]:
+) -> tuple[list[str], list[int], list[int], list[dict]]:
     by_category_detected: Counter[str] = Counter()
     by_category_total: Counter[str] = Counter()
+    sample_rows: list[dict] = []
 
     for sample in samples:
         raw_category = sample.sample_metadata.get(metadata_field)
@@ -339,6 +361,7 @@ def _counts_for_single_chain_target(
 
         matched = _count_single_chain_matches(repertoire, target, params)
         total = 1 if params.count_mode == "sample" else repertoire.clonotype_count
+        sample_rows.append({"category": category, "matched": int(matched), "total": int(total)})
 
         by_category_total[category] += total
         if params.count_mode == "sample":
@@ -349,7 +372,7 @@ def _counts_for_single_chain_target(
     categories = sorted(by_category_total)
     detected = [int(by_category_detected.get(category, 0)) for category in categories]
     background = [int(by_category_total[category] - by_category_detected.get(category, 0)) for category in categories]
-    return categories, detected, background
+    return categories, detected, background, sample_rows
 
 
 def _counts_for_paired_target(
@@ -360,9 +383,10 @@ def _counts_for_paired_target(
     metadata_field: str,
     metadata_value: str | None,
     params: AssociationParams,
-) -> tuple[list[str], list[int], list[int]]:
+) -> tuple[list[str], list[int], list[int], list[dict]]:
     by_category_detected: Counter[str] = Counter()
     by_category_total: Counter[str] = Counter()
+    sample_rows: list[dict] = []
     locus_pair = f"{target.clonotype1.locus}_{target.clonotype2.locus}"
 
     for sample, metadata in zip(samples, sample_metadata):
@@ -376,6 +400,7 @@ def _counts_for_paired_target(
 
         matched = _count_paired_matches(repertoire.paired_clonotypes, target, params)
         total = 1 if params.count_mode == "sample" else repertoire.clonotype_count
+        sample_rows.append({"category": category, "matched": int(matched), "total": int(total)})
         by_category_total[category] += total
         if params.count_mode == "sample":
             by_category_detected[category] += int(matched > 0)
@@ -385,7 +410,7 @@ def _counts_for_paired_target(
     categories = sorted(by_category_total)
     detected = [int(by_category_detected.get(category, 0)) for category in categories]
     background = [int(by_category_total[category] - by_category_detected.get(category, 0)) for category in categories]
-    return categories, detected, background
+    return categories, detected, background, sample_rows
 
 
 def _single_target_presence(sample: SampleRepertoire, target: Clonotype, params: AssociationParams) -> bool:
@@ -477,16 +502,87 @@ def _metadata_contains_label(raw_value, metadata_value: str) -> bool:
     return str(raw_value).strip().casefold() == expected
 
 
-def _run_table_test(table: list[list[int]], requested: AssociationTest) -> tuple[float, str]:
+def _run_table_test(
+    table: list[list[int]],
+    requested: AssociationTest,
+    *,
+    categories: Sequence[str],
+    sample_rows: Sequence[dict],
+    count_mode: AssociationCountMode,
+) -> tuple[float, str, float | None]:
+    if requested == "depth_glm":
+        p_depth, test_name, depth_or = _run_depth_glm_test(
+            categories=categories,
+            sample_rows=sample_rows,
+            count_mode=count_mode,
+        )
+        if p_depth is not None:
+            return p_depth, test_name, depth_or
+
     if len(table) == 2:
         if requested in {"auto", "fisher"}:
             p_value = float(fisher_exact(table, alternative="two-sided")[1])
-            return p_value, "fisher"
+            return p_value, "fisher", None
         p_value = float(chi2_contingency(table)[1])
-        return p_value, "chi2"
+        return p_value, "chi2", None
 
     p_value = float(chi2_contingency(table)[1])
-    return p_value, "chi2"
+    return p_value, "chi2", None
+
+
+def _run_depth_glm_test(
+    *,
+    categories: Sequence[str],
+    sample_rows: Sequence[dict],
+    count_mode: AssociationCountMode,
+) -> tuple[float | None, str, float | None]:
+    if len(categories) != 2 or not sample_rows:
+        return None, "depth_glm_unavailable", None
+
+    category_to_idx = {cat: i for i, cat in enumerate(categories)}
+    y: list[float] = []
+    grp: list[float] = []
+    depth: list[float] = []
+    freq_weights: list[float] | None = None
+
+    if count_mode == "rearrangement":
+        freq_weights = []
+
+    for row in sample_rows:
+        category = row["category"]
+        if category not in category_to_idx:
+            continue
+        matched = int(row["matched"])
+        total = max(1, int(row["total"]))
+        grp.append(float(category_to_idx[category]))
+        depth.append(float(np.log1p(total)))
+        if count_mode == "sample":
+            y.append(float(matched > 0))
+        else:
+            y.append(float(matched / total))
+            freq_weights.append(float(total))
+
+    if len(y) < 4 or len(set(grp)) < 2:
+        return None, "depth_glm_unavailable", None
+
+    exog = sm.add_constant(np.column_stack([np.array(grp), np.array(depth)]), has_constant="add")
+
+    try:
+        if count_mode == "sample":
+            fit = sm.GLM(np.array(y), exog, family=sm.families.Binomial()).fit()
+        else:
+            fit = sm.GLM(
+                np.array(y),
+                exog,
+                family=sm.families.Binomial(),
+                freq_weights=np.array(freq_weights),
+            ).fit()
+    except Exception:
+        return None, "depth_glm_failed", None
+
+    p_value = float(fit.pvalues[1])
+    odds_ratio = float(exp(float(fit.params[1])))
+    return p_value, "depth_glm", odds_ratio
 
 
 def _compute_or(a: int, b: int, c: int, d: int) -> tuple[float | None, float | None]:

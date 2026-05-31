@@ -13,6 +13,10 @@ Practical notes
    and keep identical ``trim_first``/``trim_last`` settings for sample and control.
 - ALICE runs neighborhood search and Pgen in two sequential parallel phases
    (trie search first, then OLGA Pgen) to avoid thread-pool contention.
+- ``mir.biomarkers.associations`` provides whole-cohort clonotype/metadata
+  association scans for binary or multiclass labels, with optional
+  depth-aware GLM mode (``test='depth_glm'``) when sequencing depth should be
+  modeled explicitly.
 
 ALICE vs TCRNET
 ~~~~~~~~~~~~~~~
@@ -149,6 +153,15 @@ mir.biomarkers.motif_logo module
    :members:
    :undoc-members:
    :show-inheritance:
+
+mir.biomarkers.associations module
+----------------------------------
+
+.. automodule:: mir.biomarkers.associations
+  :members:
+  :undoc-members:
+  :show-inheritance:
+  :no-index:
 
 mir.biomarkers.token_stats module
 ---------------------------------

@@ -197,3 +197,65 @@ def test_build_public_clonotype_panel_filters_by_sample_fraction() -> None:
     panel = build_public_clonotype_panel(samples, locus="TRB", min_sample_fraction=0.66)
     seqs = sorted(clone.junction_aa for clone in panel)
     assert seqs == ["CASSLGQETQFF", "CASSLGQETQYF"]
+
+
+def test_depth_glm_mode_binary_sample_counts() -> None:
+    target = make_trb_clone("target", "CASSLGQETQYF")
+    samples = [
+        _sample("s1", [("a", "CASSLGQETQYF")], metadata={"condition": "positive"}),
+        _sample("s2", [("b", "CASSLGQETQYF")], metadata={"condition": "positive"}),
+        _sample("s3", [("c", "CASSLGQETQYF")], metadata={"condition": "positive"}),
+        _sample("s4", [("d", "CASSPGQETQYF")], metadata={"condition": "negative"}),
+        _sample("s5", [("e", "CASSPGQETQYF")], metadata={"condition": "negative"}),
+        _sample("s6", [("f", "CASSPGQETQYF")], metadata={"condition": "negative"}),
+    ]
+
+    result = associate_clonotype_metadata(
+        samples,
+        [target],
+        metadata_field="condition",
+        params=AssociationParams(test="depth_glm", count_mode="sample"),
+    )
+
+    row = result.table.row(0, named=True)
+    assert row["test"] == "depth_glm"
+    assert float(row["p_value"]) >= 0.0
+    assert float(row["odds_ratio"]) > 0.0
+
+
+def test_depth_glm_mode_binary_rearrangement_counts() -> None:
+    target = make_trb_clone("target", "CASSLGQETQYF")
+    samples = [
+        _sample(
+            "s1",
+            [("a", "CASSLGQETQYF"), ("b", "CASSLGQETQYF"), ("c", "CASSPGQETQYF")],
+            metadata={"condition": "positive"},
+        ),
+        _sample(
+            "s2",
+            [("d", "CASSLGQETQYF"), ("e", "CASSPGQETQYF")],
+            metadata={"condition": "positive"},
+        ),
+        _sample(
+            "s3",
+            [("f", "CASSPGQETQYF"), ("g", "CASSPGQETQYF"), ("h", "CASSPGQETQYF")],
+            metadata={"condition": "negative"},
+        ),
+        _sample(
+            "s4",
+            [("i", "CASSPGQETQYF"), ("j", "CASSPGQETQYF")],
+            metadata={"condition": "negative"},
+        ),
+    ]
+
+    result = associate_clonotype_metadata(
+        samples,
+        [target],
+        metadata_field="condition",
+        params=AssociationParams(test="depth_glm", count_mode="rearrangement"),
+    )
+
+    row = result.table.row(0, named=True)
+    assert row["test"] == "depth_glm"
+    assert float(row["p_value"]) >= 0.0
+    assert float(row["odds_ratio"]) > 0.0
