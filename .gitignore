@@ -189,3 +189,4 @@ cython_debug/
 mir/docs
 .idea
 public
+notebooks/assets/derived/
