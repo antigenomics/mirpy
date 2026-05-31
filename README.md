@@ -537,6 +537,49 @@ assert matches_aa_reduced(aa, mask(reduced, 3, AA_MASK))
 
 ---
 
+## COVID-19 TCR Biomarker Notebooks
+
+Three companion notebooks replicate and extend the findings of
+Vlasova *et al.* (2026) *Genome Med.*
+[DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4)
+using 1 137 paired AIRR donors (761 COVID-19 / 376 healthy).
+
+### `covid19_biomarkers.ipynb` — Global Fisher scan and SVM classifier
+
+- Public CDR3 panel: 4 093 TRB + 4 TRA candidates (≥ 5 % prevalence).
+- 39 TRB + 4 TRA CDR3s reach FDR < 0.05 (BH, one-sided Fisher);
+  all TRB hits are healthy-enriched (public clonotype dilution by SARS-specific
+  expansion), all TRA hits are COVID-enriched.
+- SVM classifier (RBF kernel, log-frequency features, 5-fold CV): AUC ≈ 0.70,
+  replicating the paper's reported performance.
+
+### `covid19_hla_biomarkers.ipynb` — HLA × TCR stratification
+
+- HLA allele–stratified sub-cohort Fisher tests (DRB1\*16: n = 76,
+  DQB1\*05: n = 352).
+- Focused TRBV12-3/CASS replication test (1 297 pre-specified candidates,
+  BH FDR within this set):
+  - **CASSRTGTGSSYNSPLHF** (TRBV12-3) — 26 COVID / 0 healthy DRB1\*16 donors,
+    log₂FE = 4.38, **FDR = 0.035**.
+  - 8 additional TRBV12-3 CDR3s with nc ≥ 5 / nh = 0.
+- Global HLA × CDR3 scan (83 alleles × 43 significant CDR3s):
+  **CAGQLYGGSQGNLIF** depleted in HLA-DPB1\*02:01 donors (log₂FE = −1.51, q = 0.003).
+
+### `covid19_pairing_biomarkers.ipynb` — TRA × TRB co-occurrence and VDJdb overlap
+
+- 156 TRA × TRB biomarker pairs tested (4 COVID-enriched TRA × 39 healthy-enriched TRB)
+  across all-donor, COVID-only, and healthy-only strata.
+- One significant negative co-occurrence in all donors:
+  **CALSEETSGSRLTF × CASSLGGGDTQYF** (q = 0.027).
+- Healthy-only positive co-occurrence:
+  **CAGQNYGGSQGNLIF** with CASSLGETQYF (q = 0.001) and CASSPSTDTQYF (q = 0.013).
+- VDJdb 2025-12 cross-validation (Hamming ≤ 1, V-gene fixed):
+  3 / 4 TRA CDR3s confirmed as SARS-CoV-2-specific; 2 (CAGQNYGGSQGNLIF,
+  CAGQLYGGSQGNLIF) target the Spike epitope NCTFEYVSQPFLMDL via TRAV35\*01
+  under HLA-DRB1\*04:05 (class II); 15 / 39 TRB CDR3s match VDJdb records.
+
+---
+
 ## Copilot Agent Workflow
 
 This repository ships a dedicated Copilot custom agent and companion prompt:

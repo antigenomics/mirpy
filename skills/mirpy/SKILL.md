@@ -313,6 +313,66 @@ auc = roc_auc_score(y, y_prob)  # target ≥ 0.70
 
 > Vlasova *et al.* (2026) *Genome Med.* [DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4)
 
+## 12.7. HLA-Stratified Analysis (covid19_hla_biomarkers.ipynb)
+
+HLA class II association replication for 1 137 paired AIRR donors (761 COVID / 376 healthy):
+
+**Key design choices:**
+
+- Public biomarkers from the global Fisher scan (`tmp/fisher_trb.parquet`, `tmp/fisher_tra.parquet`)
+  are re-tested within HLA-stratified sub-cohorts (DRB1\*16: n=76, DQB1\*05: n=352).
+- A focused pre-specified correction (TRBV12-3/CASS set only, 1 297 candidates) replicates
+  the Vlasova 2026 finding that global multiple-testing is too conservative for rare allele strata.
+
+**Confirmed findings:**
+
+- Top DRB1\*16-restricted hit: `CASSRTGTGSSYNSPLHF` (TRBV12-3), 26 COVID / 0 healthy,
+  log₂FE = 4.38, FDR = 0.035 (focused BH within TRBV12-3/CASS set).
+- 8 additional TRBV12-3 CDR3s with nc ≥ 5 / nh = 0 in the DRB1\*16 sub-cohort.
+- Global HLA × CDR3 scan (83 alleles × 43 CDR3s = 3 569 pairs): one significant pair —
+  `CAGQLYGGSQGNLIF` depleted in HLA-DPB1\*02:01 carriers (log₂FE = −1.51, q = 0.003).
+
+```python
+# Example: per-donor CDR3 presence scan pattern used in this notebook
+donor_cdr3_presence = {}
+for donor_id, row in metadata.iterrows():
+    airr_path = data_root / row['file_name']
+    df = pd.read_csv(airr_path, sep='\t', usecols=['cdr3aa', 'v'])
+    present = set(zip(df['cdr3aa'], df['v'].str.split('*').str[0]))
+    donor_cdr3_presence[donor_id] = present
+```
+
+## 12.8. TRA × TRB Co-occurrence Analysis (covid19_pairing_biomarkers.ipynb)
+
+Paired-chain co-occurrence Fisher test + VDJdb cross-validation:
+
+- Tests 156 TRA×TRB pairs (4 COVID-enriched TRA × 39 healthy-enriched TRB) across 3 strata.
+- Uses `scipy.stats.fisher_exact` per pair, BH FDR correction per stratum.
+
+**Key results:**
+
+| Stratum | Significant pairs | Direction |
+|---------|-------------------|-----------|
+| All (n=1 137) | 1 | Negative: CALSEETSGSRLTF × CASSLGGGDTQYF (q=0.027) |
+| COVID (n=761) | 0 | — |
+| Healthy (n=376) | 2 | CAGQNYGGSQGNLIF co-occurs with CASSLGETQYF (q=0.001) and CASSPSTDTQYF (q=0.013) |
+
+**VDJdb overlap (hamming ≤ 1, V-gene fixed):**
+
+- 3/4 TRA CDR3s validated: CAGQNYGGSQGNLIF + CAGQLYGGSQGNLIF → TRAV35\*01, Spike
+  epitope NCTFEYVSQPFLMDL, HLA-DRB1\*04:05 (class II); CALSEETSGSRLTF → TRAV19\*01,
+  DLFMRIFTI, HLA-A\*02:01.
+- 15/39 TRB CDR3s matched VDJdb SARS-CoV-2 records.
+- 0 TRA×TRB pairs simultaneously matched in one VDJdb record (sparse paired coverage).
+
+```python
+# Hamming distance used for VDJdb 1-mismatch matching
+def hamming(a, b):
+    if len(a) != len(b):
+        return len(a) + len(b)  # length mismatch → disqualify
+    return sum(x != y for x, y in zip(a, b))
+```
+
 ## 13. Single-Cell 10x
 
 > Clonal expansion analysis: Pavlova *et al.* (2024) *Front. Immunol.* PMID:[38633256](https://pubmed.ncbi.nlm.nih.gov/38633256/)
