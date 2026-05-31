@@ -56,6 +56,8 @@ Biomarker Detection
 
    alice_analysis
    covid19_biomarkers
+   covid19_hla_biomarkers
+   covid19_pairing_biomarkers
    tcrnet_analysis
    gliph_analysis
    vdjbet_yf
@@ -63,6 +65,10 @@ Biomarker Detection
 **alice_analysis** — ALICE antigen-expanded clone detection on YF, AS, and MLR datasets.
 
 **covid19_biomarkers** — Whole-cohort COVID vs healthy clonotype association scan with functional filtering, batch correction parity, re-normalization, Fisher + depth-aware (`depth_glm`) modes, and reference concordance diagnostics.
+
+**covid19_hla_biomarkers** — HLA-stratified TCR association analysis: DRB1*16/DQB1*05 sub-cohort Fisher scans, focused TRBV12-3/CASS replication (FDR=0.035), and HLA allele × global biomarker presence screen (3 569 pairs).
+
+**covid19_pairing_biomarkers** — TRA × TRB co-occurrence Fisher tests (156 pairs × 3 strata), co-occurrence heatmaps and bubble chart, and VDJdb SARS-CoV-2 cross-validation (per-chain and paired-chain).
 
 **tcrnet_analysis** — TCRNET enrichment for CMV+ vs B35+ donors with VDJdb annotation.
 
