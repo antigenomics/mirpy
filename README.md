@@ -113,7 +113,7 @@ clonotypes = parser.parse("example.tsv")
 
 Supported parsers: `VDJtoolsParser`, `AIRRParser`, `AdaptiveParser`,
 `VDJdbFullPairedParser`, and others in `mir.common.parser`.
-VDJdb reference: Bagaev *et al.* 2018, *Nucleic Acids Res.*, PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/).
+VDJdb reference: Shugay M *et al.* 2018, *Nucleic Acids Res.*, PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/).
 
 ### Work with repertoires
 
@@ -561,9 +561,9 @@ any run expected to exceed ~10–15 min on 4–8 cores or ~12–16 GB RAM.
 - Agent skill guide (Claude, GitHub Copilot): [skills/mirpy/SKILL.md](skills/mirpy/SKILL.md)
 - Benchmark baselines: [benchmarks.md](benchmarks.md)
 
-Skill packaging note: `mir/_skills/mirpy` is an intentional symlink to
-`skills/mirpy`, used by the `mirpy install skills` CLI path. Keep
-`skills/mirpy` as the single source of truth.
+Skill packaging note: `skills/mirpy/` is the single source of truth for agent skills.
+The `mirpy install skills` CLI command installs from this directory.
+Editable installs (git clone + `./setup.sh`) are required for `mirpy install skills` to work.
 
 ---
 
@@ -573,18 +573,18 @@ If you use mirpy in your work, please cite the relevant methods:
 
 | Method / data | Citation |
 | --- | --- |
-| VDJtools diversity metrics | Shugay M *et al.* (2015) *Nucleic Acids Res.* [PMID:26606115](https://pubmed.ncbi.nlm.nih.gov/26606115/) |
+| VDJtools diversity metrics | Shugay M *et al.* (2015) *PLoS Comput. Biol.* [PMID:26606115](https://pubmed.ncbi.nlm.nih.gov/26606115/) |
 | ALICE enrichment | Pogorelyy MV *et al.* (2019) *PLoS Biol.* [PMID:31194732](https://pubmed.ncbi.nlm.nih.gov/31194732/) |
-| TCRNET neighbourhood enrichment | Lupyr R *et al.* (2025) *Brief. Bioinform.* [PMID:40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/) |
-| TCREmp prototype embeddings | Kremlyakova M *et al.* (2025) *J. Mol. Biol.* [PMID:40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/) |
-| VDJdb antigen-specific TCR database | Bagaev DV *et al.* (2018) *Nucleic Acids Res.* [PMID:28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/) |
-| VDJdb SARS-CoV-2 update | Shugay M *et al.* (2022) *Nature Methods* [PMID:35970936](https://pubmed.ncbi.nlm.nih.gov/35970936/) |
-| Antigen-specificity annotation framework | Shugay M *et al.* (2019) *Front. Immunol.* [PMID:31616409](https://pubmed.ncbi.nlm.nih.gov/31616409/) |
+| TCRNET neighbourhood enrichment | Lupyr KR *et al.* (2025) *Brief. Bioinform.* [PMID:40996146](https://pubmed.ncbi.nlm.nih.gov/40996146/) |
+| TCREmp prototype embeddings | Kremlyakova Y *et al.* (2025) *J. Mol. Biol.* [PMID:40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/) |
+| VDJdb antigen-specific TCR database | Shugay M *et al.* (2018) *Nucleic Acids Res.* [PMID:28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/) |
+| VDJdb SARS-CoV-2 update | Goncharov M *et al.* (2022) *Nat. Methods* [PMID:35970936](https://pubmed.ncbi.nlm.nih.gov/35970936/) |
+| Antigen-specificity annotation framework | Pogorelyy MV & Shugay M (2019) *Front. Immunol.* [PMID:31616409](https://pubmed.ncbi.nlm.nih.gov/31616409/) |
 | TCRdist (V-gene + CDR3 distance) | Dash P *et al.* (2017) *Nature* [PMID:28636592](https://pubmed.ncbi.nlm.nih.gov/28636592/) |
 | CDR3 motif logos / selection logos | Pogorelyy MV *et al.* (2019) *PLoS Biol.* [PMID:31194732](https://pubmed.ncbi.nlm.nih.gov/31194732/) |
 | T cell repertoire aging dynamics | Britanova OV *et al.* (2016) *J. Immunol.* [PMID:27183615](https://pubmed.ncbi.nlm.nih.gov/27183615/) |
-| Pre-immune antigen-specific landscape | Pogorelyy MV *et al.* (2018) *Genome Medicine* [PMID:30144804](https://pubmed.ncbi.nlm.nih.gov/30144804/) |
-| Immunogenomics diversity | Shugay M *et al.* (2021) *Nature Methods* [PMID:34002093](https://pubmed.ncbi.nlm.nih.gov/34002093/) |
+| Pre-immune antigen-specific landscape | Pogorelyy MV *et al.* (2018) *Genome Med.* [PMID:30144804](https://pubmed.ncbi.nlm.nih.gov/30144804/) |
+| COVID-19 TCR biomarker SVM classifier | Vlasova EK *et al.* (2026) *Genome Med.* [DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4) |
 
 ---
 
