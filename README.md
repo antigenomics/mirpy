@@ -300,6 +300,10 @@ alignment distance between TCR clonotypes, following the TCRdist3 metric
 from full germline sequences; CDR3 alignment uses BLOSUM62 with a fixed-gap
 C extension that releases the GIL for thread parallelism.
 
+Gene input robustness: allele suffixes are optional for V/J genes in distance
+calls. For example, `TRBV19` and `TRBJ2-7` are automatically interpreted as
+`TRBV19*01` and `TRBJ2-7*01` before allele-indexed matrix lookup.
+
 ```python
 from mir.distances.tcrdist import TcrDist
 from mir.common.clonotype import Clonotype
@@ -480,6 +484,10 @@ original ALICE paper.
 of prototype clonotypes, enabling rapid downstream analysis, dimensionality
 reduction, and machine learning
 (Kremlyakova *et al.* 2025, *J. Mol. Biol.*, PMID:[40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/)).
+
+Gene input robustness: allele suffixes are optional for `v_gene` / `j_gene` in
+embedding input. Missing suffixes are normalized to `*01` before matrix lookup
+so `TRBV5-1` behaves like `TRBV5-1*01`.
 
 ```python
 from mir.embedding.tcremp import TCREmp

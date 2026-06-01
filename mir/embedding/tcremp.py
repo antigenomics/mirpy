@@ -41,6 +41,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from mir.common.alleles import allele_with_default
 from mir.common.clonotype import Clonotype
 from mir.common.single_cell import LOCUS_PAIR_TO_LOCI, PairedClonotype
 from mir.common.gene_library import GeneLibrary
@@ -142,8 +143,8 @@ class TCREmp:
         self.locus = locus
         self.species = species
         self._n_prototypes = len(prototypes)
-        self._proto_v = prototypes["v_gene"].to_list()
-        self._proto_j = prototypes["j_gene"].to_list()
+        self._proto_v = [allele_with_default(g) for g in prototypes["v_gene"].to_list()]
+        self._proto_j = [allele_with_default(g) for g in prototypes["j_gene"].to_list()]
         self._proto_junction = prototypes["junction_aa"].to_list()
 
         # Pre-compute proto junction self-scores using the windowed score(s,s),
@@ -366,6 +367,8 @@ class TCREmp:
 
         Args:
             clonotypes: List of clonotypes to embed.
+                ``v_gene`` and ``j_gene`` values without an explicit allele
+                suffix are normalized to ``*01`` before matrix lookup.
             n_jobs: Number of parallel worker threads:
 
                                 * ``None`` (default) — auto-select based on workload
@@ -406,8 +409,8 @@ class TCREmp:
 
         n_jobs = self._resolve_n_jobs(n_queries=n, n_jobs=n_jobs)
 
-        v_genes = [c.v_gene for c in clonotypes]
-        j_genes = [c.j_gene for c in clonotypes]
+        v_genes = [allele_with_default(c.v_gene) for c in clonotypes]
+        j_genes = [allele_with_default(c.j_gene) for c in clonotypes]
         junctions = [c.junction_aa for c in clonotypes]
 
         # Vectorized V/J: map to row indices (unknown → fallback row)

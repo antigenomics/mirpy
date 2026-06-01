@@ -369,6 +369,97 @@ class TestTCREmpEmbedValues:
             expected_junction = ca.score_dist(c.junction_aa, tcremp_small._proto_junction[k])
             assert X[0, 3 * k + 2] == pytest.approx(expected_junction, abs=1e-3), f"junction mismatch at k={k}"
 
+    def test_sanity_identical_fraction_stable_with_missing_alleles(self):
+        """Missing allele suffixes are normalized and match explicit ``*01`` input."""
+
+        def _to_star01(gene: str) -> str:
+            return gene if "*" in gene else f"{gene}*01"
+
+        def _max_identical_fraction_per_row(mat: np.ndarray) -> float:
+            fractions: list[float] = []
+            for row in mat:
+                _, counts = np.unique(row, return_counts=True)
+                fractions.append(float(counts.max()) / float(row.size))
+            return float(np.mean(fractions))
+
+        rows = [
+            ("CASSLYRDTDTQYF", "TRBV5-1", "TRBJ2-3"),
+            ("CASSLVSGTGGLTAYEQYF", "TRBV11-2", "TRBJ2-7"),
+            ("CASSLYRDSDEQFF", "TRBV5-1", "TRBJ2-1"),
+            ("CASSLVRETDTQYF", "TRBV5-1", "TRBJ2-3"),
+            ("CASSLVDFTYEQYF", "TRBV11-2", "TRBJ2-7"),
+            ("CASSVAVGRTGELFF", "TRBV9", "TRBJ2-2"),
+            ("CASSFTEDLYGYTF", "TRBV11-2", "TRBJ1-2"),
+            ("CAISESTGGGNGYTF", "TRBV10-3", "TRBJ1-2"),
+            ("CASSFTEDYEQYF", "TRBV11-2", "TRBJ2-7"),
+            ("CASNVLTGRYEQYF", "TRBV5-8", "TRBJ2-7"),
+            ("CASSIGGGPGTEAFF", "TRBV19", "TRBJ1-1"),
+            ("CASSFAGGSYNEQFF", "TRBV27", "TRBJ2-1"),
+            ("CASSVNGPYEQYF", "TRBV6-1", "TRBJ2-7"),
+            ("CASSLEEGTEAFF", "TRBV11-2", "TRBJ1-1"),
+            ("CASSPGGTISYEQYF", "TRBV10-1", "TRBJ2-7"),
+            ("CSVDRGRDRETQYF", "TRBV29-1", "TRBJ2-5"),
+            ("CASSPAEGSPLHF", "TRBV7-1", "TRBJ1-6"),
+            ("CASSQDPPGRLAGGTDTQYF", "TRBV4-2", "TRBJ2-3"),
+            ("CASSPSGGPYNEQFF", "TRBV9", "TRBJ2-1"),
+            ("CASSYSPVEWNEQFF", "TRBV7-6", "TRBJ2-1"),
+        ]
+
+        raw = [
+            Clonotype(
+                sequence_id=str(i),
+                locus="TRB",
+                v_gene=v,
+                j_gene=j,
+                junction_aa=cdr3,
+                duplicate_count=1,
+                _validate=False,
+            )
+            for i, (cdr3, v, j) in enumerate(rows)
+        ]
+        normalized = [
+            Clonotype(
+                sequence_id=str(i),
+                locus="TRB",
+                v_gene=_to_star01(v),
+                j_gene=_to_star01(j),
+                junction_aa=cdr3,
+                duplicate_count=1,
+                _validate=False,
+            )
+            for i, (cdr3, v, j) in enumerate(rows)
+        ]
+
+        model = TCREmp.from_defaults(
+            species="human",
+            locus="TRB",
+            n_prototypes=100,
+            junction_method="fixed_gap",
+        )
+
+        x_raw = model.embed(raw, n_jobs=1)
+        x_norm = model.embed(normalized, n_jobs=1)
+
+        # Split [v, j, junction] interleaved columns into components.
+        raw_v = x_raw[:, 0::3]
+        raw_j = x_raw[:, 1::3]
+        norm_v = x_norm[:, 0::3]
+        norm_j = x_norm[:, 1::3]
+
+        frac_raw_v = _max_identical_fraction_per_row(raw_v)
+        frac_raw_j = _max_identical_fraction_per_row(raw_j)
+        frac_norm_v = _max_identical_fraction_per_row(norm_v)
+        frac_norm_j = _max_identical_fraction_per_row(norm_j)
+
+        # Internal normalization should make both inputs equivalent.
+        np.testing.assert_allclose(x_raw, x_norm, atol=1e-6)
+
+        # V/J blocks should not collapse to near-constant fallback rows.
+        assert frac_raw_v < 0.9
+        assert frac_raw_j < 0.9
+        assert frac_norm_v < 0.9
+        assert frac_norm_j < 0.9
+
 
 # ---------------------------------------------------------------------------
 # TCREmp symmetry / square matrix check (10 prototypes vs themselves)
