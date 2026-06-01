@@ -73,6 +73,8 @@ from typing import Sequence
 import numpy as np
 import polars as pl
 
+from mir.common.alleles import strip_allele as _strip_allele
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -376,8 +378,8 @@ def get_vj_background(
     # Try exact match first, then prefix match
     for v_match, j_match in [
         (pl.col("v.segm.repr") == v_gene, pl.col("j.segm.repr") == j_gene),
-        (pl.col("v.segm.repr").str.starts_with(v_gene.split("*")[0]),
-         pl.col("j.segm.repr").str.starts_with(j_gene.split("*")[0])),
+        (pl.col("v.segm.repr").str.starts_with(_strip_allele(v_gene)),
+         pl.col("j.segm.repr").str.starts_with(_strip_allele(j_gene))),
     ]:
         candidates = motif_pwms.filter(
             v_match & j_match
@@ -872,11 +874,9 @@ def get_vj_background_from_control(
     """
     mask = pl.col(cdr3_col).str.len_chars() == length
     if v_gene is not None:
-        v_prefix = v_gene.split("*")[0]
-        mask = mask & pl.col(v_col).str.starts_with(v_prefix)
+        mask = mask & pl.col(v_col).str.starts_with(_strip_allele(v_gene))
     if j_gene is not None:
-        j_prefix = j_gene.split("*")[0]
-        mask = mask & pl.col(j_col).str.starts_with(j_prefix)
+        mask = mask & pl.col(j_col).str.starts_with(_strip_allele(j_gene))
 
     subset = control_df.filter(mask)
     seqs = subset[cdr3_col].to_list()

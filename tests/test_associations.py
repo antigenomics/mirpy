@@ -229,6 +229,70 @@ def test_association_vj_matching_ignores_allele_suffix() -> None:
     assert row["detected_counts"] == [0, 1]
 
 
+def test_association_specific_allele_does_not_match_different_allele() -> None:
+    """Target with *01 must NOT match samples annotated with *02."""
+    target = make_trb_clone("target", "CASSLGQETQYF", v="TRBV5-1*01", j="TRBJ2-7*01")
+    samples = [
+        _sample(
+            "s1",
+            [("a", "CASSLGQETQYF")],
+            metadata={"condition": "positive"},
+            v="TRBV5-1*02",
+            j="TRBJ2-7*01",
+        ),
+        _sample(
+            "s2",
+            [("b", "CASSPGQETQYF")],
+            metadata={"condition": "negative"},
+            v="TRBV5-1*01",
+            j="TRBJ2-7*01",
+        ),
+    ]
+
+    result = associate_clonotype_metadata(
+        samples,
+        [target],
+        metadata_field="condition",
+        params=AssociationParams(match_mode="vj", max_distance=0, count_mode="sample"),
+    )
+
+    row = result.table.row(0, named=True)
+    # s1 has *02 ≠ target *01 → not matched; detected_counts should be all 0.
+    assert row["detected_counts"] == [0, 0]
+
+
+def test_association_bare_target_matches_any_allele() -> None:
+    """Target with bare gene (no allele) is a wildcard and matches any allele."""
+    target = make_trb_clone("target", "CASSLGQETQYF", v="TRBV5-1", j="TRBJ2-7")
+    samples = [
+        _sample(
+            "s1",
+            [("a", "CASSLGQETQYF")],
+            metadata={"condition": "positive"},
+            v="TRBV5-1*02",
+            j="TRBJ2-7*01",
+        ),
+        _sample(
+            "s2",
+            [("b", "CASSPGQETQYF")],
+            metadata={"condition": "negative"},
+            v="TRBV5-1*01",
+            j="TRBJ2-7*01",
+        ),
+    ]
+
+    result = associate_clonotype_metadata(
+        samples,
+        [target],
+        metadata_field="condition",
+        params=AssociationParams(match_mode="vj", max_distance=0, count_mode="sample"),
+    )
+
+    row = result.table.row(0, named=True)
+    # Bare target matches s1 (*02) because bare = wildcard.
+    assert row["detected_counts"] == [0, 1]
+
+
 def test_depth_glm_mode_binary_sample_counts() -> None:
     target = make_trb_clone("target", "CASSLGQETQYF")
     samples = [

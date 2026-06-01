@@ -63,7 +63,7 @@ from Bio.Align import substitution_matrices
 import typing as t
 import numpy as np
 
-from mir.common.alleles import allele_with_default
+from mir.common.alleles import allele_to_major, allele_with_default, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary
 
@@ -544,6 +544,8 @@ class _Scoring_Wrapper:
         return ((gs1[0], gs2[0]), self.scoring.score(gs1[1], gs2[1]))
 
 
+
+
 class GermlineAligner:
     """Gene-level aligner built from pre-computed pairwise scores.
 
@@ -607,25 +609,22 @@ class GermlineAligner:
             KeyError: If ``(locus, g1, g2)`` was not in the library used
                 during construction.
         """
-        g1_norm = allele_with_default(g1)
-        g2_norm = allele_with_default(g2)
-
-        key = (locus, g1_norm, g2_norm)
-        val = self._locus_dist.get(key)
-        if val is not None:
-            return val
-        # One or both genes are absent from the library (e.g., pseudogenes or
-        # missing alleles in prototype files).  Return the worst-case distance
-        # for the appropriate gene type so unknown genes are treated as
-        # maximally distant.
-        for gene_type in ('V', 'J', 'D'):
-            gs = self._locus_gene_sets.get((locus, gene_type), frozenset())
-            if g1_norm in gs or g2_norm in gs:
-                return self._fallback_dist.get((locus, gene_type), 0.0)
-        # Last resort: infer gene type from allele name prefix
-        allele = g1_norm
-        gene_type_char = allele[len(locus)] if allele.startswith(locus) and len(allele) > len(locus) else 'V'
-        return self._fallback_dist.get((locus, gene_type_char), 0.0)
+        # Resolution chain: try both genes at the same fallback level.
+        # Level 1 — exact allele (bare genes get *01 appended).
+        # Level 2 — normalize both to *01 (handles minor alleles absent from library).
+        # Level 3 — strip allele entirely (handles bare-gene libraries).
+        # → NaN when the gene pair is not in the library at any level.
+        g1_exact = allele_with_default(g1)
+        g2_exact = allele_with_default(g2)
+        for c1, c2 in (
+            (g1_exact, g2_exact),
+            (allele_to_major(g1_exact), allele_to_major(g2_exact)),
+            (strip_allele(g1_exact), strip_allele(g2_exact)),
+        ):
+            val = self._locus_dist.get((locus, c1, c2))
+            if val is not None:
+                return val
+        return float("nan")
 
     @classmethod
     def from_library(

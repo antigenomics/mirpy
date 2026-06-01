@@ -136,10 +136,49 @@ class TestHammingGraph(unittest.TestCase):
                                       threshold=1, v_gene_match=True, nproc=1)
         self.assertEqual(g.ecount(), 1)
 
-    def test_v_gene_match_ignores_allele_suffix(self):
-        """v_gene_match=True should treat TRBVx and TRBVx*01 as equal."""
+    def test_v_gene_match_bare_is_wildcard(self):
+        """Bare gene (no allele) matches any allele of the same gene."""
         ra = _r(0, SEQ_A, v="TRBV19")
         rb = _r(1, SEQ_B, v="TRBV19*01")
+        g = build_edit_distance_graph(
+            [ra, rb],
+            metric="hamming",
+            threshold=1,
+            v_gene_match=True,
+            nproc=1,
+        )
+        self.assertEqual(g.ecount(), 1)
+
+    def test_v_gene_match_ignores_allele_suffix(self):
+        """Alias for backward compat: bare vs *01 produces an edge."""
+        ra = _r(0, SEQ_A, v="TRBV19")
+        rb = _r(1, SEQ_B, v="TRBV19*01")
+        g = build_edit_distance_graph(
+            [ra, rb],
+            metric="hamming",
+            threshold=1,
+            v_gene_match=True,
+            nproc=1,
+        )
+        self.assertEqual(g.ecount(), 1)
+
+    def test_v_gene_match_specific_allele_no_cross_allele_edge(self):
+        """*01 and *02 are different alleles — no edge when both are explicit."""
+        ra = _r(0, SEQ_A, v="TRBV19*01")
+        rb = _r(1, SEQ_B, v="TRBV19*02")
+        g = build_edit_distance_graph(
+            [ra, rb],
+            metric="hamming",
+            threshold=1,
+            v_gene_match=True,
+            nproc=1,
+        )
+        self.assertEqual(g.ecount(), 0)
+
+    def test_v_gene_match_specific_allele_matches_itself(self):
+        """*02 vs *02 produces an edge."""
+        ra = _r(0, SEQ_A, v="TRBV19*02")
+        rb = _r(1, SEQ_B, v="TRBV19*02")
         g = build_edit_distance_graph(
             [ra, rb],
             metric="hamming",

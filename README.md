@@ -116,20 +116,41 @@ Supported parsers: `VDJtoolsParser`, `AIRRParser`, `AdaptiveParser`,
 `VDJdbFullPairedParser`, and others in `mir.common.parser`.
 VDJdb reference: Shugay M *et al.* 2018, *Nucleic Acids Res.*, PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/).
 
-### V/J gene input compatibility
+### V/J gene allele notation
 
-mirpy accepts V/J genes in both forms:
+mirpy uses consistent allele semantics throughout all V/J matching and distance
+paths.
 
-- allele-aware, for example `TRBV19*01`
-- allele-less, for example `TRBV19`
+#### Matching semantics
 
-Gene-level matching and grouping paths treat these as equivalent. This includes
-neighborhood/search and metadata-association workflows that use V/J match flags
-(`match_v_gene`, `match_j_gene`, or `match_mode="v"/"j"/"vj"`).
+| Input form | Behaviour | Matches |
+| --- | --- | --- |
+| `TRAV1` (bare) | wildcard | `TRAV1`, `TRAV1*01`, `TRAV1*02`, … |
+| `TRAV1*02` (specific) | exact | `TRAV1*02` and bare `TRAV1` only |
 
-Allele-indexed distance paths remain safe: when a lookup requires an explicit
-allele and input is allele-less, mirpy normalizes to `*01` while preserving any
-explicitly provided allele.
+A **bare gene** (no `*` suffix) acts as a wildcard and matches any allele of the
+same base gene. A **specific allele** matches only that exact allele, plus bare
+genes (which, having no allele information, cannot exclude any allele).
+
+This applies to all V/J-restricted search paths:
+
+- edit-distance graph construction (`v_gene_match`)
+- neighborhood enrichment stats (`match_v_gene`, `match_j_gene`)
+- metaclonotype clustering
+- association scans (`match_mode="v"/"j"/"vj"`)
+- TCRdist `find_metaclonotypes`
+
+#### Library resolution chain for distances
+
+When a V/J gene is looked up in a pre-computed library (e.g., TCRdist germline
+distances, TCREmP embeddings), mirpy tries in order:
+
+1. **Exact allele** — `TRBV5-1*07` as-is
+2. **Major allele** (`*01`) — `TRBV5-1*01`
+3. **Bare gene** — `TRBV5-1` (for libraries without allele resolution)
+4. **Not found** — returns `NaN`; propagates to the overall distance
+
+No silent substitution of max-distance sentinels for unknown genes.
 
 ### Work with repertoires
 

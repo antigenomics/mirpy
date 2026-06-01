@@ -129,8 +129,9 @@ rs_table = filter_token_table(table, kmer_pattern="RS")
 g_rs     = build_token_graph(rep.clonotypes, rs_table)
 ```
 
-V/J matching in graph and neighborhood workflows is allele-robust:
-`TRBV19` and `TRBV19*01` are treated as the same gene for match filters.
+V/J matching uses `genes_match` semantics: a **bare gene** (`TRBV19`) is a
+wildcard that matches any allele; a **specific allele** (`TRBV19*02`) matches
+only `TRBV19*02` and bare `TRBV19`, but NOT `TRBV19*01`.
 
 V/J-restricted neighbour search (`match_v_gene=True`, `match_j_gene=True`) is 1.5–2× faster
 than unrestricted on natural repertoires via the grouped-trie strategy.
@@ -283,8 +284,9 @@ res_depth = associate_clonotype_metadata(
 )
 ```
 
-For `match_mode="v"`, `"j"`, or `"vj"`, V/J equality is allele-robust:
-allele-less and allele-aware gene calls are matched on gene base.
+For `match_mode="v"`, `"j"`, or `"vj"`, V/J matching uses `genes_match`
+semantics: bare gene = wildcard (matches any allele); specific allele = exact
+(matches only itself and bare genes).
 
 Use cases:
 
@@ -528,7 +530,7 @@ AIRR SRA files often lack a `locus` column — infer from the first four chars o
 ## 21. Practical Defaults
 
 - `RepertoireDataset.from_folder_polars()` for all multi-sample loads.
-- Strip alleles (`split("*")[0]`) for most comparative analyses.
+- Use `strip_allele()` (not `split("*")[0]`) to strip allele suffixes; use `genes_match()` for allele-aware V/J comparisons.
 - Reuse prebuilt controls outside inner loops.
 - V/J marginals: use `marginalize_batch_corrected_gene_usage()`, not ad-hoc groupby.
 - ALICE + TCRNET: `match_mode="vj"` for both specificity and speed.

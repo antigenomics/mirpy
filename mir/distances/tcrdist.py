@@ -51,7 +51,7 @@ import numpy as np
 import polars as pl
 from Bio.Align import substitution_matrices
 
-from mir.common.alleles import allele_with_default, strip_allele
+from mir.common.alleles import allele_with_default, genes_match, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
 from mir.common.metaclonotype import MetaClonotypeClustering
@@ -518,8 +518,8 @@ class TcrDist:
         dist_mat = self.dist_matrix(reps, clonotypes, n_jobs=n_jobs)
 
         # Pre-extract V/J genes for optional V/J filtering
-        all_v = [strip_allele(c.v_gene) for c in clonotypes]
-        all_j = [strip_allele(c.j_gene) for c in clonotypes]
+        all_v = [c.v_gene for c in clonotypes]
+        all_j = [c.j_gene for c in clonotypes]
         all_ids = [c.sequence_id for c in clonotypes]
 
         rows: list[dict] = []
@@ -529,12 +529,10 @@ class TcrDist:
         for i, rep_id in enumerate(valid_rep_ids):
             rep = by_id[rep_id]
             cluster_id = f"{cluster_prefix}_{i}"
-            rep_v = strip_allele(rep.v_gene)
-            rep_j = strip_allele(rep.j_gene)
             for k, cln_id in enumerate(all_ids):
-                if match_v_gene and rep_v != all_v[k]:
+                if match_v_gene and not genes_match(rep.v_gene, all_v[k]):
                     continue
-                if match_j_gene and rep_j != all_j[k]:
+                if match_j_gene and not genes_match(rep.j_gene, all_j[k]):
                     continue
                 if dist_mat[i, k] <= max_distance:
                     rows.append({
@@ -588,10 +586,11 @@ class TcrDist:
         unique_q = list(seen_q)
         unique_r = list(seen_r)
 
-        # Compact sub-matrix
+        # Compact sub-matrix — initialise with NaN so truly unknown genes
+        # propagate as NaN rather than silently becoming 0.
         ga = self.germline_aligner
         locus = self.locus
-        sub = np.zeros((len(unique_q), len(unique_r)), dtype=np.float64)
+        sub = np.full((len(unique_q), len(unique_r)), np.nan, dtype=np.float64)
         for i, g1 in enumerate(unique_q):
             for j, g2 in enumerate(unique_r):
                 sub[i, j] = ga.gene_dist(locus, g1, g2)

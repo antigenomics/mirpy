@@ -159,6 +159,42 @@ def test_neighborhood_match_v_gene_ignores_allele_suffix() -> None:
     assert stats["c1"]["potential_neighbors"] == 2
 
 
+def test_neighborhood_specific_allele_does_not_match_different_allele() -> None:
+    """*01 and *02 are distinct alleles — should not count as neighbors."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1*02", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+
+    # c1 (*01) should NOT count c2 (*02) as a neighbor.
+    assert stats["c1"]["neighbor_count"] == 1  # only self
+    assert stats["c1"]["potential_neighbors"] == 1
+
+
+def test_neighborhood_bare_query_matches_all_alleles() -> None:
+    """Bare-gene query is a wildcard and finds neighbors in all allele groups."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c_bare", "ATG", "MVA", v_gene="TRBV1",    j_gene="TRBJ1"),
+            _clonotype("c_01",   "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ1"),
+            _clonotype("c_02",   "ATG", "MVA", v_gene="TRBV1*02", j_gene="TRBJ1"),
+            _clonotype("c_other","ATG", "MVA", v_gene="TRBV2*01", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+
+    # c_bare (wildcard) should find c_01, c_02, and itself; not c_other.
+    assert stats["c_bare"]["neighbor_count"] == 3
+    assert stats["c_bare"]["potential_neighbors"] == 3
+
+
 def test_neighborhood_match_j_gene() -> None:
     """With match_j_gene=True, neighbors must have same j_gene."""
     rep = LocusRepertoire(

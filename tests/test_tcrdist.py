@@ -212,6 +212,38 @@ class TestTcrDistPairwise:
         assert d_same_v == pytest.approx(0.0, abs=1e-8)
         assert d_same_j == pytest.approx(0.0, abs=1e-8)
 
+    def test_germline_dist_minor_allele_falls_back_to_major(self, td):
+        # TRBV5-1 has only *01 in the default library.
+        # *02 should not silently return max distance — it should fall back to *01.
+        d_02_vs_02 = td.germline_aligner.gene_dist("TRB", "TRBV5-1*02", "TRBV5-1*02")
+        d_02_vs_01 = td.germline_aligner.gene_dist("TRB", "TRBV5-1*02", "TRBV5-1*01")
+        d_01_vs_01 = td.germline_aligner.gene_dist("TRB", "TRBV5-1*01", "TRBV5-1*01")
+        assert d_02_vs_02 == pytest.approx(d_01_vs_01, abs=1e-8)
+        assert d_02_vs_01 == pytest.approx(d_01_vs_01, abs=1e-8)
+
+    def test_germline_dist_unknown_gene_returns_nan(self, td):
+        import math
+        d = td.germline_aligner.gene_dist("TRB", "TRBVXXX*99", "TRBVXXX*99")
+        assert math.isnan(d)
+
+    def test_pairwise_dist_nan_for_unknown_gene(self, td):
+        import math
+        import numpy as np
+        unknown = Clonotype(
+            sequence_id="u1",
+            v_gene="TRBVXXX*99",
+            j_gene="TRBJ2-7*01",
+            junction_aa="CASSIRSSYEQYF",
+        )
+        known = Clonotype(
+            sequence_id="k1",
+            v_gene="TRBV19*01",
+            j_gene="TRBJ2-7*01",
+            junction_aa="CASSIRSSYEQYF",
+        )
+        d = td.dist(unknown, known)
+        assert math.isnan(d)
+
     def test_pairwise_dist_same_with_or_without_alleles(self, td):
         with_alleles_1 = Clonotype(
             sequence_id="a1",

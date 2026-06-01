@@ -43,7 +43,7 @@ import polars as pl
 
 from mir.basic.alphabets import back_translate
 from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
-from mir.common.alleles import allele_to_major
+from mir.common.alleles import allele_to_major, strip_allele as _strip_gene
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 from mir.common.single_cell import PairedRepertoire, build_tenx_sample_from_cell_clonotypes
@@ -1171,7 +1171,7 @@ def load_vdjdb_latest(
                     v_gene = row.get("v.segm", "").strip()
                     j_gene = row.get("j.segm", "").strip()
 
-                    dedup_key = (junction_aa, v_gene.split("*")[0], j_gene.split("*")[0])
+                    dedup_key = (junction_aa, _strip_gene(v_gene), _strip_gene(j_gene))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)

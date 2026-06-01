@@ -18,7 +18,7 @@ _MP_CTX = multiprocessing.get_context("spawn")
 
 import igraph as ig
 
-from mir.common.alleles import strip_allele
+from mir.common.alleles import genes_match, strip_allele
 from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.clonotype import Clonotype
 from mir.graph._trie_utils import (
@@ -55,13 +55,17 @@ def _init_edge_worker(
     _EDGE_WORKER_STATE["threshold"] = threshold
     _EDGE_WORKER_STATE["v_gene_match"] = v_gene_match
     _EDGE_WORKER_STATE["c_gene_match"] = c_gene_match
-    trie, trie_to_orig = make_trie(seqs, v_genes, j_genes)
+    # Trie uses stripped alleles for coarse grouping; original alleles are kept
+    # separately so genes_match can apply fine-grained allele semantics afterwards.
+    v_stripped = [strip_allele(v) for v in v_genes]
+    j_stripped = [strip_allele(j) for j in j_genes]
+    trie, trie_to_orig = make_trie(seqs, v_stripped, j_stripped)
     trie_orig_set = set(trie_to_orig)
     _EDGE_WORKER_STATE["trie"] = trie
     _EDGE_WORKER_STATE["trie_to_orig"] = trie_to_orig
     _EDGE_WORKER_STATE["canon_seqs"] = [seqs[i] for i in trie_to_orig]
-    _EDGE_WORKER_STATE["canon_v"]    = [v_genes[i] for i in trie_to_orig]
-    _EDGE_WORKER_STATE["canon_j"]    = [j_genes[i] for i in trie_to_orig]
+    _EDGE_WORKER_STATE["canon_v"]    = [v_stripped[i] for i in trie_to_orig]
+    _EDGE_WORKER_STATE["canon_j"]    = [j_stripped[i] for i in trie_to_orig]
     _EDGE_WORKER_STATE["non_canon_indices"] = [j for j in range(len(seqs)) if j not in trie_orig_set]
 
 
@@ -115,7 +119,8 @@ def _build_batch_edges(
     for i in range(start, stop):
         if not _is_trie_safe(seqs[i]):  # non-canonical query — skip
             continue
-        v_filter = v_genes[i] if v_gene_match else None
+        # Trie uses stripped alleles for coarse grouping.
+        v_filter = strip_allele(v_genes[i]) if v_gene_match else None
         # Returns indices into canon_seqs (canonical space, 0..len(trie_to_orig)-1).
         canon_hits = search_indices_with_fallback(
             trie,
@@ -132,6 +137,9 @@ def _build_batch_edges(
             j = trie_to_orig[ci]  # canonical index → original index
             if j <= i:
                 continue
+            # Fine-grained allele semantics: bare = wildcard, specific = exact.
+            if v_gene_match and not genes_match(v_genes[i], v_genes[j]):
+                continue
             if c_gene_match and c_genes[i] != c_genes[j]:
                 continue
             edges.add((i, j))
@@ -139,7 +147,7 @@ def _build_batch_edges(
         for j in non_canon_indices:
             if j <= i:
                 continue
-            if v_gene_match and v_genes[i] != v_genes[j]:
+            if v_gene_match and not genes_match(v_genes[i], v_genes[j]):
                 continue
             if c_gene_match and c_genes[i] != c_genes[j]:
                 continue
@@ -165,11 +173,13 @@ def _build_edges_parallel(
     if n <= 1:
         return set()
     if jobs <= 1 or n <= chunk_sz:
-        trie, trie_to_orig = make_trie(seqs, v_genes, j_genes)
+        v_stripped = [strip_allele(v) for v in v_genes]
+        j_stripped = [strip_allele(j) for j in j_genes]
+        trie, trie_to_orig = make_trie(seqs, v_stripped, j_stripped)
         trie_orig_set = set(trie_to_orig)
         canon_seqs = [seqs[i] for i in trie_to_orig]
-        canon_v    = [v_genes[i] for i in trie_to_orig]
-        canon_j    = [j_genes[i] for i in trie_to_orig]
+        canon_v    = [v_stripped[i] for i in trie_to_orig]
+        canon_j    = [j_stripped[i] for i in trie_to_orig]
         non_canon_indices = [j for j in range(n) if j not in trie_orig_set]
         return _build_batch_edges(
             seqs,
@@ -242,8 +252,8 @@ def build_edit_distance_graph(
 
     n = len(rearrangements)
     seqs = [str(getattr(r, "junction_aa", "") or "") for r in rearrangements]
-    v_genes = [strip_allele(str(getattr(r, "v_gene", "") or "")) for r in rearrangements]
-    j_genes = [strip_allele(str(getattr(r, "j_gene", "") or "")) for r in rearrangements]
+    v_genes = [str(getattr(r, "v_gene", "") or "") for r in rearrangements]
+    j_genes = [str(getattr(r, "j_gene", "") or "") for r in rearrangements]
     c_genes = [str(getattr(r, "c_gene", "") or "") for r in rearrangements]
 
     edges = _build_edges_parallel(

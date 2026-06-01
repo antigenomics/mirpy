@@ -124,11 +124,12 @@ class TestGermlineAlignerFromLibrary:
             if checked > 200:
                 break
 
-    def test_gene_dist_missing_key_returns_fallback(self, trb_aligner):
-        # Unknown genes (e.g., pseudogenes) return max observed distance, not a KeyError.
+    def test_gene_dist_missing_key_returns_nan(self, trb_aligner):
+        import math
+        # Genes that are absent from the library at every resolution level return NaN.
         d = trb_aligner.gene_dist("TRB", "TRBV99-1*01", "TRBV99-2*01")
         assert isinstance(d, float)
-        assert d >= 0.0
+        assert math.isnan(d)
 
     def test_backwards_compat_from_seqs_still_works(self, trb_library):
         seqs = trb_library.get_sequences_aa(locus="TRB", gene="V")[:5]

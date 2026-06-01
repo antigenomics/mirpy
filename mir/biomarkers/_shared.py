@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typing as t
 
+from mir.common.alleles import strip_allele
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.utils.stats import bh_fdr
 
@@ -48,8 +49,8 @@ def lookup_gene_frac(
     gene-name → probability.  Allele suffixes are stripped before lookup.
     For ``"vj"`` mode, falls back to ``P(V) × P(J)`` when the pair is absent.
     """
-    vf = (v_gene or "").split("*")[0]
-    jf = (j_gene or "").split("*")[0]
+    vf = strip_allele(v_gene)
+    jf = strip_allele(j_gene)
     if match_mode == "v":
         p = fracs["v"].get(vf, 0.0)
     elif match_mode == "j":
