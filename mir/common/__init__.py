@@ -7,7 +7,7 @@ from .sampling import downsample, downsample_locus, resample_to_gene_usage, sele
 from .pool import pool_samples
 from .control import ControlManager, control_setup_cli
 from .repertoire_dataset import RepertoireDataset
-from .alleles import allele_to_major
+from .alleles import allele_to_major, genes_match
 from .single_cell import (
 	LOCUS_PAIR_TO_LOCI,
 	PairedRepertoire,
@@ -85,6 +85,7 @@ __all__ = [
 	'control_setup_cli',
 	'RepertoireDataset',
 	'allele_to_major',
+	'genes_match',
 	'LOCUS_PAIR_TO_LOCI',
 	'PairedRepertoire',
 	'PairedClonotype',

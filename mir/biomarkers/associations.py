@@ -21,7 +21,7 @@ import statsmodels.api as sm
 from statsmodels.stats.multitest import multipletests
 
 from mir.biomarkers._shared import MatchMode, match_flags, normalize_match_mode
-from mir.common.alleles import strip_allele
+from mir.common.alleles import genes_match, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.single_cell import PairedClonotype, PairedRepertoire
@@ -218,8 +218,12 @@ def associate_clonotype_metadata(
             )
         )
 
-    summary_df = _apply_p_adjustment(pl.DataFrame(summaries), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method)
-    contrast_df = _apply_p_adjustment(pl.DataFrame(contrasts), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method)
+    summary_df = _apply_p_adjustment(
+        pl.DataFrame(summaries), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method
+    )
+    contrast_df = _apply_p_adjustment(
+        pl.DataFrame(contrasts), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method
+    )
     return AssociationResult(table=summary_df, contrast_table=contrast_df, params=effective)
 
 
@@ -299,8 +303,12 @@ def associate_paired_clonotype_metadata(
             )
         )
 
-    summary_df = _apply_p_adjustment(pl.DataFrame(summaries), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method)
-    contrast_df = _apply_p_adjustment(pl.DataFrame(contrasts), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method)
+    summary_df = _apply_p_adjustment(
+        pl.DataFrame(summaries), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method
+    )
+    contrast_df = _apply_p_adjustment(
+        pl.DataFrame(contrasts), p_col="p_value", q_col="p_value_adj", method=effective.p_adj_method
+    )
     return AssociationResult(table=summary_df, contrast_table=contrast_df, params=effective)
 
 
@@ -431,13 +439,11 @@ def _count_single_chain_matches(
     params: AssociationParams,
 ) -> int:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
-    target_v = strip_allele(target.v_gene)
-    target_j = strip_allele(target.j_gene)
     matched = 0
     for clonotype in repertoire.clonotypes:
-        if match_v and strip_allele(clonotype.v_gene) != target_v:
+        if match_v and not genes_match(clonotype.v_gene, target.v_gene):
             continue
-        if match_j and strip_allele(clonotype.j_gene) != target_j:
+        if match_j and not genes_match(clonotype.j_gene, target.j_gene):
             continue
         if is_within_threshold(clonotype.junction_aa, target.junction_aa, params.metric, params.max_distance):
             matched += 1
@@ -466,9 +472,9 @@ def _pair_matches(observed: PairedClonotype, target: PairedClonotype, params: As
 
 def _single_chain_matches(observed: Clonotype, target: Clonotype, params: AssociationParams) -> bool:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
-    if match_v and strip_allele(observed.v_gene) != strip_allele(target.v_gene):
+    if match_v and not genes_match(observed.v_gene, target.v_gene):
         return False
-    if match_j and strip_allele(observed.j_gene) != strip_allele(target.j_gene):
+    if match_j and not genes_match(observed.j_gene, target.j_gene):
         return False
     return is_within_threshold(observed.junction_aa, target.junction_aa, params.metric, params.max_distance)
 
@@ -476,7 +482,9 @@ def _single_chain_matches(observed: Clonotype, target: Clonotype, params: Associ
 def _coerce_paired_target(target: PairedClonotype | tuple[Clonotype, Clonotype]) -> PairedClonotype:
     if isinstance(target, PairedClonotype):
         return target
-    return PairedClonotype(pair_id=f"{_target_id(target[0])}__{_target_id(target[1])}", clonotype1=target[0], clonotype2=target[1])
+    return PairedClonotype(
+        pair_id=f"{_target_id(target[0])}__{_target_id(target[1])}", clonotype1=target[0], clonotype2=target[1]
+    )
 
 
 def _categorize_metadata(raw_value, metadata_value: str | None) -> str | None:

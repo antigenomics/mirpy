@@ -118,6 +118,7 @@ from mir.common.metaclonotype import (
     MetaClonotypeClustering,
     metaclonotypes_from_seed_neighbors,
 )
+from mir.common.alleles import strip_allele as _strip_allele
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.biomarkers._shared import (
     MatchMode,
@@ -517,7 +518,7 @@ def alice_hit_clusters(
         return result.assign(cluster_id=pd.array([], dtype="int64"))
 
     def _vfam(v: str) -> str:
-        return v.split("*")[0] if v else ""
+        return _strip_allele(v)
 
     has_v = "v_gene" in hits_df.columns
 

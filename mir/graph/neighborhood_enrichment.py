@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 
 from tcrtrie import Trie
 
-from mir.common.alleles import strip_allele
+from mir.common.alleles import genes_match, strip_allele
 from mir.graph._trie_utils import (
     _is_trie_safe,
     hit_index,
@@ -90,13 +90,13 @@ def _init_neighbor_worker(
     background_j_genes_arr, background_j_genes_shm = attach_shared_array(background_j_genes_spec)
 
     background_sequences = np.char.decode(background_sequences_arr, "ascii").tolist()
-    background_v_genes = [strip_allele(g) for g in np.char.decode(background_v_genes_arr, "ascii").tolist()]
-    background_j_genes = [strip_allele(g) for g in np.char.decode(background_j_genes_arr, "ascii").tolist()]
+    background_v_genes = np.char.decode(background_v_genes_arr, "ascii").tolist()
+    background_j_genes = np.char.decode(background_j_genes_arr, "ascii").tolist()
 
     _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
     _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
-    _NEIGHBOR_WORKER_STATE["query_v_genes"] = [strip_allele(g) for g in query_v_genes]
-    _NEIGHBOR_WORKER_STATE["query_j_genes"] = [strip_allele(g) for g in query_j_genes]
+    _NEIGHBOR_WORKER_STATE["query_v_genes"] = query_v_genes
+    _NEIGHBOR_WORKER_STATE["query_j_genes"] = query_j_genes
     _NEIGHBOR_WORKER_STATE["background_sequences"] = background_sequences
     _NEIGHBOR_WORKER_STATE["background_v_genes"] = background_v_genes
     _NEIGHBOR_WORKER_STATE["background_j_genes"] = background_j_genes
@@ -275,15 +275,47 @@ def _gene_key(
     match_v_gene: bool,
     match_j_gene: bool,
 ) -> tuple[str, ...]:
-    """Return the V/J grouping key for a clonotype."""
+    """Return the V/J grouping key for a clonotype, preserving allele suffix."""
     assert match_v_gene or match_j_gene, "_gene_key requires at least one gene flag"
-    vv = strip_allele(v_gene)
-    jj = strip_allele(j_gene)
+    vv = str(v_gene or "")
+    jj = str(j_gene or "")
     if match_v_gene and match_j_gene:
         return (vv, jj)
     if match_v_gene:
         return (vv,)
     return (jj,)
+
+
+def _matching_group_keys(
+    query_v: str | None,
+    query_j: str | None,
+    available_keys: t.Iterable[tuple[str, ...]],
+    *,
+    match_v_gene: bool,
+    match_j_gene: bool,
+) -> list[tuple[str, ...]]:
+    """Return all group keys from *available_keys* that match the query genes.
+
+    Uses :func:`~mir.common.alleles.genes_match` semantics: a bare gene is a
+    wildcard that matches any allele of the same base gene.
+    """
+    result: list[tuple[str, ...]] = []
+    qv = str(query_v or "")
+    qj = str(query_j or "")
+    for key in available_keys:
+        if match_v_gene and match_j_gene:
+            gv, gj = key
+            if genes_match(qv, gv) and genes_match(qj, gj):
+                result.append(key)
+        elif match_v_gene:
+            (gv,) = key
+            if genes_match(qv, gv):
+                result.append(key)
+        else:
+            (gj,) = key
+            if genes_match(qj, gj):
+                result.append(key)
+    return result
 
 
 def _build_grouped_tries(
@@ -372,26 +404,26 @@ def _compute_grouped_query_batch(
     match_j_gene: bool,
     add_self_pseudocount: bool,
 ) -> dict[str, dict[str, int]]:
-    """Serial grouped-trie batch: one trie lookup per gene group."""
+    """Serial grouped-trie batch: one or more trie lookups per query gene group."""
+    all_keys = list(group_tries)
     out: dict[str, dict[str, int]] = {}
     for clonotype, seq_id in zip(query_clonotypes, sequence_ids):
-        key = _gene_key(
-            clonotype.v_gene, clonotype.j_gene,
+        matching = _matching_group_keys(
+            clonotype.v_gene, clonotype.j_gene, all_keys,
             match_v_gene=match_v_gene, match_j_gene=match_j_gene,
         )
-        g_seqs = group_seqs.get(key)
-        g_trie = group_tries.get(key)
-        g_canon = group_canon_seqs.get(key, [])
-        g_size = len(g_seqs) if g_seqs is not None else 0
-        if g_trie is None:
-            nc = 1 if add_self_pseudocount else 0
-            pn = 1 if add_self_pseudocount else 0
-        else:
-            nc = _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_canon, metric, threshold)
-            pn = g_size
-            if add_self_pseudocount:
-                nc += 1
-                pn += 1
+        nc = 0
+        pn = 0
+        for key in matching:
+            g_seqs = group_seqs.get(key)
+            g_trie = group_tries.get(key)
+            g_canon = group_canon_seqs.get(key, [])
+            if g_trie is not None:
+                nc += _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_canon, metric, threshold)
+                pn += len(g_seqs) if g_seqs is not None else 0
+        if add_self_pseudocount:
+            nc += 1
+            pn += 1
         out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
     return out
 
@@ -401,12 +433,12 @@ def _compute_grouped_key_batch_worker(
     q_by_key: dict[tuple, tuple[list[str], list[str]]],
     metric: str,
     threshold: int,
-    add_self_pseudocount: bool,
 ) -> dict[str, dict[str, int]]:
     """Build tries for assigned (V,J) key groups and search their queries.
 
     Each worker receives only the background and query data for its assigned keys,
-    builds exactly those tries, and returns results for all matching queries.
+    builds exactly those tries, and returns partial raw counts (no pseudocount —
+    the caller accumulates across groups and applies pseudocount once).
     Tries are built once per key globally (not once per worker).
     """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -421,17 +453,12 @@ def _compute_grouped_key_batch_worker(
         canon_bg = [bg_seqs[i] for i in trie_to_orig]
         for q_seq, seq_id in zip(q_seqs, q_ids):
             nc = _count_grouped_neighbors(q_seq, trie, canon_bg, metric, threshold)
-            pn = n
-            if add_self_pseudocount:
-                nc += 1
-                pn += 1
-            out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
-    # Keys present in queries but absent from background → return zero/pseudocount.
-    for key, (q_seqs, q_ids) in q_by_key.items():
-        if key not in bg_by_key:
-            nc = pn = 1 if add_self_pseudocount else 0
-            for seq_id in q_ids:
-                out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
+            # Accumulate across groups — a query may appear in multiple groups.
+            if seq_id in out:
+                out[seq_id]["neighbor_count"] += nc
+                out[seq_id]["potential_neighbors"] += n
+            else:
+                out[seq_id] = {"neighbor_count": nc, "potential_neighbors": n}
     return out
 
 
@@ -513,11 +540,11 @@ def _compute_locus_stats(
         }
 
     background_sequences = [c.junction_aa for c in background_clonotypes]
-    background_v_genes = [strip_allele(c.v_gene) for c in background_clonotypes]
-    background_j_genes = [strip_allele(c.j_gene) for c in background_clonotypes]
+    background_v_genes = [c.v_gene or "" for c in background_clonotypes]
+    background_j_genes = [c.j_gene or "" for c in background_clonotypes]
     query_sequences = [c.junction_aa for c in query_clonotypes]
-    query_v_genes = [strip_allele(c.v_gene) for c in query_clonotypes]
-    query_j_genes = [strip_allele(c.j_gene) for c in query_clonotypes]
+    query_v_genes = [c.v_gene or "" for c in query_clonotypes]
+    query_j_genes = [c.j_gene or "" for c in query_clonotypes]
     n_query = len(query_clonotypes)
 
     # ── Grouped-trie path (V/J-restricted search) ────────────────────────────
@@ -546,36 +573,56 @@ def _compute_locus_stats(
         # Parallel grouped path: distribute (V,J) key groups across workers.
         # Each worker builds only its assigned tries (1/n_jobs of the total),
         # so each trie is built exactly once — no per-worker rebuild overhead.
+        # A query may expand to multiple bg keys (allele wildcard semantics),
+        # so q_by_key is built with _matching_group_keys and counts are
+        # accumulated additively across workers; pseudocount applied once below.
+        all_bg_keys = list(bg_by_key)
         q_by_key: dict[tuple, tuple[list[str], list[str]]] = {}
         for q, seq_id, v, j in zip(query_sequences, q_seq_ids, query_v_genes, query_j_genes):
-            key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
-            if key not in q_by_key:
-                q_by_key[key] = ([], [])
-            q_by_key[key][0].append(q)
-            q_by_key[key][1].append(seq_id)
+            for key in _matching_group_keys(v, j, all_bg_keys, match_v_gene=match_v_gene, match_j_gene=match_j_gene):
+                if key not in q_by_key:
+                    q_by_key[key] = ([], [])
+                q_by_key[key][0].append(q)
+                q_by_key[key][1].append(seq_id)
 
         # Assign keys to workers in round-robin by descending bg size (load balance).
-        all_keys = sorted(bg_by_key, key=lambda k: len(bg_by_key[k]), reverse=True)
+        sorted_keys = sorted(bg_by_key, key=lambda k: len(bg_by_key[k]), reverse=True)
         worker_bg: list[dict] = [{} for _ in range(n_jobs)]
         worker_q: list[dict] = [{} for _ in range(n_jobs)]
-        for i, key in enumerate(all_keys):
+        for i, key in enumerate(sorted_keys):
             w = i % n_jobs
             worker_bg[w][key] = bg_by_key[key]
             if key in q_by_key:
                 worker_q[w][key] = q_by_key[key]
 
+        # Merge partial results additively (a query may appear in multiple workers).
         results: dict[str, dict[str, int]] = {}
         with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX) as executor:
             futures = [
                 executor.submit(
                     _compute_grouped_key_batch_worker,
-                    worker_bg[w], worker_q[w], metric, threshold, add_self_pseudocount,
+                    worker_bg[w], worker_q[w], metric, threshold,
                 )
                 for w in range(n_jobs)
                 if worker_bg[w]
             ]
             for f in futures:
-                results.update(f.result())
+                for seq_id, counts in f.result().items():
+                    if seq_id in results:
+                        results[seq_id]["neighbor_count"] += counts["neighbor_count"]
+                        results[seq_id]["potential_neighbors"] += counts["potential_neighbors"]
+                    else:
+                        results[seq_id] = dict(counts)
+        # Apply pseudocount once per query after all groups have been merged.
+        if add_self_pseudocount:
+            for counts in results.values():
+                counts["neighbor_count"] += 1
+                counts["potential_neighbors"] += 1
+        # Queries that matched no background group get zero/pseudocount.
+        for seq_id in q_seq_ids:
+            if seq_id not in results:
+                v = 1 if add_self_pseudocount else 0
+                results[seq_id] = {"neighbor_count": v, "potential_neighbors": v}
         return results
 
     # ── Single-trie path (no V/J restriction) ────────────────────────────────

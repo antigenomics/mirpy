@@ -61,7 +61,7 @@ _logger = logging.getLogger(__name__)
 
 import polars as pl
 
-from mir.common.alleles import allele_to_major, strip_allele
+from mir.common.alleles import allele_to_major, genes_match, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.diversity import (
     CountField,
@@ -264,12 +264,10 @@ def metaclonotypes_from_seed_neighbors(
             _logger.warning("seed_id %r not found in repertoire; skipping", seed_id)
             continue
         cluster_id = f"{cluster_prefix}_{idx}"
-        seed_v = strip_allele(seed.v_gene)
-        seed_j = strip_allele(seed.j_gene)
         for candidate in repertoire.clonotypes:
-            if match_v_gene and seed_v != strip_allele(candidate.v_gene):
+            if match_v_gene and not genes_match(seed.v_gene, candidate.v_gene):
                 continue
-            if match_j_gene and seed_j != strip_allele(candidate.j_gene):
+            if match_j_gene and not genes_match(seed.j_gene, candidate.j_gene):
                 continue
             if is_within_threshold(seed.junction_aa, candidate.junction_aa, metric, threshold):
                 rows.append(
@@ -339,12 +337,10 @@ def metaclonotypes_from_radius_threshold(
         if rep is None:
             continue
         cluster_id = f"{cluster_prefix}_{idx}"
-        rep_v = strip_allele(rep.v_gene)
-        rep_j = strip_allele(rep.j_gene)
         for candidate in repertoire.clonotypes:
-            if match_v_gene and rep_v != strip_allele(candidate.v_gene):
+            if match_v_gene and not genes_match(rep.v_gene, candidate.v_gene):
                 continue
-            if match_j_gene and rep_j != strip_allele(candidate.j_gene):
+            if match_j_gene and not genes_match(rep.j_gene, candidate.j_gene):
                 continue
             distance = float(score_distance_fn(rep, candidate))
             if distance <= max_distance:

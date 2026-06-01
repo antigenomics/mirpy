@@ -127,12 +127,14 @@ class TestMakeReferenceKeys:
         assert len(make_reference_keys(_make_rep(["CASSF", "CASSF"]))) == 1
 
     def test_allele_stripped(self) -> None:
+        # Gene keys use bare gene names (allele stripped entirely) so any allele
+        # of the same base gene maps to the same overlap key.
         clone = Clonotype(
             sequence_id="0", locus="TRB", junction_aa="CASSF",
             v_gene="TRBV1*02", j_gene="TRBJ1-1*01", duplicate_count=1,
         )
         rep = LocusRepertoire(clonotypes=[clone], locus="TRB")
-        assert ("CASSF", "TRBV1*01", "TRBJ1-1*01") in make_reference_keys(rep)
+        assert ("CASSF", "TRBV1", "TRBJ1-1") in make_reference_keys(rep)
 
     def test_empty_junction_skipped(self) -> None:
         clone = Clonotype(
@@ -158,9 +160,9 @@ class TestMakeReferenceKeys:
         jaa = "CASSF"
         rep = _make_rep([jaa])
         fuzzy = make_reference_keys(rep, allow_1mm=True)
-        from mir.common.alleles import allele_to_major
-        v = allele_to_major(rep.clonotypes[0].v_gene)
-        j = allele_to_major(rep.clonotypes[0].j_gene)
+        from mir.common.alleles import strip_allele
+        v = strip_allele(rep.clonotypes[0].v_gene)
+        j = strip_allele(rep.clonotypes[0].j_gene)
         assert ("AASSF", v, j) in fuzzy   # C→A at position 0
 
 

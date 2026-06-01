@@ -51,7 +51,7 @@ _MP_CTX = multiprocessing.get_context("spawn")
 
 from mir.basic.alphabets import AA_STANDARD_CHARS
 from mir.basic.mirseq_compat import is_coding as is_coding_aa
-from mir.common.alleles import allele_to_major
+from mir.common.alleles import allele_to_major, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
 from mir.graph._trie_utils import hit_index, search_limits
@@ -269,8 +269,8 @@ def _many_vs_pool_worker_call(batch: list[tuple[str, int | None, dict[_Key, int]
 # ---------------------------------------------------------------------------
 
 def _gene_base(gene: str) -> str:
-    """Map allele naming to stable major allele form ``*01``."""
-    return allele_to_major(gene)
+    """Return base gene name without allele suffix for clone-identity keys."""
+    return strip_allele(gene)
 
 
 def _resolve_overlap_space(

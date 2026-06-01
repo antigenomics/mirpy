@@ -64,3 +64,32 @@ def allele_to_major(gene_name: str | None) -> str:
     if not base:
         return ""
     return f"{base}*01"
+
+
+def genes_match(g1: str | None, g2: str | None) -> bool:
+    """Match two gene identifiers respecting allele specificity.
+
+    A bare gene (no allele suffix) acts as a wildcard and matches any allele
+    of the same base gene.  A specific allele matches only the same allele or
+    a bare gene (which, having no allele information, cannot exclude any allele).
+
+    Examples
+    --------
+    - ``TRAV1``    matches ``TRAV1``, ``TRAV1*01``, ``TRAV1*02``
+    - ``TRAV1*02`` matches ``TRAV1*02`` and bare ``TRAV1``
+    - ``TRAV1*02`` does NOT match ``TRAV1*01``
+    - ``""``       matches only ``""``
+    """
+    s1 = str(g1 or "").strip()
+    s2 = str(g2 or "").strip()
+    b1 = strip_allele(s1)
+    b2 = strip_allele(s2)
+    if b1 != b2:
+        return False
+    # Same base gene. If either has no allele suffix, treat as wildcard.
+    has_allele1 = "*" in s1
+    has_allele2 = "*" in s2
+    if not has_allele1 or not has_allele2:
+        return True
+    # Both have explicit alleles — require exact match.
+    return s1.split("*", 1)[1] == s2.split("*", 1)[1]

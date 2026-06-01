@@ -41,7 +41,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from mir.common.alleles import allele_with_default
+from mir.common.alleles import allele_to_major, allele_with_default, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.single_cell import LOCUS_PAIR_TO_LOCI, PairedClonotype
 from mir.common.gene_library import GeneLibrary
@@ -55,6 +55,17 @@ from mir.utils.metaclonotype_clustering import (
 
 # Backward-compat alias kept for pickled workers from previous API versions
 CDRAligner = JunctionAligner
+
+
+def _resolve_gene_idx(gene: str | None, idx_map: dict[str, int], fallback: int) -> int:
+    """Look up *gene* in *idx_map* using the resolution cascade.
+
+    Tries: exact allele → major (*01) → bare gene → fallback index.
+    """
+    for candidate in (allele_with_default(gene), allele_to_major(gene), strip_allele(gene)):
+        if candidate and candidate in idx_map:
+            return idx_map[candidate]
+    return fallback
 
 
 def _build_gene_matrix(
@@ -409,13 +420,11 @@ class TCREmp:
 
         n_jobs = self._resolve_n_jobs(n_queries=n, n_jobs=n_jobs)
 
-        v_genes = [allele_with_default(c.v_gene) for c in clonotypes]
-        j_genes = [allele_with_default(c.j_gene) for c in clonotypes]
         junctions = [c.junction_aa for c in clonotypes]
 
-        # Vectorized V/J: map to row indices (unknown → fallback row)
-        v_idx = np.array([self._v_gene_idx.get(v, self._v_fallback_idx) for v in v_genes])
-        j_idx = np.array([self._j_gene_idx.get(j, self._j_fallback_idx) for j in j_genes])
+        # Vectorized V/J: resolve each gene via cascade (exact → *01 → bare → fallback)
+        v_idx = np.array([_resolve_gene_idx(c.v_gene, self._v_gene_idx, self._v_fallback_idx) for c in clonotypes])
+        j_idx = np.array([_resolve_gene_idx(c.j_gene, self._j_gene_idx, self._j_fallback_idx) for c in clonotypes])
         v_mat = self._v_dist_mat_ext[v_idx]   # (n, n_protos) float32
         j_mat = self._j_dist_mat_ext[j_idx]   # (n, n_protos) float32
 

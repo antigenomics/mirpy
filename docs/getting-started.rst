@@ -78,14 +78,27 @@ coordinates.
 ``v_gene`` / ``j_gene`` can be provided with or without an explicit allele
 suffix throughout mirpy workflows.
 
-For gene-level matching and grouping (for example neighborhood search,
-edit-distance graph filters, metaclonotype match flags, and association scans),
-comparison is performed on allele-stripped gene bases, so ``TRBV19`` and
-``TRBV19*01`` are treated as the same gene.
+Gene and allele notation
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-For allele-indexed matrix methods (for example ``TcrDist`` and ``TCREmp``),
-missing allele suffixes are normalized to major allele ``*01`` before lookup,
-while explicit allele calls are preserved.
+mirpy uses consistent allele semantics across all V/J matching and distance
+paths.
+
+**Matching semantics** (neighborhood search, edit-distance graph, metaclonotype
+clustering, association scans):
+
+- **Bare gene** (e.g. ``TRBV19``) — acts as a wildcard and matches any allele
+  of the same base gene: ``TRBV19``, ``TRBV19*01``, ``TRBV19*02``, …
+- **Specific allele** (e.g. ``TRBV19*02``) — matches only ``TRBV19*02`` and
+  bare ``TRBV19``; does **not** match ``TRBV19*01``.
+
+**Distance library resolution** (``TcrDist``, ``TCREmp``): when a V/J gene is
+looked up, mirpy tries:
+
+1. Exact allele (e.g. ``TRBV5-1*07``)
+2. Major allele ``*01`` (e.g. ``TRBV5-1*01``)
+3. Bare gene (e.g. ``TRBV5-1``) for libraries without allele resolution
+4. Not found → ``NaN``; propagates to the overall distance
 
 Repertoire
 ~~~~~~~~~~
