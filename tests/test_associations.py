@@ -199,6 +199,36 @@ def test_build_public_clonotype_panel_filters_by_sample_fraction() -> None:
     assert seqs == ["CASSLGQETQFF", "CASSLGQETQYF"]
 
 
+def test_association_vj_matching_ignores_allele_suffix() -> None:
+    target = make_trb_clone("target", "CASSLGQETQYF", v="TRBV5-1*01", j="TRBJ2-7*01")
+    samples = [
+        _sample(
+            "s1",
+            [("a", "CASSLGQETQYF")],
+            metadata={"condition": "positive"},
+            v="TRBV5-1",
+            j="TRBJ2-7",
+        ),
+        _sample(
+            "s2",
+            [("b", "CASSPGQETQYF")],
+            metadata={"condition": "negative"},
+            v="TRBV5-1",
+            j="TRBJ2-7",
+        ),
+    ]
+
+    result = associate_clonotype_metadata(
+        samples,
+        [target],
+        metadata_field="condition",
+        params=AssociationParams(match_mode="vj", max_distance=0, count_mode="sample"),
+    )
+
+    row = result.table.row(0, named=True)
+    assert row["detected_counts"] == [0, 1]
+
+
 def test_depth_glm_mode_binary_sample_counts() -> None:
     target = make_trb_clone("target", "CASSLGQETQYF")
     samples = [

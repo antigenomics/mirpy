@@ -51,7 +51,7 @@ import numpy as np
 import polars as pl
 from Bio.Align import substitution_matrices
 
-from mir.common.alleles import allele_with_default
+from mir.common.alleles import allele_with_default, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
 from mir.common.metaclonotype import MetaClonotypeClustering
@@ -518,8 +518,8 @@ class TcrDist:
         dist_mat = self.dist_matrix(reps, clonotypes, n_jobs=n_jobs)
 
         # Pre-extract V/J genes for optional V/J filtering
-        all_v = [c.v_gene or "" for c in clonotypes]
-        all_j = [c.j_gene or "" for c in clonotypes]
+        all_v = [strip_allele(c.v_gene) for c in clonotypes]
+        all_j = [strip_allele(c.j_gene) for c in clonotypes]
         all_ids = [c.sequence_id for c in clonotypes]
 
         rows: list[dict] = []
@@ -529,8 +529,8 @@ class TcrDist:
         for i, rep_id in enumerate(valid_rep_ids):
             rep = by_id[rep_id]
             cluster_id = f"{cluster_prefix}_{i}"
-            rep_v = rep.v_gene or ""
-            rep_j = rep.j_gene or ""
+            rep_v = strip_allele(rep.v_gene)
+            rep_j = strip_allele(rep.j_gene)
             for k, cln_id in enumerate(all_ids):
                 if match_v_gene and rep_v != all_v[k]:
                     continue

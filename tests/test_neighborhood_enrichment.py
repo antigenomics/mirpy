@@ -142,6 +142,23 @@ def test_neighborhood_match_v_gene() -> None:
     assert stats["c3"]["potential_neighbors"] == 1
 
 
+def test_neighborhood_match_v_gene_ignores_allele_suffix() -> None:
+    """V-gene matching should treat TRBVx and TRBVx*01 as the same key."""
+    rep = LocusRepertoire(
+        clonotypes=[
+            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ2"),
+            _clonotype("c3", "ATG", "MVA", v_gene="TRBV2*01", j_gene="TRBJ1"),
+        ],
+        locus="TRB",
+    )
+
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+
+    assert stats["c1"]["neighbor_count"] == 2
+    assert stats["c1"]["potential_neighbors"] == 2
+
+
 def test_neighborhood_match_j_gene() -> None:
     """With match_j_gene=True, neighbors must have same j_gene."""
     rep = LocusRepertoire(

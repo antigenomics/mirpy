@@ -449,6 +449,34 @@ class TestFindMetaclonotypes:
         member_ids = set(members["clonotype_id"].to_list())
         assert unrelated_clonotype.sequence_id not in member_ids
 
+    def test_match_v_gene_ignores_allele_suffix(self, td):
+        rep = LocusRepertoire(
+            clonotypes=[
+                Clonotype(
+                    sequence_id="a",
+                    v_gene="TRBV19",
+                    j_gene="TRBJ2-7",
+                    junction_aa="CASSIRSSYEQYF",
+                ),
+                Clonotype(
+                    sequence_id="b",
+                    v_gene="TRBV19*01",
+                    j_gene="TRBJ2-7*01",
+                    junction_aa="CASSIRSSYEQYF",
+                ),
+            ],
+            locus="TRB",
+        )
+        meta = td.find_metaclonotypes(
+            rep,
+            representative_ids=["a"],
+            max_distance=0.0,
+            match_v_gene=True,
+            match_j_gene=True,
+        )
+        members = meta.members_of(meta.cluster_ids[0])
+        assert set(members["clonotype_id"].to_list()) == {"a", "b"}
+
     def test_unknown_representative_id_skipped(self, td, small_repertoire):
         meta = td.find_metaclonotypes(
             small_repertoire,

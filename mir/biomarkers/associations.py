@@ -21,6 +21,7 @@ import statsmodels.api as sm
 from statsmodels.stats.multitest import multipletests
 
 from mir.biomarkers._shared import MatchMode, match_flags, normalize_match_mode
+from mir.common.alleles import strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire, SampleRepertoire
 from mir.common.single_cell import PairedClonotype, PairedRepertoire
@@ -117,7 +118,11 @@ def build_public_clonotype_panel(
             continue
         seen: set[tuple[str, str, str]] = set()
         for clonotype in repertoire.clonotypes:
-            key = (clonotype.junction_aa, clonotype.v_gene, clonotype.j_gene)
+            key = (
+                clonotype.junction_aa,
+                strip_allele(clonotype.v_gene),
+                strip_allele(clonotype.j_gene),
+            )
             seen.add(key)
             exemplar.setdefault(key, clonotype)
         sample_hits.update(seen)
@@ -426,11 +431,13 @@ def _count_single_chain_matches(
     params: AssociationParams,
 ) -> int:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
+    target_v = strip_allele(target.v_gene)
+    target_j = strip_allele(target.j_gene)
     matched = 0
     for clonotype in repertoire.clonotypes:
-        if match_v and clonotype.v_gene != target.v_gene:
+        if match_v and strip_allele(clonotype.v_gene) != target_v:
             continue
-        if match_j and clonotype.j_gene != target.j_gene:
+        if match_j and strip_allele(clonotype.j_gene) != target_j:
             continue
         if is_within_threshold(clonotype.junction_aa, target.junction_aa, params.metric, params.max_distance):
             matched += 1
@@ -459,9 +466,9 @@ def _pair_matches(observed: PairedClonotype, target: PairedClonotype, params: As
 
 def _single_chain_matches(observed: Clonotype, target: Clonotype, params: AssociationParams) -> bool:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
-    if match_v and observed.v_gene != target.v_gene:
+    if match_v and strip_allele(observed.v_gene) != strip_allele(target.v_gene):
         return False
-    if match_j and observed.j_gene != target.j_gene:
+    if match_j and strip_allele(observed.j_gene) != strip_allele(target.j_gene):
         return False
     return is_within_threshold(observed.junction_aa, target.junction_aa, params.metric, params.max_distance)
 

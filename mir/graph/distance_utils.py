@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from mir.common.alleles import strip_allele
 from mir.distances.seqdist import hamming as _hamming
 from mir.distances.seqdist import levenshtein as _levenshtein
 
@@ -104,8 +105,8 @@ def should_compare_pair(
     bool
         True if pair meets all matching criteria.
     """
-    if match_v_gene and rec.v1 != rec.v2:
+    if match_v_gene and strip_allele(rec.v1) != strip_allele(rec.v2):
         return False
-    if match_j_gene and rec.j1 != rec.j2:
+    if match_j_gene and strip_allele(rec.j1) != strip_allele(rec.j2):
         return False
     return True

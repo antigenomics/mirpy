@@ -18,6 +18,7 @@ characterising T-cell and B-cell receptor repertoires.
 - [Quick start](#quick-start)
   - [Load a segment library](#load-a-segment-library)
   - [Parse a clonotype table](#parse-a-clonotype-table)
+  - [V/J gene input compatibility](#vj-gene-input-compatibility)
   - [Work with repertoires](#work-with-repertoires)
   - [Pool repertoires across samples](#pool-repertoires-across-samples)
 - [Diversity metrics](#diversity-metrics)
@@ -114,6 +115,21 @@ clonotypes = parser.parse("example.tsv")
 Supported parsers: `VDJtoolsParser`, `AIRRParser`, `AdaptiveParser`,
 `VDJdbFullPairedParser`, and others in `mir.common.parser`.
 VDJdb reference: Shugay M *et al.* 2018, *Nucleic Acids Res.*, PMID:[28977646](https://pubmed.ncbi.nlm.nih.gov/28977646/).
+
+### V/J gene input compatibility
+
+mirpy accepts V/J genes in both forms:
+
+- allele-aware, for example `TRBV19*01`
+- allele-less, for example `TRBV19`
+
+Gene-level matching and grouping paths treat these as equivalent. This includes
+neighborhood/search and metadata-association workflows that use V/J match flags
+(`match_v_gene`, `match_j_gene`, or `match_mode="v"/"j"/"vj"`).
+
+Allele-indexed distance paths remain safe: when a lookup requires an explicit
+allele and input is allele-less, mirpy normalizes to `*01` while preserving any
+explicitly provided allele.
 
 ### Work with repertoires
 

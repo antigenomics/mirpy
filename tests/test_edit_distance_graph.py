@@ -136,6 +136,19 @@ class TestHammingGraph(unittest.TestCase):
                                       threshold=1, v_gene_match=True, nproc=1)
         self.assertEqual(g.ecount(), 1)
 
+    def test_v_gene_match_ignores_allele_suffix(self):
+        """v_gene_match=True should treat TRBVx and TRBVx*01 as equal."""
+        ra = _r(0, SEQ_A, v="TRBV19")
+        rb = _r(1, SEQ_B, v="TRBV19*01")
+        g = build_edit_distance_graph(
+            [ra, rb],
+            metric="hamming",
+            threshold=1,
+            v_gene_match=True,
+            nproc=1,
+        )
+        self.assertEqual(g.ecount(), 1)
+
     def test_v_gene_match_multi(self):
         """
         Four rearrangements: two V1 (ham 1 apart) and one V2 (ham 1 from A).
