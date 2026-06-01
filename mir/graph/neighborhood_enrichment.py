@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from tcrtrie import Trie
 
+from mir.common.alleles import strip_allele
 from mir.graph._trie_utils import (
     _is_trie_safe,
     hit_index,
@@ -89,13 +90,13 @@ def _init_neighbor_worker(
     background_j_genes_arr, background_j_genes_shm = attach_shared_array(background_j_genes_spec)
 
     background_sequences = np.char.decode(background_sequences_arr, "ascii").tolist()
-    background_v_genes = np.char.decode(background_v_genes_arr, "ascii").tolist()
-    background_j_genes = np.char.decode(background_j_genes_arr, "ascii").tolist()
+    background_v_genes = [strip_allele(g) for g in np.char.decode(background_v_genes_arr, "ascii").tolist()]
+    background_j_genes = [strip_allele(g) for g in np.char.decode(background_j_genes_arr, "ascii").tolist()]
 
     _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
     _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
-    _NEIGHBOR_WORKER_STATE["query_v_genes"] = query_v_genes
-    _NEIGHBOR_WORKER_STATE["query_j_genes"] = query_j_genes
+    _NEIGHBOR_WORKER_STATE["query_v_genes"] = [strip_allele(g) for g in query_v_genes]
+    _NEIGHBOR_WORKER_STATE["query_j_genes"] = [strip_allele(g) for g in query_j_genes]
     _NEIGHBOR_WORKER_STATE["background_sequences"] = background_sequences
     _NEIGHBOR_WORKER_STATE["background_v_genes"] = background_v_genes
     _NEIGHBOR_WORKER_STATE["background_j_genes"] = background_j_genes
@@ -129,12 +130,12 @@ def _potential_neighbor_count_from_genes(
 ) -> int:
     if counter is None:
         return background_size
-    if match_v_gene and match_j_gene:
-        key = (v_gene, j_gene)
-    elif match_v_gene:
-        key = v_gene
-    else:
-        key = j_gene
+    key = _gene_key(
+        v_gene,
+        j_gene,
+        match_v_gene=match_v_gene,
+        match_j_gene=match_j_gene,
+    )
     return int(counter.get(key, 0))
 
 
@@ -238,12 +239,12 @@ def _build_potential_counter(
         return None
     counter: dict[t.Any, int] = {}
     for clonotype in background_clonotypes:
-        if match_v_gene and match_j_gene:
-            key = (clonotype.v_gene, clonotype.j_gene)
-        elif match_v_gene:
-            key = clonotype.v_gene
-        else:
-            key = clonotype.j_gene
+        key = _gene_key(
+            clonotype.v_gene,
+            clonotype.j_gene,
+            match_v_gene=match_v_gene,
+            match_j_gene=match_j_gene,
+        )
         counter[key] = counter.get(key, 0) + 1
     return counter
 
@@ -258,12 +259,12 @@ def _potential_neighbor_count(
 ) -> int:
     if counter is None:
         return background_size
-    if match_v_gene and match_j_gene:
-        key = (clonotype.v_gene, clonotype.j_gene)
-    elif match_v_gene:
-        key = clonotype.v_gene
-    else:
-        key = clonotype.j_gene
+    key = _gene_key(
+        clonotype.v_gene,
+        clonotype.j_gene,
+        match_v_gene=match_v_gene,
+        match_j_gene=match_j_gene,
+    )
     return int(counter.get(key, 0))
 
 
@@ -276,8 +277,8 @@ def _gene_key(
 ) -> tuple[str, ...]:
     """Return the V/J grouping key for a clonotype."""
     assert match_v_gene or match_j_gene, "_gene_key requires at least one gene flag"
-    vv = v_gene or ""
-    jj = j_gene or ""
+    vv = strip_allele(v_gene)
+    jj = strip_allele(j_gene)
     if match_v_gene and match_j_gene:
         return (vv, jj)
     if match_v_gene:
@@ -512,11 +513,11 @@ def _compute_locus_stats(
         }
 
     background_sequences = [c.junction_aa for c in background_clonotypes]
-    background_v_genes = [c.v_gene for c in background_clonotypes]
-    background_j_genes = [c.j_gene for c in background_clonotypes]
+    background_v_genes = [strip_allele(c.v_gene) for c in background_clonotypes]
+    background_j_genes = [strip_allele(c.j_gene) for c in background_clonotypes]
     query_sequences = [c.junction_aa for c in query_clonotypes]
-    query_v_genes = [c.v_gene for c in query_clonotypes]
-    query_j_genes = [c.j_gene for c in query_clonotypes]
+    query_v_genes = [strip_allele(c.v_gene) for c in query_clonotypes]
+    query_j_genes = [strip_allele(c.j_gene) for c in query_clonotypes]
     n_query = len(query_clonotypes)
 
     # ── Grouped-trie path (V/J-restricted search) ────────────────────────────

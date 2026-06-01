@@ -75,10 +75,17 @@ formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
 ``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
 coordinates.
 
-For matrix-based methods that index germline alleles (for example ``TcrDist``
-and ``TCREmp``), ``v_gene`` / ``j_gene`` may be provided with or without an
-explicit allele suffix. Missing suffixes are normalized to major allele
-``*01`` before distance lookup.
+``v_gene`` / ``j_gene`` can be provided with or without an explicit allele
+suffix throughout mirpy workflows.
+
+For gene-level matching and grouping (for example neighborhood search,
+edit-distance graph filters, metaclonotype match flags, and association scans),
+comparison is performed on allele-stripped gene bases, so ``TRBV19`` and
+``TRBV19*01`` are treated as the same gene.
+
+For allele-indexed matrix methods (for example ``TcrDist`` and ``TCREmp``),
+missing allele suffixes are normalized to major allele ``*01`` before lookup,
+while explicit allele calls are preserved.
 
 Repertoire
 ~~~~~~~~~~

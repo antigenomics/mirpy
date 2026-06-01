@@ -129,6 +129,9 @@ rs_table = filter_token_table(table, kmer_pattern="RS")
 g_rs     = build_token_graph(rep.clonotypes, rs_table)
 ```
 
+V/J matching in graph and neighborhood workflows is allele-robust:
+`TRBV19` and `TRBV19*01` are treated as the same gene for match filters.
+
 V/J-restricted neighbour search (`match_v_gene=True`, `match_j_gene=True`) is 1.5–2× faster
 than unrestricted on natural repertoires via the grouped-trie strategy.
 
@@ -279,6 +282,9 @@ res_depth = associate_clonotype_metadata(
     params=AssociationParams(count_mode="rearrangement", test="depth_glm"),
 )
 ```
+
+For `match_mode="v"`, `"j"`, or `"vj"`, V/J equality is allele-robust:
+allele-less and allele-aware gene calls are matched on gene base.
 
 Use cases:
 

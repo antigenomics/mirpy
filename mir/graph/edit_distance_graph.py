@@ -18,6 +18,7 @@ _MP_CTX = multiprocessing.get_context("spawn")
 
 import igraph as ig
 
+from mir.common.alleles import strip_allele
 from mir.common.metaclonotype import MetaClonotypeClustering
 from mir.common.clonotype import Clonotype
 from mir.graph._trie_utils import (
@@ -241,8 +242,8 @@ def build_edit_distance_graph(
 
     n = len(rearrangements)
     seqs = [str(getattr(r, "junction_aa", "") or "") for r in rearrangements]
-    v_genes = [str(getattr(r, "v_gene", "") or "") for r in rearrangements]
-    j_genes = [str(getattr(r, "j_gene", "") or "") for r in rearrangements]
+    v_genes = [strip_allele(str(getattr(r, "v_gene", "") or "")) for r in rearrangements]
+    j_genes = [strip_allele(str(getattr(r, "j_gene", "") or "")) for r in rearrangements]
     c_genes = [str(getattr(r, "c_gene", "") or "") for r in rearrangements]
 
     edges = _build_edges_parallel(
