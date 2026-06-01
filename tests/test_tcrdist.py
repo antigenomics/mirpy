@@ -206,6 +206,42 @@ class TestTcrDistPairwise:
         d = td.dist(cln1, cln2)
         assert d >= 0.0
 
+    def test_germline_dist_normalizes_missing_alleles(self, td):
+        d_same_v = td.germline_aligner.gene_dist("TRB", "TRBV19", "TRBV19*01")
+        d_same_j = td.germline_aligner.gene_dist("TRB", "TRBJ2-7", "TRBJ2-7*01")
+        assert d_same_v == pytest.approx(0.0, abs=1e-8)
+        assert d_same_j == pytest.approx(0.0, abs=1e-8)
+
+    def test_pairwise_dist_same_with_or_without_alleles(self, td):
+        with_alleles_1 = Clonotype(
+            sequence_id="a1",
+            v_gene="TRBV19*01",
+            j_gene="TRBJ2-7*01",
+            junction_aa="CASSIRSSYEQYF",
+        )
+        with_alleles_2 = Clonotype(
+            sequence_id="a2",
+            v_gene="TRBV5-1*01",
+            j_gene="TRBJ1-2*01",
+            junction_aa="CASSLGQGANVLTF",
+        )
+        without_alleles_1 = Clonotype(
+            sequence_id="b1",
+            v_gene="TRBV19",
+            j_gene="TRBJ2-7",
+            junction_aa="CASSIRSSYEQYF",
+        )
+        without_alleles_2 = Clonotype(
+            sequence_id="b2",
+            v_gene="TRBV5-1",
+            j_gene="TRBJ1-2",
+            junction_aa="CASSLGQGANVLTF",
+        )
+
+        d_with = td.dist(with_alleles_1, with_alleles_2)
+        d_without = td.dist(without_alleles_1, without_alleles_2)
+        assert d_without == pytest.approx(d_with, rel=1e-8, abs=1e-8)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Batch distance
@@ -257,6 +293,22 @@ class TestTcrDistMatrix:
         clns = list(small_repertoire.clonotypes)
         mat = td.dist_matrix(clns, [])
         assert mat.shape == (3, 0)
+
+    def test_dist_matrix_same_with_or_without_alleles(self, td):
+        with_alleles = [
+            Clonotype(sequence_id="a1", v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+            Clonotype(sequence_id="a2", v_gene="TRBV5-1*01", j_gene="TRBJ1-2*01", junction_aa="CASSLGQGANVLTF"),
+            Clonotype(sequence_id="a3", v_gene="TRBV11-2*01", j_gene="TRBJ2-1*01", junction_aa="CASSFTEDYEQYF"),
+        ]
+        without_alleles = [
+            Clonotype(sequence_id="b1", v_gene="TRBV19", j_gene="TRBJ2-7", junction_aa="CASSIRSSYEQYF"),
+            Clonotype(sequence_id="b2", v_gene="TRBV5-1", j_gene="TRBJ1-2", junction_aa="CASSLGQGANVLTF"),
+            Clonotype(sequence_id="b3", v_gene="TRBV11-2", j_gene="TRBJ2-1", junction_aa="CASSFTEDYEQYF"),
+        ]
+
+        m_with = td.dist_matrix(with_alleles, with_alleles, n_jobs=1)
+        m_without = td.dist_matrix(without_alleles, without_alleles, n_jobs=1)
+        np.testing.assert_allclose(m_without, m_with, atol=1e-6)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

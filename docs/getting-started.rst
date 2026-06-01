@@ -75,6 +75,11 @@ formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
 ``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
 coordinates.
 
+For matrix-based methods that index germline alleles (for example ``TcrDist``
+and ``TCREmp``), ``v_gene`` / ``j_gene`` may be provided with or without an
+explicit allele suffix. Missing suffixes are normalized to major allele
+``*01`` before distance lookup.
+
 Repertoire
 ~~~~~~~~~~
 

@@ -51,6 +51,7 @@ import numpy as np
 import polars as pl
 from Bio.Align import substitution_matrices
 
+from mir.common.alleles import allele_with_default
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneLibrary
 from mir.common.metaclonotype import MetaClonotypeClustering
@@ -565,16 +566,19 @@ class TcrDist:
         Deduplicates query and reference genes, builds a compact unique-pair
         sub-matrix, then expands via numpy advanced indexing.
         """
-        N, K = len(q_genes), len(r_genes)
+        q_norm = [allele_with_default(g) if g else "" for g in q_genes]
+        r_norm = [allele_with_default(g) if g else "" for g in r_genes]
+
+        N, K = len(q_norm), len(r_norm)
         mat = np.zeros((N, K), dtype=np.float64)
 
         # Deduplicate while preserving order
         seen_q: dict[str, int] = {}
-        for g in q_genes:
+        for g in q_norm:
             if g and g not in seen_q:
                 seen_q[g] = len(seen_q)
         seen_r: dict[str, int] = {}
-        for g in r_genes:
+        for g in r_norm:
             if g and g not in seen_r:
                 seen_r[g] = len(seen_r)
 
@@ -593,8 +597,8 @@ class TcrDist:
                 sub[i, j] = ga.gene_dist(locus, g1, g2)
 
         # Map original lists to unique indices (-1 = absent/empty)
-        q_idx = np.array([seen_q.get(g, -1) for g in q_genes])
-        r_idx = np.array([seen_r.get(g, -1) for g in r_genes])
+        q_idx = np.array([seen_q.get(g, -1) for g in q_norm])
+        r_idx = np.array([seen_r.get(g, -1) for g in r_norm])
 
         valid_q = np.where(q_idx >= 0)[0]
         valid_r = np.where(r_idx >= 0)[0]

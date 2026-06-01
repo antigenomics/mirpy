@@ -63,6 +63,7 @@ from Bio.Align import substitution_matrices
 import typing as t
 import numpy as np
 
+from mir.common.alleles import allele_with_default
 from mir.common.clonotype import Clonotype
 from mir.common.gene_library import GeneEntry, GeneLibrary
 
@@ -594,6 +595,11 @@ class GermlineAligner:
             g1: First gene allele, e.g. ``'TRBV10-1*01'``.
             g2: Second gene allele, e.g. ``'TRBV10-2*01'``.
 
+        Notes:
+            Gene names without an explicit allele suffix are normalized to
+            ``*01`` before lookup (for example ``TRBV10-1`` ->
+            ``TRBV10-1*01``).
+
         Returns:
             Non-negative distance value (0 when ``g1 == g2``).
 
@@ -601,7 +607,10 @@ class GermlineAligner:
             KeyError: If ``(locus, g1, g2)`` was not in the library used
                 during construction.
         """
-        key = (locus, g1, g2)
+        g1_norm = allele_with_default(g1)
+        g2_norm = allele_with_default(g2)
+
+        key = (locus, g1_norm, g2_norm)
         val = self._locus_dist.get(key)
         if val is not None:
             return val
@@ -611,10 +620,10 @@ class GermlineAligner:
         # maximally distant.
         for gene_type in ('V', 'J', 'D'):
             gs = self._locus_gene_sets.get((locus, gene_type), frozenset())
-            if g1 in gs or g2 in gs:
+            if g1_norm in gs or g2_norm in gs:
                 return self._fallback_dist.get((locus, gene_type), 0.0)
         # Last resort: infer gene type from allele name prefix
-        allele = g1
+        allele = g1_norm
         gene_type_char = allele[len(locus)] if allele.startswith(locus) and len(allele) > len(locus) else 'V'
         return self._fallback_dist.get((locus, gene_type_char), 0.0)
 
