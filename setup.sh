@@ -1,139 +1,92 @@
 #!/usr/bin/env bash
-# Build mirpy from pyproject metadata, optionally install docs dependencies,
-# optionally install requirements.txt, and optionally run tests.
+# mirpy bootstrap — source of truth for a reproducible install (conda-based).
+#
+# Steps:
+#   1. Create/update the `mirpy` conda environment from environment.yml.
+#   2. pip install -e . (builds the bundled C++ extensions).
+#   3. Optionally install docs deps / run tests.
+#
+# Flags:
+#   --no-conda      Use the already-active environment instead of creating `mirpy`.
+#   --docs          Install docs deps and sync notebook symlinks.
+#   --test          Run the fast test suite (excludes benchmark/integration).
+#   --test-all      Fast + benchmark + integration (excludes very_slow_benchmark).
 #
 # Usage:
-#   ./setup.sh                  # create/reuse ./.venv, rebuild, no tests
-#   ./setup.sh --docs           # rebuild and install docs requirements
-#   ./setup.sh --requirements   # also install requirements.txt (optional)
-#   ./setup.sh --test           # rebuild + fast tests
-#   ./setup.sh --test-all       # rebuild + fast + benchmark + integration tests
-#   ./setup.sh my-venv --test   # custom venv dir + fast tests
-#
-# First non-flag argument is taken as the venv directory (default: .venv).
+#   bash setup.sh [--no-conda] [--docs] [--test] [--test-all]
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$ROOT_DIR"
-
-VENV=".venv"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+ENV_NAME="mirpy"
+USE_CONDA=1
 INSTALL_DOCS=0
 RUN_TESTS=0
 RUN_HEAVY=0
-INSTALL_REQUIREMENTS=0
-
-usage() {
-    cat <<'EOF'
-Usage: ./setup.sh [venv_dir] [--docs] [--requirements] [--test] [--test-all]
-
-Options:
-    --docs      Install documentation dependencies from docs/requirements.txt
-    --requirements
-                Install additional dependencies from requirements.txt
-    --test      Run fast tests (exclude benchmark/integration)
-    --test-all  Run fast tests + benchmark + integration tests
-    --help      Show this help message
-
-Notes:
-    - Default virtual environment directory is .venv
-    - First non-flag positional argument overrides the venv directory
-EOF
-}
 
 for arg in "$@"; do
-    case "$arg" in
-        --docs)     INSTALL_DOCS=1 ;;
-        --requirements) INSTALL_REQUIREMENTS=1 ;;
-        --test)     RUN_TESTS=1 ;;
-        --test-all) RUN_TESTS=1; RUN_HEAVY=1 ;;
-            --help|-h)  usage; exit 0 ;;
-        -*)         echo "Unknown option: $arg"; exit 1 ;;
-        *)          VENV="$arg" ;;
-    esac
+  case "$arg" in
+    --no-conda) USE_CONDA=0 ;;
+    --docs)     INSTALL_DOCS=1 ;;
+    --test)     RUN_TESTS=1 ;;
+    --test-all) RUN_TESTS=1; RUN_HEAVY=1 ;;
+    --help|-h)  sed -n '2,16p' "$0"; exit 0 ;;
+    *) echo "Unknown flag: $arg" >&2; exit 2 ;;
+  esac
 done
 
-# ── Virtualenv ────────────────────────────────────────────────────────────────
-if [ ! -x "$VENV/bin/python" ]; then
-    echo "Creating virtualenv: $VENV"
-    python3 -m venv "$VENV"
-fi
+log() { printf '\033[1;34m[mirpy]\033[0m %s\n' "$*"; }
 
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
-PYTHON_BIN="$VENV/bin/python"
-
-# Verify that we're using the venv's pip, not the global one (safety check)
-if ! "$PYTHON_BIN" -c "import sys; sys.exit(0 if hasattr(sys, 'real_prefix') or sys.base_prefix != sys.prefix else 1)"; then
-    echo "Error: Python is not running in a virtual environment."
-    echo "This safety check prevents accidental installation to the global Python."
+# --- 1. conda environment --------------------------------------------------
+if [[ "$USE_CONDA" -eq 1 ]]; then
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "conda not found on PATH; install miniconda/anaconda or pass --no-conda." >&2
     exit 1
-fi
-
-# ── Dependencies ──────────────────────────────────────────────────────────────
-echo "Upgrading pip..."
-"$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel --quiet
-
-echo "Installing build backend dependencies..."
-"$PYTHON_BIN" -m pip install \
-    "setuptools>=68" \
-    "scikit-build-core>=0.12" \
-    "pybind11>=2.11" \
-    "ninja>=1.11" \
-    "numpy>=1.26,<2" \
-    --quiet
-
-if [ "$INSTALL_REQUIREMENTS" -eq 1 ]; then
-    echo "Installing additional dependencies from requirements.txt..."
-    "$PYTHON_BIN" -m pip install -r requirements.txt --quiet
+  fi
+  if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    log "conda env '$ENV_NAME' exists — updating from environment.yml"
+    conda env update -n "$ENV_NAME" -f "$ROOT/environment.yml" --prune
+  else
+    log "creating conda env '$ENV_NAME' from environment.yml"
+    conda env create -f "$ROOT/environment.yml"
+  fi
+  RUN="conda run -n $ENV_NAME"
 else
-    echo "Skipping requirements.txt (use --requirements to install it explicitly)."
+  RUN=""
 fi
 
-if [ "$INSTALL_DOCS" -eq 1 ]; then
-    echo "Installing documentation dependencies..."
-    "$PYTHON_BIN" -m pip install -r docs/requirements.txt --quiet
+# --- 2. editable install (builds the C++ extensions) -----------------------
+log "pip install -e . (builds extensions)"
+# CMAKE_POLICY_VERSION_MINIMUM silences CMake 3.27+ policy warnings.
+CMAKE_POLICY_VERSION_MINIMUM=3.5 $RUN python -m pip install -e "$ROOT"
 
-    echo "Synchronising notebook symlinks in docs/notebooks/..."
-    "$PYTHON_BIN" docs/sync_notebooks.py
+# --- 3. optional docs ------------------------------------------------------
+if [[ "$INSTALL_DOCS" -eq 1 ]]; then
+  log "installing docs deps + syncing notebook symlinks"
+  $RUN python -m pip install -e ".[docs]"
+  $RUN python "$ROOT/docs/sync_notebooks.py"
 fi
 
-# ── Build ─────────────────────────────────────────────────────────────────────
-# Remove stale cmake build artifacts; scikit-build-core writes into ./build
-# and a partial previous build can cause confusing errors on the next run.
-if [ -d "build" ]; then
-    echo "Removing stale build/ directory..."
-    rm -rf build
+# --- 4. verification -------------------------------------------------------
+log "verifying install"
+$RUN python -c "import mir; from mir.embedding.tcremp import TCREmp; print('mir import OK')"
+
+# --- 5. optional tests -----------------------------------------------------
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  log "installing test tooling"
+  $RUN python -m pip install "pytest>=8" "huggingface_hub" "psutil>=5"
+  log "preparing test data (Hugging Face)"
+  $RUN python "$ROOT/tests/prepare_airr_benchmark_data.py" || true
+  log "running fast test suite"
+  $RUN python -m pytest "$ROOT/tests" -m "not benchmark and not integration" -q
+  if [[ "$RUN_HEAVY" -eq 1 ]]; then
+    log "running benchmark + integration (excludes very_slow_benchmark)"
+    RUN_BENCHMARKS=1 RUN_INTEGRATION=1 \
+      $RUN python -m pytest "$ROOT/tests" -m "(benchmark or integration) and not very_slow_benchmark" -q
+  fi
 fi
 
-echo "Building and installing mirpy (editable)..."
-# CMAKE_POLICY_VERSION_MINIMUM silences CMake 3.27+ policy warnings from
-# scikit-build-core's internal configuration step.
-CMAKE_POLICY_VERSION_MINIMUM=3.5 "$PYTHON_BIN" -m pip install -e . --no-build-isolation
-
-if [ "$RUN_TESTS" -eq 1 ]; then
-    echo "Installing test tooling..."
-    "$PYTHON_BIN" -m pip install "pytest>=8" "huggingface_hub" "psutil>=5" --quiet
+log "done."
+if [[ "$USE_CONDA" -eq 1 ]]; then
+  echo "  conda activate $ENV_NAME"
 fi
-
-# ── Tests ─────────────────────────────────────────────────────────────────────
-if [ "$RUN_TESTS" -eq 1 ]; then
-    echo ""
-    echo "Preparing test data from Hugging Face (isalgo/airr_benchmark)..."
-    "$PYTHON_BIN" tests/prepare_airr_benchmark_data.py
-
-    echo ""
-    echo "Running fast test suite..."
-    "$PYTHON_BIN" -m pytest tests -m "not benchmark and not integration" -q
-
-    if [ "$RUN_HEAVY" -eq 1 ]; then
-        echo ""
-        echo "Running benchmark and integration tests (excludes very_slow_benchmark)..."
-        RUN_BENCHMARKS=1 RUN_INTEGRATION=1 \
-            "$PYTHON_BIN" -m pytest tests -m "(benchmark or integration) and not very_slow_benchmark" -q
-    fi
-fi
-
-echo ""
-echo "Done. Activate the environment with:"
-echo "  source $VENV/bin/activate        # bash/zsh"
-echo "  source $VENV/bin/activate.fish   # fish"

@@ -36,7 +36,7 @@ Graph And Sequence Analysis
    metaclonotype_examples
    metaclonotype_method_compare
 
-**gene_similarity** — Compare germline V gene amino-acid sequences via the GermlineAligner API.
+**gene_similarity** — Region-resolved germline V/J similarity for human and mouse: full vs paratope (CDR1+CDR2) vs framework (FR1-3) for V, and CDR3-part vs FR4 for J.
 
 **token_graph** — Build bipartite k-mer/clonotype graphs and filter by sequence motifs.
 
@@ -119,6 +119,8 @@ TCREmp Embeddings
    tcremp_vdjdb_analysis
    tcremp_vdjdb_analysis_paired
    tcremp_10xdcode_analysis
+   tcremp_features_compare
+   embed_any_chain
 
 **tcrdist_analysis** — Compute TCRdist matrices, score radius-based neighborhoods, and derive metaclonotypes.
 
@@ -127,6 +129,10 @@ TCREmp Embeddings
 **tcremp_vdjdb_analysis_paired** — Paired TRA/TRB TCREmp on VDJdb full records with imputed missing chains.
 
 **tcremp_10xdcode_analysis** — 10x CITE-seq + TCREmp embedding with DBSCAN epitope clustering.
+
+**tcremp_features_compare** — Benchmark TCREmp feature modes (V+J+CDR3 vs CDR1+CDR2+CDR3) on VDJdb via PCA/DBSCAN/UMAP.
+
+**embed_any_chain** — Template: embed any of the seven chains from OLGA mock data with 3000 prototypes; swap in your own repertoire.
 
 Single-Cell Analysis
 --------------------

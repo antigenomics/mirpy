@@ -10,13 +10,15 @@ description: >
   sample overlap (Jaccard, D-metric, F-metric, Morisita-Horn); build CDR3
   motif logos (IC or selection logos against OLGA background); load or analyse
   single-cell 10x VDJ ± CITE-seq data; compute Pgen via OLGA or Monte-Carlo
-  pools; or run VDJBet Pgen-matched overlap analysis. Load references/ files
-  when detailed parameter tables, performance notes, or edge-case gotchas are
-  needed.
+  pools; embed receptors with TCREmp (V+J+CDR3 or germline CDR1+CDR2+CDR3 via
+  arda region annotations); or run VDJBet Pgen-matched overlap analysis. Load
+  references/ files when detailed parameter tables, performance notes, or
+  edge-case gotchas are needed.
 license: GPL-3.0
 compatibility: >
-  Python 3.11+; mirpy-lib installed (pip install mirpy-lib or ./setup.sh from
-  the repo root). A C/C++ build toolchain is required for compiled extensions.
+  Python 3.11+; mirpy-lib installed. Development uses a conda env (env name
+  `mirpy`): `./setup.sh` then `conda activate mirpy`, or `pip install mirpy-lib`
+  for project use. A C/C++ build toolchain is required for compiled extensions.
   Shell is fish — use fish syntax in all terminal commands.
 metadata:
   author: Immunosequencing Algorithms Laboratory (ISALGO lab)
@@ -163,9 +165,16 @@ X      = model.embed(clonotypes, n_jobs=None)   # shape: (N, 3000), float32
 
 paired = PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=500)
 X_pair = paired.embed(paired_clonotypes)
+
+# Feature mode (default "vjcdr3"); "cdr123" uses germline CDR1+CDR2+CDR3 instead of V+J+CDR3
+model_cdr = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, mode="cdr123")
 ```
 
-Each clonotype → `[v_1, j_1, junc_1, …, v_K, j_K, junc_K]`.
+Each clonotype → `[c1_1, c2_1, junc_1, …, c1_K, c2_K, junc_K]` where the first two
+components depend on `mode`: `vjcdr3` → `(V, J)`, `cdr123` → `(CDR1, CDR2)`; the
+third is always CDR3/junction. Output is `(N, 3*K)` float32 in both modes.
+CDR1/CDR2 are germline V-gene-determined, precomputed from the bundled region
+annotations (see §13); `cdr123` raises if those annotations are absent.
 Distance formula: `d(a,b) = s(a,a) + s(b,b) − 2·s(a,b)`.
 Use `fixed_gap` (~25 M pairs/s) for production; `biopython` for full DP semantics (~270 K pairs/s).
 `n_jobs=1` is the best default on macOS/ARM (spawn overhead dominates at all sizes).
@@ -295,91 +304,11 @@ Use cases:
 - Depth-aware mode (`test="depth_glm"`) for uneven sequencing depth.
 - Co-occurrence screens with `associate_clonotype_cooccurrence`.
 
-For the full COVID workflow (functional filtering, first batch correction,
-sample re-normalization, Fisher + depth-aware scans, and reference concordance)
-see `notebooks/covid19_biomarkers.ipynb`.
-
-For the Vlasova 2026 SVM replication (log-frequency features, RBF-SVM, 1137 paired
-donors, AUC=0.70 target) see `benchmarks/covid19_svm_benchmark.py` and
-`tests/test_associations_covid19_benchmark.py::test_covid19_svm_classifier_auc`.
-
-```python
-# Minimal SVM pipeline (Vlasova 2026 approach)
-import numpy as np
-from sklearn.svm import SVC
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
-from sklearn.metrics import roc_auc_score
-
-# X: (n_donors, n_biomarkers) log-frequency matrix
-# y: (n_donors,) binary labels (1=COVID, 0=healthy)
-X_log = np.log(X + 1e-7)
-clf = SVC(kernel="rbf", probability=True, class_weight="balanced", C=1.0, gamma="scale")
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-y_prob = cross_val_predict(clf, X_log, y, cv=cv, method="predict_proba")[:, 1]
-auc = roc_auc_score(y, y_prob)  # target ≥ 0.70
-```
-
-> Vlasova *et al.* (2026) *Genome Med.* [DOI:10.1186/s13073-025-01589-4](https://doi.org/10.1186/s13073-025-01589-4)
-
-## 12.7. HLA-Stratified Analysis (covid19_hla_biomarkers.ipynb)
-
-HLA class II association replication for 1 137 paired AIRR donors (761 COVID / 376 healthy):
-
-**Key design choices:**
-
-- Public biomarkers from the global Fisher scan (`tmp/fisher_trb.parquet`, `tmp/fisher_tra.parquet`)
-  are re-tested within HLA-stratified sub-cohorts (DRB1\*16: n=76, DQB1\*05: n=352).
-- A focused pre-specified correction (TRBV12-3/CASS set only, 1 297 candidates) replicates
-  the Vlasova 2026 finding that global multiple-testing is too conservative for rare allele strata.
-
-**Confirmed findings:**
-
-- Top DRB1\*16-restricted hit: `CASSRTGTGSSYNSPLHF` (TRBV12-3), 26 COVID / 0 healthy,
-  log₂FE = 4.38, FDR = 0.035 (focused BH within TRBV12-3/CASS set).
-- 8 additional TRBV12-3 CDR3s with nc ≥ 5 / nh = 0 in the DRB1\*16 sub-cohort.
-- Global HLA × CDR3 scan (83 alleles × 43 CDR3s = 3 569 pairs): one significant pair —
-  `CAGQLYGGSQGNLIF` depleted in HLA-DPB1\*02:01 carriers (log₂FE = −1.51, q = 0.003).
-
-```python
-# Example: per-donor CDR3 presence scan pattern used in this notebook
-donor_cdr3_presence = {}
-for donor_id, row in metadata.iterrows():
-    airr_path = data_root / row['file_name']
-    df = pd.read_csv(airr_path, sep='\t', usecols=['cdr3aa', 'v'])
-    present = set(zip(df['cdr3aa'], df['v'].str.split('*').str[0]))
-    donor_cdr3_presence[donor_id] = present
-```
-
-## 12.8. TRA × TRB Co-occurrence Analysis (covid19_pairing_biomarkers.ipynb)
-
-Paired-chain co-occurrence Fisher test + VDJdb cross-validation:
-
-- Tests 156 TRA×TRB pairs (4 COVID-enriched TRA × 39 healthy-enriched TRB) across 3 strata.
-- Uses `scipy.stats.fisher_exact` per pair, BH FDR correction per stratum.
-
-**Key results:**
-
-| Stratum | Significant pairs | Direction |
-|---------|-------------------|-----------|
-| All (n=1 137) | 1 | Negative: CALSEETSGSRLTF × CASSLGGGDTQYF (q=0.027) |
-| COVID (n=761) | 0 | — |
-| Healthy (n=376) | 2 | CAGQNYGGSQGNLIF co-occurs with CASSLGETQYF (q=0.001) and CASSPSTDTQYF (q=0.013) |
-
-**VDJdb overlap (hamming ≤ 1, V-gene fixed):**
-
-- 3/4 TRA CDR3s validated: CAGQNYGGSQGNLIF + CAGQLYGGSQGNLIF → TRAV35\*01, Spike
-  epitope NCTFEYVSQPFLMDL, HLA-DRB1\*04:05 (class II); CALSEETSGSRLTF → TRAV19\*01,
-  DLFMRIFTI, HLA-A\*02:01.
-- 15/39 TRB CDR3s matched VDJdb SARS-CoV-2 records.
-- 0 TRA×TRB pairs simultaneously matched in one VDJdb record (sparse paired coverage).
-
-```python
-# Hamming distance used for VDJdb 1-mismatch matching
-def hamming(a, b):
-    if len(a) != len(b):
-        return len(a) + len(b)  # length mismatch → disqualify
-    return sum(x != y for x, y in zip(a, b))
-```
+The three COVID-19 case studies — full association workflow
+(`covid19_biomarkers.ipynb`), the Vlasova 2026 RBF-SVM replication, HLA-stratified
+analysis (`covid19_hla_biomarkers.ipynb`), and TRA×TRB co-occurrence
+(`covid19_pairing_biomarkers.ipynb`) — with their result tables and code patterns
+are in [references/biomarkers.md](references/biomarkers.md) (COVID-19 case studies).
 
 ## 13. Single-Cell 10x
 
@@ -537,6 +466,34 @@ AIRR SRA files often lack a `locus` column — infer from the first four chars o
 - Pgen: one `OlgaModel` instance per session (persistent pool, zero respawn overhead).
 - For many-vs-pool overlap notebooks: use `many_vs_pool_overlap()` to avoid repeated trie setup.
 
+## 22. Germline Region Annotations (arda)
+
+Each gene-library allele carries germline FR/CDR amino-acid subsequences in
+`GeneEntry.region_aa` (V: `fwr1`/`cdr1`/`fwr2`/`cdr2`/`fwr3`; J: `jcdr3`/`fwr4`),
+loaded from the bundled `region_annotations.txt` when
+`GeneLibrary.load_default(..., with_regions=True)` (the default).
+
+```python
+lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"})
+cdr1 = lib.get_region_sequences_aa("TRB", "V", "cdr1")   # [(allele, aa), ...]
+```
+
+These power the TCREmp `mode="cdr123"` embedding (§9) and region-resolved
+similarity (`notebooks/gene_similarity.ipynb`).
+
+Region annotations are generated **at build time** with
+[arda](https://github.com/antigenomics/arda) (optional `[arda]` extra +
+`mmseqs2`); plain embedding/similarity never import arda. To regenerate or to
+annotate a **custom** library:
+
+```python
+from mir.common.region_annotation import annotate_gene_library
+regions = annotate_gene_library(my_lib, "human")  # {allele: {region: aa}}
+```
+
+`python mir/resources/gene_library/build_region_annotations.py` rebuilds the
+shipped TSV. See [references/region-annotation.md](references/region-annotation.md).
+
 ## Gotchas
 
 - `tokenize_clonotypes` takes `list[Clonotype]`; `tokenize_rearrangements` is a deprecated alias.
@@ -548,7 +505,7 @@ AIRR SRA files often lack a `locus` column — infer from the first four chars o
 - `pgen_mode="exact"` underestimates λ in ALICE; use `"mc"` for all production runs.
 - `n_jobs=1` is the best TCREmp default on macOS/ARM; spawn overhead dominates multiprocessing.
 - `SampleRepertoire.__init__` accepts `loci: dict[str, LocusRepertoire]`; never pass `segments=`.
-- Always activate the venv first: `source .venv/bin/activate.fish` (fish syntax — not `source .venv/bin/activate`).
+- Development env is conda (`conda activate mirpy`); run commands with `conda run -n mirpy …`. There is no `.venv`.
 - `VDJdbFullPairedParser(..., include_incomplete=True)` → run `impute_missing_chains` before pairing.
 - Calling `add_alice_metadata` or `add_tcrnet_metadata` with `mc_n_pool > 0` builds the pool once; subsequent samples reuse cache automatically.
 

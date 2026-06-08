@@ -44,6 +44,14 @@ mir.common.gene\_library module
    :undoc-members:
    :show-inheritance:
 
+mir.common.region_annotation module
+------------------------------------
+
+.. automodule:: mir.common.region_annotation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.common.parser module
 ------------------------
 

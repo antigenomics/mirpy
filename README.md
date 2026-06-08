@@ -55,15 +55,20 @@ cd mirpy
 pip install .
 ```
 
-Install from source (editable development mode):
+Install from source (editable development mode, conda):
 
 ```bash
 git clone https://github.com/antigenomics/mirpy.git
 cd mirpy
-./setup.sh
+./setup.sh                 # creates the `mirpy` conda env + editable install
+conda activate mirpy
 ```
 
-`setup.sh` already installs mirpy in editable mode.
+`setup.sh` creates/updates the `mirpy` conda environment from `environment.yml`
+and installs mirpy in editable mode (it builds the bundled C++ extensions).
+Pass `--no-conda` to install into the already-active environment instead, or
+`--docs` / `--test` for docs deps and the test suite. The base env is lean;
+region-annotation tooling is the optional `[arda]` extra (`pip install -e ".[arda]"`).
 
 Prefer `pip install mirpy-lib` for project usage.
 Use the cloned repo setup when developing or running docs/notebooks locally.

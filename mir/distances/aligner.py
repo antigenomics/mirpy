@@ -699,6 +699,80 @@ class GermlineAligner:
         return inst
 
     @classmethod
+    def from_library_region(
+        cls,
+        lib: GeneLibrary,
+        loci: list[str] | None = None,
+        region: str = "cdr1",
+        scoring: Scoring | None = None,
+    ) -> 'GermlineAligner':
+        """Build a GermlineAligner over a single germline V-gene *region*.
+
+        Like :meth:`from_library`, but distances are computed over the
+        amino-acid subsequence of one region (e.g. ``'cdr1'``, ``'cdr2'``)
+        rather than the full gene.  Only V genes are processed (CDR1/CDR2 are
+        V-gene-determined); results are stored under the ``(locus, 'V')`` key so
+        the same downstream matrix-building code works unchanged.
+
+        Args:
+            lib: Gene library loaded with ``with_regions=True``.
+            loci: Loci to include.  Defaults to all loci present in *lib*.
+            region: Region name in :attr:`GeneEntry.region_aa`
+                (``'cdr1'``/``'cdr2'``/``'fwr1'``/...).
+            scoring: Scoring function (defaults to :class:`BioAlignerWrapper`).
+
+        Returns:
+            GermlineAligner with pre-computed pairwise region distances.
+
+        Raises:
+            ValueError: If no entries carry *region* for the requested loci
+                (e.g. the library lacks region annotations).
+        """
+        if scoring is None:
+            scoring = BioAlignerWrapper()
+        if loci is None:
+            loci = sorted(lib.get_loci())
+
+        locus_dist: dict[tuple[str, str, str], float] = {}
+        fallback_dist: dict[tuple[str, str], float] = {}
+        locus_gene_sets: dict[tuple[str, str], frozenset[str]] = {}
+
+        for locus in loci:
+            seqs = lib.get_region_sequences_aa(locus=locus, gene="V", region=region)
+            if not seqs:
+                continue
+            locus_gene_sets[(locus, "V")] = frozenset(a for a, _ in seqs)
+            pair_scores: dict[tuple[str, str], float] = {}
+            for a1, s1 in seqs:
+                for a2, s2 in seqs:
+                    if (a2, a1) in pair_scores:
+                        pair_scores[(a1, a2)] = pair_scores[(a2, a1)]
+                    else:
+                        pair_scores[(a1, a2)] = scoring.score(s1, s2)
+            max_d = 0.0
+            for a1, _ in seqs:
+                for a2, _ in seqs:
+                    d = pair_scores[(a1, a1)] + pair_scores[(a2, a2)] - 2 * pair_scores[(a1, a2)]
+                    locus_dist[(locus, a1, a2)] = float(d)
+                    if d > max_d:
+                        max_d = d
+            fallback_dist[(locus, "V")] = max_d
+
+        if not locus_dist:
+            raise ValueError(
+                f"No region {region!r} annotations found for loci {loci}. "
+                "Load the library with with_regions=True (and ensure "
+                "region_annotations.txt is present)."
+            )
+
+        inst = cls.__new__(cls)
+        inst.dist = {}
+        inst._locus_dist = locus_dist
+        inst._fallback_dist = fallback_dist
+        inst._locus_gene_sets = locus_gene_sets
+        return inst
+
+    @classmethod
     def from_seqs(cls,
                   seqs: dict[str, str] | t.Iterable[tuple[str, str]] | list[GeneEntry],
                   scoring: Scoring = BioAlignerWrapper(),
