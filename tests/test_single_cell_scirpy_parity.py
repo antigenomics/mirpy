@@ -6,38 +6,12 @@ and dcode/10x_vdj_v1 benchmark assets are present locally.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import polars as pl
 import pytest
 
 from mir.common.single_cell import load_10x_vdj_v1_donor
 from tests.prepare_airr_benchmark_data import ensure_test_data
-
-
-def _discover_donor_pair() -> tuple[Path, Path] | None:
-    dcode_root = Path(__file__).resolve().parents[1] / "airr_benchmark" / "dcode"
-    if not dcode_root.exists():
-        return None
-
-    all_contig_files = sorted(dcode_root.glob("*_all_contig_annotations.csv.gz"))
-    consensus_files = sorted(dcode_root.glob("*_consensus_annotations.csv.gz"))
-    if not all_contig_files or not consensus_files:
-        return None
-
-    all_contig = all_contig_files[0]
-    consensus = next(
-        (
-            p
-            for p in consensus_files
-            if p.name.replace("_consensus_annotations", "")
-            == all_contig.name.replace("_all_contig_annotations", "")
-        ),
-        None,
-    )
-    if consensus is None:
-        return None
-    return all_contig, consensus
+from tests.sc_helpers import discover_dcode_donor_pair as _discover_donor_pair
 
 
 @pytest.mark.integration

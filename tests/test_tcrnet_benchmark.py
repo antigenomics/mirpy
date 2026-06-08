@@ -33,6 +33,7 @@ from tests.benchmark_helpers import (
     synthetic_control_size,
 )
 from tests.conftest import benchmark_max_seconds, skip_benchmarks
+from tests.factories import make_trb_clone
 
 
 _AA = "ACDEFGHIKLMNPQRSTVWY"
@@ -134,16 +135,8 @@ def _rand_junction(rng: random.Random, n: int = 13) -> str:
     return "C" + "".join(rng.choice(_AA) for _ in range(n - 2)) + "F"
 
 
-def _clone(sid: str, aa: str, *, v: str = "TRBV5-1*01", j: str = "TRBJ2-7*01") -> Clonotype:
-    return Clonotype(
-        sequence_id=sid,
-        locus="TRB",
-        junction_aa=aa,
-        v_gene=v,
-        j_gene=j,
-        duplicate_count=1,
-        _validate=False,
-    )
+# _clone is the shared TRB clonotype factory (identical signature/defaults).
+_clone = make_trb_clone
 
 
 def _peak_rss_delta_mb(fn) -> tuple[object, float]:
