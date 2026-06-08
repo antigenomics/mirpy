@@ -45,6 +45,8 @@ jobs:
         run: |
           sphinx-build -b html docs docs/_build/html
           touch docs/_build/html/.nojekyll
+          # Custom domain: served at https://docs.isalgo.dev/mirpy
+          echo "docs.isalgo.dev" > docs/_build/html/CNAME
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

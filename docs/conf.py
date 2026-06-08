@@ -34,6 +34,7 @@ autodoc_mock_imports = [
     "pympler",
 ]
 
+html_baseurl = "https://docs.isalgo.dev/mirpy/"
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = "mirpy documentation"
