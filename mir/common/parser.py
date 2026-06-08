@@ -63,6 +63,8 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'j':        'j_gene',
     # AIRR Rearrangement call columns -> mirpy's internal gene names, so the
     # polars file path handles standard AIRR files (v_call/j_call/...) directly.
+    # TODO(gene-naming): unify v_call/j_call (AIRR) vs v_gene/j_gene (internal) —
+    # this map + AIRRParser.parse_inner both rename; see TODO.md.
     'v_call':   'v_gene',
     'd_call':   'd_gene',
     'j_call':   'j_gene',
