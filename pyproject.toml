@@ -67,6 +67,7 @@ arda = [
 ]
 dev = [
   "pytest>=8",
+  "pytest-cov",
   "pylint",
   "huggingface_hub",
   "psutil>=5",
@@ -115,4 +116,28 @@ markers = [
   "integration: slow or environment-dependent tests excluded from the default test run",
   "slow_benchmark: long-running benchmark with slow timeout budget",
   "very_slow_benchmark: extra long benchmark with very-slow timeout budget",
+]
+
+# Coverage is opt-in (not in addopts) so the default fast suite stays fast.
+# Measure with: pytest -m "not benchmark and not integration" --cov=mir --cov-report=term-missing
+[tool.coverage.run]
+source = ["mir"]
+branch = true
+omit = [
+  "mir/resources/gene_library/build_gene_library.py",
+  "mir/resources/gene_library/build_region_annotations.py",
+  "mir/resources/prototypes/generate_prototypes.py",
+  # build-time only: needs the optional `arda` extra + the mmseqs2 binary
+  "mir/common/region_annotation.py",
+  "*/__init__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
 ]

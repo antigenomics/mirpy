@@ -45,6 +45,7 @@ plotnine==0.12.3      # grammar-of-graphics plots in notebooks
 # ── Dev / tooling ─────────────────────────────────────────────────────────────
 # Documentation-specific packages live in docs/requirements.txt.
 pytest>=8
+pytest-cov
 pylint
 huggingface_hub
 psutil>=5
