@@ -20,14 +20,18 @@ For source installs from GitHub:
    cd mirpy
    pip install .
 
-For editable development installs:
+For editable development installs (conda):
 
 .. code-block:: bash
 
    git clone https://github.com/antigenomics/mirpy.git
    cd mirpy
-   ./setup.sh
-   pip install -e .
+   ./setup.sh              # creates the `mirpy` conda env + editable install
+   conda activate mirpy
+
+``setup.sh`` creates/updates the ``mirpy`` conda environment from
+``environment.yml`` and builds the bundled C++ extensions. Use ``--no-conda`` to
+install into the already-active environment instead.
 
 To install the documentation toolchain as well:
 

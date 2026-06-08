@@ -12,6 +12,24 @@ Paired TRA/TRB workflow examples use VDJdb data from:
 
 ---
 
+## Feature modes: `vjcdr3` vs `cdr123`
+
+`TCREmp.from_defaults(..., mode=...)` (also `from_file` and `PairedTCREmp.from_defaults`)
+selects the per-prototype feature triple:
+
+- `"vjcdr3"` (default) — `[V-gene, J-gene, CDR3/junction]` distances.
+- `"cdr123"` — `[CDR1, CDR2, CDR3/junction]`. CDR1/CDR2 are germline
+  V-gene-determined, precomputed from the bundled region annotations via
+  `GermlineAligner.from_library_region`; both are looked up by the clonotype's
+  `v_gene`. Requires `region_annotations.txt` (raises otherwise).
+
+Output is `(N, 3*K)` float32 in both modes; only the first two components of each
+triple change. Prototype genes absent from the aligner fall back to the max
+region distance, never NaN. Benchmark: `notebooks/tcremp_features_compare.ipynb`.
+See `references/region-annotation.md` for how the region annotations are built.
+
+---
+
 ## Prototype-Based Embeddings With TCREMP
 
 Use `TCREmp` from `mir.embedding.tcremp` to embed clonotypes as distance vectors

@@ -1,5 +1,9 @@
 # Biomarker Analysis Reference (ALICE, TCRNET, GLIPH)
 
+**Contents:** ALICE enrichment · TCRNET neighbourhood enrichment · GLIPH k-mer
+enrichment · clonotype metadata associations · COVID-19 case studies (SVM,
+HLA-stratified, TRA×TRB co-occurrence).
+
 This reference covers mirpy's three primary biomarker enrichment modules: ALICE, TCRNET, and GLIPH-style k-mer analysis. These methods identify antigen-enriched T-cell receptor sequences by comparing neighborhood density in a study repertoire against a background model or control repertoire.
 
 It also covers cohort-level clonotype association scans in
@@ -295,3 +299,76 @@ sig = (comp["p_val_adj"] < 0.05) & (comp["freq_fc"] > 1.0)
 - p-value is one-sided enrichment: P[X >= count_1] under Binomial(total_sample_clonotypes, p_background).
 - For large real controls, use `build_mappings=False` plus `chunk_size` for streaming.
 - Keep `trim_first`/`trim_last` the same for sample and control; GLIPH defaults are `trim_first=3`, `trim_last=4`.
+
+---
+
+## COVID-19 case studies (notebook companions)
+
+Detailed result tables for the covid19 biomarker notebooks. The SKILL.md keeps
+only the API entry points; the specifics live here.
+
+### SVM classifier (Vlasova 2026 replication) — `covid19_biomarkers.ipynb`
+
+Log-frequency features + RBF-SVM over 1137 paired donors, AUC≈0.70 target.
+
+```python
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.metrics import roc_auc_score
+
+# X: (n_donors, n_biomarkers) log-frequency matrix; y: binary (1=COVID, 0=healthy)
+X_log = np.log(X + 1e-7)
+clf = SVC(kernel="rbf", probability=True, class_weight="balanced", C=1.0, gamma="scale")
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+y_prob = cross_val_predict(clf, X_log, y, cv=cv, method="predict_proba")[:, 1]
+auc = roc_auc_score(y, y_prob)  # target >= 0.70
+```
+
+See `benchmarks/covid19_svm_benchmark.py` and
+`tests/test_associations_covid19_benchmark.py::test_covid19_svm_classifier_auc`.
+
+> Vlasova *et al.* (2026) *Genome Med.* DOI:10.1186/s13073-025-01589-4
+
+### HLA-stratified analysis — `covid19_hla_biomarkers.ipynb`
+
+HLA class II association for 1137 paired donors (761 COVID / 376 healthy). Public
+biomarkers from the global Fisher scan are re-tested within HLA-stratified
+sub-cohorts (DRB1\*16: n=76, DQB1\*05: n=352). A focused pre-specified correction
+(TRBV12-3/CASS set, 1297 candidates) replicates the Vlasova 2026 finding that
+global multiple-testing is too conservative for rare allele strata.
+
+- Top DRB1\*16 hit: `CASSRTGTGSSYNSPLHF` (TRBV12-3), 26 COVID / 0 healthy,
+  log₂FE = 4.38, FDR = 0.035 (focused BH within TRBV12-3/CASS set).
+- Global HLA × CDR3 scan (83 alleles × 43 CDR3s): one significant pair —
+  `CAGQLYGGSQGNLIF` depleted in HLA-DPB1\*02:01 carriers (log₂FE = −1.51, q = 0.003).
+
+```python
+# Per-donor CDR3 presence scan pattern
+donor_cdr3_presence = {}
+for donor_id, row in metadata.iterrows():
+    df = pd.read_csv(data_root / row['file_name'], sep='\t', usecols=['cdr3aa', 'v'])
+    donor_cdr3_presence[donor_id] = set(zip(df['cdr3aa'], df['v'].str.split('*').str[0]))
+```
+
+### TRA × TRB co-occurrence — `covid19_pairing_biomarkers.ipynb`
+
+Paired-chain co-occurrence Fisher test (156 TRA×TRB pairs across 3 strata,
+`scipy.stats.fisher_exact` + BH FDR per stratum) with VDJdb cross-validation.
+
+| Stratum | Significant pairs | Direction |
+|---------|-------------------|-----------|
+| All (n=1137) | 1 | Negative: CALSEETSGSRLTF × CASSLGGGDTQYF (q=0.027) |
+| COVID (n=761) | 0 | — |
+| Healthy (n=376) | 2 | CAGQNYGGSQGNLIF co-occurs with CASSLGETQYF (q=0.001), CASSPSTDTQYF (q=0.013) |
+
+VDJdb overlap (hamming ≤ 1, V-gene fixed): 3/4 TRA CDR3s and 15/39 TRB CDR3s
+validated against SARS-CoV-2 records; 0 pairs co-matched in one record (sparse
+paired coverage).
+
+```python
+def hamming(a, b):
+    if len(a) != len(b):
+        return len(a) + len(b)  # length mismatch -> disqualify
+    return sum(x != y for x, y in zip(a, b))
+```

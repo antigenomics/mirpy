@@ -2,18 +2,19 @@
 
 TCREMP (T-Cell Receptor EMbedding with Prototypes) embeds each clonotype
 as a flat vector of distances to a fixed set of *prototype* clonotypes.
-For clonotype *i* and prototype *k*, three distances are computed:
+For clonotype *i* and prototype *k*, three distances are computed.  The first
+two depend on the embedding ``mode``:
 
-* **v_ik** — V-germline distance (pre-computed from gene sequences).
-* **j_ik** — J-germline distance (pre-computed from gene sequences).
-* **junction_ik** — junction amino-acid alignment distance.
+* ``mode="vjcdr3"`` (default): **V-germline**, **J-germline**, **junction**.
+* ``mode="cdr123"``: **CDR1**, **CDR2** (both germline V-gene-determined,
+  precomputed from the library's region annotations), **CDR3/junction**.
 
-The resulting embedding vector is::
+The resulting embedding vector (vjcdr3 shown) is::
 
     [v_i1, j_i1, junc_i1, v_i2, j_i2, junc_i2, ..., v_iK, j_iK, junc_iK]
 
 where K is the number of prototypes.  The output matrix has shape
-``(n_clonotypes, 3 * K)`` and is stored as ``float32`` for
+``(n_clonotypes, 3 * K)`` regardless of mode and is stored as ``float32`` for
 TensorFlow/Keras compatibility.
 
 All distances use the formula ``d(a, b) = s(a,a) + s(b,b) − 2·s(a,b)``
@@ -104,6 +105,9 @@ def _build_gene_matrix(
             mat[i, k] = germline_aligner.gene_dist(locus, g, pg)
 
     fallback_val = germline_aligner._fallback_dist.get((locus, gene_type), 0.0)
+    # A prototype gene absent from the aligner (e.g. a V gene without region
+    # annotation in cdr123 mode) yields NaN; treat it as the fallback distance.
+    np.nan_to_num(mat, copy=False, nan=fallback_val)
     fallback_row = np.full((1, n_protos), fallback_val, dtype=np.float32)
     mat_ext = np.vstack([mat, fallback_row])
     return gene_idx, mat_ext, n_genes  # n_genes is the fallback row index
@@ -118,6 +122,42 @@ def _validate_prototypes(df: pl.DataFrame, source: str) -> None:
         raise ValueError(
             f"Prototype file {source!r} is missing required columns: {sorted(missing)}"
         )
+
+
+def _make_junction_aligner(junction_method: str) -> Scoring:
+    """Resolve a junction scoring backend by name."""
+    if junction_method == "fixed_gap":
+        return JunctionAligner()
+    if junction_method == "biopython":
+        return BioAlignerWrapper()
+    raise ValueError(
+        f"Unknown junction_method: {junction_method!r}. Use 'fixed_gap' or 'biopython'."
+    )
+
+
+def _build_mode_aligners(
+    lib: GeneLibrary,
+    locus: str,
+    mode: str,
+    germline_scoring: Scoring | None,
+) -> tuple[GermlineAligner | None, dict[str, GermlineAligner] | None]:
+    """Build the germline distance aligners required by *mode*.
+
+    Returns ``(germline_aligner, region_aligners)``: for ``'vjcdr3'`` a single
+    V/J :class:`GermlineAligner` and ``None``; for ``'cdr123'`` ``None`` and a
+    ``{'cdr1': ..., 'cdr2': ...}`` mapping of region aligners.
+    """
+    if mode == "vjcdr3":
+        return GermlineAligner.from_library(lib, loci=[locus], scoring=germline_scoring), None
+    if mode == "cdr123":
+        region_aligners = {
+            region: GermlineAligner.from_library_region(
+                lib, loci=[locus], region=region, scoring=germline_scoring
+            )
+            for region in ("cdr1", "cdr2")
+        }
+        return None, region_aligners
+    raise ValueError(f"Unknown mode {mode!r}. Use 'vjcdr3' or 'cdr123'.")
 
 
 class TCREmp:
@@ -140,19 +180,28 @@ class TCREmp:
         species: Species identifier, e.g. ``'human'``.
     """
 
+    #: Supported embedding modes.
+    MODES = ("vjcdr3", "cdr123")
+
     def __init__(
         self,
-        germline_aligner: GermlineAligner,
+        germline_aligner: GermlineAligner | None,
         junction_aligner: Scoring,
         prototypes: pl.DataFrame,
         locus: str,
         species: str,
+        mode: str = "vjcdr3",
+        region_aligners: dict[str, GermlineAligner] | None = None,
     ) -> None:
+        if mode not in self.MODES:
+            raise ValueError(f"Unknown mode {mode!r}. Use one of {self.MODES}.")
         self.germline_aligner = germline_aligner
+        self.region_aligners = region_aligners or {}
         self.junction_aligner = junction_aligner
         self.prototypes = prototypes
         self.locus = locus
         self.species = species
+        self.mode = mode
         self._n_prototypes = len(prototypes)
         self._proto_v = [allele_with_default(g) for g in prototypes["v_gene"].to_list()]
         self._proto_j = [allele_with_default(g) for g in prototypes["j_gene"].to_list()]
@@ -165,13 +214,28 @@ class TCREmp:
             [junction_aligner.score(s, s) for s in self._proto_junction], dtype=np.float64
         )
 
-        # Build extended V/J lookup tables (last row = fallback for unknown genes).
-        self._v_gene_idx, self._v_dist_mat_ext, self._v_fallback_idx = _build_gene_matrix(
-            germline_aligner, locus, "V", self._proto_v
-        )
-        self._j_gene_idx, self._j_dist_mat_ext, self._j_fallback_idx = _build_gene_matrix(
-            germline_aligner, locus, "J", self._proto_j
-        )
+        # Two germline distance components (the third is always the junction).
+        # vjcdr3: [V (by v_gene), J (by j_gene)]; cdr123: [CDR1, CDR2] both
+        # V-gene-determined and looked up by v_gene.  Component matrices have a
+        # fallback row appended so unknown genes index the last row.
+        if mode == "vjcdr3":
+            self._comp1_gene = "v_gene"
+            self._comp2_gene = "j_gene"
+            self._comp1_idx, self._comp1_mat_ext, self._comp1_fallback_idx = _build_gene_matrix(
+                germline_aligner, locus, "V", self._proto_v
+            )
+            self._comp2_idx, self._comp2_mat_ext, self._comp2_fallback_idx = _build_gene_matrix(
+                germline_aligner, locus, "J", self._proto_j
+            )
+        else:  # cdr123
+            self._comp1_gene = "v_gene"
+            self._comp2_gene = "v_gene"
+            self._comp1_idx, self._comp1_mat_ext, self._comp1_fallback_idx = _build_gene_matrix(
+                self.region_aligners["cdr1"], locus, "V", self._proto_v
+            )
+            self._comp2_idx, self._comp2_mat_ext, self._comp2_fallback_idx = _build_gene_matrix(
+                self.region_aligners["cdr2"], locus, "V", self._proto_v
+            )
 
     # Auto-parallelization threshold for default n_jobs=None behavior.
     # Work is chunked by queries (input clonotypes), but each query is scored
@@ -187,12 +251,13 @@ class TCREmp:
         n_prototypes: int | None = None,
         junction_method: str = "fixed_gap",
         germline_scoring: Scoring | None = None,
+        mode: str = "vjcdr3",
     ) -> TCREmp:
         """Build a :class:`TCREmp` from library defaults.
 
         Loads the gene library and prototype file for *species*/*locus*,
-        computes all pairwise V/J germline distances, and returns a fully
-        configured instance ready to embed clonotypes.
+        computes the pairwise germline distances required by *mode*, and returns
+        a fully configured instance ready to embed clonotypes.
 
         Args:
             species: Species identifier (e.g. ``'human'``).  Aliases such
@@ -213,13 +278,20 @@ class TCREmp:
             germline_scoring: Scoring function used to compute pairwise
                 germline distances.  Defaults to
                 :class:`~mir.distances.aligner.BioAlignerWrapper`.
+            mode: Embedding feature set:
+
+                * ``'vjcdr3'`` (default) — V-gene, J-gene, and CDR3/junction
+                  distances.
+                * ``'cdr123'`` — CDR1, CDR2 (both germline V-gene-determined,
+                  precomputed from the library's region annotations) and
+                  CDR3/junction distances.  Requires ``region_annotations.txt``.
 
         Returns:
             Configured :class:`TCREmp` instance.
 
         Raises:
-            ValueError: If *junction_method* is not ``'fixed_gap'`` or
-                ``'biopython'``.
+            ValueError: If *junction_method* / *mode* is invalid, or (for
+                ``'cdr123'``) the library lacks region annotations.
             FileNotFoundError: If no prototype file exists for the given
                 species/locus.
 
@@ -231,23 +303,15 @@ class TCREmp:
         from mir.basic.aliases import normalize_locus_alias, normalize_species_alias
         species_c = normalize_species_alias(species)
         locus_c = normalize_locus_alias(locus)
-
-        if junction_method == "fixed_gap":
-            junction_aligner: Scoring = JunctionAligner()
-        elif junction_method == "biopython":
-            junction_aligner = BioAlignerWrapper()
-        else:
-            raise ValueError(
-                f"Unknown junction_method: {junction_method!r}. "
-                "Use 'fixed_gap' or 'biopython'."
-            )
+        junction_aligner = _make_junction_aligner(junction_method)
 
         lib = GeneLibrary.load_default(loci={locus_c}, species={species_c})
-        germline_aligner = GermlineAligner.from_library(
-            lib, loci=[locus_c], scoring=germline_scoring
+        germline_aligner, region_aligners = _build_mode_aligners(
+            lib, locus_c, mode, germline_scoring
         )
         prototypes = load_prototypes(species_c, locus_c, n=n_prototypes)
-        return cls(germline_aligner, junction_aligner, prototypes, locus_c, species_c)
+        return cls(germline_aligner, junction_aligner, prototypes, locus_c, species_c,
+                   mode=mode, region_aligners=region_aligners)
 
     @classmethod
     def from_file(
@@ -257,6 +321,7 @@ class TCREmp:
         locus: str = "TRB",
         junction_method: str = "fixed_gap",
         germline_scoring: Scoring | None = None,
+        mode: str = "vjcdr3",
     ) -> TCREmp:
         """Build a :class:`TCREmp` from a user-supplied prototype file.
 
@@ -304,22 +369,14 @@ class TCREmp:
         from mir.basic.aliases import normalize_locus_alias, normalize_species_alias
         species_c = normalize_species_alias(species)
         locus_c = normalize_locus_alias(locus)
-
-        if junction_method == "fixed_gap":
-            junction_aligner: Scoring = JunctionAligner()
-        elif junction_method == "biopython":
-            junction_aligner = BioAlignerWrapper()
-        else:
-            raise ValueError(
-                f"Unknown junction_method: {junction_method!r}. "
-                "Use 'fixed_gap' or 'biopython'."
-            )
+        junction_aligner = _make_junction_aligner(junction_method)
 
         lib = GeneLibrary.load_default(loci={locus_c}, species={species_c})
-        germline_aligner = GermlineAligner.from_library(
-            lib, loci=[locus_c], scoring=germline_scoring
+        germline_aligner, region_aligners = _build_mode_aligners(
+            lib, locus_c, mode, germline_scoring
         )
-        return cls(germline_aligner, junction_aligner, df, locus_c, species_c)
+        return cls(germline_aligner, junction_aligner, df, locus_c, species_c,
+                   mode=mode, region_aligners=region_aligners)
 
     @property
     def n_prototypes(self) -> int:
@@ -399,9 +456,10 @@ class TCREmp:
 
         Returns:
             Float32 array of shape ``(n_clonotypes, 3 * n_prototypes)``.
-            Column layout::
+            Column layout (per prototype, interleaved)::
 
-                [v_1, j_1, junc_1, v_2, j_2, junc_2, ..., v_K, j_K, junc_K]
+                vjcdr3: [v_1, j_1, junc_1, ..., v_K, j_K, junc_K]
+                cdr123: [cdr1_1, cdr2_1, junc_1, ..., cdr1_K, cdr2_K, junc_K]
 
         Example:
             >>> from mir.common.clonotype import Clonotype
@@ -422,11 +480,15 @@ class TCREmp:
 
         junctions = [c.junction_aa for c in clonotypes]
 
-        # Vectorized V/J: resolve each gene via cascade (exact → *01 → bare → fallback)
-        v_idx = np.array([_resolve_gene_idx(c.v_gene, self._v_gene_idx, self._v_fallback_idx) for c in clonotypes])
-        j_idx = np.array([_resolve_gene_idx(c.j_gene, self._j_gene_idx, self._j_fallback_idx) for c in clonotypes])
-        v_mat = self._v_dist_mat_ext[v_idx]   # (n, n_protos) float32
-        j_mat = self._j_dist_mat_ext[j_idx]   # (n, n_protos) float32
+        # Vectorized germline components: resolve each gene via cascade
+        # (exact → *01 → bare → fallback).  Component lookup gene depends on mode:
+        # vjcdr3 → (v_gene, j_gene); cdr123 → (v_gene, v_gene).
+        comp1_genes = [getattr(c, self._comp1_gene) for c in clonotypes]
+        comp2_genes = [getattr(c, self._comp2_gene) for c in clonotypes]
+        c1_idx = np.array([_resolve_gene_idx(g, self._comp1_idx, self._comp1_fallback_idx) for g in comp1_genes])
+        c2_idx = np.array([_resolve_gene_idx(g, self._comp2_idx, self._comp2_fallback_idx) for g in comp2_genes])
+        v_mat = self._comp1_mat_ext[c1_idx]   # (n, n_protos) float32
+        j_mat = self._comp2_mat_ext[c2_idx]   # (n, n_protos) float32
 
         # Junction self-scores for query clonotypes — must use windowed score(s,s)
         # to be consistent with score_matrix (which also applies v/j offsets).
@@ -520,8 +582,12 @@ class PairedTCREmp:
         n_prototypes: int | None = None,
         junction_method: str = "fixed_gap",
         germline_scoring: Scoring | None = None,
+        mode: str = "vjcdr3",
     ) -> PairedTCREmp:
-        """Build a paired embedder by composing two default chain embedders."""
+        """Build a paired embedder by composing two default chain embedders.
+
+        *mode* (``'vjcdr3'`` or ``'cdr123'``) is applied to both chains.
+        """
         if locus_pair not in LOCUS_PAIR_TO_LOCI:
             raise ValueError(
                 f"Unsupported locus_pair {locus_pair!r}; "
@@ -535,6 +601,7 @@ class PairedTCREmp:
                 n_prototypes=n_prototypes,
                 junction_method=junction_method,
                 germline_scoring=germline_scoring,
+                mode=mode,
             ),
             chain2_model=TCREmp.from_defaults(
                 species=species,
@@ -542,6 +609,7 @@ class PairedTCREmp:
                 n_prototypes=n_prototypes,
                 junction_method=junction_method,
                 germline_scoring=germline_scoring,
+                mode=mode,
             ),
             locus_pair=locus_pair,
         )

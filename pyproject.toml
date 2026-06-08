@@ -58,6 +58,13 @@ sc = [
   "sc-dandelion",
   "umap-learn",
 ]
+# Build-time only: regenerate region_annotations.txt or annotate a custom gene
+# library. Also requires the `mmseqs2` binary (conda install -c bioconda mmseqs2).
+# Plain embedding/similarity never import arda. arda is distributed on GitHub
+# (not PyPI), so this extra uses a direct reference.
+arda = [
+  "arda @ git+https://github.com/antigenomics/arda.git",
+]
 dev = [
   "pytest>=8",
   "pylint",

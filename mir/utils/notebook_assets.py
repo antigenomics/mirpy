@@ -10,9 +10,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
-
-
 from tqdm.auto import tqdm as _base_tqdm
 
 
@@ -70,6 +67,16 @@ def _ensure_dataset(
     repo_root: Path | None = None,
     allow_patterns: list[str] | None = None,
 ) -> Path:
+    # huggingface_hub is an optional (dev/notebook) dependency — import lazily so
+    # that importing mir core does not require it.
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise ImportError(
+            "Downloading notebook datasets requires 'huggingface_hub'. "
+            "Install the notebook extras with `pip install mirpy-lib[dev]` "
+            "(or `pip install huggingface_hub`)."
+        ) from exc
     dataset_root = notebook_large_assets_root(repo_root) / local_name
     dataset_root.mkdir(parents=True, exist_ok=True)
     snapshot_download(

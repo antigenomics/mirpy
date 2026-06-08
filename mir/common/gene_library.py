@@ -10,6 +10,15 @@ where *species* is ``"human"`` or ``"mouse"``, *locus* is ``"TRB"`` /
 full IMGT name (e.g. ``"TRBV3-1*02"``), *sequence* is the nucleotide
 sequence (uppercase, no gaps), and *functionality* is one of ``F`` / ``ORF`` /
 ``P`` (for OLGA-derived entries this is always ``F``).
+
+An optional companion file ``region_annotations.txt`` carries germline-encoded
+FR/CDR amino-acid subsequences per allele (generated from arda; see
+:mod:`mir.common.region_annotation`).  Its schema is::
+
+    species  locus  gene  allele  fwr1_aa  cdr1_aa  fwr2_aa  cdr2_aa  fwr3_aa  jcdr3_aa  fwr4_aa
+
+When present, :meth:`GeneLibrary.load_default` attaches these subsequences to
+each :attr:`GeneEntry.region_aa`.
 """
 
 from __future__ import annotations
@@ -24,6 +33,12 @@ _ALLOWED_LOCI = {'TRA', 'TRB', 'TRG', 'TRD', 'IGL', 'IGK', 'IGH'}
 _ALLOWED_GENES = {'V', 'D', 'J', 'C'}
 
 _GENE_LIBRARY_COLUMNS = ['species', 'locus', 'gene', 'allele', 'sequence', 'functionality']
+
+#: Companion region-annotation resource file name.
+_REGION_ANNOTATION_FILE = 'region_annotations.txt'
+
+#: Region amino-acid columns in the companion file, in 5'->3' order.
+_REGION_COLUMNS = ['fwr1_aa', 'cdr1_aa', 'fwr2_aa', 'cdr2_aa', 'fwr3_aa', 'jcdr3_aa', 'fwr4_aa']
 
 
 class GeneEntry:
@@ -57,6 +72,12 @@ class GeneEntry:
     feataa:
         Named amino-acid feature intervals.  Derived from *featnt* when
         absent.  Reserved for future use.
+    region_aa:
+        Germline-encoded FR/CDR amino-acid subsequences keyed by region name
+        (``fwr1``/``cdr1``/``fwr2``/``cdr2``/``fwr3`` for V genes; ``jcdr3``/
+        ``fwr4`` for J genes).  Populated from the companion
+        ``region_annotations.txt`` resource by :meth:`GeneLibrary.load_default`.
+        Empty when no annotation is available.
     """
 
     def __init__(self,
@@ -69,7 +90,8 @@ class GeneEntry:
                  sequence_aa: str = None,
                  refpoint: int = -1,
                  featnt: dict[str, tuple[int, int]] | None = None,
-                 feataa: dict[str, tuple[int, int]] | None = None):
+                 feataa: dict[str, tuple[int, int]] | None = None,
+                 region_aa: dict[str, str] | None = None):
         self.allele = allele
         self.species = species
         self.locus = locus if locus else allele[:3]
@@ -96,6 +118,7 @@ class GeneEntry:
         if not feataa and self.featnt:
             # derive AA feature coords by dividing NT coords by 3
             self.feataa = {k: (v[0] // 3, v[1] // 3) for k, v in self.featnt.items()}
+        self.region_aa = dict(region_aa) if region_aa else {}
 
     def __str__(self) -> str:
         return self.allele
@@ -165,7 +188,8 @@ class GeneLibrary:
     def load_default(cls,
                      loci: set[str] | list[str] | str = {'TRB', 'TRA'},
                      species: set[str] | list[str] | str = {'human'},
-                     source: str = 'olga') -> 'GeneLibrary':
+                     source: str = 'olga',
+                     with_regions: bool = True) -> 'GeneLibrary':
         """Load a gene library from a pre-built resource file.
 
         Parameters
@@ -177,6 +201,11 @@ class GeneLibrary:
         source:
             ``'olga'`` (default) loads ``olga_gene_library.txt``;
             ``'imgt'`` loads ``imgt_gene_library.txt``.
+        with_regions:
+            When ``True`` (default) and the companion
+            ``region_annotations.txt`` resource exists, attach germline FR/CDR
+            amino-acid subsequences to each entry's
+            :attr:`GeneEntry.region_aa`.
 
         Returns
         -------
@@ -187,6 +216,7 @@ class GeneLibrary:
         species = cls._as_set(species)
         fname = f'{source}_gene_library.txt'
         path    = Path(get_resource_path(f'gene_library/{fname}'))
+        region_map = cls._load_region_annotations(species) if with_regions else {}
         entries: dict[str, GeneEntry] = {}
         with path.open(encoding='utf-8') as fh:
             next(fh)  # skip header
@@ -208,8 +238,45 @@ class GeneLibrary:
                     gene=gene,
                     sequence=sequence,
                     functionality=functionality,
+                    region_aa=region_map.get((sp, allele)),
                 )
         return cls(entries, complete=True)
+
+    @staticmethod
+    def _load_region_annotations(species: set[str]) -> dict[tuple[str, str], dict[str, str]]:
+        """Load the companion region file into ``{(species, allele): {region: aa}}``.
+
+        Returns an empty mapping if the resource file is absent.  Region keys
+        drop the ``_aa`` suffix (e.g. ``cdr1``), matching
+        :attr:`GeneEntry.region_aa`.
+        """
+        try:
+            path = Path(get_resource_path(f'gene_library/{_REGION_ANNOTATION_FILE}'))
+        except Exception:
+            return {}
+        if not path.is_file():
+            return {}
+        region_names = [c[:-3] for c in _REGION_COLUMNS]  # strip '_aa'
+        out: dict[tuple[str, str], dict[str, str]] = {}
+        with path.open(encoding='utf-8') as fh:
+            header = next(fh).rstrip('\n').split('\t')
+            col = {name: i for i, name in enumerate(header)}
+            for line in fh:
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) < 4:
+                    continue
+                sp, allele = parts[col['species']], parts[col['allele']]
+                if sp not in species:
+                    continue
+                regions = {
+                    name: parts[col[f'{name}_aa']]
+                    for name in region_names
+                    if f'{name}_aa' in col and col[f'{name}_aa'] < len(parts)
+                    and parts[col[f'{name}_aa']]
+                }
+                if regions:
+                    out[(sp, allele)] = regions
+        return out
 
     # ------------------------------------------------------------------
     # Queries
@@ -238,6 +305,34 @@ class GeneLibrary:
         return [(e.allele, e.sequence)
                 for e in self.get_entries(locus, gene)
                 if e.sequence]
+
+    def get_region_sequences_aa(self,
+                                locus: str,
+                                gene: str,
+                                region: str) -> list[tuple[str, str]]:
+        """Return ``(allele, region_aa)`` pairs for one germline region.
+
+        Parameters
+        ----------
+        locus:
+            Locus code (e.g. ``'TRB'``).
+        gene:
+            Gene type, ``'V'`` or ``'J'``.
+        region:
+            Region name as stored in :attr:`GeneEntry.region_aa`
+            (``fwr1``/``cdr1``/``fwr2``/``cdr2``/``fwr3`` for V genes;
+            ``jcdr3``/``fwr4`` for J genes).
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            One pair per entry that carries the requested region; entries
+            lacking the annotation are skipped.  Requires a library loaded
+            with ``with_regions=True`` and a populated companion file.
+        """
+        return [(e.allele, e.region_aa[region])
+                for e in self.get_entries(locus, gene)
+                if e.region_aa.get(region)]
 
     def get_summary(self) -> Counter[tuple[str, str, str]]:
         """Return counts per ``(species, locus, gene)``."""

@@ -703,3 +703,81 @@ class TestTCREmpMultiLocus:
         c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
         assert X.shape == (1, 15)
+
+
+# ---------------------------------------------------------------------------
+# cdr123 embedding mode (CDR1 + CDR2 + CDR3)
+# ---------------------------------------------------------------------------
+
+class TestCdr123Mode:
+    """CDR1/CDR2/CDR3 embedding mode driven by germline region annotations."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        return TCREmp.from_defaults("human", "TRB", n_prototypes=10, mode="cdr123")
+
+    def test_shape_dtype_and_dim(self, model):
+        c = _clonotype("TRBV9*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
+        X = model.embed([c], n_jobs=1)
+        assert X.shape == (1, 30)
+        assert X.dtype == np.float32
+        assert model.embedding_dim == 30
+        assert model.mode == "cdr123"
+
+    def test_cdr1_cdr2_are_v_gene_determined(self, model):
+        # Same V gene, different J and CDR3 -> identical CDR1/CDR2 columns.
+        c1 = _clonotype("TRBV9*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
+        c2 = _clonotype("TRBV9*01", "TRBJ1-1*01", "CASSPGTEAFF")
+        X = model.embed([c1, c2], n_jobs=1)
+        assert np.allclose(X[0, 0::3], X[1, 0::3])  # CDR1
+        assert np.allclose(X[0, 1::3], X[1, 1::3])  # CDR2
+        assert not np.allclose(X[0, 2::3], X[1, 2::3])  # CDR3 differs
+
+    def test_distances_nonneg_and_deterministic(self, model):
+        rows = [model.prototypes.row(k, named=True) for k in range(10)]
+        clonos = [_clonotype(r["v_gene"], r["j_gene"], r["junction_aa"]) for r in rows]
+        X1 = model.embed(clonos, n_jobs=1)
+        X2 = model.embed(clonos, n_jobs=1)
+        assert (X1 >= -1e-4).all()
+        assert np.array_equal(X1, X2)
+
+    def test_differs_from_vjcdr3(self):
+        c = _clonotype("TRBV9*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
+        x_vj = TCREmp.from_defaults("human", "TRB", n_prototypes=10, mode="vjcdr3").embed([c], n_jobs=1)
+        x_cd = TCREmp.from_defaults("human", "TRB", n_prototypes=10, mode="cdr123").embed([c], n_jobs=1)
+        # CDR3/junction column (every 3rd, offset 2) is shared; V/J vs CDR1/CDR2 differ.
+        assert not np.allclose(x_vj[:, 0::3], x_cd[:, 0::3])
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError, match="mode"):
+            TCREmp.from_defaults("human", "TRB", n_prototypes=5, mode="bogus")
+
+    @pytest.mark.parametrize("locus", ["TRA", "TRG", "TRD", "IGH", "IGK", "IGL"])
+    def test_cdr123_other_human_loci(self, locus):
+        model = TCREmp.from_defaults("human", locus, n_prototypes=5, mode="cdr123")
+        row = model.prototypes.row(0, named=True)
+        c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+        X = model.embed([c], n_jobs=1)
+        assert X.shape == (1, 15)
+        assert (X >= -1e-4).all()
+
+    def test_paired_cdr123(self):
+        model = PairedTCREmp.from_defaults("human", "TRA_TRB", n_prototypes=10, mode="cdr123")
+        assert model.chain1_model.mode == "cdr123"
+        assert model.chain2_model.mode == "cdr123"
+
+
+class TestNoNaNAcrossPrototypes:
+    """Regression: prototype genes absent from the aligner must not yield NaN.
+
+    In cdr123 mode some prototype V genes can lack region annotations; their
+    matrix column must fall back to the max distance, never NaN (which would
+    break downstream PCA/scaling)."""
+
+    @pytest.mark.parametrize("mode", ["vjcdr3", "cdr123"])
+    def test_full_prototype_embedding_has_no_nan(self, mode):
+        model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, mode=mode)
+        rows = [model.prototypes.row(k, named=True) for k in range(model.n_prototypes)]
+        clonos = [_clonotype(r["v_gene"], r["j_gene"], r["junction_aa"]) for r in rows]
+        X = model.embed(clonos, n_jobs=1)
+        assert not np.isnan(X).any()

@@ -125,6 +125,7 @@ Explore next
    :hidden:
 
    getting-started
+   embedding-your-repertoire
    examples
    modules
    references
