@@ -55,6 +55,23 @@ AIRR rearrangement file (columns ``locus``, ``v_call``, ``j_call``,
 
 ``X`` is a dense ``float32`` matrix ready for PCA / UMAP / clustering.
 
+Mixed-chain files
+~~~~~~~~~~~~~~~~~
+
+TCREmp embeds one locus at a time. If your file holds several loci (e.g. TRA and
+TRB in one AIRR TSV), parse and embed each locus separately —
+``AIRRParser(locus=...)`` filters the file to the requested locus:
+
+.. code-block:: python
+
+    for chain in ("TRA", "TRB"):
+        clonotypes = AIRRParser(locus=chain).parse("my_repertoire.airr.tsv")
+        model = TCREmp.from_defaults("human", chain, n_prototypes=3000, mode="cdr123")
+        X = model.embed(clonotypes)
+        # ... store / analyse X per chain
+
+See ``tests/integration/mixed_chain_smoke.py`` for a runnable end-to-end check.
+
 Choosing a feature mode
 -----------------------
 

@@ -61,6 +61,12 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'v':        'v_gene',
     'd':        'd_gene',
     'j':        'j_gene',
+    # AIRR Rearrangement call columns -> mirpy's internal gene names, so the
+    # polars file path handles standard AIRR files (v_call/j_call/...) directly.
+    'v_call':   'v_gene',
+    'd_call':   'd_gene',
+    'j_call':   'j_gene',
+    'c_call':   'c_gene',
     'VEnd':     'v_sequence_end',
     'DStart':   'd_sequence_start',
     'DEnd':     'd_sequence_end',
@@ -182,6 +188,7 @@ class ClonotypeTableParser:
         """Parse *source* (file path or DataFrame) into a list of clonotypes."""
         if isinstance(source, str):
             df = self._read_polars(source)
+            df = self._filter_locus_pl(df)
             if n is not None and not sample:
                 df = df.head(n)
             elif n is not None:
@@ -194,6 +201,16 @@ class ClonotypeTableParser:
             elif n is not None:
                 source = source.sample(n=n, random_state=42)
             return self.parse_inner(self.normalize_df(source))
+
+    def _filter_locus_pl(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Restrict a polars frame to the parser's locus (no-op in the base class).
+
+        Subclasses that target a single locus (e.g. :class:`AIRRParser`) override
+        this so the file-parsing path applies the same locus filter as the
+        DataFrame path — important for mixed-chain files where a TSV holds
+        several loci.
+        """
+        return df
 
     def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
         """Parse an already-normalised pandas DataFrame. Converts to polars internally."""
@@ -403,6 +420,17 @@ class AIRRParser(ClonotypeTableParser):
 
     def get_locus_aliases(self) -> set[str]:
         return airr_aliases_for_locus(str(self.locus))
+
+    def _filter_locus_pl(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Keep only rows for this parser's locus (file path; mixed-chain TSVs)."""
+        if 'locus' not in df.columns:
+            return df  # locus inferred per-row downstream
+        aliases = self.get_locus_aliases()
+        keep = [
+            v in aliases
+            for v in df['locus'].cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase().to_list()
+        ]
+        return df.filter(pl.Series(keep))
 
     def validate_columns(self, df: pd.DataFrame) -> None:
         for col in self.mandatory_columns:
