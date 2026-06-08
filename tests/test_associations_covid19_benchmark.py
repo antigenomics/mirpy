@@ -84,7 +84,9 @@ def _reference_cdr3_set(path: Path) -> set[str]:
 def _sample_biomarker_scores(samples: list[SampleRepertoire], biomarker_cdr3: set[str]) -> pd.DataFrame:
     rows = []
     for sample in samples:
-        rep = sample.get_locus("TRB")
+        rep = sample.loci.get("TRB")
+        if rep is None:
+            continue
         seqs = {str(c.junction_aa) for c in rep.clonotypes if c.junction_aa}
         score = float(len(seqs & biomarker_cdr3))
         rows.append(
@@ -99,7 +101,13 @@ def _sample_biomarker_scores(samples: list[SampleRepertoire], biomarker_cdr3: se
 
 def _build_samples(dataset_root: Path, meta: pd.DataFrame, max_samples: int) -> list[SampleRepertoire]:
     parser = ClonotypeTableParser()
-    selected = meta.sort_values(["COVID_status", "sample_id"]).head(max_samples)
+    # Balance COVID/healthy so the association test has two contrast groups.
+    # A plain head() after sorting by COVID_status would otherwise pick only
+    # COVID samples and leave no controls.
+    half = max(1, max_samples // 2)
+    covid = meta[meta["COVID_status"] == "COVID"].sort_values("sample_id").head(half)
+    healthy = meta[meta["COVID_status"] == "healthy"].sort_values("sample_id").head(max_samples - len(covid))
+    selected = pd.concat([covid, healthy])
 
     samples: list[SampleRepertoire] = []
     for _, row in selected.iterrows():
@@ -164,7 +172,7 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
         samples,
         targets,
         metadata_field="COVID_status",
-        metadata_value=["COVID", "healthy"],
+        metadata_value="COVID",
         params=AssociationParams(
             match_mode="none",
             count_mode="sample",
@@ -178,7 +186,7 @@ def test_covid19_association_scan_runtime_and_concordance(capsys) -> None:
         samples,
         targets,
         metadata_field="COVID_status",
-        metadata_value=["COVID", "healthy"],
+        metadata_value="COVID",
         params=AssociationParams(
             match_mode="none",
             count_mode="rearrangement",

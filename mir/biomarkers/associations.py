@@ -164,6 +164,11 @@ def associate_clonotype_metadata(
     summaries: list[dict] = []
     contrasts: list[dict] = []
 
+    # For exact matching (max_distance == 0) a target hit reduces to junction_aa
+    # equality, so we index each repertoire by junction_aa once and reuse it
+    # across all targets instead of rescanning every clonotype per target.
+    match_index_cache: dict[int, dict[str, list[Clonotype]]] = {}
+
     for target in targets:
         categories, detected, background, sample_rows = _counts_for_single_chain_target(
             samples=samples,
@@ -171,6 +176,7 @@ def associate_clonotype_metadata(
             metadata_field=metadata_field,
             metadata_value=metadata_value,
             params=effective,
+            match_index_cache=match_index_cache,
         )
         if not categories:
             continue
@@ -356,6 +362,7 @@ def _counts_for_single_chain_target(
     metadata_field: str,
     metadata_value: str | None,
     params: AssociationParams,
+    match_index_cache: dict[int, dict[str, list[Clonotype]]] | None = None,
 ) -> tuple[list[str], list[int], list[int], list[dict]]:
     by_category_detected: Counter[str] = Counter()
     by_category_total: Counter[str] = Counter()
@@ -372,7 +379,9 @@ def _counts_for_single_chain_target(
             by_category_total[category] += 0
             continue
 
-        matched = _count_single_chain_matches(repertoire, target, params)
+        matched = _count_single_chain_matches(
+            repertoire, target, params, match_index_cache=match_index_cache
+        )
         total = 1 if params.count_mode == "sample" else repertoire.clonotype_count
         sample_rows.append({"category": category, "matched": int(matched), "total": int(total)})
 
@@ -437,8 +446,33 @@ def _count_single_chain_matches(
     repertoire: LocusRepertoire,
     target: Clonotype,
     params: AssociationParams,
+    *,
+    match_index_cache: dict[int, dict[str, list[Clonotype]]] | None = None,
 ) -> int:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
+
+    # Fast path: exact matching means a hit requires identical junction_aa, so
+    # we restrict to clonotypes sharing the target junction (indexed once per
+    # repertoire) and only check the V/J flags on that short candidate list.
+    if match_index_cache is not None and params.max_distance == 0:
+        index = match_index_cache.get(id(repertoire))
+        if index is None:
+            index = {}
+            for clonotype in repertoire.clonotypes:
+                index.setdefault(clonotype.junction_aa, []).append(clonotype)
+            match_index_cache[id(repertoire)] = index
+        candidates = index.get(target.junction_aa)
+        if not candidates:
+            return 0
+        if not match_v and not match_j:
+            return len(candidates)
+        return sum(
+            1
+            for clonotype in candidates
+            if (not match_v or genes_match(clonotype.v_gene, target.v_gene))
+            and (not match_j or genes_match(clonotype.j_gene, target.j_gene))
+        )
+
     matched = 0
     for clonotype in repertoire.clonotypes:
         if match_v and not genes_match(clonotype.v_gene, target.v_gene):
