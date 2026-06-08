@@ -5,7 +5,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Docs](https://img.shields.io/badge/docs-antigenomics.github.io-informational)](https://antigenomics.github.io/mirpy)
 
-![mirpy logo](assets/mirpy_logo.png)
+![mirpy logo](assets/mirpy_light.png)
 
 `mirpy` is a Python library for AIRR-seq and immune repertoire analysis.
 It provides composable building blocks for parsing, filtering, comparing, and
