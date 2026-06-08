@@ -17,6 +17,7 @@ import pytest
 from mir.basic.alphabets import back_translate, _MOST_LIKELY_CODON
 from mir.common.parser import (
     AdaptiveParser,
+    AIRRParser,
     OldMiXCRParser,
     OlgaParser,
     VDJdbFullPairedParser,
@@ -731,3 +732,39 @@ def test_adaptive_custom_sample_id():
         assert repertoire.clonotype_count == 1
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# AIRRParser file path — standard AIRR columns + mixed-chain locus filtering
+# ---------------------------------------------------------------------------
+
+def _write_mixed_airr(tmp_path):
+    """A mixed-locus AIRR TSV (TRA + TRB) with standard v_call/j_call columns."""
+    p = tmp_path / "mixed.airr.tsv"
+    p.write_text(
+        "locus\tv_call\tj_call\tjunction_aa\n"
+        "TRA\tTRAV1-2*01\tTRAJ33*01\tCAVMDSNYQLIW\n"
+        "TRA\tTRAV1-2*01\tTRAJ12*01\tCAVRDSNYQLIW\n"
+        "TRB\tTRBV9*01\tTRBJ2-7*01\tCASSIRSSYEQYF\n"
+        "TRB\tTRBV19*01\tTRBJ2-1*01\tCASSIRSTDTQYF\n"
+        "TRB\tTRBV28*01\tTRBJ1-1*01\tCASSLAPGATNEKLFF\n"
+    )
+    return str(p)
+
+
+def test_airr_file_path_renames_v_call_to_v_gene(tmp_path):
+    # Standard AIRR files use v_call/j_call; the file path must populate v_gene.
+    path = _write_mixed_airr(tmp_path)
+    clonos = AIRRParser(locus="TRB").parse(path)
+    assert clonos, "no clonotypes parsed from AIRR file"
+    assert all(c.v_gene.startswith("TRBV") for c in clonos)
+    assert all(c.j_gene.startswith("TRBJ") for c in clonos)
+
+
+def test_airr_file_path_filters_by_locus_for_mixed_chain(tmp_path):
+    # A mixed TRA+TRB file must yield only the requested locus on the file path.
+    path = _write_mixed_airr(tmp_path)
+    tra = AIRRParser(locus="TRA").parse(path)
+    trb = AIRRParser(locus="TRB").parse(path)
+    assert len(tra) == 2 and all(c.locus == "TRA" for c in tra)
+    assert len(trb) == 3 and all(c.locus == "TRB" for c in trb)
