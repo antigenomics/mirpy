@@ -38,7 +38,7 @@ from mir.biomarkers.motif_logo import compute_pwm, compute_logo, get_vj_backgrou
 
 pwm = compute_pwm(sequences, pseudocount=0.5)   # → pos, aa, count, frequency
 logo = compute_logo(pwm)                         # adds ic_height (bits)
-bg   = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+bg   = get_vj_background(pwms, v_call="TRBV19*01", j_call="TRBJ2-7*01",
                           length=13, species="HomoSapiens", gene="TRB")
 logo_bg = compute_logo(pwm, background=bg)       # adds ic_height + bg_height
 ```
@@ -70,7 +70,7 @@ prefix matching (strip allele suffix) is tried if exact match fails.
 from mir.biomarkers.motif_logo import build_motif_logos_vj
 import polars as pl
 
-# hits_df must have columns: junction_aa, v_gene, j_gene
+# hits_df must have columns: junction_aa, v_call, j_call
 logos = build_motif_logos_vj(
     hits_df, pwms, species="HomoSapiens", gene="TRB", min_seqs=5, pseudocount=0.5,
 )
@@ -102,7 +102,7 @@ Key columns: `cid`, `csz`, `species`, `gene`, `antigen.epitope`, `v.segm.repr`, 
 from mir.biomarkers.motif_logo import plot_motif_logos, plot_logo, BIOCHEMISTRY_COLORS
 
 fig, axes = plot_motif_logos(
-    logo_with_bg, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+    logo_with_bg, v_call="TRBV19*01", j_call="TRBJ2-7*01",
     n_seqs=896, title="GILGFVFTL (Influenza A, HLA-A*02:01)",
 )
 # axes[0] = IC logo (always ≥ 0); axes[1] = selection logo (can be negative)
@@ -126,8 +126,8 @@ cm = ControlManager()
 ctrl_real  = cm.load_control_df("real",      "human", "TRB")
 ctrl_synth = cm.load_control_df("synthetic", "human", "TRB", n=100_000)
 
-bg_real  = get_vj_background_from_control(ctrl_real,  v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=100)
-bg_synth = get_vj_background_from_control(ctrl_synth, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=20)
+bg_real  = get_vj_background_from_control(ctrl_real,  v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=100)
+bg_synth = get_vj_background_from_control(ctrl_synth, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=20)
 ```
 
 Background correlations (158 matched VJ/len combos, 43,580 frequency pairs):
@@ -143,7 +143,7 @@ Use `min_seqs=20` for synthetic controls; `min_seqs=100` for real repertoires.
 from mir.biomarkers.motif_logo import build_terminal_anchored_logo
 import polars as pl
 
-seqs_pl = pl.from_pandas(hits_df[["junction_aa", "v_gene", "j_gene"]])
+seqs_pl = pl.from_pandas(hits_df[["junction_aa", "v_call", "j_call"]])
 logo_anchored = build_terminal_anchored_logo(
     seqs_pl, pwms, n_term=8, c_term=8, species="HomoSapiens", gene="TRB",
 )
@@ -160,10 +160,10 @@ When running `alice_hit_clusters` for motif discovery, **always build CCs per VJ
 ```python
 from mir.biomarkers.alice import alice_hit_clusters
 
-# CORRECT: build CCs per (v_gene, j_gene, length) group
+# CORRECT: build CCs per (v_call, j_call, length) group
 for v, j, L in top_vj_len_groups:
-    sub = hits_df[(hits_df.v_gene.str.startswith(v)) &
-                  (hits_df.j_gene.str.startswith(j)) &
+    sub = hits_df[(hits_df.v_call.str.startswith(v)) &
+                  (hits_df.j_call.str.startswith(j)) &
                   (hits_df.junction_aa.str.len() == L)]
     clustered = alice_hit_clusters(sub)
     cc_sizes  = clustered.groupby("cluster_id").size().sort_values(ascending=False)

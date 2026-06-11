@@ -44,8 +44,8 @@ _VDJTOOLS_FILE  = ASSETS / "vdjtools_trb_d_dot.tsv"
 def test_vdjtools_d_dot_normalised_to_empty():
     """'.' in the d-gene column must be normalised to '' by _gene_str."""
     clonotypes = VDJtoolsParser().parse(str(_VDJTOOLS_FILE))
-    assert all(c.d_gene != "." for c in clonotypes), \
-        "d_gene '.' was not normalised to empty string"
+    assert all(c.d_call != "." for c in clonotypes), \
+        "d_call '.' was not normalised to empty string"
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +116,9 @@ def test_old_mixcr_clonotypes_have_junction_aa(old_mixcr_sample):
 def test_old_mixcr_v_gene_normalized(old_mixcr_sample):
     # allele must be *01, not *00
     for c in old_mixcr_sample["TRB"].clonotypes[:20]:
-        if c.v_gene:
-            assert "*00" not in c.v_gene
-            assert c.v_gene.endswith("*01") or "*" not in c.v_gene
+        if c.v_call:
+            assert "*00" not in c.v_call
+            assert c.v_call.endswith("*01") or "*" not in c.v_call
 
 
 def test_old_mixcr_locus_on_clonotypes(old_mixcr_sample):
@@ -190,7 +190,7 @@ def test_vdjdb_junction_back_translated(vdjdb_sample):
 
 def test_vdjdb_v_gene_set(vdjdb_sample):
     c = vdjdb_sample["TRB"].clonotypes[0]
-    assert c.v_gene  # non-empty
+    assert c.v_call  # non-empty
 
 
 def test_vdjdb_v_sequence_end(vdjdb_sample):
@@ -272,12 +272,12 @@ def test_vdjdb_full_manual_record_993(vdjdb_full_paired):
     )
     chains = {pair.clonotype1.locus: pair.clonotype1, pair.clonotype2.locus: pair.clonotype2}
     assert chains["TRA"].sequence_id == "993_TRA"
-    assert chains["TRA"].v_gene == "TRAV38-2/DV8*01"
-    assert chains["TRA"].j_gene == "TRAJ53*01"
+    assert chains["TRA"].v_call == "TRAV38-2/DV8*01"
+    assert chains["TRA"].j_call == "TRAJ53*01"
     assert chains["TRA"].junction_aa == "CAYRSAGSGGSNYKLTF"
     assert chains["TRB"].sequence_id == "993_TRB"
-    assert chains["TRB"].v_gene == "TRBV27*01"
-    assert chains["TRB"].j_gene == "TRBJ1-5*01"
+    assert chains["TRB"].v_call == "TRBV27*01"
+    assert chains["TRB"].j_call == "TRBJ1-5*01"
     assert chains["TRB"].junction_aa == "CASSLMTNQPQHF"
 
 
@@ -359,12 +359,12 @@ def test_olga_junction_nonempty(olga_sample):
 
 def test_olga_v_gene_set(olga_sample):
     for c in olga_sample["TRB"].clonotypes[:10]:
-        assert c.v_gene.startswith("TRB")
+        assert c.v_call.startswith("TRB")
 
 
 def test_olga_j_gene_set(olga_sample):
     for c in olga_sample["TRB"].clonotypes[:10]:
-        assert c.j_gene.startswith("TRB")
+        assert c.j_call.startswith("TRB")
 
 
 def test_olga_locus_inferred_from_j_gene(olga_sample):
@@ -585,34 +585,34 @@ def test_adaptive_junction_aa_sequences(adaptive_test_sample):
 
 
 def test_adaptive_gene_normalization():
-    """Test that TCRBV05-01 → TRBV5-1 gene name normalization works correctly.
-    
+    """Test that TCRBV05-01 → TRBV5-1*01 gene name normalization works correctly.
+
     The normalization rules:
     - TCRBV → TRBV (TCR → TR replacement)
     - TCRBV05-01 → TRBV5-1 (zero-padding removal from gene number and subtype)
-    - *01 → *1 (zero-padding removal from allele)
+    - bare genes receive the major allele *01; explicit alleles are preserved
     """
     parser = AdaptiveParser(locus="TRB")
-    
+
     # Test _normalize_gene_value directly
-    # Leading zeros in both gene number and subtype are removed
-    assert parser._normalize_gene_value("TCRBV05-01") == "TRBV5-1"
-    assert parser._normalize_gene_value("TCRBV12-03") == "TRBV12-3"
-    assert parser._normalize_gene_value("TCRBD02-01") == "TRBD2-1"
-    assert parser._normalize_gene_value("TCRBJ02-01") == "TRBJ2-1"
-    
-    # Allele normalization: leading zero in allele is removed
-    assert parser._normalize_gene_value("TRBV05-01*01") == "TRBV5-1*1"
-    assert parser._normalize_gene_value("TRBV05-01*02") == "TRBV5-1*2"
-    
-    # TCR → TR replacement
-    assert parser._normalize_gene_value("TCRA") == "TRA"
+    # Leading zeros in both gene number and subtype are removed; bare genes → *01
+    assert parser._normalize_gene_value("TCRBV05-01") == "TRBV5-1*01"
+    assert parser._normalize_gene_value("TCRBV12-03") == "TRBV12-3*01"
+    assert parser._normalize_gene_value("TCRBD02-01") == "TRBD2-1*01"
+    assert parser._normalize_gene_value("TCRBJ02-01") == "TRBJ2-1*01"
+
+    # Allele normalization: explicit alleles are preserved (no leading-zero stripping)
+    assert parser._normalize_gene_value("TRBV05-01*01") == "TRBV5-1*01"
+    assert parser._normalize_gene_value("TRBV05-01*02") == "TRBV5-1*02"
+
+    # TCR → TR replacement; bare gene gets the major allele
+    assert parser._normalize_gene_value("TCRA") == "TRA*01"
 
 
 def test_adaptive_v_genes_normalized(adaptive_test_sample):
     """Check that all V genes are normalized to IMGT format (TCR prefix removed, leading zeros removed)."""
-    v_genes = {c.v_gene for c in adaptive_test_sample.clonotypes}
-    for gene in v_genes:
+    v_calls = {c.v_call for c in adaptive_test_sample.clonotypes}
+    for gene in v_calls:
         assert gene.startswith("TRBV"), f"V gene {gene} should start with TRBV"
         # Should not have TCR prefix (TCRBV is wrong)
         assert not gene.startswith("TCRBV"), f"V gene {gene} should not have TCR prefix"
@@ -623,16 +623,16 @@ def test_adaptive_v_genes_normalized(adaptive_test_sample):
 
 def test_adaptive_j_genes_normalized(adaptive_test_sample):
     """Check that all J genes are normalized to IMGT format."""
-    j_genes = {c.j_gene for c in adaptive_test_sample.clonotypes}
-    for gene in j_genes:
+    j_calls = {c.j_call for c in adaptive_test_sample.clonotypes}
+    for gene in j_calls:
         assert gene.startswith("TRBJ"), f"J gene {gene} should start with TRBJ"
         assert not gene.startswith("TCRBJ"), f"J gene {gene} should not have TCR prefix"
 
 
 def test_adaptive_d_genes_normalized(adaptive_test_sample):
     """Check that all D genes are normalized to IMGT format (or empty if absent)."""
-    d_genes = {c.d_gene for c in adaptive_test_sample.clonotypes}
-    for gene in d_genes:
+    d_calls = {c.d_call for c in adaptive_test_sample.clonotypes}
+    for gene in d_calls:
         if gene:  # non-empty D gene
             assert gene.startswith("TRBD"), f"D gene {gene} should start with TRBD"
             assert not gene.startswith("TCRBD"), f"D gene {gene} should not have TCR prefix"
@@ -649,12 +649,12 @@ def test_adaptive_genes_match_imgt_library(adaptive_test_sample):
     # Collect all unique gene names from the parsed repertoire
     all_genes = set()
     for clonotype in adaptive_test_sample.clonotypes:
-        if clonotype.v_gene:
-            all_genes.add(clonotype.v_gene)
-        if clonotype.d_gene:
-            all_genes.add(clonotype.d_gene)
-        if clonotype.j_gene:
-            all_genes.add(clonotype.j_gene)
+        if clonotype.v_call:
+            all_genes.add(clonotype.v_call)
+        if clonotype.d_call:
+            all_genes.add(clonotype.d_call)
+        if clonotype.j_call:
+            all_genes.add(clonotype.j_call)
     
     # Check that each gene (as a base name without allele) exists in the library
     for gene_name in all_genes:
@@ -674,10 +674,10 @@ def test_adaptive_gene_concordance_v_genes(adaptive_test_sample):
     v_gene_bases = {e.allele.split('*')[0] for e in lib.entries.values() if e.gene == 'V' and e.locus == 'TRB'}
     
     for clonotype in adaptive_test_sample.clonotypes:
-        if clonotype.v_gene:
-            base = clonotype.v_gene.split('*')[0]
+        if clonotype.v_call:
+            base = clonotype.v_call.split('*')[0]
             assert base in v_gene_bases, \
-                f"V gene {clonotype.v_gene} (base: {base}) not in IMGT V genes. " \
+                f"V gene {clonotype.v_call} (base: {base}) not in IMGT V genes. " \
                 f"Available: {sorted(v_gene_bases)}"
 
 
@@ -687,10 +687,10 @@ def test_adaptive_gene_concordance_j_genes(adaptive_test_sample):
     j_gene_bases = {e.allele.split('*')[0] for e in lib.entries.values() if e.gene == 'J' and e.locus == 'TRB'}
     
     for clonotype in adaptive_test_sample.clonotypes:
-        if clonotype.j_gene:
-            base = clonotype.j_gene.split('*')[0]
+        if clonotype.j_call:
+            base = clonotype.j_call.split('*')[0]
             assert base in j_gene_bases, \
-                f"J gene {clonotype.j_gene} (base: {base}) not in IMGT J genes. " \
+                f"J gene {clonotype.j_call} (base: {base}) not in IMGT J genes. " \
                 f"Available: {sorted(j_gene_bases)}"
 
 
@@ -700,10 +700,10 @@ def test_adaptive_gene_concordance_d_genes(adaptive_test_sample):
     d_gene_bases = {e.allele.split('*')[0] for e in lib.entries.values() if e.gene == 'D' and e.locus == 'TRB'}
     
     for clonotype in adaptive_test_sample.clonotypes:
-        if clonotype.d_gene:
-            base = clonotype.d_gene.split('*')[0]
+        if clonotype.d_call:
+            base = clonotype.d_call.split('*')[0]
             assert base in d_gene_bases, \
-                f"D gene {clonotype.d_gene} (base: {base}) not in IMGT D genes. " \
+                f"D gene {clonotype.d_call} (base: {base}) not in IMGT D genes. " \
                 f"Available: {sorted(d_gene_bases)}"
 
 
@@ -752,13 +752,13 @@ def _write_mixed_airr(tmp_path):
     return str(p)
 
 
-def test_airr_file_path_renames_v_call_to_v_gene(tmp_path):
-    # Standard AIRR files use v_call/j_call; the file path must populate v_gene.
+def test_airr_file_path_populates_v_call(tmp_path):
+    # Standard AIRR files use v_call/j_call; the file path must populate v_call.
     path = _write_mixed_airr(tmp_path)
     clonos = AIRRParser(locus="TRB").parse(path)
     assert clonos, "no clonotypes parsed from AIRR file"
-    assert all(c.v_gene.startswith("TRBV") for c in clonos)
-    assert all(c.j_gene.startswith("TRBJ") for c in clonos)
+    assert all(c.v_call.startswith("TRBV") for c in clonos)
+    assert all(c.j_call.startswith("TRBJ") for c in clonos)
 
 
 def test_airr_file_path_filters_by_locus_for_mixed_chain(tmp_path):

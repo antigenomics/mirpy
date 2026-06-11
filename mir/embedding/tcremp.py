@@ -27,7 +27,7 @@ Typical usage::
     from mir.common.clonotype import Clonotype
 
     model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
-    clonotypes = [Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01",
+    clonotypes = [Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01",
                             junction_aa="CASSIRSSYEQYF")]
     X = model.embed(clonotypes)  # shape: (1, 3000)
 """
@@ -113,7 +113,7 @@ def _build_gene_matrix(
     return gene_idx, mat_ext, n_genes  # n_genes is the fallback row index
 
 
-_REQUIRED_PROTO_COLS = {"v_gene", "j_gene", "junction_aa"}
+_REQUIRED_PROTO_COLS = {"v_call", "j_call", "junction_aa"}
 
 
 def _validate_prototypes(df: pl.DataFrame, source: str) -> None:
@@ -174,8 +174,8 @@ class TCREmp:
         germline_aligner: Multi-locus :class:`~mir.distances.aligner.GermlineAligner`
             built via :meth:`~mir.distances.aligner.GermlineAligner.from_library`.
         junction_aligner: Scoring instance for junction comparison.
-        prototypes: Prototype DataFrame with columns ``v_gene``,
-            ``j_gene``, ``junction_aa``.
+        prototypes: Prototype DataFrame with columns ``v_call``,
+            ``j_call``, ``junction_aa``.
         locus: Receptor locus, e.g. ``'TRB'``.
         species: Species identifier, e.g. ``'human'``.
     """
@@ -203,8 +203,8 @@ class TCREmp:
         self.species = species
         self.mode = mode
         self._n_prototypes = len(prototypes)
-        self._proto_v = [allele_with_default(g) for g in prototypes["v_gene"].to_list()]
-        self._proto_j = [allele_with_default(g) for g in prototypes["j_gene"].to_list()]
+        self._proto_v = [allele_with_default(g) for g in prototypes["v_call"].to_list()]
+        self._proto_j = [allele_with_default(g) for g in prototypes["j_call"].to_list()]
         self._proto_junction = prototypes["junction_aa"].to_list()
 
         # Pre-compute proto junction self-scores using the windowed score(s,s),
@@ -215,12 +215,12 @@ class TCREmp:
         )
 
         # Two germline distance components (the third is always the junction).
-        # vjcdr3: [V (by v_gene), J (by j_gene)]; cdr123: [CDR1, CDR2] both
-        # V-gene-determined and looked up by v_gene.  Component matrices have a
+        # vjcdr3: [V (by v_call), J (by j_call)]; cdr123: [CDR1, CDR2] both
+        # V-gene-determined and looked up by v_call.  Component matrices have a
         # fallback row appended so unknown genes index the last row.
         if mode == "vjcdr3":
-            self._comp1_gene = "v_gene"
-            self._comp2_gene = "j_gene"
+            self._comp1_gene = "v_call"
+            self._comp2_gene = "j_call"
             self._comp1_idx, self._comp1_mat_ext, self._comp1_fallback_idx = _build_gene_matrix(
                 germline_aligner, locus, "V", self._proto_v
             )
@@ -228,8 +228,8 @@ class TCREmp:
                 germline_aligner, locus, "J", self._proto_j
             )
         else:  # cdr123
-            self._comp1_gene = "v_gene"
-            self._comp2_gene = "v_gene"
+            self._comp1_gene = "v_call"
+            self._comp2_gene = "v_call"
             self._comp1_idx, self._comp1_mat_ext, self._comp1_fallback_idx = _build_gene_matrix(
                 self.region_aligners["cdr1"], locus, "V", self._proto_v
             )
@@ -333,7 +333,7 @@ class TCREmp:
             repertoires and versioned for reproducibility.
 
         The file must be tab-separated (or comma-separated) with at least
-        the columns ``v_gene``, ``j_gene``, and ``junction_aa``.
+        the columns ``v_call``, ``j_call``, and ``junction_aa``.
 
         Args:
             prototypes_path: Path to a TSV/CSV file with prototype clonotypes.
@@ -435,7 +435,7 @@ class TCREmp:
 
         Args:
             clonotypes: List of clonotypes to embed.
-                ``v_gene`` and ``j_gene`` values without an explicit allele
+                ``v_call`` and ``j_call`` values without an explicit allele
                 suffix are normalized to ``*01`` before matrix lookup.
             n_jobs: Number of parallel worker threads:
 
@@ -464,7 +464,7 @@ class TCREmp:
         Example:
             >>> from mir.common.clonotype import Clonotype
             >>> model = TCREmp.from_defaults("human", "TRB", n_prototypes=10)
-            >>> c = Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01",
+            >>> c = Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01",
             ...               junction_aa="CASSIRSSYEQYF")
             >>> X = model.embed([c])
             >>> X.shape
@@ -482,7 +482,7 @@ class TCREmp:
 
         # Vectorized germline components: resolve each gene via cascade
         # (exact → *01 → bare → fallback).  Component lookup gene depends on mode:
-        # vjcdr3 → (v_gene, j_gene); cdr123 → (v_gene, v_gene).
+        # vjcdr3 → (v_call, j_call); cdr123 → (v_call, v_call).
         comp1_genes = [getattr(c, self._comp1_gene) for c in clonotypes]
         comp2_genes = [getattr(c, self._comp2_gene) for c in clonotypes]
         c1_idx = np.array([_resolve_gene_idx(g, self._comp1_idx, self._comp1_fallback_idx) for g in comp1_genes])

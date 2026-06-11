@@ -10,8 +10,8 @@ def _clonotype(
     seq_id: str,
     nt_seq: str,
     aa_seq: str,
-    v_gene: str = "TRBV1",
-    j_gene: str = "TRBJ1",
+    v_call: str = "TRBV1",
+    j_call: str = "TRBJ1",
     dup: int = 1,
 ) -> Clonotype:
     """Create a test clonotype."""
@@ -19,8 +19,8 @@ def _clonotype(
         sequence_id=seq_id,
         junction=nt_seq,
         junction_aa=aa_seq,
-        v_gene=v_gene,
-        j_gene=j_gene,
+        v_call=v_call,
+        j_call=j_call,
         locus="TRB",
         duplicate_count=dup,
     )
@@ -33,9 +33,9 @@ def test_edit_distance_graph_convergent_rearrangements() -> None:
     all be connected by edges in the edit distance graph (distance 0 in junction_aa).
     """
     clonotypes = [
-        _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-        _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),  # different nt, same aa
-        _clonotype("c3", "AAA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),  # different nt, same aa
+        _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+        _clonotype("c2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),  # different nt, same aa
+        _clonotype("c3", "AAA", "MVA", v_call="TRBV1", j_call="TRBJ1"),  # different nt, same aa
     ]
 
     g = build_edit_distance_graph(clonotypes, metric="hamming", threshold=1, nproc=1)
@@ -50,19 +50,19 @@ def test_edit_distance_graph_convergent_rearrangements() -> None:
     assert g.get_eid(1, 2, directed=False, error=False) != -1
 
 
-def test_edit_distance_graph_convergent_with_v_gene_match() -> None:
-    """With v_gene_match=True, convergent clonotypes with different V genes should not be connected.
+def test_edit_distance_graph_convergent_with_v_call_match() -> None:
+    """With v_call_match=True, convergent clonotypes with different V genes should not be connected.
     
     Two convergent clonotypes (same junction_aa) but with different V genes
-    should not have an edge when v_gene_match=True.
+    should not have an edge when v_call_match=True.
     """
     clonotypes = [
-        _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-        _clonotype("c2", "GTA", "MVA", v_gene="TRBV2", j_gene="TRBJ1"),  # different nt, same aa, different V
+        _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+        _clonotype("c2", "GTA", "MVA", v_call="TRBV2", j_call="TRBJ1"),  # different nt, same aa, different V
     ]
 
     g = build_edit_distance_graph(
-        clonotypes, metric="hamming", threshold=1, v_gene_match=True, nproc=1
+        clonotypes, metric="hamming", threshold=1, v_call_match=True, nproc=1
     )
 
     assert g.vcount() == 2
@@ -76,15 +76,15 @@ def test_edit_distance_graph_convergent_with_matching_v_and_j() -> None:
     should have an edge even with matching constraints.
     """
     clonotypes = [
-        _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-        _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),  # same V and J, different nt/aa coding
+        _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+        _clonotype("c2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),  # same V and J, different nt/aa coding
     ]
 
     g = build_edit_distance_graph(
         clonotypes,
         metric="hamming",
         threshold=1,
-        v_gene_match=True,
+        v_call_match=True,
         nproc=1,
     )
 

@@ -90,7 +90,7 @@ m = OlgaModel(locus="TRB", species="human")
 probs = get_gene_usage_from_olga_model(m)
 # probs["v"]  — {gene_name: P(V)}
 # probs["j"]  — {gene_name: P(J)}
-# probs["vj"] — {(v_gene, j_gene): P(V,J)}
+# probs["vj"] — {(v_call, j_call): P(V,J)}
 ```
 
 Reads IGoR model marginals directly. Probabilities are aggregated under the major-allele key

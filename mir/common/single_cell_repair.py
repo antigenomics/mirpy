@@ -17,10 +17,10 @@ _REQUIRED_COLUMNS = {
     "umi_count",
     "junction",
     "junction_aa",
-    "v_gene",
-    "d_gene",
-    "j_gene",
-    "c_gene",
+    "v_call",
+    "d_call",
+    "j_call",
+    "c_call",
 }
 
 _MASTER_TO_SLAVE_LOCI: dict[str, tuple[str, ...]] = {
@@ -38,9 +38,9 @@ _B_LIGHT_LOCI: tuple[str, ...] = ("IGK", "IGL")
 class _SyntheticRecord:
     junction: str
     junction_aa: str
-    v_gene: str
-    d_gene: str
-    j_gene: str
+    v_call: str
+    d_call: str
+    j_call: str
 
 
 class _SyntheticGenerator:
@@ -65,9 +65,9 @@ class _SyntheticGenerator:
             return _SyntheticRecord(
                 junction=str(rec.get("junction") or ""),
                 junction_aa=str(rec.get("junction_aa") or ""),
-                v_gene=str(rec.get("v_gene") or ""),
-                d_gene=str(rec.get("d_gene") or ""),
-                j_gene=str(rec.get("j_gene") or ""),
+                v_call=str(rec.get("v_call") or ""),
+                d_call=str(rec.get("d_call") or ""),
+                j_call=str(rec.get("j_call") or ""),
             )
         except Exception:
             # Keep a deterministic fallback so cleanup can proceed even if OLGA models are unavailable.
@@ -75,9 +75,9 @@ class _SyntheticGenerator:
             return _SyntheticRecord(
                 junction="",
                 junction_aa=aa,
-                v_gene="",
-                d_gene="",
-                j_gene="",
+                v_call="",
+                d_call="",
+                j_call="",
             )
 
 
@@ -193,10 +193,10 @@ def impute_missing_chains(
                 "sequence_id": f"synthetic_{locus}_{next_id}",
                 "junction": rec.junction,
                 "junction_aa": rec.junction_aa,
-                "v_gene": rec.v_gene,
-                "d_gene": rec.d_gene,
-                "j_gene": rec.j_gene,
-                "c_gene": "",
+                "v_call": rec.v_call,
+                "d_call": rec.d_call,
+                "j_call": rec.j_call,
+                "c_call": "",
             }
             if reuse_slave_per_master and master_locus and master_sequence_id:
                 per_master_slave[(master_locus, master_sequence_id, locus)] = reused
@@ -210,10 +210,10 @@ def impute_missing_chains(
                 "umi_count": 1,
                 "junction": reused["junction"],
                 "junction_aa": reused["junction_aa"],
-                "v_gene": reused["v_gene"],
-                "d_gene": reused["d_gene"],
-                "j_gene": reused["j_gene"],
-                "c_gene": reused["c_gene"],
+                "v_call": reused["v_call"],
+                "d_call": reused["d_call"],
+                "j_call": reused["j_call"],
+                "c_call": reused["c_call"],
             }
         )
 

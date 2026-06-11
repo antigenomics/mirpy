@@ -3,7 +3,7 @@
 Runs only with ``RUN_BENCHMARK=1``. The benchmark now mirrors the notebook's
 expanded workflow:
 
-- deduplicate GLIPH rows to unique ``(reference_id, v_gene, junction_aa)``
+- deduplicate GLIPH rows to unique ``(reference_id, v_call, junction_aa)``
   clonotypes,
 - match controls on V usage only,
 - run separate binomial enrichment tests for five token families,
@@ -57,8 +57,8 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(
         {
             "junction_aa": raw["junction_aa"].astype(str).str.strip(),
-            "v_gene": raw["v_gene"].astype(str).str.strip(),
-            "j_gene": raw["j_gene"].astype(str).str.strip(),
+            "v_call": raw["v_call"].astype(str).str.strip(),
+            "j_call": raw["j_call"].astype(str).str.strip(),
             "duplicate_count": pd.to_numeric(raw["duplicate_count"], errors="coerce").fillna(1).astype(int),
             "reference_id": raw["reference_id"].astype(str).str.strip(),
             "stimulus": raw["stimulus"].astype(str).str.strip(),
@@ -68,7 +68,7 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     )
     out = out[out["junction_aa"].str.len() >= 5].copy()
     out = out[out["junction_aa"].str.match(AA_RE)].copy()
-    return deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa")).to_pandas()
+    return deduplicate_clonotype_rows(out, subset=("reference_id", "v_call", "junction_aa")).to_pandas()
 
 
 def _extract_family(df: pd.DataFrame, family: str) -> GliphTokenArtifacts:
@@ -209,8 +209,8 @@ def test_gliph_combined_graph_benchmark() -> None:
     ctrl_all = pd.DataFrame(
         {
             "junction_aa": ctrl_raw["junction_aa"].astype(str).str.strip(),
-            "v_gene": ctrl_raw["v_gene"].astype(str).str.strip(),
-            "j_gene": ctrl_raw["j_gene"].astype(str).str.strip(),
+            "v_call": ctrl_raw["v_call"].astype(str).str.strip(),
+            "j_call": ctrl_raw["j_call"].astype(str).str.strip(),
             "duplicate_count": pd.to_numeric(ctrl_raw.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int),
             "reference_id": "control",
             "stimulus": "control",

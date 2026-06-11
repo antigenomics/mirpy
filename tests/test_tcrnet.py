@@ -163,8 +163,8 @@ def test_control_type_loading_via_manager(monkeypatch) -> None:
             "duplicate_count": [1, 1],
             "junction": ["ATG", "GCT"],
             "junction_aa": ["CASSLGQETQYF", "CASSLGQATQYF"],
-            "v_gene": ["TRBV5-1*01", "TRBV5-1*01"],
-            "j_gene": ["TRBJ2-7*01", "TRBJ2-7*01"],
+            "v_call": ["TRBV5-1*01", "TRBV5-1*01"],
+            "j_call": ["TRBJ2-7*01", "TRBJ2-7*01"],
         }
     )
 

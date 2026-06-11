@@ -472,17 +472,17 @@ def make_reference_keys(
     if pending is not None:
         junctions = pending.get("junctions", [])
         junction_aas = pending.get("junction_aas", [])
-        v_genes = pending.get("v_genes", [])
-        j_genes = pending.get("j_genes", [])
-        for jnt, jaa, v_gene, j_gene in zip(junctions, junction_aas, v_genes, j_genes):
+        v_calls = pending.get("v_calls", [])
+        j_calls = pending.get("j_calls", [])
+        for jnt, jaa, v_call, j_call in zip(junctions, junction_aas, v_calls, j_calls):
             seq = jaa if use_aa else jnt
             if not seq:
                 continue
             if use_aa and not is_coding_aa(seq):
                 dropped_noncoding += 1
                 continue
-            v = _gene_base(v_gene) if use_v else ""
-            j = _gene_base(j_gene) if use_j else ""
+            v = _gene_base(v_call) if use_v else ""
+            j = _gene_base(j_call) if use_j else ""
             if allow_1mm and use_aa:
                 for variant in expand_1mm(seq):
                     keys.add((variant, v, j))
@@ -498,8 +498,8 @@ def make_reference_keys(
         if use_aa and not c.is_coding():
             dropped_noncoding += 1
             continue
-        v = _gene_base(c.v_gene) if use_v else ""
-        j = _gene_base(c.j_gene) if use_j else ""
+        v = _gene_base(c.v_call) if use_v else ""
+        j = _gene_base(c.j_call) if use_j else ""
         if allow_1mm and use_aa:
             for variant in expand_1mm(seq):
                 keys.add((variant, v, j))
@@ -550,10 +550,10 @@ def make_query_index(
     if pending is not None:
         junctions = pending.get("junctions", [])
         junction_aas = pending.get("junction_aas", [])
-        v_genes = pending.get("v_genes", [])
-        j_genes = pending.get("j_genes", [])
+        v_calls = pending.get("v_calls", [])
+        j_calls = pending.get("j_calls", [])
         dups = pending.get("dup_counts", [])
-        for jnt, jaa, v_gene, j_gene, dc in zip(junctions, junction_aas, v_genes, j_genes, dups):
+        for jnt, jaa, v_call, j_call, dc in zip(junctions, junction_aas, v_calls, j_calls, dups):
             seq = jaa if use_aa else jnt
             if not seq:
                 continue
@@ -562,8 +562,8 @@ def make_query_index(
                 continue
             key = (
                 seq,
-                _gene_base(v_gene) if use_v else "",
-                _gene_base(j_gene) if use_j else "",
+                _gene_base(v_call) if use_v else "",
+                _gene_base(j_call) if use_j else "",
             )
             index[key] = index.get(key, 0) + int(dc or 0)
         _emit_noncoding_warning(dropped_noncoding, context=f"query:{overlap_space}")
@@ -578,8 +578,8 @@ def make_query_index(
             continue
         key = (
             seq,
-            _gene_base(c.v_gene) if use_v else "",
-            _gene_base(c.j_gene) if use_j else "",
+            _gene_base(c.v_call) if use_v else "",
+            _gene_base(c.j_call) if use_j else "",
         )
         index[key] = index.get(key, 0) + c.duplicate_count
     _emit_noncoding_warning(dropped_noncoding, context=f"query:{overlap_space}")

@@ -34,7 +34,7 @@ def build_mixed_file() -> int:
         recs = OlgaModel(locus=locus, species="human", seed=1).generate_sequences_with_meta(
             n=N_PER_LOCUS, pgens=False, seed=1)
         for r in recs:
-            rows.append(f"{locus}\t{r['v_gene']}\t{r['j_gene']}\t{r['junction_aa']}")
+            rows.append(f"{locus}\t{r['v_call']}\t{r['j_call']}\t{r['junction_aa']}")
     OUT.write_text("\n".join(rows) + "\n")
     return len(rows) - 1
 

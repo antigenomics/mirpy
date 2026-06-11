@@ -48,7 +48,7 @@ _RS_RETENTION_THRESHOLD = 0.80  # ≥80% of RS rearrangements must stay in filte
 #   "CASSRS" → CAS(0), ASS(1), SSR(2), SRS(3)
 #   "CASTLG" → CAS(0), AST(1), STL(2), TLG(3)
 #
-# Unique kmers (all share locus/v_gene/c_gene so one Kmer object each):
+# Unique kmers (all share locus/v_call/c_call so one Kmer object each):
 #   CAS, ASR, SRS, ASS, SSR, AST, STL, TLG  →  8 unique Kmer objects
 #
 # Full graph: 3 rearrangement + 8 kmer = 11 vertices, 11 edges, 1 component
@@ -66,9 +66,9 @@ _K = 3
 
 
 def _make_mock():
-    r_rs1  = Clonotype(sequence_id="0", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS1,  duplicate_count=1)
-    r_rs2  = Clonotype(sequence_id="1", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_RS2,  duplicate_count=1)
-    r_none = Clonotype(sequence_id="2", locus=_LOCUS, v_gene=_V, c_gene=_C, junction_aa=SEQ_NONE, duplicate_count=1)
+    r_rs1  = Clonotype(sequence_id="0", locus=_LOCUS, v_call=_V, c_call=_C, junction_aa=SEQ_RS1,  duplicate_count=1)
+    r_rs2  = Clonotype(sequence_id="1", locus=_LOCUS, v_call=_V, c_call=_C, junction_aa=SEQ_RS2,  duplicate_count=1)
+    r_none = Clonotype(sequence_id="2", locus=_LOCUS, v_call=_V, c_call=_C, junction_aa=SEQ_NONE, duplicate_count=1)
     rearrangements = [r_rs1, r_rs2, r_none]
     table = tokenize_rearrangements(rearrangements, k=_K)
     return rearrangements, table
@@ -282,8 +282,8 @@ class TestTokenGraphFull(unittest.TestCase):
         self.assertEqual(len(self.g.components()), 1)
 
     def test_vertex_attributes_set(self):
-        """v_gene, c_gene, locus are set on all vertices."""
-        for attr in ("v_gene", "c_gene", "locus"):
+        """v_call, c_call, locus are set on all vertices."""
+        for attr in ("v_call", "c_call", "locus"):
             vals = self.g.vs[attr]
             self.assertTrue(all(v is not None for v in vals))
 
@@ -362,11 +362,11 @@ class TestTokenGraphFiltered(unittest.TestCase):
         self.assertEqual(self.g.degree(srs_v), 2)
 
     def test_diff_v_gene_makes_separate_kmer_vertices(self):
-        """Two rearrangements with different v_gene produce separate Kmer nodes."""
-        r_v1 = Clonotype(sequence_id="10", locus=_LOCUS, v_gene="TRBV1", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
-        r_v2 = Clonotype(sequence_id="11", locus=_LOCUS, v_gene="TRBV2", c_gene=_C, junction_aa=SEQ_RS1, duplicate_count=1)
+        """Two rearrangements with different v_call produce separate Kmer nodes."""
+        r_v1 = Clonotype(sequence_id="10", locus=_LOCUS, v_call="TRBV1", c_call=_C, junction_aa=SEQ_RS1, duplicate_count=1)
+        r_v2 = Clonotype(sequence_id="11", locus=_LOCUS, v_call="TRBV2", c_call=_C, junction_aa=SEQ_RS1, duplicate_count=1)
         table = tokenize_rearrangements([r_v1, r_v2], k=_K)
-        # SRS appears in both but under different Kmer keys (different v_gene)
+        # SRS appears in both but under different Kmer keys (different v_call)
         srs_kmers = [k for k in table if k.seq == b"SRS"]
         self.assertEqual(len(srs_kmers), 2)
         g = build_token_graph([r_v1, r_v2], table)
@@ -389,7 +389,7 @@ _NONRS_LOSS_THRESHOLD = 0.90  # filtering must remove ≥90% of non-RS rearrange
 def _load_gilg():
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
+    return [Clonotype(sequence_id=str(i), locus="TRB", v_call="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(),

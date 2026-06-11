@@ -45,8 +45,8 @@ def test_load_min_duplicate_count():
 
 def test_load_d_gene_normalised(dataset):
     dots = [c for srep in dataset.samples.values() for lr in srep.loci.values()
-            for c in lr.clonotypes if c.d_gene == "."]
-    assert not dots, "d_gene not normalised during dataset load"
+            for c in lr.clonotypes if c.d_call == "."]
+    assert not dots, "d_call not normalised during dataset load"
 
 
 def test_locus_pickle_roundtrip(tmp_path, locus_rep):
@@ -63,7 +63,7 @@ def test_locus_parquet_roundtrip(tmp_path, locus_rep):
     p = tmp_path / "lr.parquet"
     locus_rep.write_polars(p, format="parquet")
     rt = LocusRepertoire.read_polars(p, locus="TRB", repertoire_id="s1")
-    assert sorted(c.v_gene for c in rt.clonotypes) == sorted(c.v_gene for c in locus_rep.clonotypes)
+    assert sorted(c.v_call for c in rt.clonotypes) == sorted(c.v_call for c in locus_rep.clonotypes)
 
 
 def test_sample_pickle_roundtrip(tmp_path, dataset):
@@ -105,10 +105,10 @@ def _clone_key(c):
         c.duplicate_count,
         c.junction,
         c.junction_aa,
-        c.v_gene,
-        c.d_gene,
-        c.j_gene,
-        c.c_gene,
+        c.v_call,
+        c.d_call,
+        c.j_call,
+        c.c_call,
         c.v_sequence_end,
         c.d_sequence_start,
         c.d_sequence_end,

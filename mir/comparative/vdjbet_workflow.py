@@ -163,7 +163,7 @@ def load_yfv_trb_samples(yfv_dir: str | Path) -> tuple[list[dict[str, Any]], Gen
         clonotypes = parser.parse(str(fp))
         for clonotype in clonotypes:
             if not clonotype.locus:
-                clonotype.locus = infer_locus(clonotype.j_gene or clonotype.v_gene or "")
+                clonotype.locus = infer_locus(clonotype.j_call or clonotype.v_call or "")
 
         trb_clonotypes = [c for c in clonotypes if c.locus == "TRB"]
         trb_rep = LocusRepertoire(clonotypes=trb_clonotypes, locus="TRB", repertoire_id=fp.stem)
@@ -225,22 +225,22 @@ def compute_olga_usage_adjustment(
     )
 
     v_rows = [
-        {"v_gene": k, "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_v": vals["factor"]}
+        {"v_call": k, "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_v": vals["factor"]}
         for k, vals in v_cmp.items()
     ]
     v_df = pl.from_dicts(v_rows) if v_rows else pl.DataFrame(
-        schema={"v_gene": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_v": pl.Float64}
+        schema={"v_call": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_v": pl.Float64}
     )
     v_df = v_df.with_columns(
         pl.col("factor_v").clip(lower_bound=1e-300).log(base=2).alias("log2_factor_v")
     )
 
     vj_rows = [
-        {"v_gene": k[0], "j_gene": k[1], "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_vj": vals["factor"]}
+        {"v_call": k[0], "j_call": k[1], "p_yf": vals["p_self"], "p_olga": vals["p_reference"], "factor_vj": vals["factor"]}
         for k, vals in vj_cmp.items()
     ]
     vj_df = pl.from_dicts(vj_rows) if vj_rows else pl.DataFrame(
-        schema={"v_gene": pl.Utf8, "j_gene": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_vj": pl.Float64}
+        schema={"v_call": pl.Utf8, "j_call": pl.Utf8, "p_yf": pl.Float64, "p_olga": pl.Float64, "factor_vj": pl.Float64}
     )
     vj_df = vj_df.with_columns(
         pl.col("factor_vj").clip(lower_bound=1e-300).log(base=2).alias("log2_factor_vj")

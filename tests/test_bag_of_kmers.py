@@ -28,15 +28,15 @@ def _clone(
     jaa: str,
     *,
     locus: str = "TRB",
-    v_gene: str = "TRBV5-1*01",
+    v_call: str = "TRBV5-1*01",
     duplicate_count: int = 1,
 ) -> Clonotype:
     return Clonotype(
         sequence_id=seq_id,
         locus=locus,
-        v_gene=v_gene,
-        j_gene="TRBJ1-1*01",
-        c_gene="TRBC1",
+        v_call=v_call,
+        j_call="TRBJ1-1*01",
+        c_call="TRBC1",
         junction_aa=jaa,
         duplicate_count=duplicate_count,
         _validate=False,
@@ -66,8 +66,8 @@ def test_tokenize_locus_repertoire_plain_and_reduced() -> None:
 def test_tokenize_locus_repertoire_with_v_annotation() -> None:
     rep = LocusRepertoire(
         [
-            _clone("1", "CASS", v_gene="TRBV5-1*01", duplicate_count=1),
-            _clone("2", "CASS", v_gene="TRBV6-1*01", duplicate_count=1),
+            _clone("1", "CASS", v_call="TRBV5-1*01", duplicate_count=1),
+            _clone("2", "CASS", v_call="TRBV6-1*01", duplicate_count=1),
         ],
         locus="TRB",
     )
@@ -91,14 +91,14 @@ def test_tokenize_locus_repertoire_gapped_total_kmers() -> None:
 def test_tokenize_sample_and_dataset_by_locus() -> None:
     s1 = SampleRepertoire(
         loci={
-            "TRA": LocusRepertoire([_clone("1", "CASS", locus="TRA", v_gene="TRAV1*01")], locus="TRA"),
-            "TRB": LocusRepertoire([_clone("2", "CASS", locus="TRB", v_gene="TRBV5-1*01")], locus="TRB"),
+            "TRA": LocusRepertoire([_clone("1", "CASS", locus="TRA", v_call="TRAV1*01")], locus="TRA"),
+            "TRB": LocusRepertoire([_clone("2", "CASS", locus="TRB", v_call="TRBV5-1*01")], locus="TRB"),
         },
         sample_id="S1",
     )
     s2 = SampleRepertoire(
         loci={
-            "TRB": LocusRepertoire([_clone("3", "CATS", locus="TRB", v_gene="TRBV7-2*01")], locus="TRB"),
+            "TRB": LocusRepertoire([_clone("3", "CATS", locus="TRB", v_call="TRBV7-2*01")], locus="TRB"),
         },
         sample_id="S2",
     )
@@ -131,8 +131,8 @@ def test_build_control_kmer_profile_in_memory_default(tmp_path: Path, monkeypatc
             "duplicate_count": [2, 1],
             "junction": ["ATG", "GCT"],
             "junction_aa": ["CASS", "CASA"],
-            "v_gene": ["TRBV5-1*01", "TRBV5-1*01"],
-            "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+            "v_call": ["TRBV5-1*01", "TRBV5-1*01"],
+            "j_call": ["TRBJ1*01", "TRBJ1*01"],
         }
     )
 
@@ -173,8 +173,8 @@ def test_ensure_and_load_control_kmer_profile_with_cache(tmp_path: Path, monkeyp
             "duplicate_count": [2, 1],
             "junction": ["ATG", "GCT"],
             "junction_aa": ["CASS", "CASA"],
-            "v_gene": ["TRBV5-1*01", "TRBV5-1*01"],
-            "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+            "v_call": ["TRBV5-1*01", "TRBV5-1*01"],
+            "j_call": ["TRBJ1*01", "TRBJ1*01"],
         }
     )
 
@@ -222,8 +222,8 @@ def test_control_kmer_profile_waits_for_lock(tmp_path: Path, monkeypatch) -> Non
             "duplicate_count": [1],
             "junction": ["ATG"],
             "junction_aa": ["CASS"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1*01"],
         }
     )
 

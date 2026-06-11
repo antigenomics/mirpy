@@ -85,8 +85,8 @@ class MetaclonotypeClusterConfig:
             the method name if ``None``.
 
         max_distance: Maximum TCRdist score for cluster membership.
-        match_v_gene: Restrict TCRdist neighbors to same V gene.
-        match_j_gene: Restrict TCRdist neighbors to same J gene.
+        match_v_call: Restrict TCRdist neighbors to same V gene.
+        match_j_call: Restrict TCRdist neighbors to same J gene.
 
         n_prototypes: Number of prototype clonotypes for TCREmp.
         embed_cluster_algo: Embedding-space clustering algorithm for TCREmp
@@ -120,8 +120,8 @@ class MetaclonotypeClusterConfig:
 
     # TCRdist — raw score scale (mirpy TcrDist: ~900 min, ~4000 median for random TRB)
     max_distance: float = 1200.0
-    match_v_gene: bool = False
-    match_j_gene: bool = False
+    match_v_call: bool = False
+    match_j_call: bool = False
 
     # TCREmp
     n_prototypes: int = 300
@@ -196,8 +196,8 @@ def _cluster_tcrdist(
     return tcrdist.find_metaclonotypes(
         rep,
         max_distance=cfg.max_distance,
-        match_v_gene=cfg.match_v_gene,
-        match_j_gene=cfg.match_j_gene,
+        match_v_call=cfg.match_v_call,
+        match_j_call=cfg.match_j_call,
         cluster_prefix=cfg._prefix,
         n_jobs=cfg.n_jobs,
     )

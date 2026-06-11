@@ -26,7 +26,7 @@ def _filter_locus(
 ) -> LocusRepertoire:
     kept = []
     for clonotype in repertoire.clonotypes:
-        if not gene_library.is_functional(clonotype.v_gene):
+        if not gene_library.is_functional(clonotype.v_call):
             continue
         if not clonotype.junction_aa or not is_coding(clonotype.junction_aa):
             continue

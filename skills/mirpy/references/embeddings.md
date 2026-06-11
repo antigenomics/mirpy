@@ -21,7 +21,7 @@ selects the per-prototype feature triple:
 - `"cdr123"` — `[CDR1, CDR2, CDR3/junction]`. CDR1/CDR2 are germline
   V-gene-determined, precomputed from the bundled region annotations via
   `GermlineAligner.from_library_region`; both are looked up by the clonotype's
-  `v_gene`. Requires `region_annotations.txt` (raises otherwise).
+  `v_call`. Requires `region_annotations.txt` (raises otherwise).
 
 Output is `(N, 3*K)` float32 in both modes; only the first two components of each
 triple change. Prototype genes absent from the aligner fall back to the max
@@ -44,8 +44,8 @@ model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, junction_method=
 
 # Embed clonotypes
 clonotypes = [
-    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
-    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+    Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_call="TRBV20-1*01", j_call="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
 ]
 X = model.embed(clonotypes, n_jobs=4)  # shape: (2, 3000), dtype: float32
 
@@ -63,7 +63,7 @@ Useful properties:
 - `model.n_prototypes` — number of prototypes (K)
 - `model.embedding_dim` — total vector length (3·K)
 - `model.locus`, `model.species` — canonical identifiers
-- `model.prototypes` — Polars DataFrame with columns `v_gene`, `j_gene`, `junction_aa`
+- `model.prototypes` — Polars DataFrame with columns `v_call`, `j_call`, `junction_aa`
 
 **n_jobs auto-selection:**
 - `n_jobs=None` (default): auto-switch based on `len(clonotypes) * n_prototypes` between serial (1) and `os.cpu_count()`

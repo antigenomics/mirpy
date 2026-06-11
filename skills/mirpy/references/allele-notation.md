@@ -44,3 +44,21 @@ genes_match("TRBV5-1", "TRBV5-1*02")  # → True  (bare = wildcard)
 ```
 
 **Never use `gene.split("*")[0]`** — use `strip_allele()` instead for robustness.
+
+## Normalization on import
+
+mirpy's internal/canonical gene field names are the **AIRR** spellings
+`v_call` / `j_call` / `d_call` / `c_call` (on `Clonotype` and in every
+DataFrame the library emits). On **import only** — file parsers and the
+external `LocusRepertoire.from_pandas` / `SampleRepertoire.from_pandas`
+entry points — two things happen at the boundary:
+
+1. **Column aliasing.** Legacy `v_gene…` and VDJtools `v` columns are accepted
+   and mapped to the internal `v_call…` names (single map: `_INPUT_TO_INTERNAL`
+   in `mir.common.parser`).
+2. **Allele defaulting** via `allele_with_default`: a bare gene (`TRBV5-1`)
+   receives the major allele `*01`; an explicit allele (`TRBV5-1*02`) is
+   **preserved**. So inside mirpy every gene call carries allele info.
+
+Manual `Clonotype(...)` construction is **not** normalized (hot path) — pass
+already-formed allele strings there.

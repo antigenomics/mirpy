@@ -48,8 +48,8 @@ def _generate_clustered_repertoire(n: int, *, seed: int = 42) -> LocusRepertoire
                 sequence_id=str(i),
                 locus="TRB",
                 junction_aa=junction_aa,
-                v_gene="TRBV5-1*01",
-                j_gene="TRBJ2-7*01",
+                v_call="TRBV5-1*01",
+                j_call="TRBJ2-7*01",
                 duplicate_count=1,
                 _validate=False,
             )
@@ -77,8 +77,8 @@ def test_neighborhood_self_scaling_up_to_1e5(capsys) -> None:
                 rep,
                 metric="hamming",
                 threshold=1,
-                match_v_gene=False,
-                match_j_gene=False,
+                match_v_call=False,
+                match_j_call=False,
                 n_jobs=w,
             )
             elapsed = time.perf_counter() - t0
@@ -134,8 +134,8 @@ def test_neighborhood_self_scaling_1e6(capsys) -> None:
             rep,
             metric="hamming",
             threshold=1,
-            match_v_gene=False,
-            match_j_gene=False,
+            match_v_call=False,
+            match_j_call=False,
             n_jobs=w,
         )
         elapsed = time.perf_counter() - t0

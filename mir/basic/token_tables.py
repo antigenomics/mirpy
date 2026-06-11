@@ -12,7 +12,7 @@ Functions
   rearrangement count; both criteria may be combined.
 * ``summarize_rearrangements`` — ``dict[Kmer, KmerStats]`` (full key).
 * ``summarize_annotations``   — ``dict[KmerSeq, dict[KmerAnnotation, KmerStats]]``
-  keyed by (locus, seq) only, mapping to per-(v_gene, c_gene, position)
+  keyed by (locus, seq) only, mapping to per-(v_call, c_call, position)
   counts.
 
 All tokenization functions accept an optional *mask_byte* for gapped k-mers.
@@ -44,8 +44,8 @@ class Kmer(NamedTuple):
     """
 
     locus: str
-    v_gene: str
-    c_gene: str
+    v_call: str
+    c_call: str
     seq: bytes
 
 
@@ -66,8 +66,8 @@ class KmerSeq(NamedTuple):
 class KmerAnnotation(NamedTuple):
     """Parent annotation for a k-mer occurrence."""
 
-    v_gene: str
-    c_gene: str
+    v_call: str
+    c_call: str
     position: int
 
 
@@ -135,11 +135,11 @@ def tokenize_clonotypes(
         if k > len(raw):
             continue
         locus = r.locus
-        v_gene = r.v_gene
-        c_gene = r.c_gene
+        v_call = r.v_call
+        c_call = r.c_call
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
         for s, pos in pairs:
-            key = Kmer(locus, v_gene, c_gene, s)
+            key = Kmer(locus, v_call, c_call, s)
             match = KmerMatch(r, pos)
             lst = index.get(key)
             if lst is None:
@@ -194,13 +194,13 @@ def summarize_rearrangements(
         if k > len(raw):
             continue
         locus = r.locus
-        v_gene = r.v_gene
-        c_gene = r.c_gene
+        v_call = r.v_call
+        c_call = r.c_call
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
         seen: set[Kmer] = set()
         for s, _pos in pairs:
-            key = Kmer(locus, v_gene, c_gene, s)
+            key = Kmer(locus, v_call, c_call, s)
             seen.add(key)
         for key in seen:
             counts[key] = counts.get(key, 0) + 1
@@ -214,11 +214,11 @@ def summarize_annotations(
     mask_byte: int | None = None,
 ) -> dict[KmerSeq, dict[KmerAnnotation, KmerStats]]:
     """Compute per-kmer summary keyed by (locus, seq) only, with
-    per-(v_gene, c_gene, position) breakdowns.
+    per-(v_call, c_call, position) breakdowns.
 
     The outer key is a :class:`KmerSeq` — just locus and k-mer bytes,
     ignoring gene annotation.  The inner dict maps each unique
-    :class:`KmerAnnotation` (v_gene, c_gene, position) to a
+    :class:`KmerAnnotation` (v_call, c_call, position) to a
     :class:`KmerStats` holding rearrangement_count (unique IDs) and
     duplicate_count.
 
@@ -239,14 +239,14 @@ def summarize_annotations(
         if k > len(raw):
             continue
         locus = r.locus
-        v_gene = r.v_gene
-        c_gene = r.c_gene
+        v_call = r.v_call
+        c_call = r.c_call
         dc = r.duplicate_count
         pairs = _kmers(raw, k, _mb) if _mb is not None else _kmers(raw, k)
         seen: set[tuple[KmerSeq, KmerAnnotation]] = set()
         for s, pos in pairs:
             ks = KmerSeq(locus, s)
-            ka = KmerAnnotation(v_gene, c_gene, pos)
+            ka = KmerAnnotation(v_call, c_call, pos)
             flat_key = (ks, ka)
             seen.add(flat_key)
         for flat_key in seen:

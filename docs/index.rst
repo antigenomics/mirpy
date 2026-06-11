@@ -98,7 +98,7 @@ Quick example
        cdr3s = [line.strip() for line in fh if line.strip()]
 
    clonotypes = [
-       Clonotype(junction_aa=seq, locus="TRB", v_gene="TRBV", duplicate_count=1)
+       Clonotype(junction_aa=seq, locus="TRB", v_call="TRBV", duplicate_count=1)
        for seq in cdr3s
    ]
 

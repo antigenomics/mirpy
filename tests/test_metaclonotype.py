@@ -41,8 +41,8 @@ def _clone(
         sequence_id=seq_id,
         locus="TRB",
         junction_aa=junction_aa,
-        v_gene=v,
-        j_gene=j,
+        v_call=v,
+        j_call=j,
         duplicate_count=dup,
         umi_count=umi,
         _validate=False,
@@ -94,8 +94,8 @@ def test_seed_neighbor_builder_and_summary() -> None:
         seed_clonotype_ids=["c1"],
         metric="hamming",
         threshold=1,
-        match_v_gene=True,
-        match_j_gene=True,
+        match_v_call=True,
+        match_j_call=True,
     )
     # All clonotypes in this toy set are within Hamming-1 from c1.
     assert set(m.table["clonotype_id"].to_list()) == {"c1", "c2", "c3", "c4"}

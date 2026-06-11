@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from mir.common.alleles import allele_with_default
 from mir.common.clonotype import Clonotype
 
 LOCUS_PAIR_TO_LOCI: dict[str, tuple[str, str]] = {
@@ -62,6 +63,8 @@ def _read_consensus_minimal(path: Path) -> pl.DataFrame:
     if aa_col:
         cols.append(aa_col)
 
+    # 10x CellRanger uses ``v_gene``/``j_gene`` column names; AIRR exports use
+    # ``v_call``/``j_call``.  Accept either spelling on input.
     for optional in ["v_gene", "d_gene", "j_gene", "c_gene", "v_call", "d_call", "j_call", "c_call"]:
         if optional in header:
             cols.append(optional)
@@ -123,10 +126,10 @@ def _build_consensus_lookup(consensus_df: pl.DataFrame) -> dict[tuple[str, str],
             locus=locus,
             junction=str(row.get("cdr3_nt") or "").strip(),
             junction_aa=aa,
-            v_gene=str(row.get("v_gene") or row.get("v_call") or "").strip(),
-            d_gene=str(row.get("d_gene") or row.get("d_call") or "").strip(),
-            j_gene=str(row.get("j_gene") or row.get("j_call") or "").strip(),
-            c_gene=str(row.get("c_gene") or row.get("c_call") or "").strip(),
+            v_call=allele_with_default(str(row.get("v_call") or row.get("v_gene") or "").strip()),
+            d_call=allele_with_default(str(row.get("d_call") or row.get("d_gene") or "").strip()),
+            j_call=allele_with_default(str(row.get("j_call") or row.get("j_gene") or "").strip()),
+            c_call=allele_with_default(str(row.get("c_call") or row.get("c_gene") or "").strip()),
         )
     return lookup
 
@@ -243,10 +246,10 @@ def load_10x_vdj_v1_cell_clonotypes(
                 "umi_count": clonotype.umi_count,
                 "junction": clonotype.junction,
                 "junction_aa": clonotype.junction_aa,
-                "v_gene": clonotype.v_gene,
-                "d_gene": clonotype.d_gene,
-                "j_gene": clonotype.j_gene,
-                "c_gene": clonotype.c_gene,
+                "v_call": clonotype.v_call,
+                "d_call": clonotype.d_call,
+                "j_call": clonotype.j_call,
+                "c_call": clonotype.c_call,
             }
         )
 
@@ -260,10 +263,10 @@ def load_10x_vdj_v1_cell_clonotypes(
         "umi_count": pl.Int64,
         "junction": pl.Utf8,
         "junction_aa": pl.Utf8,
-        "v_gene": pl.Utf8,
-        "d_gene": pl.Utf8,
-        "j_gene": pl.Utf8,
-        "c_gene": pl.Utf8,
+        "v_call": pl.Utf8,
+        "d_call": pl.Utf8,
+        "j_call": pl.Utf8,
+        "c_call": pl.Utf8,
     }
     if not out_rows:
         return pl.DataFrame(schema=schema)

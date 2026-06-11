@@ -94,7 +94,7 @@ def _token_weight(duplicate_count: Any, weighted: bool) -> int:
 def _iter_tokens_for_clonotype(
     *,
     junction_aa: str,
-    v_gene: str,
+    v_call: str,
     duplicate_count: Any,
     params: BagOfKmersParams,
 ):
@@ -103,7 +103,7 @@ def _iter_tokens_for_clonotype(
     if n < params.k:
         return
 
-    v_prefix = _strip_allele(v_gene)
+    v_prefix = _strip_allele(v_call)
     w = _token_weight(duplicate_count, params.weight_by_duplicate_count)
 
     if params.gapped:
@@ -131,11 +131,11 @@ def _build_tables_from_df(df: pl.DataFrame, params: BagOfKmersParams) -> tuple[p
     if df.is_empty():
         return pl.DataFrame(schema=_STATS_SCHEMA), pl.DataFrame(schema=_POS_SCHEMA)
 
-    has_v = "v_gene" in df.columns
+    has_v = "v_call" in df.columns
     for rec in df.to_dicts():
         for token, pos, junction_len, weight in _iter_tokens_for_clonotype(
             junction_aa=str(rec.get("junction_aa", "")),
-            v_gene=str(rec.get("v_gene", "") if has_v else ""),
+            v_call=str(rec.get("v_call", "") if has_v else ""),
             duplicate_count=rec.get("duplicate_count", 1),
             params=params,
         ):
@@ -184,7 +184,7 @@ def tokenize_locus_repertoire_to_table(
     rows = [
         {
             "junction_aa": c.junction_aa,
-            "v_gene": c.v_gene,
+            "v_call": c.v_call,
             "duplicate_count": c.duplicate_count,
         }
         for c in repertoire.clonotypes

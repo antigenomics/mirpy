@@ -104,8 +104,8 @@ def _make_clones_for_vj(
                 sequence_id=f"{sample_id}_{locus}_{i}",
                 locus=locus,
                 junction_aa=f"CASS{_AA[i % len(_AA)]}F",
-                v_gene=v,
-                j_gene=j,
+                v_call=v,
+                j_call=j,
                 duplicate_count=dc,
             ))
             i += 1
@@ -170,11 +170,11 @@ def _build_mock_dataset(
 
 def test_repertoire_dataset_from_folder_with_file_name(tmp_path: Path) -> None:
     _write_simple_airr(tmp_path / "s1.tsv", [
-        {"junction_aa": "CASSIRSSYEQYF", "v_gene": "TRBV1", "j_gene": "TRBJ1-2", "duplicate_count": 3},
-        {"junction_aa": "CASSLGQDTQYF",  "v_gene": "TRBV2", "j_gene": "TRBJ2-3", "duplicate_count": 2},
+        {"junction_aa": "CASSIRSSYEQYF", "v_call": "TRBV1", "j_call": "TRBJ1-2", "duplicate_count": 3},
+        {"junction_aa": "CASSLGQDTQYF",  "v_call": "TRBV2", "j_call": "TRBJ2-3", "duplicate_count": 2},
     ])
     _write_simple_airr(tmp_path / "sub" / "s2.tsv", [
-        {"junction_aa": "CASSQETQYF", "v_gene": "TRBV3", "j_gene": "TRBJ1-1", "duplicate_count": 5},
+        {"junction_aa": "CASSQETQYF", "v_call": "TRBV3", "j_call": "TRBJ1-1", "duplicate_count": 5},
     ])
     pd.DataFrame([
         {"sample_id": "S1", "file_name": "s1.tsv",     "batch_id": "batch_1"},
@@ -190,10 +190,10 @@ def test_repertoire_dataset_from_folder_with_file_name(tmp_path: Path) -> None:
 
 def test_repertoire_dataset_from_folder_with_mapping_function(tmp_path: Path) -> None:
     _write_simple_airr(tmp_path / "files" / "A.tsv", [
-        {"junction_aa": "CASSIRSSYEQYF", "v_gene": "TRBV1", "j_gene": "TRBJ1-2", "duplicate_count": 1},
+        {"junction_aa": "CASSIRSSYEQYF", "v_call": "TRBV1", "j_call": "TRBJ1-2", "duplicate_count": 1},
     ])
     _write_simple_airr(tmp_path / "files" / "B.tsv", [
-        {"junction_aa": "CASSLGQDTQYF", "v_gene": "TRBV2", "j_gene": "TRBJ2-3", "duplicate_count": 1},
+        {"junction_aa": "CASSLGQDTQYF", "v_call": "TRBV2", "j_call": "TRBJ2-3", "duplicate_count": 1},
     ])
     pd.DataFrame([
         {"sample_id": "A", "batch_id": "batch_1"},
@@ -212,7 +212,7 @@ def test_sample_metadata_aggregated_from_sample_repertoires() -> None:
     locus_rep = LocusRepertoire(
         clonotypes=[Clonotype(
             sequence_id="c1", locus="TRB", junction_aa="CASSF",
-            v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1,
+            v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1,
         )],
         locus="TRB",
         repertoire_id="donor_1",
@@ -378,7 +378,7 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
     records = model.generate_sequences_with_meta(12_000, pgens=False, seed=123)
     by_vj: dict[tuple[str, str], list[dict]] = {}
     for rec in records:
-        key = (str(rec["v_gene"]), str(rec["j_gene"]))
+        key = (str(rec["v_call"]), str(rec["j_call"]))
         by_vj.setdefault(key, []).append(rec)
 
     vj_keys = list(by_vj.keys())
@@ -404,8 +404,8 @@ def test_batch_correction_fails_for_non_overlapping_olga_vj_support() -> None:
                         sequence_id=f"{sample_id}_{k}",
                         locus="TRB",
                         junction_aa=str(rec["junction_aa"]),
-                        v_gene=str(rec["v_gene"]),
-                        j_gene=str(rec["j_gene"]),
+                        v_call=str(rec["v_call"]),
+                        j_call=str(rec["j_call"]),
                         duplicate_count=int(min(rng.zipf(1.5), 10_000)),
                     )
                 )

@@ -22,8 +22,8 @@ def _c(
         locus=locus,
         junction=nt,
         junction_aa=aa,
-        v_gene=v,
-        j_gene=j,
+        v_call=v,
+        j_call=j,
         duplicate_count=dup,
     )
     if meta:

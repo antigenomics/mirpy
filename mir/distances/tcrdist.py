@@ -285,9 +285,9 @@ class TcrDist:
 
         Example:
             >>> td = TcrDist.from_defaults("TRB", "human")
-            >>> a = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+            >>> a = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01",
             ...               junction_aa="CASSIRSSYEQYF")
-            >>> b = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+            >>> b = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01",
             ...               junction_aa="CASSIRASYEQYF")
             >>> td.dist(a, a)
             0.0
@@ -323,10 +323,10 @@ class TcrDist:
         ga = self.germline_aligner
         locus = self.locus
 
-        if self.w_v and cln1.v_gene and cln2.v_gene:
-            d += self.w_v * ga.gene_dist(locus, cln1.v_gene, cln2.v_gene)
-        if self.w_j and cln1.j_gene and cln2.j_gene:
-            d += self.w_j * ga.gene_dist(locus, cln1.j_gene, cln2.j_gene)
+        if self.w_v and cln1.v_call and cln2.v_call:
+            d += self.w_v * ga.gene_dist(locus, cln1.v_call, cln2.v_call)
+        if self.w_j and cln1.j_call and cln2.j_call:
+            d += self.w_j * ga.gene_dist(locus, cln1.j_call, cln2.j_call)
         if self.w_cdr3 and cln1.junction_aa and cln2.junction_aa:
             d += self.w_cdr3 * self._cdr3.score_dist(cln1.junction_aa, cln2.junction_aa)
         return d
@@ -380,10 +380,10 @@ class TcrDist:
 
         q_junc = [c.junction_aa or "" for c in queries]
         r_junc = [c.junction_aa or "" for c in refs]
-        q_v = [c.v_gene or "" for c in queries]
-        r_v = [c.v_gene or "" for c in refs]
-        q_j = [c.j_gene or "" for c in queries]
-        r_j = [c.j_gene or "" for c in refs]
+        q_v = [c.v_call or "" for c in queries]
+        r_v = [c.v_call or "" for c in refs]
+        q_j = [c.j_call or "" for c in queries]
+        r_j = [c.j_call or "" for c in refs]
 
         result = np.zeros((N, K), dtype=np.float64)
 
@@ -459,8 +459,8 @@ class TcrDist:
         *,
         max_distance: float,
         representative_ids: list[str] | None = None,
-        match_v_gene: bool = False,
-        match_j_gene: bool = False,
+        match_v_call: bool = False,
+        match_j_call: bool = False,
         cluster_prefix: str = "tcrdist_mc",
         n_jobs: int = 1,
     ) -> MetaClonotypeClustering:
@@ -481,9 +481,9 @@ class TcrDist:
             repertoire: Target repertoire to cluster.
             max_distance: Maximum TCRdist for cluster membership.
             representative_ids: Seed clonotype IDs.  Defaults to all.
-            match_v_gene: Only admit clonotypes with the same V gene as the
+            match_v_call: Only admit clonotypes with the same V gene as the
                 representative into its cluster.
-            match_j_gene: Only admit clonotypes with the same J gene.
+            match_j_call: Only admit clonotypes with the same J gene.
             cluster_prefix: Prefix for cluster ID strings.
             n_jobs: Number of threads for distance computation.
 
@@ -518,8 +518,8 @@ class TcrDist:
         dist_mat = self.dist_matrix(reps, clonotypes, n_jobs=n_jobs)
 
         # Pre-extract V/J genes for optional V/J filtering
-        all_v = [c.v_gene for c in clonotypes]
-        all_j = [c.j_gene for c in clonotypes]
+        all_v = [c.v_call for c in clonotypes]
+        all_j = [c.j_call for c in clonotypes]
         all_ids = [c.sequence_id for c in clonotypes]
 
         rows: list[dict] = []
@@ -530,9 +530,9 @@ class TcrDist:
             rep = by_id[rep_id]
             cluster_id = f"{cluster_prefix}_{i}"
             for k, cln_id in enumerate(all_ids):
-                if match_v_gene and not genes_match(rep.v_gene, all_v[k]):
+                if match_v_call and not genes_match(rep.v_call, all_v[k]):
                     continue
-                if match_j_gene and not genes_match(rep.j_gene, all_j[k]):
+                if match_j_call and not genes_match(rep.j_call, all_j[k]):
                     continue
                 if dist_mat[i, k] <= max_distance:
                     rows.append({

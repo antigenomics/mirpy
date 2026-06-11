@@ -39,26 +39,26 @@ _EDGE_WORKER_STATE: dict[str, t.Any] = {}
 
 def _init_edge_worker(
     seqs: list[str],
-    v_genes: list[str],
-    j_genes: list[str],
-    c_genes: list[str],
+    v_calls: list[str],
+    j_calls: list[str],
+    c_calls: list[str],
     metric: str,
     threshold: int,
-    v_gene_match: bool,
-    c_gene_match: bool,
+    v_call_match: bool,
+    c_call_match: bool,
 ) -> None:
     _EDGE_WORKER_STATE["seqs"] = seqs
-    _EDGE_WORKER_STATE["v_genes"] = v_genes
-    _EDGE_WORKER_STATE["j_genes"] = j_genes
-    _EDGE_WORKER_STATE["c_genes"] = c_genes
+    _EDGE_WORKER_STATE["v_calls"] = v_calls
+    _EDGE_WORKER_STATE["j_calls"] = j_calls
+    _EDGE_WORKER_STATE["c_calls"] = c_calls
     _EDGE_WORKER_STATE["metric"] = metric
     _EDGE_WORKER_STATE["threshold"] = threshold
-    _EDGE_WORKER_STATE["v_gene_match"] = v_gene_match
-    _EDGE_WORKER_STATE["c_gene_match"] = c_gene_match
+    _EDGE_WORKER_STATE["v_call_match"] = v_call_match
+    _EDGE_WORKER_STATE["c_call_match"] = c_call_match
     # Trie uses stripped alleles for coarse grouping; original alleles are kept
     # separately so genes_match can apply fine-grained allele semantics afterwards.
-    v_stripped = [strip_allele(v) for v in v_genes]
-    j_stripped = [strip_allele(j) for j in j_genes]
+    v_stripped = [strip_allele(v) for v in v_calls]
+    j_stripped = [strip_allele(j) for j in j_calls]
     trie, trie_to_orig = make_trie(seqs, v_stripped, j_stripped)
     trie_orig_set = set(trie_to_orig)
     _EDGE_WORKER_STATE["trie"] = trie
@@ -73,10 +73,10 @@ def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int
     start, stop = range_pair
     return _build_batch_edges(
         _EDGE_WORKER_STATE["seqs"],
-        _EDGE_WORKER_STATE["v_genes"],
-        _EDGE_WORKER_STATE["j_genes"],
+        _EDGE_WORKER_STATE["v_calls"],
+        _EDGE_WORKER_STATE["j_calls"],
         _EDGE_WORKER_STATE["trie"],
-        _EDGE_WORKER_STATE["c_genes"],
+        _EDGE_WORKER_STATE["c_calls"],
         _EDGE_WORKER_STATE["trie_to_orig"],
         _EDGE_WORKER_STATE["canon_seqs"],
         _EDGE_WORKER_STATE["canon_v"],
@@ -84,8 +84,8 @@ def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int
         _EDGE_WORKER_STATE["non_canon_indices"],
         metric=_EDGE_WORKER_STATE["metric"],
         threshold=_EDGE_WORKER_STATE["threshold"],
-        v_gene_match=_EDGE_WORKER_STATE["v_gene_match"],
-        c_gene_match=_EDGE_WORKER_STATE["c_gene_match"],
+        v_call_match=_EDGE_WORKER_STATE["v_call_match"],
+        c_call_match=_EDGE_WORKER_STATE["c_call_match"],
         start=start,
         stop=stop,
     )
@@ -93,10 +93,10 @@ def _build_batch_edges_worker(range_pair: tuple[int, int]) -> set[tuple[int, int
 
 def _build_batch_edges(
     seqs: list[str],
-    v_genes: list[str],
-    j_genes: list[str],
+    v_calls: list[str],
+    j_calls: list[str],
     trie,
-    c_genes: list[str],
+    c_calls: list[str],
     trie_to_orig: list[int],
     canon_seqs: list[str],
     canon_v: list[str],
@@ -105,8 +105,8 @@ def _build_batch_edges(
     *,
     metric: str,
     threshold: int,
-    v_gene_match: bool,
-    c_gene_match: bool,
+    v_call_match: bool,
+    c_call_match: bool,
     start: int,
     stop: int,
 ) -> set[tuple[int, int]]:
@@ -120,7 +120,7 @@ def _build_batch_edges(
         if not _is_trie_safe(seqs[i]):  # non-canonical query — skip
             continue
         # Trie uses stripped alleles for coarse grouping.
-        v_filter = strip_allele(v_genes[i]) if v_gene_match else None
+        v_filter = strip_allele(v_calls[i]) if v_call_match else None
         # Returns indices into canon_seqs (canonical space, 0..len(trie_to_orig)-1).
         canon_hits = search_indices_with_fallback(
             trie,
@@ -128,28 +128,28 @@ def _build_batch_edges(
             metric=metric,
             threshold=threshold,
             sequences=canon_seqs,
-            v_gene_filter=v_filter,
-            j_gene_filter=None,
-            v_genes=canon_v,
-            j_genes=canon_j,
+            v_call_filter=v_filter,
+            j_call_filter=None,
+            v_calls=canon_v,
+            j_calls=canon_j,
         )
         for ci in canon_hits:
             j = trie_to_orig[ci]  # canonical index → original index
             if j <= i:
                 continue
             # Fine-grained allele semantics: bare = wildcard, specific = exact.
-            if v_gene_match and not genes_match(v_genes[i], v_genes[j]):
+            if v_call_match and not genes_match(v_calls[i], v_calls[j]):
                 continue
-            if c_gene_match and c_genes[i] != c_genes[j]:
+            if c_call_match and c_calls[i] != c_calls[j]:
                 continue
             edges.add((i, j))
         # Brute-force for non-canonical sequences not indexed by the trie.
         for j in non_canon_indices:
             if j <= i:
                 continue
-            if v_gene_match and not genes_match(v_genes[i], v_genes[j]):
+            if v_call_match and not genes_match(v_calls[i], v_calls[j]):
                 continue
-            if c_gene_match and c_genes[i] != c_genes[j]:
+            if c_call_match and c_calls[i] != c_calls[j]:
                 continue
             if is_within_threshold(seqs[i], seqs[j], metric, threshold):
                 edges.add((i, j))
@@ -162,19 +162,19 @@ def _build_edges_parallel(
     jobs: int,
     chunk_sz: int,
     seqs: list[str],
-    v_genes: list[str],
-    j_genes: list[str],
-    c_genes: list[str],
+    v_calls: list[str],
+    j_calls: list[str],
+    c_calls: list[str],
     metric: str,
     threshold: int,
-    v_gene_match: bool,
-    c_gene_match: bool,
+    v_call_match: bool,
+    c_call_match: bool,
 ) -> set[tuple[int, int]]:
     if n <= 1:
         return set()
     if jobs <= 1 or n <= chunk_sz:
-        v_stripped = [strip_allele(v) for v in v_genes]
-        j_stripped = [strip_allele(j) for j in j_genes]
+        v_stripped = [strip_allele(v) for v in v_calls]
+        j_stripped = [strip_allele(j) for j in j_calls]
         trie, trie_to_orig = make_trie(seqs, v_stripped, j_stripped)
         trie_orig_set = set(trie_to_orig)
         canon_seqs = [seqs[i] for i in trie_to_orig]
@@ -183,10 +183,10 @@ def _build_edges_parallel(
         non_canon_indices = [j for j in range(n) if j not in trie_orig_set]
         return _build_batch_edges(
             seqs,
-            v_genes,
-            j_genes,
+            v_calls,
+            j_calls,
             trie,
-            c_genes,
+            c_calls,
             trie_to_orig,
             canon_seqs,
             canon_v,
@@ -194,8 +194,8 @@ def _build_edges_parallel(
             non_canon_indices,
             metric=metric,
             threshold=threshold,
-            v_gene_match=v_gene_match,
-            c_gene_match=c_gene_match,
+            v_call_match=v_call_match,
+            c_call_match=c_call_match,
             start=0,
             stop=n,
         )
@@ -207,7 +207,7 @@ def _build_edges_parallel(
         max_workers=jobs,
         mp_context=_MP_CTX,
         initializer=_init_edge_worker,
-        initargs=(seqs, v_genes, j_genes, c_genes, metric, threshold, v_gene_match, c_gene_match),
+        initargs=(seqs, v_calls, j_calls, c_calls, metric, threshold, v_call_match, c_call_match),
     ) as executor:
         for chunk_edges in executor.map(_build_batch_edges_worker, ranges):
             edges.update(chunk_edges)
@@ -218,8 +218,8 @@ def build_edit_distance_graph(
     rearrangements: list[Clonotype],
     metric: str = "hamming",
     threshold: int = 1,
-    v_gene_match: bool = False,
-    c_gene_match: bool = False,
+    v_call_match: bool = False,
+    c_call_match: bool = False,
     n_jobs: int | None = None,
     nproc: int | None = None,
     chunk_sz: int = 2048,
@@ -236,8 +236,8 @@ def build_edit_distance_graph(
         rearrangements: Input rearrangements.
         metric: ``"hamming"`` or ``"levenshtein"``.
         threshold: Maximum distance for an edge.
-        v_gene_match: When ``True``, only compare pairs with matching ``v_gene``.
-        c_gene_match: When ``True``, only compare pairs with matching ``c_gene``.
+        v_call_match: When ``True``, only compare pairs with matching ``v_call``.
+        c_call_match: When ``True``, only compare pairs with matching ``c_call``.
         n_jobs: Worker count for trie-query batches.
         nproc: Backward-compat alias for ``n_jobs``.
         chunk_sz: Query sequences per worker batch.
@@ -245,37 +245,37 @@ def build_edit_distance_graph(
     Returns:
         Undirected ``igraph.Graph`` with vertex attributes ``name``
         (``junction_aa``), ``r_id`` (:attr:`Clonotype.id`),
-        ``v_gene``, ``j_gene``, and ``c_gene``.
+        ``v_call``, ``j_call``, and ``c_call``.
     """
     validate_metric(metric)
     jobs = resolve_n_jobs(n_jobs=n_jobs, nproc=nproc, default=4)
 
     n = len(rearrangements)
     seqs = [str(getattr(r, "junction_aa", "") or "") for r in rearrangements]
-    v_genes = [str(getattr(r, "v_gene", "") or "") for r in rearrangements]
-    j_genes = [str(getattr(r, "j_gene", "") or "") for r in rearrangements]
-    c_genes = [str(getattr(r, "c_gene", "") or "") for r in rearrangements]
+    v_calls = [str(getattr(r, "v_call", "") or "") for r in rearrangements]
+    j_calls = [str(getattr(r, "j_call", "") or "") for r in rearrangements]
+    c_calls = [str(getattr(r, "c_call", "") or "") for r in rearrangements]
 
     edges = _build_edges_parallel(
         n=n,
         jobs=jobs,
         chunk_sz=chunk_sz,
         seqs=seqs,
-        v_genes=v_genes,
-        j_genes=j_genes,
-        c_genes=c_genes,
+        v_calls=v_calls,
+        j_calls=j_calls,
+        c_calls=c_calls,
         metric=metric,
         threshold=threshold,
-        v_gene_match=v_gene_match,
-        c_gene_match=c_gene_match,
+        v_call_match=v_call_match,
+        c_call_match=c_call_match,
     )
 
     g = ig.Graph(n=n, directed=False)
     g.vs["name"]   = [r.junction_aa for r in rearrangements]
     g.vs["r_id"]   = [r.id          for r in rearrangements]
-    g.vs["v_gene"] = [r.v_gene      for r in rearrangements]
-    g.vs["j_gene"] = [r.j_gene      for r in rearrangements]
-    g.vs["c_gene"] = [r.c_gene      for r in rearrangements]
+    g.vs["v_call"] = [r.v_call      for r in rearrangements]
+    g.vs["j_call"] = [r.j_call      for r in rearrangements]
+    g.vs["c_call"] = [r.c_call      for r in rearrangements]
     if edges:
         g.add_edges(sorted(edges))
     return g

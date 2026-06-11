@@ -21,7 +21,7 @@ from mir.embedding.prototypes import (
 
 def _write_fixture_tsv(path: Path, rows: int = 20) -> None:
     """Write a small prototype TSV with *rows* unique entries."""
-    lines = ["v_gene\tj_gene\tjunction_aa"]
+    lines = ["v_call\tj_call\tjunction_aa"]
     for i in range(rows):
         lines.append(f"TRBV{(i % 10) + 1}-1*01\tTRBJ{(i % 5) + 1}-1*01\tCASS{'A' * (i % 6 + 1)}F")
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -89,7 +89,7 @@ def test_load_returns_dataframe(proto_dir: Path) -> None:
 
 def test_load_columns(proto_dir: Path) -> None:
     df = load_prototypes("human", "TRB")
-    assert df.columns == ["v_gene", "j_gene", "junction_aa"]
+    assert df.columns == ["v_call", "j_call", "junction_aa"]
 
 
 def test_load_all_rows_default(proto_dir: Path) -> None:
@@ -134,7 +134,7 @@ def test_load_n_exactly_n_prototypes_raises(proto_dir: Path, tmp_path: Path, mon
     d = tmp_path / "exact"
     d.mkdir()
     # write a file with N_PROTOTYPES rows
-    lines = ["v_gene\tj_gene\tjunction_aa"]
+    lines = ["v_call\tj_call\tjunction_aa"]
     for i in range(N_PROTOTYPES):
         lines.append(f"TRBV1-1*01\tTRBJ1-1*01\tCASS{'A' * (i % 10 + 1)}F")
     (d / "human_TRB.tsv").write_text("\n".join(lines), encoding="utf-8")
@@ -265,15 +265,15 @@ def test_resource_load_full(species: str, locus: str) -> None:
     """Each bundled file loads to a DataFrame with exactly N_PROTOTYPES rows."""
     df = load_prototypes(species, locus)
     assert len(df) == N_PROTOTYPES
-    assert df.columns == ["v_gene", "j_gene", "junction_aa"]
+    assert df.columns == ["v_call", "j_call", "junction_aa"]
 
 
 @skip_no_resources
 @pytest.mark.parametrize("species,locus", _EXPECTED_COMBOS)
 def test_resource_all_unique_triples(species: str, locus: str) -> None:
-    """Each bundled file has N_PROTOTYPES unique (v_gene, j_gene, junction_aa) triples."""
+    """Each bundled file has N_PROTOTYPES unique (v_call, j_call, junction_aa) triples."""
     df = load_prototypes(species, locus)
-    n_unique = df.unique(subset=["v_gene", "j_gene", "junction_aa"]).height
+    n_unique = df.unique(subset=["v_call", "j_call", "junction_aa"]).height
     assert n_unique == N_PROTOTYPES
 
 

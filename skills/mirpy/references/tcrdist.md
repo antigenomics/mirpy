@@ -34,8 +34,8 @@ td = TcrDist.from_defaults(
 )
 
 # One-to-one
-cln1 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
-cln2 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
+cln1 = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
+cln2 = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
 d = td.dist(cln1, cln2)   # float, symmetric, non-negative
 
 # One-to-many
@@ -63,7 +63,7 @@ model = OlgaModel(locus="TRB", species="human")
 bg_seqs, _ = model.generate_sequences_counted(10_000, n_jobs=4, seed=42)
 bg_clns = [Clonotype(junction_aa=s, locus="TRB") for s in bg_seqs]
 
-hits = [c for c in rep.clonotypes if c.v_gene and c.junction_aa]
+hits = [c for c in rep.clonotypes if c.v_call and c.junction_aa]
 radii = td.compute_radius(hits, bg_clns, percentile=50, n_jobs=4)
 # radii: float64 array of shape (len(hits),)
 
@@ -80,8 +80,8 @@ from mir.common.metaclonotype import summarize_metaclonotypes
 meta = td.find_metaclonotypes(
     rep,
     max_distance=threshold,       # float radius threshold
-    match_v_gene=False,           # optionally restrict to same V
-    match_j_gene=False,
+    match_v_call=False,           # optionally restrict to same V
+    match_j_call=False,
     cluster_prefix="tcrdist_mc",
     n_jobs=4,
 )

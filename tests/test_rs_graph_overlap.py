@@ -60,7 +60,7 @@ def _load_rearrangements() -> list[Clonotype]:
         Clonotype(
             sequence_id=str(i),
             locus="TRB",
-            v_gene="TRB",
+            v_call="TRB",
             junction_aa=seq,
             duplicate_count=1,
         )

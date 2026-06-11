@@ -22,7 +22,7 @@ def _is_trie_safe(seq: str) -> bool:
     return bool(seq) and all(c in _STANDARD_AA for c in seq.upper())
 
 
-def make_trie(seqs: list[str], v_genes: list[str], j_genes: list[str]) -> tuple:
+def make_trie(seqs: list[str], v_calls: list[str], j_calls: list[str]) -> tuple:
     """Build a tcrtrie Trie with only canonical sequences.
 
     Non-canonical sequences (containing *, _, or non-standard AA chars) are
@@ -50,8 +50,8 @@ def make_trie(seqs: list[str], v_genes: list[str], j_genes: list[str]) -> tuple:
 
     if trie_to_orig:
         canon_seqs = [seqs[i] for i in trie_to_orig]
-        canon_v    = [v_genes[i] for i in trie_to_orig]
-        canon_j    = [j_genes[i] for i in trie_to_orig]
+        canon_v    = [v_calls[i] for i in trie_to_orig]
+        canon_j    = [j_calls[i] for i in trie_to_orig]
     else:
         canon_seqs = canon_v = canon_j = []
 
@@ -108,19 +108,19 @@ def _bruteforce_search_indices(
     metric: str,
     threshold: int,
     sequences: list[str],
-    v_gene_filter: str | None,
-    j_gene_filter: str | None,
-    v_genes: list[str] | None,
-    j_genes: list[str] | None,
+    v_call_filter: str | None,
+    j_call_filter: str | None,
+    v_calls: list[str] | None,
+    j_calls: list[str] | None,
 ) -> list[int]:
     """Fallback candidate search with strict metric and gene filtering."""
     out: list[int] = []
     for idx, seq in enumerate(sequences):
-        if v_gene_filter is not None:
-            if v_genes is None or idx >= len(v_genes) or v_genes[idx] != v_gene_filter:
+        if v_call_filter is not None:
+            if v_calls is None or idx >= len(v_calls) or v_calls[idx] != v_call_filter:
                 continue
-        if j_gene_filter is not None:
-            if j_genes is None or idx >= len(j_genes) or j_genes[idx] != j_gene_filter:
+        if j_call_filter is not None:
+            if j_calls is None or idx >= len(j_calls) or j_calls[idx] != j_call_filter:
                 continue
         if is_within_threshold(query, seq, metric, threshold):
             out.append(idx)
@@ -134,10 +134,10 @@ def search_indices_with_fallback(
     metric: str,
     threshold: int,
     sequences: list[str],
-    v_gene_filter: str | None = None,
-    j_gene_filter: str | None = None,
-    v_genes: list[str] | None = None,
-    j_genes: list[str] | None = None,
+    v_call_filter: str | None = None,
+    j_call_filter: str | None = None,
+    v_calls: list[str] | None = None,
+    j_calls: list[str] | None = None,
 ) -> list[int]:
     """Search with tcrtrie, falling back to constrained brute-force on errors.
 
@@ -154,8 +154,8 @@ def search_indices_with_fallback(
             maxInsertion=max_insertion,
             maxDeletion=max_deletion,
             maxEdits=max_edits,
-            vGeneFilter=v_gene_filter,
-            jGeneFilter=j_gene_filter,
+            vGeneFilter=v_call_filter,
+            jGeneFilter=j_call_filter,
         )
         indices = [hit_index(hit) for hit in hits]
     except Exception:
@@ -164,10 +164,10 @@ def search_indices_with_fallback(
             metric=metric,
             threshold=threshold,
             sequences=sequences,
-            v_gene_filter=v_gene_filter,
-            j_gene_filter=j_gene_filter,
-            v_genes=v_genes,
-            j_genes=j_genes,
+            v_call_filter=v_call_filter,
+            j_call_filter=j_call_filter,
+            v_calls=v_calls,
+            j_calls=j_calls,
         )
 
     # Keep only valid indices and exact metric-threshold matches.
@@ -175,11 +175,11 @@ def search_indices_with_fallback(
     for idx in indices:
         if idx < 0 or idx >= len(sequences):
             continue
-        if v_gene_filter is not None:
-            if v_genes is None or idx >= len(v_genes) or v_genes[idx] != v_gene_filter:
+        if v_call_filter is not None:
+            if v_calls is None or idx >= len(v_calls) or v_calls[idx] != v_call_filter:
                 continue
-        if j_gene_filter is not None:
-            if j_genes is None or idx >= len(j_genes) or j_genes[idx] != j_gene_filter:
+        if j_call_filter is not None:
+            if j_calls is None or idx >= len(j_calls) or j_calls[idx] != j_call_filter:
                 continue
         if is_within_threshold(query, sequences[idx], metric, threshold):
             validated.append(idx)
@@ -192,10 +192,10 @@ def search_indices_with_fallback(
             metric=metric,
             threshold=threshold,
             sequences=sequences,
-            v_gene_filter=v_gene_filter,
-            j_gene_filter=j_gene_filter,
-            v_genes=v_genes,
-            j_genes=j_genes,
+            v_call_filter=v_call_filter,
+            j_call_filter=j_call_filter,
+            v_calls=v_calls,
+            j_calls=j_calls,
         )
         return sorted(set(validated).union(brute))
     return validated

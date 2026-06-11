@@ -21,7 +21,7 @@ SRX_DIR = Path(__file__).parent / "assets" / "srx_repertoires"
 TARBALL = SRX_DIR / "samples.tar.gz"
 META_PATH = SRX_DIR / "meta.tsv"
 
-_AIRR_CALL_RENAMES = {"v_call": "v_gene", "j_call": "j_gene", "c_call": "c_gene"}
+_AIRR_CALL_RENAMES = {"v_call": "v_call", "j_call": "j_call", "c_call": "c_call"}
 
 _ALL_LOCI = {"TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"}
 
@@ -37,15 +37,15 @@ def _parse_tsv_bytes(raw: bytes) -> pd.DataFrame:
 def _clonotypes_from_df(df: pd.DataFrame) -> list[Clonotype]:
     result = []
     for _, row in df.iterrows():
-        v_gene = str(row.get("v_gene", ""))
-        locus = infer_locus(v_gene)
+        v_call = str(row.get("v_call", ""))
+        locus = infer_locus(v_call)
         result.append(Clonotype(
             duplicate_count=int(row.get("duplicate_count", 1)),
             junction=str(row.get("junction", "")),
             junction_aa=str(row.get("junction_aa", "")),
-            v_gene=v_gene,
-            j_gene=str(row.get("j_gene", "")),
-            c_gene=str(row.get("c_gene", "")),
+            v_call=v_call,
+            j_call=str(row.get("j_call", "")),
+            c_call=str(row.get("c_call", "")),
             locus=locus,
         ))
     return result
@@ -215,7 +215,7 @@ class TestPolarsRoundTrip:
 
     def test_to_polars_has_airr_columns(self, first):
         df = first.to_polars()
-        for col in ("junction_aa", "v_gene", "j_gene", "locus"):
+        for col in ("junction_aa", "v_call", "j_call", "locus"):
             assert col in df.columns
 
     def test_from_polars_roundtrip(self, first):

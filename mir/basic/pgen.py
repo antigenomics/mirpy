@@ -283,7 +283,7 @@ def _generate_pool_chunk(args: tuple) -> list[dict]:
     picklable), seeds NumPy, generates *n* sequences, computes Pgen for each,
     and returns annotated dicts with ``log2_pgen``.
 
-    Record keys: ``junction_aa``, ``junction``, ``v_gene``, ``j_gene``,
+    Record keys: ``junction_aa``, ``junction``, ``v_call``, ``j_call``,
     ``v_end``, ``j_start``, ``log2_pgen``.
     """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -626,7 +626,7 @@ class OlgaModel:
 
         Returns:
             List of dicts with keys:
-            ``junction_aa``, ``junction``, ``v_gene``, ``j_gene``,
+            ``junction_aa``, ``junction``, ``v_call``, ``j_call``,
             ``v_end``, ``j_start``, ``log2_pgen``.
         """
         if n_jobs <= 1:
@@ -660,7 +660,7 @@ class OlgaModel:
         """Generate one productive VDJ recombination event with full annotation.
 
         Returns:
-            Dict with keys: junction_aa, junction, v_gene, j_gene, v_end, j_start.
+            Dict with keys: junction_aa, junction, v_call, j_call, v_end, j_start.
         """
         sg = self.seq_gen_model
 
@@ -706,8 +706,8 @@ class OlgaModel:
             return {
                 "junction_aa": aaseq,
                 "junction":    ntseq,
-                "v_gene":      self.v_names[recomb_events["V"]],
-                "j_gene":      self.j_names[recomb_events["J"]],
+                "v_call":      self.v_names[recomb_events["V"]],
+                "j_call":      self.j_names[recomb_events["J"]],
                 "v_end":       v_end,
                 "j_start":     j_start,
             }
@@ -716,7 +716,7 @@ class OlgaModel:
         """Generate one productive VJ recombination event with full annotation.
 
         Returns:
-            Dict with keys: junction_aa, junction, v_gene, j_gene, v_end, j_start.
+            Dict with keys: junction_aa, junction, v_call, j_call, v_end, j_start.
         """
         sg = self.seq_gen_model
 
@@ -753,8 +753,8 @@ class OlgaModel:
             return {
                 "junction_aa": aaseq,
                 "junction":    ntseq,
-                "v_gene":      self.v_names[recomb_events["V"]],
-                "j_gene":      self.j_names[recomb_events["J"]],
+                "v_call":      self.v_names[recomb_events["V"]],
+                "j_call":      self.j_names[recomb_events["J"]],
                 "v_end":       v_end,
                 "j_start":     j_start,
             }
@@ -788,7 +788,7 @@ class OlgaModel:
                 p_raw = float(self.pgen_model.compute_aa_CDR3_pgen(rec["junction_aa"]))
                 rec["pgen_raw"] = p_raw
                 if pgen_adjustment is not None and p_raw > 0:
-                    p_adj = pgen_adjustment.adjust_pgen(locus, rec["v_gene"], rec["j_gene"], p_raw)
+                    p_adj = pgen_adjustment.adjust_pgen(locus, rec["v_call"], rec["j_call"], p_raw)
                     rec["pgen"] = math.log10(p_adj) if p_adj > 0 else float("-inf")
                 else:
                     rec["pgen"] = math.log10(p_raw) if p_raw > 0 else float("-inf")
@@ -820,7 +820,7 @@ class OlgaModel:
             records = self.generate_sequences_with_meta(n, pgens=False, seed=seed)
         locus = self._init_kwargs.get("locus", "")
         usage_df = pl.from_dicts(
-            [{"v_gene": str(r.get("v_gene", "")), "j_gene": str(r.get("j_gene", ""))} for r in records]
+            [{"v_call": str(r.get("v_call", "")), "j_call": str(r.get("j_call", ""))} for r in records]
         )
         return GeneUsage.from_dataframe(usage_df, locus=locus)
 
@@ -1218,34 +1218,34 @@ def compute_gene_usage_probabilities_from_control_df(
     """Estimate OLGA V/J/VJ probabilities from a synthetic control table."""
     from mir.common.alleles import allele_to_major
 
-    required = {"v_gene", "j_gene"}
+    required = {"v_call", "j_call"}
     missing = required.difference(control_df.columns)
     if missing:
         raise ValueError(f"control_df missing required columns: {sorted(missing)}")
 
     df = (
-        control_df.select(["v_gene", "j_gene"])
+        control_df.select(["v_call", "j_call"])
         .with_columns([
-            pl.col("v_gene").cast(pl.Utf8).map_elements(
+            pl.col("v_call").cast(pl.Utf8).map_elements(
                 lambda x: allele_to_major(str(x or "")), return_dtype=pl.Utf8
             ),
-            pl.col("j_gene").cast(pl.Utf8).map_elements(
+            pl.col("j_call").cast(pl.Utf8).map_elements(
                 lambda x: allele_to_major(str(x or "")), return_dtype=pl.Utf8
             ),
         ])
-        .filter((pl.col("v_gene") != "") & (pl.col("j_gene") != ""))
+        .filter((pl.col("v_call") != "") & (pl.col("j_call") != ""))
     )
     total = len(df)
     if total == 0:
         return {"v": {}, "j": {}, "vj": {}}
 
-    v_vc = df["v_gene"].value_counts(sort=False)
+    v_vc = df["v_call"].value_counts(sort=False)
     p_v = {row[0]: float(row[1]) / total for row in v_vc.iter_rows()}
 
-    j_vc = df["j_gene"].value_counts(sort=False)
+    j_vc = df["j_call"].value_counts(sort=False)
     p_j = {row[0]: float(row[1]) / total for row in j_vc.iter_rows()}
 
-    vj_counts = df.group_by(["v_gene", "j_gene"]).agg(pl.len().alias("count"))
+    vj_counts = df.group_by(["v_call", "j_call"]).agg(pl.len().alias("count"))
     p_vj = {(row[0], row[1]): float(row[2]) / total for row in vj_counts.iter_rows()}
 
     return {"v": p_v, "j": p_j, "vj": p_vj}

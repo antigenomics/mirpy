@@ -56,7 +56,7 @@ _C2 = "TRBC2"
 
 
 def _r(idx: int, seq: str, v: str = _V1, c: str = _C1) -> Clonotype:
-    return Clonotype(sequence_id=str(idx), locus=_LOCUS, v_gene=v, c_gene=c, junction_aa=seq, duplicate_count=1, _validate=False)
+    return Clonotype(sequence_id=str(idx), locus=_LOCUS, v_call=v, c_call=c, junction_aa=seq, duplicate_count=1, _validate=False)
 
 
 # ---------------------------------------------------------------------------
@@ -70,8 +70,8 @@ def _edge_set(g) -> set[frozenset[int]]:
 class _FailingTrie:
     def __init__(self, sequences, vGenes, jGenes):
         self.sequences = sequences
-        self.v_genes = vGenes
-        self.j_genes = jGenes
+        self.v_calls = vGenes
+        self.j_calls = jGenes
 
     def SearchIndices(self, **kwargs):
         raise RuntimeError("forced tcrtrie failure")
@@ -116,24 +116,24 @@ class TestHammingGraph(unittest.TestCase):
         self.assertEqual(g.ecount(), 0)
 
     def test_v_gene_match_filters_cross_v(self):
-        """v_gene_match=True skips pairs with different v_gene."""
+        """v_call_match=True skips pairs with different v_call."""
         ra = _r(0, SEQ_A, v=_V1)
-        rb_diff = _r(1, SEQ_B, v=_V2)  # ham 1 from ra but diff v_gene
+        rb_diff = _r(1, SEQ_B, v=_V2)  # ham 1 from ra but diff v_call
         # Without filter: 1 edge
         g_no = build_edit_distance_graph([ra, rb_diff], metric="hamming",
                                          threshold=1, nproc=1)
         self.assertEqual(g_no.ecount(), 1)
         # With filter: 0 edges
         g_yes = build_edit_distance_graph([ra, rb_diff], metric="hamming",
-                                          threshold=1, v_gene_match=True, nproc=1)
+                                          threshold=1, v_call_match=True, nproc=1)
         self.assertEqual(g_yes.ecount(), 0)
 
     def test_v_gene_match_keeps_same_v(self):
-        """v_gene_match=True still connects pairs with the same v_gene."""
+        """v_call_match=True still connects pairs with the same v_call."""
         ra = _r(0, SEQ_A, v=_V1)
         rb = _r(1, SEQ_B, v=_V1)
         g = build_edit_distance_graph([ra, rb], metric="hamming",
-                                      threshold=1, v_gene_match=True, nproc=1)
+                                      threshold=1, v_call_match=True, nproc=1)
         self.assertEqual(g.ecount(), 1)
 
     def test_v_gene_match_bare_is_wildcard(self):
@@ -144,7 +144,7 @@ class TestHammingGraph(unittest.TestCase):
             [ra, rb],
             metric="hamming",
             threshold=1,
-            v_gene_match=True,
+            v_call_match=True,
             nproc=1,
         )
         self.assertEqual(g.ecount(), 1)
@@ -157,7 +157,7 @@ class TestHammingGraph(unittest.TestCase):
             [ra, rb],
             metric="hamming",
             threshold=1,
-            v_gene_match=True,
+            v_call_match=True,
             nproc=1,
         )
         self.assertEqual(g.ecount(), 1)
@@ -170,7 +170,7 @@ class TestHammingGraph(unittest.TestCase):
             [ra, rb],
             metric="hamming",
             threshold=1,
-            v_gene_match=True,
+            v_call_match=True,
             nproc=1,
         )
         self.assertEqual(g.ecount(), 0)
@@ -183,7 +183,7 @@ class TestHammingGraph(unittest.TestCase):
             [ra, rb],
             metric="hamming",
             threshold=1,
-            v_gene_match=True,
+            v_call_match=True,
             nproc=1,
         )
         self.assertEqual(g.ecount(), 1)
@@ -191,8 +191,8 @@ class TestHammingGraph(unittest.TestCase):
     def test_v_gene_match_multi(self):
         """
         Four rearrangements: two V1 (ham 1 apart) and one V2 (ham 1 from A).
-        Without v_gene_match: 5 edges.
-        With v_gene_match:    2 edges (only V1 pairs at ham ≤ 1).
+        Without v_call_match: 5 edges.
+        With v_call_match:    2 edges (only V1 pairs at ham ≤ 1).
         """
         # V1: ra(A), rb(B), rc(C)   V2: rb_v2(B)
         ra = _r(0, SEQ_A, v=_V1)
@@ -206,25 +206,25 @@ class TestHammingGraph(unittest.TestCase):
                                           threshold=1, nproc=1)
         self.assertEqual(g_all.ecount(), 5)
 
-        # With v_gene_match: only V1×V1 pairs
+        # With v_call_match: only V1×V1 pairs
         # (A,B)=1✓ (A,C)=2✗ (B,C)=1✓ → 2 edges
         g_v = build_edit_distance_graph([ra, rb, rc, rb_v2], metric="hamming",
-                                        threshold=1, v_gene_match=True, nproc=1)
+                                        threshold=1, v_call_match=True, nproc=1)
         self.assertEqual(g_v.ecount(), 2)
 
     def test_c_gene_match_filters_cross_c(self):
-        """c_gene_match=True skips pairs with different c_gene."""
+        """c_call_match=True skips pairs with different c_call."""
         ra = _r(0, SEQ_A, c=_C1)
         rb_diff_c = _r(1, SEQ_B, c=_C2)
         g_no = build_edit_distance_graph([ra, rb_diff_c], metric="hamming",
                                          threshold=1, nproc=1)
         self.assertEqual(g_no.ecount(), 1)
         g_yes = build_edit_distance_graph([ra, rb_diff_c], metric="hamming",
-                                          threshold=1, c_gene_match=True, nproc=1)
+                                          threshold=1, c_call_match=True, nproc=1)
         self.assertEqual(g_yes.ecount(), 0)
 
     def test_both_gene_match(self):
-        """v_gene_match AND c_gene_match both must pass for an edge."""
+        """v_call_match AND c_call_match both must pass for an edge."""
         ra = _r(0, SEQ_A, v=_V1, c=_C1)
         rb_same = _r(1, SEQ_B, v=_V1, c=_C1)     # both match → edge
         rb_diff_v = _r(2, SEQ_B, v=_V2, c=_C1)   # v differs → no edge
@@ -232,7 +232,7 @@ class TestHammingGraph(unittest.TestCase):
         g = build_edit_distance_graph(
             [ra, rb_same, rb_diff_v, rb_diff_c],
             metric="hamming", threshold=1,
-            v_gene_match=True, c_gene_match=True, nproc=1,
+            v_call_match=True, c_call_match=True, nproc=1,
         )
         # Only (ra, rb_same) qualifies
         self.assertEqual(g.ecount(), 1)
@@ -242,13 +242,13 @@ class TestHammingGraph(unittest.TestCase):
         self.assertEqual(names, {SEQ_A, SEQ_B})
 
     def test_vertex_attributes(self):
-        """Graph carries name, v_gene, c_gene vertex attributes."""
+        """Graph carries name, v_call, c_call vertex attributes."""
         ra = _r(0, SEQ_A, v=_V1, c=_C1)
         rb = _r(1, SEQ_B, v=_V2, c=_C2)
         g = build_edit_distance_graph([ra, rb], metric="hamming", threshold=1, nproc=1)
         self.assertEqual(g.vs["name"], [SEQ_A, SEQ_B])
-        self.assertEqual(g.vs["v_gene"], [_V1, _V2])
-        self.assertEqual(g.vs["c_gene"], [_C1, _C2])
+        self.assertEqual(g.vs["v_call"], [_V1, _V2])
+        self.assertEqual(g.vs["c_call"], [_C1, _C2])
 
     def test_invalid_metric_raises(self):
         """Unknown metric raises ValueError."""
@@ -341,7 +341,7 @@ class TestLevenshteinGraph(unittest.TestCase):
         self.assertEqual(g_l.ecount(), 2)
 
     def test_v_gene_match_levenshtein(self):
-        """v_gene_match works the same way for levenshtein."""
+        """v_call_match works the same way for levenshtein."""
         ra = _r(0, SEQ_A, v=_V1)
         rd_same_v = _r(1, SEQ_D, v=_V1)  # lev 1, same v
         rd_diff_v = _r(2, SEQ_D, v=_V2)  # lev 1, diff v
@@ -349,10 +349,10 @@ class TestLevenshteinGraph(unittest.TestCase):
         g_no = build_edit_distance_graph([ra, rd_same_v, rd_diff_v],
                                          metric="levenshtein", threshold=1, nproc=1)
         self.assertEqual(g_no.ecount(), 3)
-        # v_gene_match: only same-v pairs → (A,D_v1)=1✓ → 1 edge
+        # v_call_match: only same-v pairs → (A,D_v1)=1✓ → 1 edge
         g_yes = build_edit_distance_graph([ra, rd_same_v, rd_diff_v],
                                           metric="levenshtein", threshold=1,
-                                          v_gene_match=True, nproc=1)
+                                          v_call_match=True, nproc=1)
         self.assertEqual(g_yes.ecount(), 1)  # only (A,D_v1)
 
     def test_connected_component(self):
@@ -433,7 +433,7 @@ GILG_FILE = ASSETS / "gilgfvftl_trb_junctions.txt.gz"
 def _load_gilg_rearrangements() -> list[Clonotype]:
     with gzip.open(GILG_FILE, "rt", encoding="utf-8") as f:
         seqs = [l.strip() for l in f if l.strip()]
-    return [Clonotype(sequence_id=str(i), locus="TRB", v_gene="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
+    return [Clonotype(sequence_id=str(i), locus="TRB", v_call="TRB", junction_aa=seq, duplicate_count=1) for i, seq in enumerate(seqs)]
 
 
 @unittest.skipUnless(GILG_FILE.exists(), "VDJdb asset missing — run python tests/prepare_airr_benchmark_data.py")
@@ -506,19 +506,19 @@ class TestEditDistanceGraphBenchmark(unittest.TestCase):
         self.assertGreater(len(rs_seqs), 0,
                            "Largest CC should contain sequences with 'RS' motif")
 
-    def test_hamming_with_v_gene_match(self):
-        """Hamming graph with v_gene_match=True runs correctly.
+    def test_hamming_with_v_call_match(self):
+        """Hamming graph with v_call_match=True runs correctly.
 
-        Since all rearrangements carry the same placeholder v_gene, the result
+        Since all rearrangements carry the same placeholder v_call, the result
         equals the unconstrained graph (edge count unchanged).
         """
         g_plain = build_edit_distance_graph(self.rearrangements, metric="hamming",
                                             threshold=1, nproc=1)
         g_vmatch = build_edit_distance_graph(self.rearrangements, metric="hamming",
-                                             threshold=1, v_gene_match=True, nproc=1)
-        print(f"\n  Hamming v_gene_match edges: {g_vmatch.ecount()} "
+                                             threshold=1, v_call_match=True, nproc=1)
+        print(f"\n  Hamming v_call_match edges: {g_vmatch.ecount()} "
               f"(plain: {g_plain.ecount()})")
-        # All have same placeholder v_gene → identical edge sets
+        # All have same placeholder v_call → identical edge sets
         self.assertEqual(g_plain.ecount(), g_vmatch.ecount())
 
     # -- Levenshtein threshold=1 ----------------------------------------------
@@ -547,13 +547,13 @@ class TestEditDistanceGraphBenchmark(unittest.TestCase):
         self.assertGreater(len(rs_seqs), 0,
                            "Largest CC should contain sequences with 'RS' motif")
 
-    def test_levenshtein_with_v_gene_match(self):
-        """Levenshtein graph with v_gene_match=True runs correctly."""
+    def test_levenshtein_with_v_call_match(self):
+        """Levenshtein graph with v_call_match=True runs correctly."""
         g_plain = build_edit_distance_graph(self.rearrangements, metric="levenshtein",
                                             threshold=1, nproc=1)
         g_vmatch = build_edit_distance_graph(self.rearrangements, metric="levenshtein",
-                                             threshold=1, v_gene_match=True, nproc=1)
-        print(f"\n  Levenshtein v_gene_match edges: {g_vmatch.ecount()} "
+                                             threshold=1, v_call_match=True, nproc=1)
+        print(f"\n  Levenshtein v_call_match edges: {g_vmatch.ecount()} "
               f"(plain: {g_plain.ecount()})")
         self.assertEqual(g_plain.ecount(), g_vmatch.ecount())
 

@@ -43,7 +43,7 @@ import polars as pl
 
 from mir.basic.alphabets import back_translate
 from mir.basic.aliases import airr_aliases_for_locus, normalize_airr_locus_value
-from mir.common.alleles import allele_to_major, strip_allele as _strip_gene
+from mir.common.alleles import allele_with_default, strip_allele as _strip_gene
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import SampleRepertoire, LocusRepertoire
 from mir.common.single_cell import PairedRepertoire, build_tenx_sample_from_cell_clonotypes
@@ -51,24 +51,24 @@ from mir.common.single_cell import PairedRepertoire, build_tenx_sample_from_cell
 # GeneLibrary is only imported lazily when needed (functional checks, germline sequences).
 # Do NOT instantiate it inside parsers — load it explicitly via GeneLibrary.load_default().
 
-# Mapping from VDJtools / legacy column names to AIRR column names.
+# Canonical mapping from any accepted input column name to mirpy's internal
+# (AIRR Rearrangement) schema names.  Internal gene fields use the AIRR
+# ``*_call`` spelling, so this is the single place where VDJtools (``v``),
+# legacy internal (``v_gene``) and AIRR (``v_call``) input columns converge.
 # Kept public because downstream test code imports it.
-_VDJTOOLS_TO_AIRR: dict[str, str] = {
+_INPUT_TO_INTERNAL: dict[str, str] = {
     'count':    'duplicate_count',
     '#count':   'duplicate_count',
     'cdr3nt':   'junction',
     'cdr3aa':   'junction_aa',
-    'v':        'v_gene',
-    'd':        'd_gene',
-    'j':        'j_gene',
-    # AIRR Rearrangement call columns -> mirpy's internal gene names, so the
-    # polars file path handles standard AIRR files (v_call/j_call/...) directly.
-    # TODO(gene-naming): unify v_call/j_call (AIRR) vs v_gene/j_gene (internal) —
-    # this map + AIRRParser.parse_inner both rename; see TODO.md.
-    'v_call':   'v_gene',
-    'd_call':   'd_gene',
-    'j_call':   'j_gene',
-    'c_call':   'c_gene',
+    'v':        'v_call',
+    'd':        'd_call',
+    'j':        'j_call',
+    # Legacy internal gene names (pre-AIRR-unification) accepted as input only.
+    'v_gene':   'v_call',
+    'd_gene':   'd_call',
+    'j_gene':   'j_call',
+    'c_gene':   'c_call',
     'VEnd':     'v_sequence_end',
     'DStart':   'd_sequence_start',
     'DEnd':     'd_sequence_end',
@@ -79,8 +79,8 @@ _VDJTOOLS_TO_AIRR: dict[str, str] = {
     'Read.count':                 'duplicate_count',
     'CDR3.amino.acid.sequence':   'junction_aa',
     'CDR3.nucleotide.sequence':   'junction',
-    'bestVGene':                  'v_gene',
-    'bestJGene':                  'j_gene',
+    'bestVGene':                  'v_call',
+    'bestJGene':                  'j_call',
 }
 
 # Backward-compat namedtuple kept as a public export.
@@ -94,7 +94,7 @@ def _gene_str(val) -> str:
     s = str(val).strip().split(',')[0].split(';')[0]
     if s in ('.', ''):
         return ""
-    return allele_to_major(s)
+    return allele_with_default(s)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ class ClonotypeTableParser:
     """Parse clonotype tables into lists of :class:`Clonotype` objects.
 
     Accepts file paths (string/Path) or pre-loaded :class:`pd.DataFrame`.
-    Gene names (v_gene, d_gene, j_gene, c_gene) are stored as plain strings —
+    Gene names (v_call, d_call, j_call, c_call) are stored as plain strings —
     consult :class:`~mir.common.gene_library.GeneLibrary` explicitly when you
     need germline sequences or functional annotations.
 
@@ -126,14 +126,14 @@ class ClonotypeTableParser:
         """Normalise pandas column names: strip leading ``#``, map VDJtools → AIRR."""
         df = df.copy()
         df.columns = [c.lstrip('#') for c in df.columns]
-        return df.rename(columns=_VDJTOOLS_TO_AIRR)
+        return df.rename(columns=_INPUT_TO_INTERNAL)
 
     @staticmethod
     def _normalize_pl(df: pl.DataFrame) -> pl.DataFrame:
         """Normalise polars column names: strip leading ``#``, map VDJtools → AIRR."""
         rename = {}
         for col in df.columns:
-            target = _VDJTOOLS_TO_AIRR.get(col.lstrip('#'), col.lstrip('#'))
+            target = _INPUT_TO_INTERNAL.get(col.lstrip('#'), col.lstrip('#'))
             if target != col:
                 rename[col] = target
         return df.rename(rename) if rename else df
@@ -144,7 +144,11 @@ class ClonotypeTableParser:
 
     @staticmethod
     def _norm_gene_col(s: pl.Series) -> list[str]:
-        """Vectorised gene normalisation with major-allele harmonization."""
+        """Vectorised gene normalisation.
+
+        Bare genes (no allele suffix) receive the major allele ``*01``; explicit
+        alleles (e.g. ``*02``) are preserved (see :func:`allele_with_default`).
+        """
         values = (
             s.cast(pl.Utf8).fill_null("")
             .str.split_exact(",", 1).struct.field("field_0")
@@ -153,7 +157,7 @@ class ClonotypeTableParser:
             .str.replace("^\\.$", "")
             .to_list()
         )
-        return [allele_to_major(v) for v in values]
+        return [allele_with_default(v) for v in values]
 
     @staticmethod
     def _normalize_locus_col(s: pl.Series) -> list[str]:
@@ -235,10 +239,10 @@ class ClonotypeTableParser:
         call returns.
         """
         cols = set(df.columns)
-        if 'junction_aa' not in cols or 'v_gene' not in cols or 'j_gene' not in cols:
+        if 'junction_aa' not in cols or 'v_call' not in cols or 'j_call' not in cols:
             raise ValueError(
                 f'Critical columns missing: {list(df.columns)}. '
-                f'Expected junction_aa, v_gene, j_gene (AIRR) or '
+                f'Expected junction_aa, v_call, j_call (AIRR) or '
                 f'cdr3aa, v, j (VDJtools — pass through normalize first).')
         n = len(df)
         has_markup = {'v_sequence_end', 'd_sequence_start',
@@ -251,11 +255,11 @@ class ClonotypeTableParser:
         junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
                        if 'junction' in cols else [""] * n
         junction_aas = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
-        v_genes      = self._norm_gene_col(df['v_gene'])
-        j_genes      = self._norm_gene_col(df['j_gene'])
-        d_genes      = self._norm_gene_col(df['d_gene']) if 'd_gene' in cols else [""] * n
+        v_calls      = self._norm_gene_col(df['v_call'])
+        j_calls      = self._norm_gene_col(df['j_call'])
+        d_calls      = self._norm_gene_col(df['d_call']) if 'd_call' in cols else [""] * n
 
-        # Vectorise locus inference in polars: take first 3 chars of j_gene
+        # Vectorise locus inference in polars: take first 3 chars of j_call
         # and keep only known IMGT locus codes (TRA/TRB/TRG/TRD/IGH/IGK/IGL).
         _valid_loci: frozenset[str] = frozenset(
             ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
@@ -264,7 +268,7 @@ class ClonotypeTableParser:
             loci = self._normalize_locus_col(df['locus'])
         else:
             _j_prefix = (
-                df['j_gene'].cast(pl.Utf8).fill_null("")
+                df['j_call'].cast(pl.Utf8).fill_null("")
                     .str.slice(0, 3).str.to_uppercase().to_list()
             )
             loci = [p if p in _valid_loci else "" for p in _j_prefix]
@@ -293,9 +297,9 @@ class ClonotypeTableParser:
                 umi_count=umi,
                 junction=jnt,
                 junction_aa=jaa,
-                v_gene=vg,
-                d_gene=dg,
-                j_gene=jg,
+                v_call=vg,
+                d_call=dg,
+                j_call=jg,
                 v_sequence_end=ve,
                 d_sequence_start=ds,
                 d_sequence_end=de,
@@ -303,7 +307,7 @@ class ClonotypeTableParser:
             )
             for sid, loc, dup, umi, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
                 seq_ids, loci, dup_counts, umi_counts, junctions, junction_aas,
-                v_genes, d_genes, j_genes, v_ends, d_starts, d_ends, j_starts,
+                v_calls, d_calls, j_calls, v_ends, d_starts, d_ends, j_starts,
             )
         ]
 
@@ -327,9 +331,9 @@ class ClonotypeTableParser:
         junctions    = df['junction'].cast(pl.Utf8).fill_null("").to_list() \
                        if 'junction' in cols else [""] * n
         junction_aas_raw = df['junction_aa'].cast(pl.Utf8).fill_null("").to_list()
-        v_genes      = self._norm_gene_col(df['v_gene'])
-        j_genes      = self._norm_gene_col(df['j_gene'])
-        d_genes      = self._norm_gene_col(df['d_gene']) if 'd_gene' in cols else [""] * n
+        v_calls      = self._norm_gene_col(df['v_call'])
+        j_calls      = self._norm_gene_col(df['j_call'])
+        d_calls      = self._norm_gene_col(df['d_call']) if 'd_call' in cols else [""] * n
 
         _valid_loci: frozenset[str] = frozenset(
             ("TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL")
@@ -338,7 +342,7 @@ class ClonotypeTableParser:
             loci = self._normalize_locus_col(df['locus'])
         else:
             _j_prefix = (
-                df['j_gene'].cast(pl.Utf8).fill_null("")
+                df['j_call'].cast(pl.Utf8).fill_null("")
                     .str.slice(0, 3).str.to_uppercase().to_list()
             )
             loci = [p if p in _valid_loci else "" for p in _j_prefix]
@@ -367,7 +371,7 @@ class ClonotypeTableParser:
                     'locus': loc,
                     'seq_ids': [], 'dup_counts': [], 'junctions': [],
                     'umi_counts': [],
-                    'junction_aas': [], 'v_genes': [], 'd_genes': [], 'j_genes': [],
+                    'junction_aas': [], 'v_calls': [], 'd_calls': [], 'j_calls': [],
                     'v_ends': [], 'd_starts': [], 'd_ends': [], 'j_starts': [],
                 }
             g = groups[loc]
@@ -376,9 +380,9 @@ class ClonotypeTableParser:
             g['umi_counts'].append(umi_counts[i])
             g['junctions'].append(junctions[i])
             g['junction_aas'].append(junction_aas[i])
-            g['v_genes'].append(v_genes[i])
-            g['d_genes'].append(d_genes[i])
-            g['j_genes'].append(j_genes[i])
+            g['v_calls'].append(v_calls[i])
+            g['d_calls'].append(d_calls[i])
+            g['j_calls'].append(j_calls[i])
             g['v_ends'].append(v_ends[i])
             g['d_starts'].append(d_starts[i])
             g['d_ends'].append(d_ends[i])
@@ -445,8 +449,7 @@ class AIRRParser(ClonotypeTableParser):
         self.validate_columns(df)
         locus_aliases = self.get_locus_aliases()
         df = df[df['locus'].astype(str).str.strip().str.lower().isin(locus_aliases)].copy()
-        # Rename AIRR call columns to AIRR gene names for the base parser
-        df = df.rename(columns={'v_call': 'v_gene', 'j_call': 'j_gene'})
+        # No gene-column rename needed: internal schema is AIRR (v_call/j_call).
         if 'clone_id' in df.columns:
             df.index = df['clone_id'].astype(str)
         return super().parse_inner(df)
@@ -469,16 +472,16 @@ class AdaptiveParser(ClonotypeTableParser):
     ``nucleotide``     → ``junction``
     ``aminoAcid``      → ``junction_aa``
     ``count``          → ``duplicate_count``
-    ``vMaxResolved``   → ``v_gene``
-    ``jMaxResolved``   → ``j_gene``
-    ``dMaxResolved``   → ``d_gene``
+    ``vMaxResolved``   → ``v_call``
+    ``jMaxResolved``   → ``j_call``
+    ``dMaxResolved``   → ``d_call``
 
     Gene-name normalization keeps the file names usable as IMGT-style gene
     strings:
 
     * ``TCRBV01`` → ``TRBV1``
     * ``TCR`` → ``TR``
-    * zero-padded allele suffixes like ``*01`` are normalized to ``*1``
+    * bare genes receive the major allele ``*01``; explicit alleles are preserved
 
     Boundary reconstruction from insertion/deletion annotations is deferred to
     a later pass that uses the reference library.
@@ -488,9 +491,9 @@ class AdaptiveParser(ClonotypeTableParser):
         "nucleotide": "junction",
         "aminoAcid": "junction_aa",
         "count": "duplicate_count",
-        "vMaxResolved": "v_gene",
-        "jMaxResolved": "j_gene",
-        "dMaxResolved": "d_gene",
+        "vMaxResolved": "v_call",
+        "jMaxResolved": "j_call",
+        "dMaxResolved": "d_call",
     }
 
     def __init__(self, sep: str = '\t', locus: str = 'TRB') -> None:
@@ -500,11 +503,12 @@ class AdaptiveParser(ClonotypeTableParser):
     @staticmethod
     def _normalize_gene_value(value) -> str:
         """Return a cleaned Adaptive gene string.
-        
+
         Normalizations:
         - TCRBV → TRBV (TCR → TR)
         - TRBV05-01 → TRBV5-1 (remove leading zeros from gene number and subtype)
-        - *01 → *1 (remove leading zeros from allele)
+        - allele suffix harmonised via :func:`allele_with_default` (bare → ``*01``,
+          explicit alleles preserved)
         """
         if value is None or (not isinstance(value, str) and pd.isna(value)):
             return ""
@@ -516,9 +520,7 @@ class AdaptiveParser(ClonotypeTableParser):
         gene = re.sub(r'^(TR[ABDG][VDJ])0+(\d+)', r'\1\2', gene)
         # Remove leading zeros from subtype after dash (e.g., V5-01 → V5-1)
         gene = re.sub(r'-0+(\d+)', r'-\1', gene)
-        # Remove leading zeros from allele suffix (e.g., *01 → *1)
-        gene = re.sub(r'\*0+(\d+)', r'*\1', gene)
-        return gene
+        return allele_with_default(gene)
 
     @classmethod
     def _normalize_pl(cls, df: pl.DataFrame) -> pl.DataFrame:
@@ -527,7 +529,7 @@ class AdaptiveParser(ClonotypeTableParser):
         rename = {src: dst for src, dst in cls._ADAPTIVE_TO_AIRR.items() if src in df.columns}
         if rename:
             df = df.rename(rename)
-        for col in ('v_gene', 'd_gene', 'j_gene'):
+        for col in ('v_call', 'd_call', 'j_call'):
             if col in df.columns:
                 df = df.with_columns(
                     pl.col(col)
@@ -628,10 +630,15 @@ class OldMiXCRParser:
 
     @staticmethod
     def _parse_gene(hits: str) -> str:
-        """Return the first gene hit, normalising ``*00`` allele to ``*01``."""
+        """Return the first gene hit with a harmonised allele suffix.
+
+        MiXCR's ``*00`` "no-allele" marker is dropped and the bare gene then
+        receives the major allele ``*01``; explicit alleles are preserved.
+        """
         if not hits:
             return ""
-        return re.sub(r"\*00.*", "*01", hits.split(",")[0])
+        first = re.sub(r"\*00.*$", "", hits.split(",")[0])
+        return allele_with_default(first)
 
     @staticmethod
     def _ref_point(parts: list[str], idx: int) -> int:
@@ -678,10 +685,10 @@ class OldMiXCRParser:
                     junction=         row[self._COL_JUNCTION],
                     junction_aa=      junction_aa,
                     locus=            j[:3].upper() if j else "",
-                    v_gene=           self._parse_gene(row[self._COL_V_HITS]),
-                    d_gene=           self._parse_gene(row[self._COL_D_HITS]),
-                    j_gene=           j,
-                    c_gene=           self._parse_gene(row[self._COL_C_HITS]),
+                    v_call=           self._parse_gene(row[self._COL_V_HITS]),
+                    d_call=           self._parse_gene(row[self._COL_D_HITS]),
+                    j_call=           j,
+                    c_call=           self._parse_gene(row[self._COL_C_HITS]),
                     v_sequence_end=   self._ref_point(ref, self._RP_V_END),
                     d_sequence_start= self._ref_point(ref, self._RP_D_START),
                     d_sequence_end=   self._ref_point(ref, self._RP_D_END),
@@ -706,8 +713,8 @@ class VDJdbSlimParser:
     ``gene``              → ``locus``
     ``cdr3``              → ``junction_aa``
     (back-translated)     → ``junction``  (most-likely human codon per AA)
-    ``v.segm``            → ``v_gene``
-    ``j.segm``            → ``j_gene``
+    ``v.segm``            → ``v_call``
+    ``j.segm``            → ``j_call``
     ``v.end * 3``         → ``v_sequence_end``  (AA→NT position)
     ``j.start * 3``       → ``j_sequence_start``
     metadata columns      → ``clone_metadata`` dict keys
@@ -774,8 +781,8 @@ class VDJdbSlimParser:
                     junction_aa=      junction_aa,
                     junction=         back_translate(junction_aa),
                     locus=            row.get("gene", "").strip(),
-                    v_gene=           row.get("v.segm", "").strip(),
-                    j_gene=           row.get("j.segm", "").strip(),
+                    v_call=           allele_with_default(row.get("v.segm", "").strip()),
+                    j_call=           allele_with_default(row.get("j.segm", "").strip()),
                     v_sequence_end=   v_sequence_end,
                     j_sequence_start= j_sequence_start,
                 )
@@ -821,10 +828,10 @@ class VDJdbFullPairedParser:
         "locus": pl.Utf8,
         "junction": pl.Utf8,
         "junction_aa": pl.Utf8,
-        "v_gene": pl.Utf8,
-        "d_gene": pl.Utf8,
-        "j_gene": pl.Utf8,
-        "c_gene": pl.Utf8,
+        "v_call": pl.Utf8,
+        "d_call": pl.Utf8,
+        "j_call": pl.Utf8,
+        "c_call": pl.Utf8,
         "vdjdb_record_id": pl.Utf8,
         "species": pl.Utf8,
         "mhc.a": pl.Utf8,
@@ -882,10 +889,10 @@ class VDJdbFullPairedParser:
             "locus": locus,
             "junction": back_translate(junction_aa),
             "junction_aa": junction_aa,
-            "v_gene": _gene_str(row.get(f"v.{suffix}")),
-            "d_gene": _gene_str(row.get(f"d.{suffix}")) if suffix == "beta" else "",
-            "j_gene": _gene_str(row.get(f"j.{suffix}")),
-            "c_gene": "",
+            "v_call": _gene_str(row.get(f"v.{suffix}")),
+            "d_call": _gene_str(row.get(f"d.{suffix}")) if suffix == "beta" else "",
+            "j_call": _gene_str(row.get(f"j.{suffix}")),
+            "c_call": "",
         }
         cell_row.update(metadata)
         return cell_row
@@ -994,7 +1001,7 @@ class OlgaParser:
     """Parse OLGA-generated sequence files (tab-delimited, optionally gzipped).
 
     The file has **no header row**.  Columns (in order):
-    ``junction``, ``junction_aa``, ``v_gene``, ``j_gene``.
+    ``junction``, ``junction_aa``, ``v_call``, ``j_call``.
 
     Locus is inferred from the J-gene prefix (e.g. ``TRBJ…`` → ``"TRB"``)
     via :class:`~mir.common.clonotype.Clonotype`'s ``__post_init__``.
@@ -1040,8 +1047,8 @@ class OlgaParser:
                     sequence_id=str(i),
                     junction=    row[0].strip(),
                     junction_aa= row[1].strip(),
-                    v_gene=      row[2].strip(),
-                    j_gene=      j,
+                    v_call=      allele_with_default(row[2].strip()),
+                    j_call=      allele_with_default(j),
                     locus=       locus or _loci_map.get(j[:3].upper(), ""),
                 ))
 
@@ -1198,10 +1205,10 @@ def load_vdjdb_latest(
                     if not junction_aa:
                         continue
 
-                    v_gene = row.get("v.segm", "").strip()
-                    j_gene = row.get("j.segm", "").strip()
+                    v_call = allele_with_default(row.get("v.segm", "").strip())
+                    j_call = allele_with_default(row.get("j.segm", "").strip())
 
-                    dedup_key = (junction_aa, _strip_gene(v_gene), _strip_gene(j_gene))
+                    dedup_key = (junction_aa, _strip_gene(v_call), _strip_gene(j_call))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -1223,8 +1230,8 @@ def load_vdjdb_latest(
                         locus=locus,
                         junction_aa=junction_aa,
                         junction=back_translate(junction_aa),
-                        v_gene=v_gene,
-                        j_gene=j_gene,
+                        v_call=v_call,
+                        j_call=j_call,
                         v_sequence_end=v_seq_end,
                         j_sequence_start=j_seq_start,
                     )

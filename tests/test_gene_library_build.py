@@ -117,7 +117,7 @@ class TestParseOlgaModelParams(unittest.TestCase):
         """D-gene lines use '% ' (percent then space)."""
         p = self._write(
             "@Event_list\n"
-            "#GeneChoice;D_gene;Undefined_side;6;d_gene\n"
+            "#GeneChoice;D_gene;Undefined_side;6;d_call\n"
             "% TRBD1*01;GGGACAGGGGGC;0\n"
         )
         records = _parse_olga_model_params(p)
@@ -162,7 +162,7 @@ class TestParseOlgaModelParams(unittest.TestCase):
             "@Event_list\n"
             "#GeneChoice;V_gene;Undefined_side;7;v_choice\n"
             "%TRBV1*01;AAAA;1\n"
-            "#GeneChoice;D_gene;Undefined_side;6;d_gene\n"
+            "#GeneChoice;D_gene;Undefined_side;6;d_call\n"
             "% TRBD1*01;GGGG;0\n"
             "#GeneChoice;J_gene;Undefined_side;7;j_choice\n"
             "%TRBJ1*01;TTTT;1\n"

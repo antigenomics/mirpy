@@ -223,7 +223,7 @@ def compute_logo(
         was given, a ``bg_height`` column.  Both are in bits.
 
     Example:
-        >>> bg = get_vj_background(pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15)
+        >>> bg = get_vj_background(pwms, v_call="TRBV9*01", j_call="TRBJ2-3*01", length=15)
         >>> logo = compute_logo(pwm, background=bg)
         >>> logo.filter(pl.col("pos") == 0)["ic_height"].sum()  # ≈ IC at pos 0
     """
@@ -330,8 +330,8 @@ def pwm_from_motif_pwms(
 def get_vj_background(
     motif_pwms: pl.DataFrame,
     *,
-    v_gene: str,
-    j_gene: str,
+    v_call: str,
+    j_call: str,
     length: int,
     species: str = "HomoSapiens",
     gene: str = "TRB",
@@ -351,9 +351,9 @@ def get_vj_background(
 
     Args:
         motif_pwms: Full ``motif_pwms`` table from :func:`load_motif_pwms`.
-        v_gene: V-gene representative name as it appears in ``v.segm.repr``
+        v_call: V-gene representative name as it appears in ``v.segm.repr``
             (e.g. ``"TRBV9*01"``).  Prefix matching is used if no exact match.
-        j_gene: J-gene representative name as it appears in ``j.segm.repr``
+        j_call: J-gene representative name as it appears in ``j.segm.repr``
             (e.g. ``"TRBJ2-3*01"``).  Prefix matching is used if no exact match.
         length: CDR3 amino-acid length.
         species: Species filter (default ``"HomoSapiens"``).
@@ -370,16 +370,16 @@ def get_vj_background(
 
     Example:
         >>> bg = get_vj_background(
-        ...     pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+        ...     pwms, v_call="TRBV9*01", j_call="TRBJ2-3*01",
         ...     length=15, species="HomoSapiens", gene="TRB",
         ... )
         >>> logo = compute_logo(my_pwm, background=bg)
     """
     # Try exact match first, then prefix match
     for v_match, j_match in [
-        (pl.col("v.segm.repr") == v_gene, pl.col("j.segm.repr") == j_gene),
-        (pl.col("v.segm.repr").str.starts_with(_strip_allele(v_gene)),
-         pl.col("j.segm.repr").str.starts_with(_strip_allele(j_gene))),
+        (pl.col("v.segm.repr") == v_call, pl.col("j.segm.repr") == j_call),
+        (pl.col("v.segm.repr").str.starts_with(_strip_allele(v_call)),
+         pl.col("j.segm.repr").str.starts_with(_strip_allele(j_call))),
     ]:
         candidates = motif_pwms.filter(
             v_match & j_match
@@ -538,8 +538,8 @@ def build_motif_logos_vj(
     pseudocount: float = 0.5,
     min_seqs: int = 3,
     cdr3_col: str = "junction_aa",
-    v_col: str = "v_gene",
-    j_col: str = "j_gene",
+    v_col: str = "v_call",
+    j_col: str = "j_call",
 ) -> dict[tuple[str | None, str | None, int], pl.DataFrame]:
     """Build per-VJ-len and per-len PWM logos with matched OLGA backgrounds.
 
@@ -565,13 +565,13 @@ def build_motif_logos_vj(
             given group (default 3).
         cdr3_col: Column name containing CDR3 sequences (default
             ``"junction_aa"``).
-        v_col: Column name containing V-gene (default ``"v_gene"``).
-        j_col: Column name containing J-gene (default ``"j_gene"``).
+        v_col: Column name containing V-gene (default ``"v_call"``).
+        j_col: Column name containing J-gene (default ``"j_call"``).
 
     Returns:
         Dictionary mapping group keys to logo DataFrames:
 
-        * ``(v_gene, j_gene, length)`` — per-VJ-len logo with per-VJ OLGA
+        * ``(v_call, j_call, length)`` — per-VJ-len logo with per-VJ OLGA
           background (``bg_height`` present when a background was found).
         * ``(None, None, length)`` — length-aggregated logo built from *all*
           sequences of that length, using the all-VJ weighted-average
@@ -582,7 +582,7 @@ def build_motif_logos_vj(
         >>> vj_logo = logos[("TRBV9*01", "TRBJ2-3*01", 15)]
         >>> agg_logo = logos[(None, None, 15)]
         >>> fig, axes = plot_motif_logos(
-        ...     vj_logo, v_gene="TRBV9*01", j_gene="TRBJ2-3*01", n_seqs=41
+        ...     vj_logo, v_call="TRBV9*01", j_call="TRBJ2-3*01", n_seqs=41
         ... )
     """
     df = sequences_df.with_columns(
@@ -598,7 +598,7 @@ def build_motif_logos_vj(
             continue
         pwm = compute_pwm(seqs, pseudocount=pseudocount, length=int(length))
         bg = get_vj_background(
-            motif_pwms, v_gene=str(v), j_gene=str(j),
+            motif_pwms, v_call=str(v), j_call=str(j),
             length=int(length), species=species, gene=gene,
         )
         logo = compute_logo(pwm, background=bg)
@@ -816,18 +816,18 @@ def build_terminal_anchored_pwm(
 def get_vj_background_from_control(
     control_df: pl.DataFrame,
     *,
-    v_gene: str | None = None,
-    j_gene: str | None = None,
+    v_call: str | None = None,
+    j_call: str | None = None,
     length: int,
     pseudocount: float = 0.5,
     min_seqs: int = 100,
     cdr3_col: str = "junction_aa",
-    v_col: str = "v_gene",
-    j_col: str = "j_gene",
+    v_col: str = "v_call",
+    j_col: str = "j_call",
 ) -> pl.DataFrame | None:
     """Build a VJ/length background PWM from a real or synthetic control repertoire.
 
-    Filters *control_df* to sequences matching *v_gene* / *j_gene* / *length*
+    Filters *control_df* to sequences matching *v_call* / *j_call* / *length*
     and computes per-position amino-acid frequencies using :func:`compute_pwm`.
     The result can be passed directly as *background* to :func:`compute_logo` to
     generate a data-driven selection logo without relying on the pre-computed
@@ -842,10 +842,10 @@ def get_vj_background_from_control(
             *j_col* columns.  Produced by
             :meth:`~mir.common.control.ControlManager.load_control_df` or any
             compatible repertoire DataFrame.
-        v_gene: V-gene name for filtering (prefix matching, e.g.
+        v_call: V-gene name for filtering (prefix matching, e.g.
             ``"TRBV9"`` or ``"TRBV9*01"``).  Pass ``None`` to skip V-gene
             filtering (aggregate over all V-genes).
-        j_gene: J-gene name for filtering (prefix matching).  Pass ``None``
+        j_call: J-gene name for filtering (prefix matching).  Pass ``None``
             to skip J-gene filtering.
         length: CDR3 amino-acid length to select.
         pseudocount: Laplace smoothing count added to every cell (default
@@ -855,8 +855,8 @@ def get_vj_background_from_control(
             is returned.
         cdr3_col: Column name for CDR3 sequences (default
             ``"junction_aa"``).
-        v_col: Column name for V-gene (default ``"v_gene"``).
-        j_col: Column name for J-gene (default ``"j_gene"``).
+        v_col: Column name for V-gene (default ``"v_call"``).
+        j_col: Column name for J-gene (default ``"j_call"``).
 
     Returns:
         Polars DataFrame with columns ``pos``, ``aa``, ``frequency`` (the
@@ -868,15 +868,15 @@ def get_vj_background_from_control(
         >>> mgr.ensure_synthetic_control("human", "TRB", n=10_000_000)
         >>> ctrl = mgr.load_control_df("synthetic", "human", "TRB", n=10_000_000)
         >>> bg = get_vj_background_from_control(
-        ...     ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15
+        ...     ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15
         ... )
         >>> logo = compute_logo(pwm, background=bg)
     """
     mask = pl.col(cdr3_col).str.len_chars() == length
-    if v_gene is not None:
-        mask = mask & pl.col(v_col).str.starts_with(_strip_allele(v_gene))
-    if j_gene is not None:
-        mask = mask & pl.col(j_col).str.starts_with(_strip_allele(j_gene))
+    if v_call is not None:
+        mask = mask & pl.col(v_col).str.starts_with(_strip_allele(v_call))
+    if j_call is not None:
+        mask = mask & pl.col(j_col).str.starts_with(_strip_allele(j_call))
 
     subset = control_df.filter(mask)
     seqs = subset[cdr3_col].to_list()
@@ -905,8 +905,8 @@ def build_terminal_anchored_logo(
     control_df: pl.DataFrame | None = None,
     min_control_seqs: int = 100,
     cdr3_col: str = "junction_aa",
-    v_col: str = "v_gene",
-    j_col: str = "j_gene",
+    v_col: str = "v_call",
+    j_col: str = "j_call",
 ) -> pl.DataFrame:
     """Build a terminal-anchored logo with background subtracted in linear space.
 
@@ -976,8 +976,8 @@ def build_terminal_anchored_logo(
             use the control-derived background (default 100).  Falls back
             to *motif_pwms* when the threshold is not met.
         cdr3_col: CDR3 column name (default ``"junction_aa"``).
-        v_col: V-gene column name (default ``"v_gene"``).
-        j_col: J-gene column name (default ``"j_gene"``).
+        v_col: V-gene column name (default ``"v_call"``).
+        j_col: J-gene column name (default ``"j_call"``).
 
     Returns:
         Polars DataFrame with columns ``pos``, ``label``, ``aa``, ``count``,
@@ -1034,7 +1034,7 @@ def build_terminal_anchored_logo(
         if control_df is not None:
             bg = get_vj_background_from_control(
                 control_df,
-                v_gene=v_dom, j_gene=j_dom,
+                v_call=v_dom, j_call=j_dom,
                 length=length,
                 pseudocount=pseudocount,
                 min_seqs=min_control_seqs,
@@ -1044,7 +1044,7 @@ def build_terminal_anchored_logo(
             )
         if bg is None and motif_pwms is not None:
             bg = get_vj_background(
-                motif_pwms, v_gene=v_dom, j_gene=j_dom,
+                motif_pwms, v_call=v_dom, j_call=j_dom,
                 length=length, species=species, gene=gene,
             )
         if bg is None:
@@ -1353,8 +1353,8 @@ def plot_logo(
 def plot_motif_logos(
     logo_df: pl.DataFrame,
     *,
-    v_gene: str | None = None,
-    j_gene: str | None = None,
+    v_call: str | None = None,
+    j_call: str | None = None,
     n_seqs: int | None = None,
     title: str | None = None,
     figsize: tuple[float, float] | None = None,
@@ -1373,8 +1373,8 @@ def plot_motif_logos(
         logo_df: DataFrame with ``pos``, ``aa``, ``ic_height`` columns and
             optionally ``bg_height``.  Produced by :func:`compute_logo` or
             :func:`pwm_from_motif_pwms`.
-        v_gene: V-gene name shown in the title (e.g. ``"TRBV9*01"``).
-        j_gene: J-gene name shown in the title (e.g. ``"TRBJ2-3*01"``).
+        v_call: V-gene name shown in the title (e.g. ``"TRBV9*01"``).
+        j_call: J-gene name shown in the title (e.g. ``"TRBJ2-3*01"``).
         n_seqs: Cluster size shown as ``(n = …)`` in the title.
         title: Figure suptitle.  Auto-generated from V/J genes if ``None``.
         figsize: Figure size in inches.  Defaults to ``(9, 3.5)`` for one
@@ -1389,11 +1389,11 @@ def plot_motif_logos(
 
     Example:
         >>> bg = get_vj_background(
-        ...     pwms, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+        ...     pwms, v_call="TRBV9*01", j_call="TRBJ2-3*01",
         ...     length=15, species="HomoSapiens", gene="TRB",
         ... )
         >>> logo = compute_logo(pwm, background=bg)
-        >>> fig, axes = plot_motif_logos(logo, v_gene="TRBV9*01", j_gene="TRBJ2-3*01")
+        >>> fig, axes = plot_motif_logos(logo, v_call="TRBV9*01", j_call="TRBJ2-3*01")
     """
     import matplotlib.pyplot as plt  # lazy import
 
@@ -1434,10 +1434,10 @@ def plot_motif_logos(
     # V / J gene names and cluster size in the suptitle — not on the axes margins
     if title is None:
         parts = []
-        if v_gene:
-            parts.append(v_gene)
-        if j_gene:
-            parts.append(j_gene)
+        if v_call:
+            parts.append(v_call)
+        if j_call:
+            parts.append(j_call)
         title = " · ".join(parts) if parts else "Sequence logo"
     if n_seqs is not None:
         title = f"{title}  (n = {n_seqs:,})"

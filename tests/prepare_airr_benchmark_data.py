@@ -134,9 +134,9 @@ def _convert_yf_vdjtools_to_airr(src: Path, dst: Path) -> None:
         rows: list[dict[str, str]] = []
         for i, row in enumerate(reader):
             junction_aa = (row.get("CDR3.amino.acid.sequence") or "").strip()
-            v_gene = (row.get("bestVGene") or "").strip()
-            j_gene = (row.get("bestJGene") or "").strip()
-            if not junction_aa or not v_gene or not j_gene:
+            v_call = (row.get("bestVGene") or "").strip()
+            j_call = (row.get("bestJGene") or "").strip()
+            if not junction_aa or not v_call or not j_call:
                 continue
             duplicate_count = str(row.get("Read.count") or "1")
             junction_nt = (row.get("CDR3.nucleotide.sequence") or "").strip()
@@ -147,8 +147,8 @@ def _convert_yf_vdjtools_to_airr(src: Path, dst: Path) -> None:
                     "sequence_id": str(i),
                     "junction": junction_nt,
                     "junction_aa": junction_aa,
-                    "v_gene": v_gene,
-                    "j_gene": j_gene,
+                    "v_call": v_call,
+                    "j_call": j_call,
                     "duplicate_count": duplicate_count,
                     "locus": "TRB",
                 }
@@ -157,7 +157,7 @@ def _convert_yf_vdjtools_to_airr(src: Path, dst: Path) -> None:
     with gzip.open(dst, "wt", encoding="utf-8", newline="") as out_fh:
         writer = csv.DictWriter(
             out_fh,
-            fieldnames=["sequence_id", "junction", "junction_aa", "v_gene", "j_gene", "duplicate_count", "locus"],
+            fieldnames=["sequence_id", "junction", "junction_aa", "v_call", "j_call", "duplicate_count", "locus"],
             delimiter="\t",
         )
         writer.writeheader()
@@ -176,19 +176,19 @@ def _write_gilg_and_llw(vdjdb_slim: Path) -> tuple[int, int]:
             junction_aa = (row.get("cdr3") or "").strip()
             epitope = (row.get("antigen.epitope") or "").strip().upper()
             mhc_a = (row.get("mhc.a") or "").strip()
-            v_gene = (row.get("v.segm") or "").strip()
-            j_gene = (row.get("j.segm") or "").strip()
+            v_call = (row.get("v.segm") or "").strip()
+            j_call = (row.get("j.segm") or "").strip()
 
             if gene == "TRB" and epitope == "GILGFVFTL" and junction_aa and junction_aa not in seen:
                 seen.add(junction_aa)
                 gilg.append(junction_aa)
 
-            if gene == "TRB" and epitope == "LLWNGPMAV" and "A*02" in mhc_a and junction_aa and v_gene and j_gene:
+            if gene == "TRB" and epitope == "LLWNGPMAV" and "A*02" in mhc_a and junction_aa and v_call and j_call:
                 llw_rows.append(
                     {
                         "junction_aa": junction_aa,
-                        "v_gene": v_gene,
-                        "j_gene": j_gene,
+                        "v_call": v_call,
+                        "j_call": j_call,
                         "duplicate_count": "1",
                         "locus": "TRB",
                     }
@@ -203,7 +203,7 @@ def _write_gilg_and_llw(vdjdb_slim: Path) -> tuple[int, int]:
     with gzip.open(llw_path, "wt", encoding="utf-8", newline="") as out:
         writer = csv.DictWriter(
             out,
-            fieldnames=["junction_aa", "v_gene", "j_gene", "duplicate_count", "locus"],
+            fieldnames=["junction_aa", "v_call", "j_call", "duplicate_count", "locus"],
             delimiter="\t",
         )
         writer.writeheader()
@@ -220,12 +220,12 @@ def _write_olga_1000(vdjdb_slim: Path) -> int:
             if (row.get("gene") or "").strip().upper() != "TRB":
                 continue
             junction_aa = (row.get("cdr3") or "").strip()
-            v_gene = (row.get("v.segm") or "TRBV7-9*01").strip() or "TRBV7-9*01"
-            j_gene = (row.get("j.segm") or "TRBJ2-1*01").strip() or "TRBJ2-1*01"
+            v_call = (row.get("v.segm") or "TRBV7-9*01").strip() or "TRBV7-9*01"
+            j_call = (row.get("j.segm") or "TRBJ2-1*01").strip() or "TRBJ2-1*01"
             if not junction_aa:
                 continue
             nt = "NNN" * len(junction_aa)
-            rows.append((nt, junction_aa, v_gene, j_gene))
+            rows.append((nt, junction_aa, v_call, j_call))
 
     if not rows:
         raise RuntimeError("No TRB rows available in VDJdb slim to build OLGA test asset")

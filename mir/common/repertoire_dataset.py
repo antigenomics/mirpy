@@ -182,7 +182,7 @@ class RepertoireDataset:
             clonotypes = parser.parse(str(sample_path))
             for c in clonotypes:
                 if not c.locus:
-                    c.locus = infer_locus(c.j_gene or c.v_gene or "")
+                    c.locus = infer_locus(c.j_call or c.v_call or "")
 
             rec = dict(row)
             rec["sample_id"] = sample_id

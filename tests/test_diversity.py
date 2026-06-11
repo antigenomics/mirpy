@@ -41,8 +41,8 @@ def _clone(
         duplicate_count=duplicate_count,
         umi_count=umi_count,
         junction_aa=junction_aa,
-        v_gene=f"{locus}V1",
-        j_gene=f"{locus}J1",
+        v_call=f"{locus}V1",
+        j_call=f"{locus}J1",
     )
 
 

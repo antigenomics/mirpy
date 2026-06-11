@@ -3,7 +3,7 @@
 
 Populates mir/resources/prototypes/ with one TSV file per species/locus
 combination found in the bundled OLGA models.  Each file contains exactly
-N_PROTOTYPES (10,000) rows with columns v_gene, j_gene, junction_aa,
+N_PROTOTYPES (10,000) rows with columns v_call, j_call, junction_aa,
 sampled from a real repertoire control when one is available and falling
 back to a synthetic OLGA-generated control otherwise.
 
@@ -48,8 +48,8 @@ from mir.common.control import ControlManager
 
 N_PROTOTYPES: int = 10_000
 _SEED: int = 42
-_OVERSAMPLE: int = 3  # request 3× to absorb (v_gene, j_gene, junction_aa) collisions
-_COLS: list[str] = ["v_gene", "j_gene", "junction_aa"]
+_OVERSAMPLE: int = 3  # request 3× to absorb (v_call, j_call, junction_aa) collisions
+_COLS: list[str] = ["v_call", "j_call", "junction_aa"]
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def _normalize_allele(gene: str) -> str:
 
 
 def _unique_triples(df: pl.DataFrame) -> pl.DataFrame:
-    """Return rows with unique (v_gene, j_gene, junction_aa) in original order."""
+    """Return rows with unique (v_call, j_call, junction_aa) in original order."""
     return df.select(_COLS).unique(subset=_COLS, maintain_order=True)
 
 
@@ -76,7 +76,7 @@ def _from_synthetic(
     Uses ``generate_sequences_with_meta(pgens=False)`` which skips Pgen
     computation — much faster than ``generate_pool`` for this purpose.
 
-    Oversamples by _OVERSAMPLE to handle duplicate (v_gene, j_gene, junction_aa)
+    Oversamples by _OVERSAMPLE to handle duplicate (v_call, j_call, junction_aa)
     tuples; extends with an extra pass if the first pass yields fewer than n
     unique triples (very unlikely in practice).
     """
@@ -87,8 +87,8 @@ def _from_synthetic(
         records = model.generate_sequences_with_meta(n=target, pgens=False, seed=batch_seed)
         rows = [
             {
-                "v_gene": _normalize_allele(rec["v_gene"]),
-                "j_gene": _normalize_allele(rec["j_gene"]),
+                "v_call": _normalize_allele(rec["v_call"]),
+                "j_call": _normalize_allele(rec["j_call"]),
                 "junction_aa": rec["junction_aa"],
             }
             for rec in records

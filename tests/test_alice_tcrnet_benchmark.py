@@ -110,8 +110,8 @@ def _clone_from_row(row: pd.Series, *, sid: str, duplicate_count: int = 1) -> Cl
         locus="TRB",
         junction_aa=str(row.get("cdr3", "") or row.get("junction_aa", "")),
         junction=str(row.get("cdr3nt", "") or row.get("junction", "")),
-        v_gene=str(row.get("v.segm", row.get("v_gene", row.get("v", ""))) or ""),
-        j_gene=str(row.get("j.segm", row.get("j_gene", row.get("j", ""))) or ""),
+        v_call=str(row.get("v.segm", row.get("v_call", row.get("v", ""))) or ""),
+        j_call=str(row.get("j.segm", row.get("j_call", row.get("j", ""))) or ""),
         duplicate_count=max(1, int(duplicate_count)),
         _validate=False,
     )
@@ -129,8 +129,8 @@ def _df_to_repertoire(df: pd.DataFrame, *, repertoire_id: str, limit: int | None
             locus="TRB",
             junction_aa=str(row.get("junction_aa", "")),
             junction=str(row.get("junction", "")),
-            v_gene=allele_to_major(str(row.get("v_gene", "") or "")),
-            j_gene=allele_to_major(str(row.get("j_gene", "") or "")),
+            v_call=allele_to_major(str(row.get("v_call", "") or "")),
+            j_call=allele_to_major(str(row.get("j_call", "") or "")),
             duplicate_count=max(1, int(row.get("duplicate_count", 1) or 1)),
             _validate=False,
         )
@@ -148,8 +148,8 @@ def _top_clone_count_limited(rep: LocusRepertoire, *, max_clonotypes: int) -> Lo
             locus="TRB",
             junction_aa=c.junction_aa,
             junction=c.junction,
-            v_gene=c.v_gene,
-            j_gene=c.j_gene,
+            v_call=c.v_call,
+            j_call=c.j_call,
             duplicate_count=int(c.duplicate_count or 1),
             _validate=False,
         )
@@ -207,7 +207,7 @@ def _load_cmv_sample(max_clonotypes: int, vdjdb_df: pd.DataFrame) -> tuple[Locus
 
     best: dict[tuple[str, str, str], Clonotype] = {}
     for c in rows:
-        key = (c.junction_aa, c.v_gene, c.j_gene)
+        key = (c.junction_aa, c.v_call, c.j_call)
         prev = best.get(key)
         if prev is None or int(c.duplicate_count) > int(prev.duplicate_count):
             best[key] = c
@@ -249,14 +249,14 @@ def _enriched_table(table: pd.DataFrame) -> pd.DataFrame:
 def _component_sizes(enriched: pd.DataFrame, *, metric: str, threshold: int) -> list[int]:
     if enriched.empty:
         return []
-    uniq = enriched.drop_duplicates(subset=["junction_aa", "v_gene", "j_gene"]).copy()
+    uniq = enriched.drop_duplicates(subset=["junction_aa", "v_call", "j_call"]).copy()
     rows = [
         Clonotype(
             sequence_id=str(i),
             locus="TRB",
             junction_aa=str(row.junction_aa),
-            v_gene=str(row.v_gene or ""),
-            j_gene=str(row.j_gene or ""),
+            v_call=str(row.v_call or ""),
+            j_call=str(row.j_call or ""),
             duplicate_count=1,
             _validate=False,
         )

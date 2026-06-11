@@ -105,8 +105,8 @@ def _make_repertoire(n: int, *, seed: int = 42) -> LocusRepertoire:
             sequence_id=f"s{i}",
             locus="TRB",
             junction_aa=_random_cdr3(rng),
-            v_gene=rng.choice(_VGENES),
-            j_gene=rng.choice(_JGENES),
+            v_call=rng.choice(_VGENES),
+            j_call=rng.choice(_JGENES),
             duplicate_count=rng.randint(1, 50),
             _validate=False,
         )

@@ -21,8 +21,8 @@ def test_deduplicate_clonotype_rows_sums_duplicate_count() -> None:
         {
             "reference_id": ["study", "study", "study"],
             "junction_aa": ["AAAA", "AAAA", "CCCC"],
-            "v_gene": ["TRBV1*01", "TRBV1*01", "TRBV2*01"],
-            "j_gene": ["TRBJ1-1*01", "TRBJ1-1*01", "TRBJ2-1*01"],
+            "v_call": ["TRBV1*01", "TRBV1*01", "TRBV2*01"],
+            "j_call": ["TRBJ1-1*01", "TRBJ1-1*01", "TRBJ2-1*01"],
             "duplicate_count": [2, 3, 1],
             "stimulus": ["x", "x", "y"],
             "row_id": ["0", "1", "2"],
@@ -41,8 +41,8 @@ def test_extract_v3mer_artifacts_supports_clonotype_count_mode() -> None:
         {
             "reference_id": ["study", "study"],
             "junction_aa": ["CASSLGQETQYF", "CASSLGQETQYF"],
-            "v_gene": ["TRBV1*01", "TRBV1*01"],
-            "j_gene": ["TRBJ1-1*01", "TRBJ1-1*01"],
+            "v_call": ["TRBV1*01", "TRBV1*01"],
+            "j_call": ["TRBJ1-1*01", "TRBJ1-1*01"],
             "duplicate_count": [1, 1],
             "row_id": ["0", "1"],
         }
@@ -64,8 +64,8 @@ def test_extract_pos3_and_u4_artifacts_expose_new_token_families() -> None:
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1-1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1-1*01"],
             "duplicate_count": [1],
             "row_id": ["0"],
         }
@@ -86,8 +86,8 @@ def test_extract_g5mer_artifacts_exposes_gapped_5mer_family() -> None:
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1-1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1-1*01"],
             "duplicate_count": [1],
             "row_id": ["0"],
         }
@@ -105,8 +105,8 @@ def test_extract_vpos3_alias_still_returns_pos3_tokens() -> None:
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1-1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1-1*01"],
             "duplicate_count": [1],
             "row_id": ["0"],
         }
@@ -125,8 +125,8 @@ def test_extract_family_artifacts_can_disable_trimming() -> None:
         {
             "reference_id": ["study"],
             "junction_aa": ["CASSLGQETQYF"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1-1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1-1*01"],
             "duplicate_count": [1],
             "row_id": ["0"],
         }
@@ -141,22 +141,22 @@ def test_normalize_control_v_matches_v_usage_only() -> None:
         {
             "row_id": ["0", "1", "2"],
             "junction_aa": ["AAAAA", "CCCCC", "GGGGG"],
-            "v_gene": ["TRBV1*01", "TRBV1*01", "TRBV2*01"],
-            "j_gene": ["TRBJ1-1*01", "TRBJ2-1*01", "TRBJ2-3*01"],
+            "v_call": ["TRBV1*01", "TRBV1*01", "TRBV2*01"],
+            "j_call": ["TRBJ1-1*01", "TRBJ2-1*01", "TRBJ2-3*01"],
             "duplicate_count": [1, 1, 1],
         }
     )
     control_df = pd.DataFrame(
         {
             "junction_aa": ["VVVVV", "WWWWW", "XXXXX", "YYYYY"],
-            "v_gene": ["TRBV1", "TRBV1", "TRBV2", "TRBV3"],
-            "j_gene": ["TRBJ1-1", "TRBJ2-1", "TRBJ2-3", "TRBJ1-2"],
+            "v_call": ["TRBV1", "TRBV1", "TRBV2", "TRBV3"],
+            "j_call": ["TRBJ1-1", "TRBJ2-1", "TRBJ2-3", "TRBJ1-2"],
             "duplicate_count": [1, 1, 1, 1],
         }
     )
 
     norm = normalize_control_v(sample_df, control_df, n=30, seed=1)
-    v_freq = norm["v_gene"].astype(str).str.split("*").str[0].value_counts(normalize=True)
+    v_freq = norm["v_call"].astype(str).str.split("*").str[0].value_counts(normalize=True)
 
     assert set(v_freq.index).issubset({"TRBV1", "TRBV2"})
     assert v_freq["TRBV1"] > v_freq["TRBV2"]

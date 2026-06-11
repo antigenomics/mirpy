@@ -37,8 +37,8 @@ def iter_loci(
 
 def lookup_gene_frac(
     match_mode: str,
-    v_gene: str,
-    j_gene: str,
+    v_call: str,
+    j_call: str,
     fracs: "dict[str, dict]",
     *,
     floor: float = 1e-10,
@@ -49,8 +49,8 @@ def lookup_gene_frac(
     gene-name → probability.  Allele suffixes are stripped before lookup.
     For ``"vj"`` mode, falls back to ``P(V) × P(J)`` when the pair is absent.
     """
-    vf = strip_allele(v_gene)
-    jf = strip_allele(j_gene)
+    vf = strip_allele(v_call)
+    jf = strip_allele(j_call)
     if match_mode == "v":
         p = fracs["v"].get(vf, 0.0)
     elif match_mode == "j":
