@@ -127,7 +127,7 @@ def _make_olga_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
         Clonotype(
             sequence_id=str(i), locus=locus,
             junction_aa=r["junction_aa"], junction=r["junction"],
-            v_gene=r["v_gene"], j_gene=r["j_gene"],
+            v_call=r["v_call"], j_call=r["j_call"],
             v_sequence_end=r["v_end"], j_sequence_start=r["j_start"],
             duplicate_count=1, _validate=False,
         )
@@ -850,7 +850,7 @@ class TestYFVP1SignificanceAndPgenBins:
     def _build_gene_usage(yfv_meta: pd.DataFrame) -> GeneUsage:
         """Aggregate TRB V/J usage with column-level reads (no clonotype objects).
 
-        Only reads v_gene, j_gene, duplicate_count columns, which is fast even
+        Only reads v_call, j_call, duplicate_count columns, which is fast even
         for the full YFV cohort.
         """
         gu = GeneUsage()
@@ -862,12 +862,12 @@ class TestYFVP1SignificanceAndPgenBins:
             if not path.exists():
                 continue
             df = pd.read_csv(path, sep="\t", compression="infer",
-                             usecols=["locus", "v_gene", "j_gene", "duplicate_count"])
-            df = df[df["locus"].fillna("") == locus].dropna(subset=["v_gene", "j_gene"])
+                             usecols=["locus", "v_call", "j_call", "duplicate_count"])
+            df = df[df["locus"].fillna("") == locus].dropna(subset=["v_call", "j_call"])
             if df.empty:
                 continue
-            v_base = df["v_gene"].astype(str).str.split("*").str[0]
-            j_base = df["j_gene"].astype(str).str.split("*").str[0]
+            v_base = df["v_call"].astype(str).str.split("*").str[0]
+            j_base = df["j_call"].astype(str).str.split("*").str[0]
             grouped = (
                 pd.DataFrame({
                     "v": v_base, "j": j_base,
@@ -1309,7 +1309,7 @@ class TestQ1ControlEffectSize:
 _YFV_IO_FILES = (sorted(_YFV_FULL_DIR.glob("*.tsv.gz"))
                  if _YFV_FULL_DIR.exists() else [])
 
-_IO_COLS = ["locus", "v_gene", "j_gene", "junction_aa", "duplicate_count"]
+_IO_COLS = ["locus", "v_call", "j_call", "junction_aa", "duplicate_count"]
 
 
 @skip_benchmarks

@@ -90,8 +90,8 @@ def _canonical_control_df() -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "junction_aa": ctrl_raw["junction_aa"].astype(str).str.strip(),
-            "v_gene": ctrl_raw["v_gene"].astype(str).str.strip(),
-            "j_gene": ctrl_raw["j_gene"].astype(str).str.strip(),
+            "v_call": ctrl_raw["v_call"].astype(str).str.strip(),
+            "j_call": ctrl_raw["j_call"].astype(str).str.strip(),
             "duplicate_count": pd.to_numeric(ctrl_raw.get("duplicate_count", 1), errors="coerce").fillna(1).astype(int),
         }
     )
@@ -146,8 +146,8 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(
         {
             "junction_aa": raw["junction_aa"].astype(str).str.strip(),
-            "v_gene": raw["v_gene"].astype(str).str.strip(),
-            "j_gene": raw["j_gene"].astype(str).str.strip(),
+            "v_call": raw["v_call"].astype(str).str.strip(),
+            "j_call": raw["j_call"].astype(str).str.strip(),
             "duplicate_count": pd.to_numeric(raw["duplicate_count"], errors="coerce").fillna(1).astype(int),
             "reference_id": raw["reference_id"].astype(str).str.strip(),
             "stimulus": raw["stimulus"].astype(str).str.strip(),
@@ -158,7 +158,7 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     min_len = _min_raw_len_for_tokenization()
     out = out[out["junction_aa"].str.len() >= min_len].copy()
     out = out[out["junction_aa"].str.match(AA_RE)].copy()
-    out = deduplicate_clonotype_rows(out, subset=("reference_id", "v_gene", "junction_aa")).to_pandas()
+    out = deduplicate_clonotype_rows(out, subset=("reference_id", "v_call", "junction_aa")).to_pandas()
     out = out.reset_index(drop=True)
     out["row_id"] = out.index.astype(str)
     return out
@@ -323,7 +323,7 @@ def test_gliph_rare_token_coverage() -> None:
     study_df = _normalize_gliph_df(raw)
 
     study_pl = pl.from_pandas(
-        study_df[["row_id", "junction_aa", "v_gene", "j_gene", "duplicate_count"]]
+        study_df[["row_id", "junction_aa", "v_call", "j_call", "duplicate_count"]]
         .rename(columns={"row_id": "sequence_id"}),
         include_index=False,
     )

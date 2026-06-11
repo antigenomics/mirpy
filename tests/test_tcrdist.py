@@ -35,8 +35,8 @@ def td(germline_aligner):
 def influenza_clonotype():
     return Clonotype(
         sequence_id="flu1",
-        v_gene="TRBV19*01",
-        j_gene="TRBJ2-7*01",
+        v_call="TRBV19*01",
+        j_call="TRBJ2-7*01",
         junction_aa="CASSIRSSYEQYF",
         duplicate_count=10,
     )
@@ -46,8 +46,8 @@ def influenza_clonotype():
 def influenza_similar():
     return Clonotype(
         sequence_id="flu2",
-        v_gene="TRBV19*01",
-        j_gene="TRBJ2-7*01",
+        v_call="TRBV19*01",
+        j_call="TRBJ2-7*01",
         junction_aa="CASSIRASYEQYF",
         duplicate_count=5,
     )
@@ -57,8 +57,8 @@ def influenza_similar():
 def unrelated_clonotype():
     return Clonotype(
         sequence_id="unrelated",
-        v_gene="TRBV5-1*01",
-        j_gene="TRBJ1-2*01",
+        v_call="TRBV5-1*01",
+        j_call="TRBJ1-2*01",
         junction_aa="CASSLGQGANVLTF",
         duplicate_count=3,
     )
@@ -164,13 +164,13 @@ class TestTcrDistPairwise:
     def test_same_v_gene_zero_v_component(self, td, influenza_clonotype, influenza_similar):
         # Both have TRBV19*01, so V-gene distance should be 0
         d_v = td.germline_aligner.gene_dist(
-            "TRB", influenza_clonotype.v_gene, influenza_similar.v_gene
+            "TRB", influenza_clonotype.v_call, influenza_similar.v_call
         )
         assert d_v == pytest.approx(0.0, abs=1e-6)
 
     def test_different_v_gene_positive_distance(self, td, influenza_clonotype, unrelated_clonotype):
         d_v = td.germline_aligner.gene_dist(
-            "TRB", influenza_clonotype.v_gene, unrelated_clonotype.v_gene
+            "TRB", influenza_clonotype.v_call, unrelated_clonotype.v_call
         )
         assert d_v > 0.0
 
@@ -201,8 +201,8 @@ class TestTcrDistPairwise:
         assert d_both == pytest.approx(d_no_v + d_no_cdr3, rel=1e-6)
 
     def test_empty_junction_handled(self, td):
-        cln1 = Clonotype(sequence_id="a", v_gene="TRBV19*01", junction_aa="")
-        cln2 = Clonotype(sequence_id="b", v_gene="TRBV19*01", junction_aa="CASSIRSSYEQYF")
+        cln1 = Clonotype(sequence_id="a", v_call="TRBV19*01", junction_aa="")
+        cln2 = Clonotype(sequence_id="b", v_call="TRBV19*01", junction_aa="CASSIRSSYEQYF")
         d = td.dist(cln1, cln2)
         assert d >= 0.0
 
@@ -231,14 +231,14 @@ class TestTcrDistPairwise:
         import numpy as np
         unknown = Clonotype(
             sequence_id="u1",
-            v_gene="TRBVXXX*99",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBVXXX*99",
+            j_call="TRBJ2-7*01",
             junction_aa="CASSIRSSYEQYF",
         )
         known = Clonotype(
             sequence_id="k1",
-            v_gene="TRBV19*01",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBV19*01",
+            j_call="TRBJ2-7*01",
             junction_aa="CASSIRSSYEQYF",
         )
         d = td.dist(unknown, known)
@@ -247,26 +247,26 @@ class TestTcrDistPairwise:
     def test_pairwise_dist_same_with_or_without_alleles(self, td):
         with_alleles_1 = Clonotype(
             sequence_id="a1",
-            v_gene="TRBV19*01",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBV19*01",
+            j_call="TRBJ2-7*01",
             junction_aa="CASSIRSSYEQYF",
         )
         with_alleles_2 = Clonotype(
             sequence_id="a2",
-            v_gene="TRBV5-1*01",
-            j_gene="TRBJ1-2*01",
+            v_call="TRBV5-1*01",
+            j_call="TRBJ1-2*01",
             junction_aa="CASSLGQGANVLTF",
         )
         without_alleles_1 = Clonotype(
             sequence_id="b1",
-            v_gene="TRBV19",
-            j_gene="TRBJ2-7",
+            v_call="TRBV19",
+            j_call="TRBJ2-7",
             junction_aa="CASSIRSSYEQYF",
         )
         without_alleles_2 = Clonotype(
             sequence_id="b2",
-            v_gene="TRBV5-1",
-            j_gene="TRBJ1-2",
+            v_call="TRBV5-1",
+            j_call="TRBJ1-2",
             junction_aa="CASSLGQGANVLTF",
         )
 
@@ -328,14 +328,14 @@ class TestTcrDistMatrix:
 
     def test_dist_matrix_same_with_or_without_alleles(self, td):
         with_alleles = [
-            Clonotype(sequence_id="a1", v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
-            Clonotype(sequence_id="a2", v_gene="TRBV5-1*01", j_gene="TRBJ1-2*01", junction_aa="CASSLGQGANVLTF"),
-            Clonotype(sequence_id="a3", v_gene="TRBV11-2*01", j_gene="TRBJ2-1*01", junction_aa="CASSFTEDYEQYF"),
+            Clonotype(sequence_id="a1", v_call="TRBV19*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+            Clonotype(sequence_id="a2", v_call="TRBV5-1*01", j_call="TRBJ1-2*01", junction_aa="CASSLGQGANVLTF"),
+            Clonotype(sequence_id="a3", v_call="TRBV11-2*01", j_call="TRBJ2-1*01", junction_aa="CASSFTEDYEQYF"),
         ]
         without_alleles = [
-            Clonotype(sequence_id="b1", v_gene="TRBV19", j_gene="TRBJ2-7", junction_aa="CASSIRSSYEQYF"),
-            Clonotype(sequence_id="b2", v_gene="TRBV5-1", j_gene="TRBJ1-2", junction_aa="CASSLGQGANVLTF"),
-            Clonotype(sequence_id="b3", v_gene="TRBV11-2", j_gene="TRBJ2-1", junction_aa="CASSFTEDYEQYF"),
+            Clonotype(sequence_id="b1", v_call="TRBV19", j_call="TRBJ2-7", junction_aa="CASSIRSSYEQYF"),
+            Clonotype(sequence_id="b2", v_call="TRBV5-1", j_call="TRBJ1-2", junction_aa="CASSLGQGANVLTF"),
+            Clonotype(sequence_id="b3", v_call="TRBV11-2", j_call="TRBJ2-1", junction_aa="CASSFTEDYEQYF"),
         ]
 
         m_with = td.dist_matrix(with_alleles, with_alleles, n_jobs=1)
@@ -475,7 +475,7 @@ class TestFindMetaclonotypes:
             small_repertoire,
             representative_ids=[influenza_clonotype.sequence_id],
             max_distance=1e6,
-            match_v_gene=True,
+            match_v_call=True,
         )
         members = meta.members_of(meta.cluster_ids[0])
         member_ids = set(members["clonotype_id"].to_list())
@@ -486,14 +486,14 @@ class TestFindMetaclonotypes:
             clonotypes=[
                 Clonotype(
                     sequence_id="a",
-                    v_gene="TRBV19",
-                    j_gene="TRBJ2-7",
+                    v_call="TRBV19",
+                    j_call="TRBJ2-7",
                     junction_aa="CASSIRSSYEQYF",
                 ),
                 Clonotype(
                     sequence_id="b",
-                    v_gene="TRBV19*01",
-                    j_gene="TRBJ2-7*01",
+                    v_call="TRBV19*01",
+                    j_call="TRBJ2-7*01",
                     junction_aa="CASSIRSSYEQYF",
                 ),
             ],
@@ -503,8 +503,8 @@ class TestFindMetaclonotypes:
             rep,
             representative_ids=["a"],
             max_distance=0.0,
-            match_v_gene=True,
-            match_j_gene=True,
+            match_v_call=True,
+            match_j_call=True,
         )
         members = meta.members_of(meta.cluster_ids[0])
         assert set(members["clonotype_id"].to_list()) == {"a", "b"}

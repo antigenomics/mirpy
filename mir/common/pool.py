@@ -23,11 +23,11 @@ _VALID_POOL_RULES: set[str] = {"ntvj", "nt", "aavj", "aa"}
 
 def _pool_key(cl: Clonotype, rule: PoolRule) -> tuple[str, ...]:
     if rule == "ntvj":
-        return (str(cl.junction or ""), str(cl.v_gene or ""), str(cl.j_gene or ""))
+        return (str(cl.junction or ""), str(cl.v_call or ""), str(cl.j_call or ""))
     if rule == "nt":
         return (str(cl.junction or ""),)
     if rule == "aavj":
-        return (str(cl.junction_aa or ""), str(cl.v_gene or ""), str(cl.j_gene or ""))
+        return (str(cl.junction_aa or ""), str(cl.v_call or ""), str(cl.j_call or ""))
     return (str(cl.junction_aa or ""),)
 
 
@@ -42,10 +42,10 @@ def _row_signature(cl: Clonotype) -> tuple:
         str(cl.sequence_id or ""),
         str(cl.junction or ""),
         str(cl.junction_aa or ""),
-        str(cl.v_gene or ""),
-        str(cl.d_gene or ""),
-        str(cl.j_gene or ""),
-        str(cl.c_gene or ""),
+        str(cl.v_call or ""),
+        str(cl.d_call or ""),
+        str(cl.j_call or ""),
+        str(cl.c_call or ""),
         int(cl.v_sequence_end),
         int(cl.d_sequence_start),
         int(cl.d_sequence_end),
@@ -158,9 +158,9 @@ def pool_samples(
         or an iterable of repertoire objects.
     rule
         Pooling key definition:
-        - ``"ntvj"``: ``(junction, v_gene, j_gene)``
+        - ``"ntvj"``: ``(junction, v_call, j_call)``
         - ``"nt"``: ``(junction,)``
-        - ``"aavj"``: ``(junction_aa, v_gene, j_gene)``
+        - ``"aavj"``: ``(junction_aa, v_call, j_call)``
         - ``"aa"``: ``(junction_aa,)``
     weighted
         If True, representative row is selected by summed ``duplicate_count``.

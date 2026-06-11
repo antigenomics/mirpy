@@ -45,8 +45,8 @@ class TestChunkParsingWorker:
         """Worker should parse a small DataFrame chunk into LocusRepertoire."""
         df = pd.DataFrame({
             "junction_aa": ["CASSF", "CASSF"],
-            "v_gene": ["TRBV1", "TRBV2"],
-            "j_gene": ["TRBJ1-1", "TRBJ1-1"],
+            "v_call": ["TRBV1", "TRBV2"],
+            "j_call": ["TRBJ1-1", "TRBJ1-1"],
             "duplicate_count": [10, 20],
         })
         rep = _parse_chunk_worker(df, locus="TRB")
@@ -59,8 +59,8 @@ class TestChunkParsingWorker:
         """Worker should default duplicate_count to 1 if missing."""
         df = pd.DataFrame({
             "junction_aa": ["CASSF"],
-            "v_gene": ["TRBV1"],
-            "j_gene": ["TRBJ1-1"],
+            "v_call": ["TRBV1"],
+            "j_call": ["TRBJ1-1"],
         })
         rep = _parse_chunk_worker(df, locus="TRB")
         assert len(rep.clonotypes) == 1
@@ -70,8 +70,8 @@ class TestChunkParsingWorker:
         """Worker should handle empty chunks gracefully."""
         df = pd.DataFrame({
             "junction_aa": [],
-            "v_gene": [],
-            "j_gene": [],
+            "v_call": [],
+            "j_call": [],
         })
         rep = _parse_chunk_worker(df, locus="TRB")
         assert len(rep.clonotypes) == 0

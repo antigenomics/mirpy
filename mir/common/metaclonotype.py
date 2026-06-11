@@ -244,8 +244,8 @@ def metaclonotypes_from_seed_neighbors(
     seed_clonotype_ids: list[str],
     metric: str = "hamming",
     threshold: int = 1,
-    match_v_gene: bool = True,
-    match_j_gene: bool = True,
+    match_v_call: bool = True,
+    match_j_call: bool = True,
     cluster_prefix: str = "mc",
 ) -> MetaClonotypeClustering:
     """Build one metaclonotype per seed clonotype using edit-distance neighbors."""
@@ -265,9 +265,9 @@ def metaclonotypes_from_seed_neighbors(
             continue
         cluster_id = f"{cluster_prefix}_{idx}"
         for candidate in repertoire.clonotypes:
-            if match_v_gene and not genes_match(seed.v_gene, candidate.v_gene):
+            if match_v_call and not genes_match(seed.v_call, candidate.v_call):
                 continue
-            if match_j_gene and not genes_match(seed.j_gene, candidate.j_gene):
+            if match_j_call and not genes_match(seed.j_call, candidate.j_call):
                 continue
             if is_within_threshold(seed.junction_aa, candidate.junction_aa, metric, threshold):
                 rows.append(
@@ -318,8 +318,8 @@ def metaclonotypes_from_radius_threshold(
     representative_ids: list[str],
     score_distance_fn: Callable[[Clonotype, Clonotype], float],
     max_distance: float,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
     cluster_prefix: str = "radius_mc",
 ) -> MetaClonotypeClustering:
     """Build metaclonotypes via a continuous-radius score threshold.
@@ -338,9 +338,9 @@ def metaclonotypes_from_radius_threshold(
             continue
         cluster_id = f"{cluster_prefix}_{idx}"
         for candidate in repertoire.clonotypes:
-            if match_v_gene and not genes_match(rep.v_gene, candidate.v_gene):
+            if match_v_call and not genes_match(rep.v_call, candidate.v_call):
                 continue
-            if match_j_gene and not genes_match(rep.j_gene, candidate.j_gene):
+            if match_j_call and not genes_match(rep.j_call, candidate.j_call):
                 continue
             distance = float(score_distance_fn(rep, candidate))
             if distance <= max_distance:
@@ -367,8 +367,8 @@ def summarize_metaclonotypes(
         pl.col("duplicate_count").cast(pl.Int64).fill_null(0),
         pl.col("umi_count").cast(pl.Int64).fill_null(0),
         pl.col("junction_aa").cast(pl.Utf8),
-        pl.col("v_gene").cast(pl.Utf8),
-        pl.col("j_gene").cast(pl.Utf8),
+        pl.col("v_call").cast(pl.Utf8),
+        pl.col("j_call").cast(pl.Utf8),
     )
 
     joined = metaclonotypes.table.join(
@@ -385,8 +385,8 @@ def summarize_metaclonotypes(
         .agg(
             pl.col("clonotype_id").first().alias("representative_clonotype_id"),
             pl.col("junction_aa").first().alias("representative_junction_aa"),
-            pl.col("v_gene").first().alias("representative_v_gene"),
-            pl.col("j_gene").first().alias("representative_j_gene"),
+            pl.col("v_call").first().alias("representative_v_call"),
+            pl.col("j_call").first().alias("representative_j_call"),
         )
     )
 
@@ -506,8 +506,8 @@ def default_clonotype_identity(clonotype: Clonotype) -> tuple[str, str, str]:
     """
     return (
         clonotype.junction_aa,
-        allele_to_major(clonotype.v_gene or ""),
-        allele_to_major(clonotype.j_gene or ""),
+        allele_to_major(clonotype.v_call or ""),
+        allele_to_major(clonotype.j_call or ""),
     )
 
 

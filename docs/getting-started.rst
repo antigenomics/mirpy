@@ -76,11 +76,15 @@ Clonotype
 
 The smallest unit is a clonotype. Parsers convert rows from tabular repertoire
 formats into ``Clonotype`` objects with AIRR-schema fields: ``junction``,
-``junction_aa``, ``v_gene``, ``j_gene``, ``duplicate_count``, and boundary
+``junction_aa``, ``v_call``, ``j_call``, ``duplicate_count``, and boundary
 coordinates.
 
-``v_gene`` / ``j_gene`` can be provided with or without an explicit allele
-suffix throughout mirpy workflows.
+``v_call`` / ``j_call`` may be provided with or without an explicit allele
+suffix. On import (file parsers and ``from_pandas``) a bare gene receives the
+major allele ``*01`` while an explicit allele such as ``*02`` is preserved, so
+inside mirpy every gene call carries allele information. Legacy ``v_gene`` /
+``j_gene`` column names are still accepted on input and mapped to ``v_call`` /
+``j_call``.
 
 Gene and allele notation
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -649,9 +653,9 @@ identity rules.
 
 Supported pooling rules:
 
-* ``ntvj``: key ``(junction, v_gene, j_gene)``
+* ``ntvj``: key ``(junction, v_call, j_call)``
 * ``nt``: key ``(junction,)``
-* ``aavj``: key ``(junction_aa, v_gene, j_gene)``
+* ``aavj``: key ``(junction_aa, v_call, j_call)``
 * ``aa``: key ``(junction_aa,)``
 
 Each pooled clonotype stores:
@@ -676,7 +680,7 @@ TCRnet and ALICE algorithms.
        repertoire,
        metric="hamming",
        threshold=1,
-       match_v_gene=True,
+       match_v_call=True,
    )
 
    # stats["clonotype_id"] = {
@@ -688,8 +692,8 @@ Supported options:
 
 * ``metric``: ``"hamming"`` or ``"levenshtein"`` for junction_aa comparison
 * ``threshold``: Maximum edit distance to consider a clonotype a neighbor
-* ``match_v_gene``: If True, only count neighbors with matching V gene
-* ``match_j_gene``: If True, only count neighbors with matching J gene
+* ``match_v_call``: If True, only count neighbors with matching V gene
+* ``match_j_call``: If True, only count neighbors with matching J gene
 
 For larger repertoires, neighborhood and edit-distance graph builders run with
 multiprocess workers when ``n_jobs > 1`` to leverage true multi-core execution.
@@ -741,7 +745,7 @@ through ``mir.common.control``.
    # Download real control from HuggingFace dataset and convert to pickle
    mgr.ensure_real_control("hsa", "Tbeta")
 
-   # Load normalized ntvj table (duplicate_count, junction, junction_aa, v_gene, j_gene)
+   # Load normalized ntvj table (duplicate_count, junction, junction_aa, v_call, j_call)
    df_control = mgr.load_control_df("synthetic", "human", "TRB")
 
    # Or build/fetch on demand when a workflow needs a control immediately

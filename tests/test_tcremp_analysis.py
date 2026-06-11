@@ -36,8 +36,8 @@ np.random.seed(SEED)
 
 def _generate_random_clonotypes(
     n: int,
-    v_genes: list[str],
-    j_genes: list[str],
+    v_calls: list[str],
+    j_calls: list[str],
     junction_len_range: Tuple[int, int] = (8, 20),
     seed: int = SEED,
 ) -> list[Clonotype]:
@@ -45,8 +45,8 @@ def _generate_random_clonotypes(
 
     Args:
         n: Number of clonotypes to generate.
-        v_genes: Available V genes.
-        j_genes: Available J genes.
+        v_calls: Available V genes.
+        j_calls: Available J genes.
         junction_len_range: (min_len, max_len) for junction amino-acid length.
         seed: Random seed.
 
@@ -58,12 +58,12 @@ def _generate_random_clonotypes(
     clonotypes = []
 
     for _ in range(n):
-        v_gene = np.random.choice(v_genes)
-        j_gene = np.random.choice(j_genes)
+        v_call = np.random.choice(v_calls)
+        j_call = np.random.choice(j_calls)
         junction_len = np.random.randint(junction_len_range[0], junction_len_range[1])
         junction_aa = "".join(np.random.choice(list(aa_alphabet), size=junction_len))
         clonotypes.append(
-            Clonotype(v_gene=v_gene, j_gene=j_gene, junction_aa=junction_aa)
+            Clonotype(v_call=v_call, j_call=j_call, junction_aa=junction_aa)
         )
 
     return clonotypes
@@ -104,8 +104,8 @@ class TestTCREmpManualDistances:
         n_proto = 10
         model = TCREmp.from_defaults("human", "TRB", n_prototypes=n_proto)
         clonotypes = [
-            Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
-            Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASRQDTQYF"),
+            Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+            Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01", junction_aa="CASRQDTQYF"),
         ]
         X = model.embed(clonotypes)
 
@@ -119,7 +119,7 @@ class TestTCREmpManualDistances:
         
         # Convert prototypes DataFrame to Clonotype objects
         proto_clonotypes = [
-            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            Clonotype(v_call=r["v_call"], j_call=r["j_call"], junction_aa=r["junction_aa"])
             for r in model.prototypes.iter_rows(named=True)
         ]
         
@@ -165,8 +165,8 @@ class TestNJobsAnalysis:
         lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"})
         v_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="V"))
         j_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="J"))
-        v_genes = sorted(v_seqs.keys())[:50]
-        j_genes = sorted(j_seqs.keys())
+        v_calls = sorted(v_seqs.keys())[:50]
+        j_calls = sorted(j_seqs.keys())
 
         results = []
 
@@ -177,7 +177,7 @@ class TestNJobsAnalysis:
             model = TCREmp.from_defaults("human", "TRB", n_prototypes=min(n_proto, 1000), junction_method="fixed_gap")
             
             # Generate clonotypes
-            clonotypes = _generate_random_clonotypes(n_clono, v_genes, j_genes, seed=self.SEED)
+            clonotypes = _generate_random_clonotypes(n_clono, v_calls, j_calls, seed=self.SEED)
 
             # Test serial (n_jobs=1)
             t0_serial = time.perf_counter()
@@ -244,10 +244,10 @@ class TestFixedGapVsBioPython:
         lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"})
         v_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="V"))
         j_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="J"))
-        v_genes = sorted(v_seqs.keys())[:50]
-        j_genes = sorted(j_seqs.keys())
+        v_calls = sorted(v_seqs.keys())[:50]
+        j_calls = sorted(j_seqs.keys())
 
-        clonotypes = _generate_random_clonotypes(self.N_CLONOTYPES, v_genes, j_genes, seed=self.SEED)
+        clonotypes = _generate_random_clonotypes(self.N_CLONOTYPES, v_calls, j_calls, seed=self.SEED)
 
         # Test fixed-gap
         print("Building fixed-gap model...")
@@ -313,10 +313,10 @@ class TestEmbeddingDistanceComparison:
         lib = GeneLibrary.load_default(loci={"TRB"}, species={"human"})
         v_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="V"))
         j_seqs = dict(lib.get_sequences_aa(locus="TRB", gene="J"))
-        v_genes = sorted(v_seqs.keys())[:30]
-        j_genes = sorted(j_seqs.keys())
+        v_calls = sorted(v_seqs.keys())[:30]
+        j_calls = sorted(j_seqs.keys())
 
-        clonotypes = _generate_random_clonotypes(self.N_CLONOTYPES, v_genes, j_genes, seed=self.SEED)
+        clonotypes = _generate_random_clonotypes(self.N_CLONOTYPES, v_calls, j_calls, seed=self.SEED)
 
         # Generate embeddings with both methods
         model_fixed = TCREmp.from_defaults("human", "TRB", n_prototypes=self.N_PROTOTYPES, junction_method="fixed_gap")
@@ -377,7 +377,7 @@ class TestPrototypeSymmetryAndLatentSpace:
         
         # Convert prototypes to clonotypes
         proto_clonotypes = [
-            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            Clonotype(v_call=r["v_call"], j_call=r["j_call"], junction_aa=r["junction_aa"])
             for r in model.prototypes.iter_rows(named=True)
         ]
 

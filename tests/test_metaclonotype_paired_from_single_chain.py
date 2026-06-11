@@ -22,8 +22,8 @@ def _make_clone(
         sequence_id=seq_id,
         locus=locus,
         junction_aa=junction_aa,
-        v_gene=v,
-        j_gene=j,
+        v_call=v,
+        j_call=j,
         duplicate_count=1,
         _validate=False,
     )

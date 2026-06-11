@@ -52,7 +52,7 @@ def _make_olga_rep(locus: str, n: int, seed: int = _SEED) -> LocusRepertoire:
         Clonotype(
             sequence_id=str(i), locus=locus,
             junction_aa=r["junction_aa"], junction=r["junction"],
-            v_gene=r["v_gene"], j_gene=r["j_gene"],
+            v_call=r["v_call"], j_call=r["j_call"],
             v_sequence_end=r["v_end"], j_sequence_start=r["j_start"],
             duplicate_count=1, _validate=False,
         )

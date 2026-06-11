@@ -76,10 +76,10 @@ def test_compute_usage_cache_parallel_branch(monkeypatch):
         assert n_jobs == 3
         assert seed == 11
         return [
-            {"v_gene": "TRBV20-1*01", "j_gene": "TRBJ2-7*01"},
-            {"v_gene": "TRBV20-1*02", "j_gene": "TRBJ2-7*01"},
-            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
-            {"v_gene": "TRBV5-1*01", "j_gene": "TRBJ1-2*01"},
+            {"v_call": "TRBV20-1*01", "j_call": "TRBJ2-7*01"},
+            {"v_call": "TRBV20-1*02", "j_call": "TRBJ2-7*01"},
+            {"v_call": "TRBV5-1*01", "j_call": "TRBJ1-2*01"},
+            {"v_call": "TRBV5-1*01", "j_call": "TRBJ1-2*01"},
         ]
 
     monkeypatch.setattr(model, "generate_sequences_with_meta", _fail_if_called)

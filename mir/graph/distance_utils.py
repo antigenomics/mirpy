@@ -86,8 +86,8 @@ def is_within_threshold(seq1: str, seq2: str, metric: str, threshold: int) -> bo
 
 def should_compare_pair(
     rec: PairRecord,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
 ) -> bool:
     """Check if a pair should be compared based on gene matching criteria.
 
@@ -95,18 +95,18 @@ def should_compare_pair(
     ----------
     rec
         Pair record with extracted fields.
-    match_v_gene
-        If True, only compare pairs with matching v_gene.
-    match_j_gene
-        If True, only compare pairs with matching j_gene.
+    match_v_call
+        If True, only compare pairs with matching v_call.
+    match_j_call
+        If True, only compare pairs with matching j_call.
 
     Returns
     -------
     bool
         True if pair meets all matching criteria.
     """
-    if match_v_gene and not genes_match(rec.v1, rec.v2):
+    if match_v_call and not genes_match(rec.v1, rec.v2):
         return False
-    if match_j_gene and not genes_match(rec.j1, rec.j2):
+    if match_j_call and not genes_match(rec.j1, rec.j2):
         return False
     return True

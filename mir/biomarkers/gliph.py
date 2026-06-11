@@ -102,8 +102,8 @@ COUNT_MODE = Literal["occurrence", "clonotype"]
 _DEFAULT_UNIQUE_CLONOTYPE_COLUMNS = (
     "reference_id",
     "junction_aa",
-    "v_gene",
-    "j_gene",
+    "v_call",
+    "j_call",
 )
 
 
@@ -184,9 +184,9 @@ def repertoire_to_clonotypes(
                 locus=c.locus,
                 junction_aa=trimmed_jaa,
                 junction=c.junction,
-                v_gene=c.v_gene,
-                d_gene=c.d_gene,
-                j_gene=c.j_gene,
+                v_call=c.v_call,
+                d_call=c.d_call,
+                j_call=c.j_call,
                 v_sequence_end=c.v_sequence_end,
                 d_sequence_start=c.d_sequence_start,
                 d_sequence_end=c.d_sequence_end,
@@ -290,7 +290,7 @@ def _token_from_match(
     if family == "vpos3":
         family = "pos3"
     seq = kmer.seq.decode("ascii")
-    v_base = (kmer.v_gene or "").split("*")[0]
+    v_base = (kmer.v_call or "").split("*")[0]
     if family == "v3":
         return f"v3::{v_base}::{seq}"
     if family == "pos3":
@@ -460,7 +460,7 @@ def extract_gliph_token_artifacts(
     ----------
     df : polars.DataFrame or pandas.DataFrame
         Clonotype table with columns ``row_id`` (or ``sequence_id``),
-        ``junction_aa``, ``v_gene``, ``j_gene`` (optional), ``duplicate_count``.
+        ``junction_aa``, ``v_call``, ``j_call`` (optional), ``duplicate_count``.
     family : {"v3", "pos3", "u3", "u4", "g4", "g5"}
         Token family to extract.
     threads : int, optional
@@ -550,7 +550,7 @@ def _extract_artifacts_direct(
         raw = _aa_to_bytes(clonotype.junction_aa)
         n = len(raw)
         rid = str(clonotype.id)
-        v_base = (clonotype.v_gene or "").split("*")[0]
+        v_base = (clonotype.v_call or "").split("*")[0]
 
         seen: dict[str, set[str]] = {f: set() for f in families}
 
@@ -1068,7 +1068,7 @@ def normalize_control_v(
         sample_df,
         control_pool_df,
         n,
-        gene_columns=("v_gene",),
+        gene_columns=("v_call",),
         seed=seed,
     )
 
@@ -1085,6 +1085,6 @@ def normalize_control_vj(
         sample_df,
         control_pool_df,
         n,
-        gene_columns=("v_gene", "j_gene"),
+        gene_columns=("v_call", "j_call"),
         seed=seed,
     )

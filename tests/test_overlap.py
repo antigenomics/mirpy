@@ -50,8 +50,8 @@ from tests.conftest import skip_benchmarks
 def _make_rep(
     junction_aas: list[str],
     *,
-    v_gene: str = "TRBV12-3*01",
-    j_gene: str = "TRBJ2-2*01",
+    v_call: str = "TRBV12-3*01",
+    j_call: str = "TRBJ2-2*01",
     locus: str = "TRB",
     junctions: list[str] | None = None,
 ) -> LocusRepertoire:
@@ -61,8 +61,8 @@ def _make_rep(
             locus=locus,
             junction_aa=jaa,
             junction=(junctions[i] if junctions is not None else ""),
-            v_gene=v_gene,
-            j_gene=j_gene,
+            v_call=v_call,
+            j_call=j_call,
             duplicate_count=i + 1,
             _validate=False,
         )
@@ -121,7 +121,7 @@ class TestMakeReferenceKeys:
         keys = make_reference_keys(_make_rep(["CASSF", "CASSY"]))
         assert len(keys) == 2, f"Expected 2 reference keys for 2 sequences, got {len(keys)}"
         for key in keys:
-            assert len(key) == 3, f"Each key should be a 3-tuple (locus, v_gene, junction_aa), got {type(key)}: {len(key)} elements"
+            assert len(key) == 3, f"Each key should be a 3-tuple (locus, v_call, junction_aa), got {type(key)}: {len(key)} elements"
 
     def test_deduplication(self) -> None:
         assert len(make_reference_keys(_make_rep(["CASSF", "CASSF"]))) == 1
@@ -131,7 +131,7 @@ class TestMakeReferenceKeys:
         # of the same base gene maps to the same overlap key.
         clone = Clonotype(
             sequence_id="0", locus="TRB", junction_aa="CASSF",
-            v_gene="TRBV1*02", j_gene="TRBJ1-1*01", duplicate_count=1,
+            v_call="TRBV1*02", j_call="TRBJ1-1*01", duplicate_count=1,
         )
         rep = LocusRepertoire(clonotypes=[clone], locus="TRB")
         assert ("CASSF", "TRBV1", "TRBJ1-1") in make_reference_keys(rep)
@@ -139,7 +139,7 @@ class TestMakeReferenceKeys:
     def test_empty_junction_skipped(self) -> None:
         clone = Clonotype(
             sequence_id="0", locus="TRB", junction_aa="",
-            v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1,
+            v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1,
         )
         rep = LocusRepertoire(clonotypes=[clone], locus="TRB")
         assert len(make_reference_keys(rep)) == 0
@@ -161,8 +161,8 @@ class TestMakeReferenceKeys:
         rep = _make_rep([jaa])
         fuzzy = make_reference_keys(rep, allow_1mm=True)
         from mir.common.alleles import strip_allele
-        v = strip_allele(rep.clonotypes[0].v_gene)
-        j = strip_allele(rep.clonotypes[0].j_gene)
+        v = strip_allele(rep.clonotypes[0].v_call)
+        j = strip_allele(rep.clonotypes[0].j_call)
         assert ("AASSF", v, j) in fuzzy   # C→A at position 0
 
 
@@ -192,9 +192,9 @@ class TestCountOverlapExact:
     def test_duplicate_count_summed(self) -> None:
         ref = _make_rep(["CASSF"])
         c1 = Clonotype(sequence_id="0", locus="TRB", junction_aa="CASSF",
-                       v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=3)
+                       v_call="TRBV12-3*01", j_call="TRBJ2-2*01", duplicate_count=3)
         c2 = Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF",
-                       v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01", duplicate_count=7)
+                       v_call="TRBV12-3*01", j_call="TRBJ2-2*01", duplicate_count=7)
         query = LocusRepertoire(clonotypes=[c1, c2], locus="TRB")
         r = count_overlap(make_reference_keys(ref), make_query_index(query))
         assert r.dc == 10
@@ -350,7 +350,7 @@ def _make_synthetic_rep(n: int, offset: int = 0) -> LocusRepertoire:
         clones.append(Clonotype(
             sequence_id=str(i), locus="TRB",
             junction_aa=f"CASS{a0}{a1}{a2}GELFF",
-            v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01",
+            v_call="TRBV12-3*01", j_call="TRBJ2-2*01",
             duplicate_count=i + 1,
         ))
     return LocusRepertoire(clonotypes=clones, locus="TRB")
@@ -546,7 +546,7 @@ class TestPairwiseOverlapExact:
     """Sanity tests for :func:`pairwise_overlap` with exact matching."""
 
     def test_identical_reps_all_match(self) -> None:
-        rep = _make_rep(["CASSF", "CASSY", "CASSW"], v_gene="TRBV12-3*01", j_gene="TRBJ2-2*01")
+        rep = _make_rep(["CASSF", "CASSY", "CASSW"], v_call="TRBV12-3*01", j_call="TRBJ2-2*01")
         r = pairwise_overlap(rep, rep)
         assert r.n1 == 3
         assert r.n1_matched == 3

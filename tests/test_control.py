@@ -70,8 +70,8 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
                 "duplicate_count": [1, 2, 1],
                 "junction": ["ATG", "GTA", "CCC"],
                 "junction_aa": ["M", "V", "P"],
-                "v_gene": ["TRBV1*01", "TRBV2*01", "TRBV3*01"],
-                "j_gene": ["TRBJ1*01", "TRBJ2*01", "TRBJ1*01"],
+                "v_call": ["TRBV1*01", "TRBV2*01", "TRBV3*01"],
+                "j_call": ["TRBJ1*01", "TRBJ2*01", "TRBJ1*01"],
             }
         )
 
@@ -86,7 +86,7 @@ def test_ensure_synthetic_control_registers_manifest(tmp_path: Path, monkeypatch
     assert out_path.exists()
 
     loaded = mgr.load_control_df("synthetic", "human", "TRB", n=3)
-    assert list(loaded.columns) == ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
+    assert list(loaded.columns) == ["duplicate_count", "junction", "junction_aa", "v_call", "j_call"]
     assert len(loaded) == 3
     assert int(loaded["duplicate_count"].sum()) == 4
 
@@ -105,12 +105,12 @@ def test_build_real_control_from_ntvj_appends_alleles(tmp_path: Path) -> None:
 
     df = build_real_control_from_ntvj(src)
 
-    assert list(df.columns) == ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
+    assert list(df.columns) == ["duplicate_count", "junction", "junction_aa", "v_call", "j_call"]
     assert int(df["duplicate_count"][0]) == 1
     assert int(df["duplicate_count"][1]) == 2
-    assert df["v_gene"][0] == "TRBV1*01"
-    assert df["v_gene"][1] == "TRBV2*02"
-    assert df["j_gene"][1] == "TRBJ2*01"
+    assert df["v_call"][0] == "TRBV1*01"
+    assert df["v_call"][1] == "TRBV2*02"
+    assert df["j_call"][1] == "TRBJ2*01"
 
 
 def test_ensure_real_control_download_and_register(tmp_path: Path, monkeypatch) -> None:
@@ -138,7 +138,7 @@ def test_ensure_real_control_download_and_register(tmp_path: Path, monkeypatch) 
     df = mgr.load_control_df("real", "hsa", "Tbeta")
     assert len(df) == 1
     assert int(df["duplicate_count"][0]) == 1
-    assert df["v_gene"][0] == "TRBV1*01"
+    assert df["v_call"][0] == "TRBV1*01"
 
 
 def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
@@ -157,8 +157,8 @@ def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
                 "duplicate_count": [1],
                 "junction": ["ATG"],
                 "junction_aa": ["M"],
-                "v_gene": ["TRAV1*01"],
-                "j_gene": ["TRAJ1*01"],
+                "v_call": ["TRAV1*01"],
+                "j_call": ["TRAJ1*01"],
             }
         ),
     )
@@ -166,7 +166,7 @@ def test_ensure_and_load_control_df(tmp_path: Path, monkeypatch) -> None:
     df = mgr.ensure_and_load_control_df("synthetic", "hsa", "Talpha", n=1, overwrite=True, progress=False)
     assert len(df) == 1
     assert int(df["duplicate_count"][0]) == 1
-    assert df["v_gene"][0] == "TRAV1*01"
+    assert df["v_call"][0] == "TRAV1*01"
 
 
 def test_ensure_synthetic_control_rebuilds_unreadable_cache(tmp_path: Path, monkeypatch) -> None:
@@ -189,8 +189,8 @@ def test_ensure_synthetic_control_rebuilds_unreadable_cache(tmp_path: Path, monk
                 "duplicate_count": [1],
                 "junction": ["ATG"],
                 "junction_aa": ["M"],
-                "v_gene": ["TRBV1*01"],
-                "j_gene": ["TRBJ1*01"],
+                "v_call": ["TRBV1*01"],
+                "j_call": ["TRBJ1*01"],
                 "log2_pgen": [-12.5],
             }
         ),
@@ -223,8 +223,8 @@ def test_ensure_synthetic_control_defaults_to_auto_cpu_n_jobs(tmp_path: Path, mo
                 "duplicate_count": [1],
                 "junction": ["ATG"],
                 "junction_aa": ["M"],
-                "v_gene": ["TRBV1*01"],
-                "j_gene": ["TRBJ1*01"],
+                "v_call": ["TRBV1*01"],
+                "j_call": ["TRBJ1*01"],
                 "log2_pgen": [-12.5],
             }
         )
@@ -239,8 +239,8 @@ def test_compute_control_pgen_records_uses_precomputed_log2_pgen_with_adjustment
     df = pl.DataFrame(
         {
             "junction_aa": ["CASSIRSSYEQYF"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1*01"],
             "log2_pgen": [-10.0],
         }
     )
@@ -283,8 +283,8 @@ def test_ensure_synthetic_control_waits_for_existing_lock(tmp_path: Path, monkey
                 "duplicate_count": [1],
                 "junction": ["ATG"],
                 "junction_aa": ["M"],
-                "v_gene": ["TRBV1*01"],
-                "j_gene": ["TRBJ1*01"],
+                "v_call": ["TRBV1*01"],
+                "j_call": ["TRBJ1*01"],
             }
         ),
     )
@@ -319,8 +319,8 @@ def test_load_control_df_waits_if_building_lock_present(tmp_path: Path) -> None:
             "duplicate_count": [1],
             "junction": ["ATG"],
             "junction_aa": ["M"],
-            "v_gene": ["TRBV1*01"],
-            "j_gene": ["TRBJ1*01"],
+            "v_call": ["TRBV1*01"],
+            "j_call": ["TRBJ1*01"],
         }
     )
     with open(path, "wb") as fh:
@@ -364,8 +364,8 @@ def test_synthetic_controls_with_different_n_have_distinct_manifest_records(tmp_
     path_large = mgr.synthetic_control_path("human", "TRB", 20)
     path_small.parent.mkdir(parents=True, exist_ok=True)
     for path, data in [
-        (path_small, {"duplicate_count": [1], "junction": ["ATG"], "junction_aa": ["M"], "v_gene": ["TRBV1*01"], "j_gene": ["TRBJ1*01"]}),
-        (path_large, {"duplicate_count": [2], "junction": ["GTA"], "junction_aa": ["V"], "v_gene": ["TRBV2*01"], "j_gene": ["TRBJ2*01"]}),
+        (path_small, {"duplicate_count": [1], "junction": ["ATG"], "junction_aa": ["M"], "v_call": ["TRBV1*01"], "j_call": ["TRBJ1*01"]}),
+        (path_large, {"duplicate_count": [2], "junction": ["GTA"], "junction_aa": ["V"], "v_call": ["TRBV2*01"], "j_call": ["TRBJ2*01"]}),
     ]:
         with open(path, "wb") as fh:
             pickle.dump(pl.DataFrame(data), fh, protocol=pickle.HIGHEST_PROTOCOL)
@@ -417,8 +417,8 @@ def test_loading_synthetic_control_without_n_is_rejected_when_multiple_sizes_exi
                     "duplicate_count": [dup],
                     "junction": ["ATG"],
                     "junction_aa": ["M"],
-                    "v_gene": ["TRBV1*01"],
-                    "j_gene": ["TRBJ1*01"],
+                    "v_call": ["TRBV1*01"],
+                    "j_call": ["TRBJ1*01"],
                 }
             ), fh, protocol=pickle.HIGHEST_PROTOCOL)
         mgr.register_record(
@@ -459,8 +459,8 @@ def test_ensure_synthetic_control_reuses_larger_cache_by_prefix(tmp_path: Path, 
                     "duplicate_count": [1, 2, 3, 4, 5, 6],
                     "junction": [f"J{i}" for i in range(6)],
                     "junction_aa": [f"CASS{i}" for i in range(6)],
-                    "v_gene": ["TRBV1*01"] * 6,
-                    "j_gene": ["TRBJ1*01"] * 6,
+                    "v_call": ["TRBV1*01"] * 6,
+                    "j_call": ["TRBJ1*01"] * 6,
                     "log2_pgen": [-10.0] * 6,
                 }
             ),
@@ -504,8 +504,8 @@ def test_ensure_synthetic_control_extends_smaller_cache(tmp_path: Path, monkeypa
                     "duplicate_count": [1, 2],
                     "junction": ["A", "B"],
                     "junction_aa": ["CASSA", "CASSB"],
-                    "v_gene": ["TRBV1*01", "TRBV1*01"],
-                    "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+                    "v_call": ["TRBV1*01", "TRBV1*01"],
+                    "j_call": ["TRBJ1*01", "TRBJ1*01"],
                     "log2_pgen": [-9.0, -8.0],
                 }
             ),
@@ -532,8 +532,8 @@ def test_ensure_synthetic_control_extends_smaller_cache(tmp_path: Path, monkeypa
                 "duplicate_count": [7, 8],
                 "junction": ["C", "D"],
                 "junction_aa": ["CASSC", "CASSD"],
-                "v_gene": ["TRBV1*01", "TRBV1*01"],
-                "j_gene": ["TRBJ1*01", "TRBJ1*01"],
+                "v_call": ["TRBV1*01", "TRBV1*01"],
+                "j_call": ["TRBJ1*01", "TRBJ1*01"],
                 "log2_pgen": [-7.0, -6.0],
             }
         ),
@@ -560,8 +560,8 @@ def test_cleanup_cache_removes_invalid_manifest_entries_and_orphans(tmp_path: Pa
                     "duplicate_count": [1],
                     "junction": ["A"],
                     "junction_aa": ["CASSA"],
-                    "v_gene": ["TRBV1*01"],
-                    "j_gene": ["TRBJ1*01"],
+                    "v_call": ["TRBV1*01"],
+                    "j_call": ["TRBJ1*01"],
                     "log2_pgen": [-9.0],
                 }
             ),
@@ -576,8 +576,8 @@ def test_cleanup_cache_removes_invalid_manifest_entries_and_orphans(tmp_path: Pa
                     "duplicate_count": [3],
                     "junction": ["O"],
                     "junction_aa": ["CASSO"],
-                    "v_gene": ["TRBV1*01"],
-                    "j_gene": ["TRBJ1*01"],
+                    "v_call": ["TRBV1*01"],
+                    "j_call": ["TRBJ1*01"],
                     "log2_pgen": [-5.0],
                 }
             ),
@@ -632,8 +632,8 @@ def test_refresh_real_controls_updates_when_snapshot_changes(tmp_path: Path, mon
                     "duplicate_count": [1],
                     "junction": ["ATG"],
                     "junction_aa": ["M"],
-                    "v_gene": ["TRBV1*01"],
-                    "j_gene": ["TRBJ1*01"],
+                    "v_call": ["TRBV1*01"],
+                    "j_call": ["TRBJ1*01"],
                 }
             ),
             fh,

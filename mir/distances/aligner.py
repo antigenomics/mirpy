@@ -858,22 +858,22 @@ class ClonotypeAligner:
 
     def score(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(
-            v_score=self.v_aligner.score(cln1.v_gene, cln2.v_gene),
-            j_score=self.j_aligner.score(cln1.j_gene, cln2.j_gene),
+            v_score=self.v_aligner.score(cln1.v_call, cln2.v_call),
+            j_score=self.j_aligner.score(cln1.j_call, cln2.j_call),
             junction_score=self.junction_aligner.score(cln1.junction_aa, cln2.junction_aa),
         )
 
     def score_norm(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(
-            v_score=self.v_aligner.score_norm(cln1.v_gene, cln2.v_gene),
-            j_score=self.j_aligner.score_norm(cln1.j_gene, cln2.j_gene),
+            v_score=self.v_aligner.score_norm(cln1.v_call, cln2.v_call),
+            j_score=self.j_aligner.score_norm(cln1.j_call, cln2.j_call),
             junction_score=self.junction_aligner.score_norm(cln1.junction_aa, cln2.junction_aa),
         )
 
     def score_dist(self, cln1: Clonotype, cln2: Clonotype) -> ClonotypeScore:
         return ClonotypeScore(
-            v_score=self.v_aligner.score_dist(cln1.v_gene, cln2.v_gene),
-            j_score=self.j_aligner.score_dist(cln1.j_gene, cln2.j_gene),
+            v_score=self.v_aligner.score_dist(cln1.v_call, cln2.v_call),
+            j_score=self.j_aligner.score_dist(cln1.j_call, cln2.j_call),
             junction_score=self.junction_aligner.score_dist(cln1.junction_aa, cln2.junction_aa),
         )
 

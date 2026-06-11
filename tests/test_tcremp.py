@@ -55,7 +55,7 @@ def paired_tcremp_small():
 
 
 def _clonotype(v, j, junction_aa):
-    return Clonotype(v_gene=v, j_gene=j, junction_aa=junction_aa)
+    return Clonotype(v_call=v, j_call=j, junction_aa=junction_aa)
 
 
 def _paired_clonotype(pair_id, tra, trb):
@@ -235,7 +235,7 @@ class TestTCREmpConstruction:
 
     def test_prototypes_dataframe_shape(self, tcremp_small):
         assert tcremp_small.prototypes.shape == (10, 3)
-        assert tcremp_small.prototypes.columns == ["v_gene", "j_gene", "junction_aa"]
+        assert tcremp_small.prototypes.columns == ["v_call", "j_call", "junction_aa"]
 
 
 # ---------------------------------------------------------------------------
@@ -324,12 +324,12 @@ class TestTCREmpEmbedValues:
         """Embedding a prototype against itself → all three distance components = 0."""
         proto_df = tcremp_small.prototypes
         for row in proto_df.iter_rows(named=True):
-            c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+            c = _clonotype(row["v_call"], row["j_call"], row["junction_aa"])
             X = tcremp_small.embed([c])
             for k in range(tcremp_small.n_prototypes):
                 if (
-                    tcremp_small._proto_v[k] == row["v_gene"]
-                    and tcremp_small._proto_j[k] == row["j_gene"]
+                    tcremp_small._proto_v[k] == row["v_call"]
+                    and tcremp_small._proto_j[k] == row["j_call"]
                     and tcremp_small._proto_junction[k] == row["junction_aa"]
                 ):
                     assert X[0, 3 * k] == pytest.approx(0.0, abs=1e-4), f"V dist nonzero at k={k}"
@@ -358,7 +358,7 @@ class TestTCREmpEmbedValues:
         c = _clonotype("TRBV10-3*01", "TRBJ2-7*01", "CASSIRSSYEQYF")
         X = tcremp_small.embed([c])
         for k in range(tcremp_small.n_prototypes):
-            expected_v = trb_aligner.gene_dist("TRB", c.v_gene, tcremp_small._proto_v[k])
+            expected_v = trb_aligner.gene_dist("TRB", c.v_call, tcremp_small._proto_v[k])
             assert X[0, 3 * k] == pytest.approx(expected_v, abs=1e-3), f"V mismatch at k={k}"
 
     def test_by_hand_junction_component(self, tcremp_small):
@@ -410,8 +410,8 @@ class TestTCREmpEmbedValues:
             Clonotype(
                 sequence_id=str(i),
                 locus="TRB",
-                v_gene=v,
-                j_gene=j,
+                v_call=v,
+                j_call=j,
                 junction_aa=cdr3,
                 duplicate_count=1,
                 _validate=False,
@@ -422,8 +422,8 @@ class TestTCREmpEmbedValues:
             Clonotype(
                 sequence_id=str(i),
                 locus="TRB",
-                v_gene=_to_star01(v),
-                j_gene=_to_star01(j),
+                v_call=_to_star01(v),
+                j_call=_to_star01(j),
                 junction_aa=cdr3,
                 duplicate_count=1,
                 _validate=False,
@@ -473,7 +473,7 @@ class TestTCREmpSymmetricMatrix:
     def X_self(self, tcremp_small):
         proto_df = tcremp_small.prototypes
         proto_clono = [
-            _clonotype(r["v_gene"], r["j_gene"], r["junction_aa"])
+            _clonotype(r["v_call"], r["j_call"], r["junction_aa"])
             for r in proto_df.iter_rows(named=True)
         ]
         return tcremp_small.embed(proto_clono, n_jobs=1)
@@ -669,7 +669,7 @@ class TestTCREmpMultiLocus:
     def test_embed_shape_and_dtype(self, locus):
         model = TCREmp.from_defaults("human", locus, n_prototypes=5)
         row = model.prototypes.row(0, named=True)
-        c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+        c = _clonotype(row["v_call"], row["j_call"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
         assert X.shape == (1, 15)
         assert X.dtype == np.float32
@@ -680,7 +680,7 @@ class TestTCREmpMultiLocus:
         model = TCREmp.from_defaults("human", locus, n_prototypes=5)
         for k in range(model.n_prototypes):
             row = model.prototypes.row(k, named=True)
-            c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+            c = _clonotype(row["v_call"], row["j_call"], row["junction_aa"])
             X = model.embed([c], n_jobs=1)
             assert X[0, 3 * k] == pytest.approx(0.0, abs=1e-3), f"{locus} V self-dist nonzero at k={k}"
             assert X[0, 3 * k + 1] == pytest.approx(0.0, abs=1e-3), f"{locus} J self-dist nonzero at k={k}"
@@ -690,7 +690,7 @@ class TestTCREmpMultiLocus:
     def test_all_distances_nonneg(self, locus):
         model = TCREmp.from_defaults("human", locus, n_prototypes=5)
         rows = [model.prototypes.row(k, named=True) for k in range(5)]
-        clonos = [_clonotype(r["v_gene"], r["j_gene"], r["junction_aa"]) for r in rows]
+        clonos = [_clonotype(r["v_call"], r["j_call"], r["junction_aa"]) for r in rows]
         X = model.embed(clonos, n_jobs=1)
         assert (X >= -1e-4).all(), f"{locus}: negative distances found"
 
@@ -700,7 +700,7 @@ class TestTCREmpMultiLocus:
         assert model.species == "mouse"
         assert model.locus == locus
         row = model.prototypes.row(0, named=True)
-        c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+        c = _clonotype(row["v_call"], row["j_call"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
         assert X.shape == (1, 15)
 
@@ -735,7 +735,7 @@ class TestCdr123Mode:
 
     def test_distances_nonneg_and_deterministic(self, model):
         rows = [model.prototypes.row(k, named=True) for k in range(10)]
-        clonos = [_clonotype(r["v_gene"], r["j_gene"], r["junction_aa"]) for r in rows]
+        clonos = [_clonotype(r["v_call"], r["j_call"], r["junction_aa"]) for r in rows]
         X1 = model.embed(clonos, n_jobs=1)
         X2 = model.embed(clonos, n_jobs=1)
         assert (X1 >= -1e-4).all()
@@ -756,7 +756,7 @@ class TestCdr123Mode:
     def test_cdr123_other_human_loci(self, locus):
         model = TCREmp.from_defaults("human", locus, n_prototypes=5, mode="cdr123")
         row = model.prototypes.row(0, named=True)
-        c = _clonotype(row["v_gene"], row["j_gene"], row["junction_aa"])
+        c = _clonotype(row["v_call"], row["j_call"], row["junction_aa"])
         X = model.embed([c], n_jobs=1)
         assert X.shape == (1, 15)
         assert (X >= -1e-4).all()
@@ -778,6 +778,6 @@ class TestNoNaNAcrossPrototypes:
     def test_full_prototype_embedding_has_no_nan(self, mode):
         model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, mode=mode)
         rows = [model.prototypes.row(k, named=True) for k in range(model.n_prototypes)]
-        clonos = [_clonotype(r["v_gene"], r["j_gene"], r["junction_aa"]) for r in rows]
+        clonos = [_clonotype(r["v_call"], r["j_call"], r["junction_aa"]) for r in rows]
         X = model.embed(clonos, n_jobs=1)
         assert not np.isnan(X).any()

@@ -24,9 +24,9 @@ _TIMESERIES_TO_AIRR = {
     'Seq. Count': 'duplicate_count',
     'N Sequence': 'junction',
     'AA Sequence': 'junction_aa',
-    'V segments': 'v_gene',
-    'D segment': 'd_gene',
-    'J segments': 'j_gene',
+    'V segments': 'v_call',
+    'D segment': 'd_call',
+    'J segments': 'j_call',
 }
 
 
@@ -46,10 +46,10 @@ def read_timeseries_df(path: str | Path) -> pd.DataFrame:
         df = df.rename(columns=_TIMESERIES_TO_AIRR)
     else:
         # VDJtools format (count/cdr3nt/cdr3aa/v/d/j) — use standard normalization
-        from mir.common.parser import _VDJTOOLS_TO_AIRR
-        df = df.rename(columns=_VDJTOOLS_TO_AIRR)
-    if 'd_gene' in df.columns:
-        df['d_gene'] = df['d_gene'].fillna('.')
+        from mir.common.parser import _INPUT_TO_INTERNAL
+        df = df.rename(columns=_INPUT_TO_INTERNAL)
+    if 'd_call' in df.columns:
+        df['d_call'] = df['d_call'].fillna('.')
     return df
 
 
@@ -66,8 +66,8 @@ def _olga_inconsistencies(repertoires, loci=('TRB',)):
     unknown_v, unknown_j = set(), set()
     for rep in repertoires:
         for clone in rep.clonotypes:
-            v_base = str(clone.v_gene).split('*')[0]
-            j_base = str(clone.j_gene).split('*')[0]
+            v_base = str(clone.v_call).split('*')[0]
+            j_base = str(clone.j_call).split('*')[0]
             if v_base not in olga_bases:
                 unknown_v.add(v_base)
             if j_base not in olga_bases:
@@ -169,8 +169,8 @@ class TestRepertoirePickleRoundTrip:
                     sequence_id="1",
                     locus="TRB",
                     junction_aa="CASSLGQETQYF",
-                    v_gene="TRBV5-1*01",
-                    j_gene="TRBJ2-7*01",
+                    v_call="TRBV5-1*01",
+                    j_call="TRBJ2-7*01",
                     duplicate_count=7,
                 )
             ],
@@ -196,8 +196,8 @@ class TestRepertoirePickleRoundTrip:
                     sequence_id="1",
                     locus="TRA",
                     junction_aa="CAVRDSNYQLIW",
-                    v_gene="TRAV1-2*01",
-                    j_gene="TRAJ33*01",
+                    v_call="TRAV1-2*01",
+                    j_call="TRAJ33*01",
                     duplicate_count=3,
                 )
             ],

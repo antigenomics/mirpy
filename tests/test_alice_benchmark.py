@@ -371,8 +371,8 @@ def test_alice_1mm_pgen_rate_after_neighbor_filter(capsys) -> None:
         background=None,
         metric="hamming",
         threshold=1,
-        match_v_gene=True,
-        match_j_gene=True,
+        match_v_call=True,
+        match_j_call=True,
         add_background_pseudocount=False,
         n_jobs=n_jobs,
     )

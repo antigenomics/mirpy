@@ -37,8 +37,8 @@ def _clone(
         sequence_id=seq_id,
         locus=locus,
         junction_aa=junction_aa,
-        v_gene=v,
-        j_gene=j,
+        v_call=v,
+        j_call=j,
         duplicate_count=dup,
         _validate=False,
     )

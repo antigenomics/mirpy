@@ -711,8 +711,8 @@ def generate_synthetic_olga_control(
     - duplicate_count
     - junction
     - junction_aa
-    - v_gene
-    - j_gene
+    - v_call
+    - j_call
     - log2_pgen
     """
     jobs = _resolve_n_jobs(n_jobs)
@@ -730,8 +730,8 @@ def generate_synthetic_olga_control(
                 "duplicate_count": int(dup_counts[i]),
                 "junction": str(rec["junction"]),
                 "junction_aa": str(rec["junction_aa"]),
-                "v_gene": _normalize_allele(str(rec["v_gene"])),
-                "j_gene": _normalize_allele(str(rec["j_gene"])),
+                "v_call": _normalize_allele(str(rec["v_call"])),
+                "j_call": _normalize_allele(str(rec["j_call"])),
                 "log2_pgen": float(rec["log2_pgen"]),
             }
         )
@@ -752,11 +752,11 @@ def compute_control_pgen_records(
 ) -> list[dict[str, str | float]]:
     """Compute log2-Pgen records from control tables for VDJBet bin pooling.
 
-    The returned records contain ``junction_aa``, normalized ``v_gene``/``j_gene``,
+    The returned records contain ``junction_aa``, normalized ``v_call``/``j_call``,
     and ``log2_pgen`` for direct use in Pgen-bin mock sampling.
 
     Args:
-        control_df: DataFrame with ``junction_aa``, ``v_gene``, ``j_gene`` columns.
+        control_df: DataFrame with ``junction_aa``, ``v_call``, ``j_call`` columns.
             An optional ``log2_pgen`` column enables the fast path (no OLGA calls).
         locus: Receptor locus (e.g. ``"TRB"``).
         species: Species name (default ``"human"``).
@@ -766,7 +766,7 @@ def compute_control_pgen_records(
             for V/J-specific Pgen scaling.  When provided, each record's
             ``log2_pgen`` is adjusted by ``log2(factor(locus, v, j))``.
     """
-    required = ["junction_aa", "v_gene", "j_gene"]
+    required = ["junction_aa", "v_call", "j_call"]
     missing = [c for c in required if c not in control_df.columns]
     if missing:
         raise ValueError(f"control_df missing required columns: {missing}")
@@ -784,7 +784,7 @@ def compute_control_pgen_records(
                 float(l2p),
             )
             for jaa, vg, jg, l2p in df.select(
-                ["junction_aa", "v_gene", "j_gene", "log2_pgen"]
+                ["junction_aa", "v_call", "j_call", "log2_pgen"]
             ).iter_rows()
             if str(jaa)
         ]
@@ -797,7 +797,7 @@ def compute_control_pgen_records(
                 None,
             )
             for jaa, vg, jg in df.select(
-                ["junction_aa", "v_gene", "j_gene"]
+                ["junction_aa", "v_call", "j_call"]
             ).iter_rows()
             if str(jaa)
         ]
@@ -827,8 +827,8 @@ def compute_control_pgen_records(
             records.append(
                 {
                     "junction_aa": jaa,
-                    "v_gene": vg,
-                    "j_gene": jg,
+                    "v_call": vg,
+                    "j_call": jg,
                     "log2_pgen": l2p,
                 }
             )
@@ -873,8 +873,8 @@ def compute_control_pgen_records(
         records.append(
             {
                 "junction_aa": jaa,
-                "v_gene": vg,
-                "j_gene": jg,
+                "v_call": vg,
+                "j_call": jg,
                 "log2_pgen": l2p,
             }
         )
@@ -891,7 +891,7 @@ def build_real_control_from_ntvj(path: str | Path) -> pl.DataFrame:
 
     # Rename legacy column names to AIRR equivalents
     rename_map = {}
-    for src, dst in {"cdr3nt": "junction", "cdr3aa": "junction_aa", "v": "v_gene", "j": "j_gene"}.items():
+    for src, dst in {"cdr3nt": "junction", "cdr3aa": "junction_aa", "v": "v_call", "j": "j_call"}.items():
         if src in df.columns and dst not in df.columns:
             rename_map[src] = dst
     if rename_map:
@@ -904,15 +904,15 @@ def build_real_control_from_ntvj(path: str | Path) -> pl.DataFrame:
     elif count_col != "duplicate_count":
         df = df.rename({count_col: "duplicate_count"})
 
-    required = ["duplicate_count", "junction", "junction_aa", "v_gene", "j_gene"]
+    required = ["duplicate_count", "junction", "junction_aa", "v_call", "j_call"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns in {p}: {missing}")
 
     df = df.select(required).with_columns([
         pl.col("duplicate_count").cast(pl.Int64, strict=False).fill_null(1).clip(lower_bound=1),
-        pl.col("v_gene").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
-        pl.col("j_gene").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
+        pl.col("v_call").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
+        pl.col("j_call").cast(pl.Utf8).map_elements(_normalize_allele, return_dtype=pl.Utf8),
     ])
     return df
 
@@ -971,16 +971,29 @@ def _write_pickle(df: pl.DataFrame, path: Path) -> None:
         pickle.dump(df, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
 
+# Legacy internal gene-column names found in caches written before the
+# v_gene→v_call AIRR-naming unification.  Renamed to internal names on load.
+_LEGACY_GENE_COLUMNS: dict[str, str] = {
+    "v_gene": "v_call", "d_gene": "d_call", "j_gene": "j_call", "c_gene": "c_call",
+}
+
+
+def _normalize_cached_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """Rename legacy ``*_gene`` columns to internal ``*_call`` names."""
+    rename = {c: _LEGACY_GENE_COLUMNS[c] for c in df.columns if c in _LEGACY_GENE_COLUMNS}
+    return df.rename(rename) if rename else df
+
+
 def _read_pickle(path: Path) -> pl.DataFrame:
     with path.open("rb") as fh:
         obj = pickle.load(fh)
     if isinstance(obj, pl.DataFrame):
-        return obj
+        return _normalize_cached_columns(obj)
     # Backward compatibility: old cache files stored pandas DataFrames.
     try:
         import pandas as _pd
         if isinstance(obj, _pd.DataFrame):
-            return pl.from_pandas(obj)
+            return _normalize_cached_columns(pl.from_pandas(obj))
     except ImportError:
         pass
     raise TypeError(f"Pickle at {path} is not a DataFrame (got {type(obj).__name__})")

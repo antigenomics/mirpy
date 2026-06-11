@@ -70,10 +70,10 @@ def build_token_graph(
         ``junction_aa`` for clonotypes; decoded token sequence for token vertices.
     ``r_id``
         :attr:`Clonotype.id` for clonotype vertices; ``-1`` for token vertices.
-    ``v_gene``
-        ``v_gene`` field (clonotypes) or token v-gene annotation.
-    ``c_gene``
-        ``c_gene`` field (clonotypes) or token c-gene annotation.
+    ``v_call``
+        ``v_call`` field (clonotypes) or token v-gene annotation.
+    ``c_call``
+        ``c_call`` field (clonotypes) or token c-gene annotation.
     ``locus``
         locus field for both vertex types.
 
@@ -109,11 +109,11 @@ def build_token_graph(
         + [k.seq.decode("ascii") for k in kmers]
     )
     g.vs["r_id"] = [r.id for r in rearrangements] + [-1] * n_k
-    g.vs["v_gene"] = (
-        [r.v_gene for r in rearrangements] + [k.v_gene for k in kmers]
+    g.vs["v_call"] = (
+        [r.v_call for r in rearrangements] + [k.v_call for k in kmers]
     )
-    g.vs["c_gene"] = (
-        [r.c_gene for r in rearrangements] + [k.c_gene for k in kmers]
+    g.vs["c_call"] = (
+        [r.c_call for r in rearrangements] + [k.c_call for k in kmers]
     )
     g.vs["locus"] = (
         [r.locus for r in rearrangements] + [k.locus for k in kmers]
@@ -189,7 +189,7 @@ def build_full_gliph_clonotype_graph(
     Parameters
     ----------
     study_df : polars.DataFrame
-        Clonotype table with columns ``row_id`` (or ``sequence_id``), ``junction_aa``, ``v_gene``, ``duplicate_count``.
+        Clonotype table with columns ``row_id`` (or ``sequence_id``), ``junction_aa``, ``v_call``, ``duplicate_count``.
     token_to_clones : dict[str, set[str]]
         Token → clonotype-ID mapping (from :func:`combine_enriched_token_maps`).
     hamming_threshold : int, optional

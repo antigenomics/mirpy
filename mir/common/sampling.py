@@ -212,12 +212,12 @@ def _resample_to_gene_usage_locus(
     for idx, clonotype in enumerate(repertoire.clonotypes):
         # Get gene for this clonotype (strip alleles to base gene)
         if scope == "v":
-            gene = _strip_allele(clonotype.v_gene or "")
+            gene = _strip_allele(clonotype.v_call or "")
         elif scope == "j":
-            gene = _strip_allele(clonotype.j_gene or "")
+            gene = _strip_allele(clonotype.j_call or "")
         else:  # vj
-            v_base = _strip_allele(clonotype.v_gene or "")
-            j_base = _strip_allele(clonotype.j_gene or "")
+            v_base = _strip_allele(clonotype.v_call or "")
+            j_base = _strip_allele(clonotype.j_call or "")
             gene = (v_base, j_base)
 
         # Get original usage for this gene

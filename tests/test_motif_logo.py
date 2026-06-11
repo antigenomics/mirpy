@@ -276,8 +276,8 @@ class TestPwmFromMotifPwms(unittest.TestCase):
     def test_get_vj_background_exact(self):
         bg = get_vj_background(
             self.pwms,
-            v_gene="TRBV19*01",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBV19*01",
+            j_call="TRBJ2-7*01",
             length=13,
         )
         self.assertIsNotNone(bg)
@@ -290,8 +290,8 @@ class TestPwmFromMotifPwms(unittest.TestCase):
     def test_get_vj_background_no_match_returns_none(self):
         bg = get_vj_background(
             self.pwms,
-            v_gene="TRBV999",
-            j_gene="TRBJ999",
+            v_call="TRBV999",
+            j_call="TRBJ999",
             length=99,
         )
         self.assertIsNone(bg)
@@ -300,8 +300,8 @@ class TestPwmFromMotifPwms(unittest.TestCase):
         # Strip allele suffix — should still find a match
         bg = get_vj_background(
             self.pwms,
-            v_gene="TRBV19",
-            j_gene="TRBJ2-7",
+            v_call="TRBV19",
+            j_call="TRBJ2-7",
             length=13,
         )
         self.assertIsNotNone(bg)
@@ -346,8 +346,8 @@ class TestPlottingSmoke(unittest.TestCase):
         import matplotlib.pyplot as plt
         fig, axes = plot_motif_logos(
             self.logo_with_bg,
-            v_gene="TRBV9",
-            j_gene="TRBJ2-3",
+            v_call="TRBV9",
+            j_call="TRBJ2-3",
             n_seqs=6,
         )
         self.assertEqual(len(axes), 2)
@@ -469,8 +469,8 @@ class TestGilgfvftlLogoValidation(unittest.TestCase):
         cls.pwm = compute_pwm(cls.seqs_13)
         cls.bg = get_vj_background(
             cls.pwms,
-            v_gene="TRBV19*01",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBV19*01",
+            j_call="TRBJ2-7*01",
             length=13,
         )
         if cls.bg is None:
@@ -513,8 +513,8 @@ class TestGilgfvftlLogoValidation(unittest.TestCase):
         import matplotlib.pyplot as plt
         fig, axes = plot_motif_logos(
             self.logo,
-            v_gene="TRBV19*01",
-            j_gene="TRBJ2-7*01",
+            v_call="TRBV19*01",
+            j_call="TRBJ2-7*01",
             n_seqs=len(self.seqs_13),
             title="GILGFVFTL (H.B.GILGFVFTL.1)",
         )
@@ -686,7 +686,7 @@ class TestAggregateVjBackground(unittest.TestCase):
         """All-VJ aggregate should differ from a specific VJ background."""
         bg_agg = aggregate_vj_background(self.pwms, length=13, gene="TRB")
         bg_vj = get_vj_background(
-            self.pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+            self.pwms, v_call="TRBV19*01", j_call="TRBJ2-7*01",
             length=13, gene="TRB",
         )
         if bg_agg is not None and bg_vj is not None:
@@ -710,8 +710,8 @@ class TestBuildMotifLogosVj(unittest.TestCase):
                 "CASSVGLYSTDTQYF", "CASSVGLFSTDTQYF", "CASSVGVYSTDTQYF",
                 "CASSLGLFSTDTQYF", "CASSAGLFSTDTQYF",
             ],
-            "v_gene": ["TRBV9"] * 5,
-            "j_gene": ["TRBJ2-3"] * 5,
+            "v_call": ["TRBV9"] * 5,
+            "j_call": ["TRBJ2-3"] * 5,
         })
 
     def test_returns_dict(self):
@@ -756,8 +756,8 @@ class TestBuildMotifLogosVj(unittest.TestCase):
     def test_custom_column_names(self):
         renamed = self.seqs_df.rename({
             "junction_aa": "cdr3",
-            "v_gene": "v",
-            "j_gene": "j",
+            "v_call": "v",
+            "j_call": "j",
         })
         logos = build_motif_logos_vj(
             renamed, self.pwms,
@@ -788,7 +788,7 @@ class TestPlotMotifLogosTitle(unittest.TestCase):
         pwm = compute_pwm(_SIMPLE_SEQS)
         logo = compute_logo(pwm)
         fig, axes = plot_motif_logos(
-            logo, v_gene="TRBV9*01", j_gene="TRBJ2-3*01",
+            logo, v_call="TRBV9*01", j_call="TRBJ2-3*01",
             show_bg=False,
         )
         suptitle_text = fig._suptitle.get_text() if fig._suptitle else ""
@@ -805,7 +805,7 @@ class TestPlotMotifLogosTitle(unittest.TestCase):
         pwm = compute_pwm(_SIMPLE_SEQS)
         logo = compute_logo(pwm)
         fig, axes = plot_motif_logos(
-            logo, v_gene="TRBV9", j_gene="TRBJ2-3", show_bg=False,
+            logo, v_call="TRBV9", j_call="TRBJ2-3", show_bg=False,
         )
         for ax in axes:
             rotated_texts = [
@@ -962,38 +962,38 @@ class TestGetVjBackgroundFromControl(unittest.TestCase):
             return f"CASS{mid}TDTQYF"
         cls.ctrl = pl.DataFrame({
             "junction_aa": [_rand_cdr3() for _ in range(200)],
-            "v_gene": ["TRBV9"] * 200,
-            "j_gene": ["TRBJ2-3"] * 200,
+            "v_call": ["TRBV9"] * 200,
+            "j_call": ["TRBJ2-3"] * 200,
         })
 
     def test_returns_dataframe_sufficient_seqs(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=50
         )
         self.assertIsInstance(bg, pl.DataFrame)
 
     def test_returns_none_insufficient_seqs(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=500
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=500
         )
         self.assertIsNone(bg)
 
     def test_columns(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=50
         )
         for col in ("pos", "aa", "frequency"):
             self.assertIn(col, bg.columns)
 
     def test_n_positions(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=50
         )
         self.assertEqual(bg["pos"].n_unique(), 15)
 
     def test_frequencies_sum_to_one(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=50
         )
         for pos in bg["pos"].unique().to_list():
             total = float(bg.filter(pl.col("pos") == pos)["frequency"].sum())
@@ -1002,20 +1002,20 @@ class TestGetVjBackgroundFromControl(unittest.TestCase):
     def test_v_prefix_matching(self):
         """TRBV9*01 should match TRBV9 entries in control."""
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9*01", j_gene="TRBJ2-3*01", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9*01", j_call="TRBJ2-3*01", length=15, min_seqs=50
         )
         self.assertIsInstance(bg, pl.DataFrame)
 
     def test_no_vj_filter(self):
-        """Passing v_gene=None, j_gene=None should aggregate all entries."""
+        """Passing v_call=None, j_call=None should aggregate all entries."""
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene=None, j_gene=None, length=15, min_seqs=50
+            self.ctrl, v_call=None, j_call=None, length=15, min_seqs=50
         )
         self.assertIsInstance(bg, pl.DataFrame)
 
     def test_usable_as_compute_logo_background(self):
         bg = get_vj_background_from_control(
-            self.ctrl, v_gene="TRBV9", j_gene="TRBJ2-3", length=15, min_seqs=50
+            self.ctrl, v_call="TRBV9", j_call="TRBJ2-3", length=15, min_seqs=50
         )
         seqs = ["CASSVGLYSTDTQYF", "CASSVGLFSTDTQYF", "CASSVGVYSTDTQYF",
                 "CASSLGLFSTDTQYF", "CASSAGLFSTDTQYF"]
@@ -1041,8 +1041,8 @@ class TestBuildTerminalAnchoredLogo(unittest.TestCase):
             "CASSGRSYEQYF",      # len 12
             "CASSRSSYEQYF",      # len 12
         ],
-        "v_gene": ["TRBV9"] * 4 + ["TRBV19"] * 3,
-        "j_gene": ["TRBJ2-3"] * 4 + ["TRBJ2-7"] * 3,
+        "v_call": ["TRBV9"] * 4 + ["TRBV19"] * 3,
+        "j_call": ["TRBJ2-3"] * 4 + ["TRBJ2-7"] * 3,
     })
 
     @classmethod
@@ -1117,10 +1117,10 @@ class TestBuildTerminalAnchoredLogo(unittest.TestCase):
             return f"CASS{mid}TDTQYF"
         ctrl = pl.DataFrame({
             "junction_aa": [_rand15() for _ in range(500)],
-            "v_gene": ["TRBV9"] * 500,
-            "j_gene": ["TRBJ2-3"] * 500,
+            "v_call": ["TRBV9"] * 500,
+            "j_call": ["TRBJ2-3"] * 500,
         })
-        seqs_df = self._SEQS_DF.filter(pl.col("j_gene") == "TRBJ2-3")
+        seqs_df = self._SEQS_DF.filter(pl.col("j_call") == "TRBJ2-3")
         logo = build_terminal_anchored_logo(
             seqs_df, None, n_term=8, c_term=7,
             control_df=ctrl, min_control_seqs=50,

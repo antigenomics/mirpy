@@ -17,9 +17,9 @@ def test_filter_functional_locus_repertoire() -> None:
     lib = _make_lib()
     rep = LocusRepertoire(
         clonotypes=[
-            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1),
-            Clonotype(sequence_id="2", locus="TRB", junction_aa="CAS*F", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1, _validate=False),
-            Clonotype(sequence_id="3", locus="TRB", junction_aa="CASSF", v_gene="TRBV2", j_gene="TRBJ1-1", duplicate_count=1),
+            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1),
+            Clonotype(sequence_id="2", locus="TRB", junction_aa="CAS*F", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1, _validate=False),
+            Clonotype(sequence_id="3", locus="TRB", junction_aa="CASSF", v_call="TRBV2", j_call="TRBJ1-1", duplicate_count=1),
         ],
         locus="TRB",
     )
@@ -33,8 +33,8 @@ def test_filter_canonical_locus_repertoire() -> None:
     lib = _make_lib()
     rep = LocusRepertoire(
         clonotypes=[
-            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1),
-            Clonotype(sequence_id="2", locus="TRB", junction_aa="ASSSF", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1),
+            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1),
+            Clonotype(sequence_id="2", locus="TRB", junction_aa="ASSSF", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1),
         ],
         locus="TRB",
     )
@@ -48,14 +48,14 @@ def test_filter_functional_sample_repertoire() -> None:
     lib = _make_lib()
     trb = LocusRepertoire(
         clonotypes=[
-            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1),
-            Clonotype(sequence_id="2", locus="TRB", junction_aa="CAS*F", v_gene="TRBV1", j_gene="TRBJ1-1", duplicate_count=1, _validate=False),
+            Clonotype(sequence_id="1", locus="TRB", junction_aa="CASSF", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1),
+            Clonotype(sequence_id="2", locus="TRB", junction_aa="CAS*F", v_call="TRBV1", j_call="TRBJ1-1", duplicate_count=1, _validate=False),
         ],
         locus="TRB",
     )
     tra = LocusRepertoire(
         clonotypes=[
-            Clonotype(sequence_id="3", locus="TRA", junction_aa="CAVRDSNYQLIW", v_gene="TRAV1", j_gene="TRAJ33", duplicate_count=1),
+            Clonotype(sequence_id="3", locus="TRA", junction_aa="CAVRDSNYQLIW", v_call="TRAV1", j_call="TRAJ33", duplicate_count=1),
         ],
         locus="TRA",
     )

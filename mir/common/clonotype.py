@@ -65,10 +65,10 @@ class Clonotype:
     locus: str = ""
     junction: str = ""
     junction_aa: str = ""
-    v_gene: str = ""
-    j_gene: str = ""
-    d_gene: str = ""
-    c_gene: str = ""
+    v_call: str = ""
+    j_call: str = ""
+    d_call: str = ""
+    c_call: str = ""
     v_sequence_end: int = -1
     d_sequence_start: int = -1
     d_sequence_end: int = -1
@@ -90,15 +90,15 @@ class Clonotype:
         if self.junction and not self.junction_aa:
             self.junction_aa = translate_bidi(self.junction)
         # Normalise gene fields: accept GeneEntry objects or None
-        for attr in ("v_gene", "d_gene", "j_gene", "c_gene"):
+        for attr in ("v_call", "d_call", "j_call", "c_call"):
             val = getattr(self, attr)
             if val is None:
                 setattr(self, attr, "")
             elif not isinstance(val, str):
                 setattr(self, attr, str(val))
-        # Infer locus from j_gene prefix when not explicitly set
-        if not self.locus and self.j_gene:
-            prefix = self.j_gene[:3].upper()
+        # Infer locus from j_call prefix when not explicitly set
+        if not self.locus and self.j_call:
+            prefix = self.j_call[:3].upper()
             if prefix in _LOCUS_PREFIXES:
                 self.locus = prefix
         # Validate junction_aa: only the 20 standard amino-acid letters
@@ -161,10 +161,10 @@ class Clonotype:
             "locus":           self.locus,
             "junction":        self.junction,
             "junction_aa":     self.junction_aa,
-            "v_gene":          self.v_gene,
-            "d_gene":          self.d_gene,
-            "j_gene":          self.j_gene,
-            "c_gene":          self.c_gene,
+            "v_call":          self.v_call,
+            "d_call":          self.d_call,
+            "j_call":          self.j_call,
+            "c_call":          self.c_call,
             "v_sequence_end":  self.v_sequence_end,
             "d_sequence_start": self.d_sequence_start,
             "d_sequence_end":  self.d_sequence_end,
@@ -182,10 +182,10 @@ class Clonotype:
         "locus":            pl.Utf8,
         "junction":         pl.Utf8,
         "junction_aa":      pl.Utf8,
-        "v_gene":           pl.Utf8,
-        "d_gene":           pl.Utf8,
-        "j_gene":           pl.Utf8,
-        "c_gene":           pl.Utf8,
+        "v_call":           pl.Utf8,
+        "d_call":           pl.Utf8,
+        "j_call":           pl.Utf8,
+        "c_call":           pl.Utf8,
         "v_sequence_end":   pl.Int64,
         "d_sequence_start": pl.Int64,
         "d_sequence_end":   pl.Int64,
@@ -223,10 +223,10 @@ class Clonotype:
                 locus=          _str(row.get("locus")),
                 junction=       _str(row.get("junction")),
                 junction_aa=    _str(row.get("junction_aa")),
-                v_gene=         _str(row.get("v_gene")),
-                d_gene=         _str(row.get("d_gene")),
-                j_gene=         _str(row.get("j_gene")),
-                c_gene=         _str(row.get("c_gene")),
+                v_call=         _str(row.get("v_call")),
+                d_call=         _str(row.get("d_call")),
+                j_call=         _str(row.get("j_call")),
+                c_call=         _str(row.get("c_call")),
                 v_sequence_end= _int(row.get("v_sequence_end")),
                 d_sequence_start=_int(row.get("d_sequence_start")),
                 d_sequence_end= _int(row.get("d_sequence_end")),

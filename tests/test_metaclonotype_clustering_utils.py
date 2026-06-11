@@ -109,7 +109,7 @@ def test_build_gliph_metaclonotypes_end_to_end_small() -> None:
             "row_id": ["c1", "c2", "c3"],
             "sequence_id": ["c1", "c2", "c3"],
             "junction_aa": ["CASSLGQETQYF", "CASSLGQETQFF", "TTTTLGQETQFF"],
-            "v_gene": ["TRBV5-1*01", "TRBV5-1*01", "TRBV5-1*01"],
+            "v_call": ["TRBV5-1*01", "TRBV5-1*01", "TRBV5-1*01"],
             "duplicate_count": [10, 5, 1],
         }
     )

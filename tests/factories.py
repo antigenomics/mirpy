@@ -18,8 +18,8 @@ def make_trb_clone(
         sequence_id=sid,
         locus="TRB",
         junction_aa=aa,
-        v_gene=v,
-        j_gene=j,
+        v_call=v,
+        j_call=j,
         duplicate_count=dup,
         _validate=False,
     )

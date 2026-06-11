@@ -6,7 +6,7 @@ a given search scope:
 - **Sequence scope**: ``junction_aa`` mismatches (Hamming distance, default
   threshold=1) or insertions/deletions (Levenshtein distance).
 - **Gene scope**: optionally restrict neighbors to the same V gene, J gene, or
-  both (``match_v_gene`` / ``match_j_gene``).  This is the V+J restriction used
+  both (``match_v_call`` / ``match_j_call``).  This is the V+J restriction used
   by the original ALICE paper.
 
 Performance
@@ -70,15 +70,15 @@ _NEIGHBOR_PARALLEL_MIN_CLONOTYPES = 20_000
 def _init_neighbor_worker(
     query_sequences: list[str],
     query_sequence_ids: list[str],
-    query_v_genes: list[str],
-    query_j_genes: list[str],
+    query_v_calls: list[str],
+    query_j_calls: list[str],
     background_sequences_spec: SharedArraySpec,
-    background_v_genes_spec: SharedArraySpec,
-    background_j_genes_spec: SharedArraySpec,
+    background_v_calls_spec: SharedArraySpec,
+    background_j_calls_spec: SharedArraySpec,
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     background_size: int,
     potential_counter: dict[t.Any, int] | None,
     add_self_pseudocount: bool,
@@ -86,55 +86,55 @@ def _init_neighbor_worker(
     """Initialize per-process state for neighborhood batch workers."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     background_sequences_arr, background_sequences_shm = attach_shared_array(background_sequences_spec)
-    background_v_genes_arr, background_v_genes_shm = attach_shared_array(background_v_genes_spec)
-    background_j_genes_arr, background_j_genes_shm = attach_shared_array(background_j_genes_spec)
+    background_v_calls_arr, background_v_calls_shm = attach_shared_array(background_v_calls_spec)
+    background_j_calls_arr, background_j_calls_shm = attach_shared_array(background_j_calls_spec)
 
     background_sequences = np.char.decode(background_sequences_arr, "ascii").tolist()
-    background_v_genes = np.char.decode(background_v_genes_arr, "ascii").tolist()
-    background_j_genes = np.char.decode(background_j_genes_arr, "ascii").tolist()
+    background_v_calls = np.char.decode(background_v_calls_arr, "ascii").tolist()
+    background_j_calls = np.char.decode(background_j_calls_arr, "ascii").tolist()
 
     _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
     _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
-    _NEIGHBOR_WORKER_STATE["query_v_genes"] = query_v_genes
-    _NEIGHBOR_WORKER_STATE["query_j_genes"] = query_j_genes
+    _NEIGHBOR_WORKER_STATE["query_v_calls"] = query_v_calls
+    _NEIGHBOR_WORKER_STATE["query_j_calls"] = query_j_calls
     _NEIGHBOR_WORKER_STATE["background_sequences"] = background_sequences
-    _NEIGHBOR_WORKER_STATE["background_v_genes"] = background_v_genes
-    _NEIGHBOR_WORKER_STATE["background_j_genes"] = background_j_genes
+    _NEIGHBOR_WORKER_STATE["background_v_calls"] = background_v_calls
+    _NEIGHBOR_WORKER_STATE["background_j_calls"] = background_j_calls
     _NEIGHBOR_WORKER_STATE["metric"] = metric
     _NEIGHBOR_WORKER_STATE["threshold"] = threshold
-    _NEIGHBOR_WORKER_STATE["match_v_gene"] = match_v_gene
-    _NEIGHBOR_WORKER_STATE["match_j_gene"] = match_j_gene
+    _NEIGHBOR_WORKER_STATE["match_v_call"] = match_v_call
+    _NEIGHBOR_WORKER_STATE["match_j_call"] = match_j_call
     _NEIGHBOR_WORKER_STATE["background_size"] = background_size
     _NEIGHBOR_WORKER_STATE["potential_counter"] = potential_counter
     _NEIGHBOR_WORKER_STATE["add_self_pseudocount"] = add_self_pseudocount
     _NEIGHBOR_WORKER_STATE["shm_handles"] = (
         background_sequences_shm,
-        background_v_genes_shm,
-        background_j_genes_shm,
+        background_v_calls_shm,
+        background_j_calls_shm,
     )
-    trie, trie_to_orig = make_trie(background_sequences, background_v_genes, background_j_genes)
+    trie, trie_to_orig = make_trie(background_sequences, background_v_calls, background_j_calls)
     _NEIGHBOR_WORKER_STATE["trie"] = trie
     _NEIGHBOR_WORKER_STATE["canon_background_seqs"] = [background_sequences[i] for i in trie_to_orig]
-    _NEIGHBOR_WORKER_STATE["canon_background_v"]    = [background_v_genes[i] for i in trie_to_orig]
-    _NEIGHBOR_WORKER_STATE["canon_background_j"]    = [background_j_genes[i] for i in trie_to_orig]
+    _NEIGHBOR_WORKER_STATE["canon_background_v"]    = [background_v_calls[i] for i in trie_to_orig]
+    _NEIGHBOR_WORKER_STATE["canon_background_j"]    = [background_j_calls[i] for i in trie_to_orig]
 
 
 def _potential_neighbor_count_from_genes(
     *,
-    v_gene: str,
-    j_gene: str,
+    v_call: str,
+    j_call: str,
     background_size: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     counter: dict[t.Any, int] | None,
 ) -> int:
     if counter is None:
         return background_size
     key = _gene_key(
-        v_gene,
-        j_gene,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        v_call,
+        j_call,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
     )
     return int(counter.get(key, 0))
 
@@ -145,19 +145,19 @@ def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[s
     start, stop = range_pair
     query_sequences = _NEIGHBOR_WORKER_STATE["query_sequences"]
     query_sequence_ids = _NEIGHBOR_WORKER_STATE["query_sequence_ids"]
-    query_v_genes = _NEIGHBOR_WORKER_STATE["query_v_genes"]
-    query_j_genes = _NEIGHBOR_WORKER_STATE["query_j_genes"]
+    query_v_calls = _NEIGHBOR_WORKER_STATE["query_v_calls"]
+    query_j_calls = _NEIGHBOR_WORKER_STATE["query_j_calls"]
     background_sequences = _NEIGHBOR_WORKER_STATE["background_sequences"]
-    background_v_genes = _NEIGHBOR_WORKER_STATE["background_v_genes"]
-    background_j_genes = _NEIGHBOR_WORKER_STATE["background_j_genes"]
+    background_v_calls = _NEIGHBOR_WORKER_STATE["background_v_calls"]
+    background_j_calls = _NEIGHBOR_WORKER_STATE["background_j_calls"]
     canon_background_seqs = _NEIGHBOR_WORKER_STATE["canon_background_seqs"]
     canon_background_v    = _NEIGHBOR_WORKER_STATE["canon_background_v"]
     canon_background_j    = _NEIGHBOR_WORKER_STATE["canon_background_j"]
     trie = _NEIGHBOR_WORKER_STATE["trie"]
     metric = _NEIGHBOR_WORKER_STATE["metric"]
     threshold = _NEIGHBOR_WORKER_STATE["threshold"]
-    match_v_gene = _NEIGHBOR_WORKER_STATE["match_v_gene"]
-    match_j_gene = _NEIGHBOR_WORKER_STATE["match_j_gene"]
+    match_v_call = _NEIGHBOR_WORKER_STATE["match_v_call"]
+    match_j_call = _NEIGHBOR_WORKER_STATE["match_j_call"]
     background_size = _NEIGHBOR_WORKER_STATE["background_size"]
     potential_counter = _NEIGHBOR_WORKER_STATE["potential_counter"]
     add_self_pseudocount = _NEIGHBOR_WORKER_STATE["add_self_pseudocount"]
@@ -173,17 +173,17 @@ def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[s
             metric=metric,
             threshold=threshold,
             sequences=canon_background_seqs,
-            v_gene_filter=query_v_genes[i] if match_v_gene else None,
-            j_gene_filter=query_j_genes[i] if match_j_gene else None,
-            v_genes=canon_background_v,
-            j_genes=canon_background_j,
+            v_call_filter=query_v_calls[i] if match_v_call else None,
+            j_call_filter=query_j_calls[i] if match_j_call else None,
+            v_calls=canon_background_v,
+            j_calls=canon_background_j,
         )
         potential_neighbors = _potential_neighbor_count_from_genes(
-            v_gene=query_v_genes[i],
-            j_gene=query_j_genes[i],
+            v_call=query_v_calls[i],
+            j_call=query_j_calls[i],
             background_size=background_size,
-            match_v_gene=match_v_gene,
-            match_j_gene=match_j_gene,
+            match_v_call=match_v_call,
+            match_j_call=match_j_call,
             counter=potential_counter,
         )
         neighbor_count = len(hits)
@@ -232,18 +232,18 @@ def _background_locus_map(
 def _build_potential_counter(
     background_clonotypes: list,
     *,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
 ) -> dict[t.Any, int] | None:
-    if not match_v_gene and not match_j_gene:
+    if not match_v_call and not match_j_call:
         return None
     counter: dict[t.Any, int] = {}
     for clonotype in background_clonotypes:
         key = _gene_key(
-            clonotype.v_gene,
-            clonotype.j_gene,
-            match_v_gene=match_v_gene,
-            match_j_gene=match_j_gene,
+            clonotype.v_call,
+            clonotype.j_call,
+            match_v_call=match_v_call,
+            match_j_call=match_j_call,
         )
         counter[key] = counter.get(key, 0) + 1
     return counter
@@ -253,35 +253,35 @@ def _potential_neighbor_count(
     clonotype,
     *,
     background_size: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     counter: dict[t.Any, int] | None,
 ) -> int:
     if counter is None:
         return background_size
     key = _gene_key(
-        clonotype.v_gene,
-        clonotype.j_gene,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        clonotype.v_call,
+        clonotype.j_call,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
     )
     return int(counter.get(key, 0))
 
 
 def _gene_key(
-    v_gene: str | None,
-    j_gene: str | None,
+    v_call: str | None,
+    j_call: str | None,
     *,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
 ) -> tuple[str, ...]:
     """Return the V/J grouping key for a clonotype, preserving allele suffix."""
-    assert match_v_gene or match_j_gene, "_gene_key requires at least one gene flag"
-    vv = str(v_gene or "")
-    jj = str(j_gene or "")
-    if match_v_gene and match_j_gene:
+    assert match_v_call or match_j_call, "_gene_key requires at least one gene flag"
+    vv = str(v_call or "")
+    jj = str(j_call or "")
+    if match_v_call and match_j_call:
         return (vv, jj)
-    if match_v_gene:
+    if match_v_call:
         return (vv,)
     return (jj,)
 
@@ -291,8 +291,8 @@ def _matching_group_keys(
     query_j: str | None,
     available_keys: t.Iterable[tuple[str, ...]],
     *,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
 ) -> list[tuple[str, ...]]:
     """Return all group keys from *available_keys* that match the query genes.
 
@@ -303,11 +303,11 @@ def _matching_group_keys(
     qv = str(query_v or "")
     qj = str(query_j or "")
     for key in available_keys:
-        if match_v_gene and match_j_gene:
+        if match_v_call and match_j_call:
             gv, gj = key
             if genes_match(qv, gv) and genes_match(qj, gj):
                 result.append(key)
-        elif match_v_gene:
+        elif match_v_call:
             (gv,) = key
             if genes_match(qv, gv):
                 result.append(key)
@@ -320,11 +320,11 @@ def _matching_group_keys(
 
 def _build_grouped_tries(
     sequences: list[str],
-    v_genes: list[str],
-    j_genes: list[str],
+    v_calls: list[str],
+    j_calls: list[str],
     *,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
 ) -> tuple[dict[tuple, list[str]], dict[tuple, "Trie"], dict[tuple, list[str]]]:
     """Group sequences by V/J gene key and build one small Trie per group.
 
@@ -345,8 +345,8 @@ def _build_grouped_tries(
     ``search_indices_with_fallback`` on the same data.
     """
     group_seqs: dict[tuple, list[str]] = {}
-    for seq, v, j in zip(sequences, v_genes, j_genes):
-        key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
+    for seq, v, j in zip(sequences, v_calls, j_calls):
+        key = _gene_key(v, j, match_v_call=match_v_call, match_j_call=match_j_call)
         group_seqs.setdefault(key, []).append(seq)
     group_tries: dict[tuple, Trie] = {}
     group_canon_seqs: dict[tuple, list[str]] = {}
@@ -400,8 +400,8 @@ def _compute_grouped_query_batch(
     *,
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     add_self_pseudocount: bool,
 ) -> dict[str, dict[str, int]]:
     """Serial grouped-trie batch: one or more trie lookups per query gene group."""
@@ -409,8 +409,8 @@ def _compute_grouped_query_batch(
     out: dict[str, dict[str, int]] = {}
     for clonotype, seq_id in zip(query_clonotypes, sequence_ids):
         matching = _matching_group_keys(
-            clonotype.v_gene, clonotype.j_gene, all_keys,
-            match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+            clonotype.v_call, clonotype.j_call, all_keys,
+            match_v_call=match_v_call, match_j_call=match_j_call,
         )
         nc = 0
         pn = 0
@@ -466,14 +466,14 @@ def _compute_query_batch(
     query_clonotypes: list,
     sequence_ids: list[str],
     background_sequences: list[str],
-    background_v_genes: list[str],
-    background_j_genes: list[str],
+    background_v_calls: list[str],
+    background_j_calls: list[str],
     trie,
     *,
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     background_size: int,
     potential_counter: dict[t.Any, int] | None,
     add_self_pseudocount: bool,
@@ -489,16 +489,16 @@ def _compute_query_batch(
             metric=metric,
             threshold=threshold,
             sequences=background_sequences,
-            v_gene_filter=clonotype.v_gene if match_v_gene else None,
-            j_gene_filter=clonotype.j_gene if match_j_gene else None,
-            v_genes=background_v_genes,
-            j_genes=background_j_genes,
+            v_call_filter=clonotype.v_call if match_v_call else None,
+            j_call_filter=clonotype.j_call if match_j_call else None,
+            v_calls=background_v_calls,
+            j_calls=background_j_calls,
         )
         potential_neighbors = _potential_neighbor_count(
             clonotype,
             background_size=background_size,
-            match_v_gene=match_v_gene,
-            match_j_gene=match_j_gene,
+            match_v_call=match_v_call,
+            match_j_call=match_j_call,
             counter=potential_counter,
         )
         neighbor_count = len(hits)
@@ -518,8 +518,8 @@ def _compute_locus_stats(
     *,
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     add_self_pseudocount: bool,
     n_jobs: int,
 ) -> dict[str, dict[str, int]]:
@@ -540,33 +540,33 @@ def _compute_locus_stats(
         }
 
     background_sequences = [c.junction_aa for c in background_clonotypes]
-    background_v_genes = [c.v_gene or "" for c in background_clonotypes]
-    background_j_genes = [c.j_gene or "" for c in background_clonotypes]
+    background_v_calls = [c.v_call or "" for c in background_clonotypes]
+    background_j_calls = [c.j_call or "" for c in background_clonotypes]
     query_sequences = [c.junction_aa for c in query_clonotypes]
-    query_v_genes = [c.v_gene or "" for c in query_clonotypes]
-    query_j_genes = [c.j_gene or "" for c in query_clonotypes]
+    query_v_calls = [c.v_call or "" for c in query_clonotypes]
+    query_j_calls = [c.j_call or "" for c in query_clonotypes]
     n_query = len(query_clonotypes)
 
     # ── Grouped-trie path (V/J-restricted search) ────────────────────────────
     # Build one small Trie per (V,J) group rather than filtering one large Trie
     # in Python.  Each per-group Trie is ~N_total / N_groups sequences, so the
     # search is faster and no Python V/J validation loop is needed.
-    if match_v_gene or match_j_gene:
+    if match_v_call or match_j_call:
         # Group background sequences by (V,J) key.
         bg_by_key: dict[tuple, list[str]] = {}
-        for seq, v, j in zip(background_sequences, background_v_genes, background_j_genes):
-            key = _gene_key(v, j, match_v_gene=match_v_gene, match_j_gene=match_j_gene)
+        for seq, v, j in zip(background_sequences, background_v_calls, background_j_calls):
+            key = _gene_key(v, j, match_v_call=match_v_call, match_j_call=match_j_call)
             bg_by_key.setdefault(key, []).append(seq)
 
         if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
             g_seqs, g_tries, g_canon = _build_grouped_tries(
-                background_sequences, background_v_genes, background_j_genes,
-                match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+                background_sequences, background_v_calls, background_j_calls,
+                match_v_call=match_v_call, match_j_call=match_j_call,
             )
             return _compute_grouped_query_batch(
                 query_clonotypes, q_seq_ids, g_seqs, g_tries, g_canon,
                 metric=metric, threshold=threshold,
-                match_v_gene=match_v_gene, match_j_gene=match_j_gene,
+                match_v_call=match_v_call, match_j_call=match_j_call,
                 add_self_pseudocount=add_self_pseudocount,
             )
 
@@ -578,8 +578,8 @@ def _compute_locus_stats(
         # accumulated additively across workers; pseudocount applied once below.
         all_bg_keys = list(bg_by_key)
         q_by_key: dict[tuple, tuple[list[str], list[str]]] = {}
-        for q, seq_id, v, j in zip(query_sequences, q_seq_ids, query_v_genes, query_j_genes):
-            for key in _matching_group_keys(v, j, all_bg_keys, match_v_gene=match_v_gene, match_j_gene=match_j_gene):
+        for q, seq_id, v, j in zip(query_sequences, q_seq_ids, query_v_calls, query_j_calls):
+            for key in _matching_group_keys(v, j, all_bg_keys, match_v_call=match_v_call, match_j_call=match_j_call):
                 if key not in q_by_key:
                     q_by_key[key] = ([], [])
                 q_by_key[key][0].append(q)
@@ -628,19 +628,19 @@ def _compute_locus_stats(
     # ── Single-trie path (no V/J restriction) ────────────────────────────────
     # Trie construction deferred here so the grouped path never pays this cost.
     trie = background_locus.trie
-    potential_counter = None  # match_v_gene=False, match_j_gene=False → no counter needed
+    potential_counter = None  # match_v_call=False, match_j_call=False → no counter needed
     if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
         return _compute_query_batch(
             query_clonotypes,
             q_seq_ids,
             background_sequences,
-            background_v_genes,
-            background_j_genes,
+            background_v_calls,
+            background_j_calls,
             trie,
             metric=metric,
             threshold=threshold,
-            match_v_gene=False,
-            match_j_gene=False,
+            match_v_call=False,
+            match_j_call=False,
             background_size=n_background,
             potential_counter=potential_counter,
             add_self_pseudocount=add_self_pseudocount,
@@ -655,9 +655,9 @@ def _compute_locus_stats(
     try:
         bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
         shared_handles.append(bg_seq_shm)
-        bg_v_spec, bg_v_shm = create_shared_array(fixed_bytes_array(background_v_genes))
+        bg_v_spec, bg_v_shm = create_shared_array(fixed_bytes_array(background_v_calls))
         shared_handles.append(bg_v_shm)
-        bg_j_spec, bg_j_shm = create_shared_array(fixed_bytes_array(background_j_genes))
+        bg_j_spec, bg_j_shm = create_shared_array(fixed_bytes_array(background_j_calls))
         shared_handles.append(bg_j_shm)
 
         with ProcessPoolExecutor(
@@ -667,8 +667,8 @@ def _compute_locus_stats(
             initargs=(
                 query_sequences,
                 q_seq_ids,
-                query_v_genes,
-                query_j_genes,
+                query_v_calls,
+                query_j_calls,
                 bg_seq_spec,
                 bg_v_spec,
                 bg_j_spec,
@@ -711,8 +711,8 @@ def _compute_stats_by_locus(
     background: "LocusRepertoire | SampleRepertoire | None",
     metric: str,
     threshold: int,
-    match_v_gene: bool,
-    match_j_gene: bool,
+    match_v_call: bool,
+    match_j_call: bool,
     add_background_pseudocount: bool | None = None,
     n_jobs: int = 4,
 ) -> dict[str, dict[str, dict[str, int]]]:
@@ -730,8 +730,8 @@ def _compute_stats_by_locus(
             bg_loci[locus],
             metric=metric,
             threshold=threshold,
-            match_v_gene=match_v_gene,
-            match_j_gene=match_j_gene,
+            match_v_call=match_v_call,
+            match_j_call=match_j_call,
             add_self_pseudocount=add_self_pseudocount,
             n_jobs=n_jobs,
         )
@@ -744,8 +744,8 @@ def compute_neighborhood_stats_by_locus(
     background: LocusRepertoire | SampleRepertoire | None = None,
     metric: str = "hamming",
     threshold: int = 1,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
     add_background_pseudocount: bool | None = None,
     n_jobs: int = 4,
 ) -> dict[str, dict[str, dict[str, int]]]:
@@ -765,8 +765,8 @@ def compute_neighborhood_stats_by_locus(
         background=background,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
         add_background_pseudocount=add_background_pseudocount,
         n_jobs=n_jobs,
     )
@@ -777,8 +777,8 @@ def compute_neighborhood_stats(
     background: LocusRepertoire | SampleRepertoire | None = None,
     metric: str = "hamming",
     threshold: int = 1,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
     n_jobs: int = 4,
 ) -> dict[str, dict]:
     """Compute neighborhood statistics for clonotypes in a repertoire.
@@ -802,10 +802,10 @@ def compute_neighborhood_stats(
         Distance metric: ``"hamming"`` or ``"levenshtein"``.
     threshold
         Maximum edit distance for a clonotype to be considered a neighbor.
-    match_v_gene
-        If True, only count neighbors with matching v_gene.
-    match_j_gene
-        If True, only count neighbors with matching j_gene.
+    match_v_call
+        If True, only count neighbors with matching v_call.
+    match_j_call
+        If True, only count neighbors with matching j_call.
 
     Returns
     -------
@@ -826,8 +826,8 @@ def compute_neighborhood_stats(
         background=background,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
         n_jobs=n_jobs,
     )
 
@@ -842,8 +842,8 @@ def add_neighborhood_metadata(
     background: LocusRepertoire | SampleRepertoire | None = None,
     metric: str = "hamming",
     threshold: int = 1,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
     metadata_prefix: str = "neighborhood",
     n_jobs: int = 4,
 ) -> None:
@@ -861,10 +861,10 @@ def add_neighborhood_metadata(
         Distance metric: ``"hamming"`` or ``"levenshtein"``.
     threshold
         Maximum edit distance for a clonotype to be considered a neighbor.
-    match_v_gene
-        If True, only count neighbors with matching v_gene.
-    match_j_gene
-        If True, only count neighbors with matching j_gene.
+    match_v_call
+        If True, only count neighbors with matching v_call.
+    match_j_call
+        If True, only count neighbors with matching j_call.
     metadata_prefix
         Prefix for metadata keys (e.g., ``"neighborhood_count"`` and
         ``"neighborhood_potential"``).
@@ -874,8 +874,8 @@ def add_neighborhood_metadata(
         background=background,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
         n_jobs=n_jobs,
     )
 
@@ -892,8 +892,8 @@ def add_neighborhood_enrichment_metadata(
     background: LocusRepertoire | SampleRepertoire,
     metric: str = "hamming",
     threshold: int = 1,
-    match_v_gene: bool = False,
-    match_j_gene: bool = False,
+    match_v_call: bool = False,
+    match_j_call: bool = False,
     metadata_prefix: str = "neighborhood",
     n_jobs: int = 4,
 ) -> None:
@@ -918,10 +918,10 @@ def add_neighborhood_enrichment_metadata(
         Distance metric: ``"hamming"`` or ``"levenshtein"``.
     threshold
         Maximum edit distance for a clonotype to be considered a neighbor.
-    match_v_gene
-        If True, only count neighbors with matching ``v_gene``.
-    match_j_gene
-        If True, only count neighbors with matching ``j_gene``.
+    match_v_call
+        If True, only count neighbors with matching ``v_call``.
+    match_j_call
+        If True, only count neighbors with matching ``j_call``.
     metadata_prefix
         Prefix for metadata keys.
     """
@@ -932,8 +932,8 @@ def add_neighborhood_enrichment_metadata(
         background=None,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
         n_jobs=n_jobs,
     )
     background_stats_by_locus = _compute_stats_by_locus(
@@ -941,8 +941,8 @@ def add_neighborhood_enrichment_metadata(
         background=background,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v_gene,
-        match_j_gene=match_j_gene,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
         n_jobs=n_jobs,
     )
 

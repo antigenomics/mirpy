@@ -205,7 +205,7 @@ def get_gene_usage_from_olga_model(
 
     Returns:
         Dict with keys ``"v"``, ``"j"``, ``"vj"`` mapping to probability dicts.
-        ``"vj"`` keys are ``(v_gene, j_gene)`` tuples.
+        ``"vj"`` keys are ``(v_call, j_call)`` tuples.
 
     Example:
         >>> from mir.basic.pgen import OlgaModel
@@ -236,20 +236,20 @@ def get_gene_usage_from_olga_model(
 
     # Strip alleles so keys match GeneUsage.strip_alleles=True convention:
     # "TRBV5-1*01" and "TRBV5-1*02" both aggregate under "TRBV5-1".
-    v_genes = [strip_allele(a) for a in v_alleles]
-    j_genes = [strip_allele(a) for a in j_alleles]
+    v_calls = [strip_allele(a) for a in v_alleles]
+    j_calls = [strip_allele(a) for a in j_alleles]
 
     p_v: dict[str, float] = defaultdict(float)
-    for v, p in zip(v_genes, pv_allele):
+    for v, p in zip(v_calls, pv_allele):
         p_v[v] += float(p)
 
     p_j: dict[str, float] = defaultdict(float)
-    for j, p in zip(j_genes, pj_allele):
+    for j, p in zip(j_calls, pj_allele):
         p_j[j] += float(p)
 
     p_vj: dict[tuple, float] = defaultdict(float)
-    for vi, v in enumerate(v_genes):
-        for ji, j in enumerate(j_genes):
+    for vi, v in enumerate(v_calls):
+        for ji, j in enumerate(j_calls):
             p_vj[(v, j)] += float(pvj_allele[vi, ji])
 
     return {
@@ -385,8 +385,8 @@ class GeneUsage:
         table: "_AnyDataFrame",
         *,
         locus: str,
-        v_col: str = "v_gene",
-        j_col: str = "j_gene",
+        v_col: str = "v_call",
+        j_col: str = "j_call",
         duplicate_count_col: str = "duplicate_count",
         strip_alleles: bool = True,
     ) -> "GeneUsage":
@@ -475,11 +475,11 @@ class GeneUsage:
                 grouped = (
                     table
                     .select([
-                        pl.col("v_gene").cast(pl.Utf8).fill_null(""),
-                        pl.col("j_gene").cast(pl.Utf8).fill_null(""),
+                        pl.col("v_call").cast(pl.Utf8).fill_null(""),
+                        pl.col("j_call").cast(pl.Utf8).fill_null(""),
                         pl.col("duplicate_count").cast(pl.Int64).fill_null(0),
                     ])
-                    .group_by(["v_gene", "j_gene"])
+                    .group_by(["v_call", "j_call"])
                     .agg([
                         pl.len().alias("n_clones"),
                         pl.col("duplicate_count").sum().alias("n_dc"),
@@ -487,8 +487,8 @@ class GeneUsage:
                 )
 
                 for row in grouped.iter_rows(named=True):
-                    v = self._normalize_gene(str(row.get("v_gene") or ""))
-                    j = self._normalize_gene(str(row.get("j_gene") or ""))
+                    v = self._normalize_gene(str(row.get("v_call") or ""))
+                    j = self._normalize_gene(str(row.get("j_call") or ""))
                     n_clones = int(row.get("n_clones") or 0)
                     n_dc = int(row.get("n_dc") or 0)
                     entry = locus_data.setdefault((v, j), [0, 0])
@@ -505,12 +505,12 @@ class GeneUsage:
         # and avoid constructing per-clonotype Python objects.
         pending = getattr(repertoire, "_pending_cols", None)
         if pending is not None:
-            v_genes = pending.get("v_genes", [])
-            j_genes = pending.get("j_genes", [])
+            v_calls = pending.get("v_calls", [])
+            j_calls = pending.get("j_calls", [])
             dups = pending.get("dup_counts", [])
-            for v_gene, j_gene, dc in zip(v_genes, j_genes, dups):
-                v = self._normalize_gene(v_gene or "")
-                j = self._normalize_gene(j_gene or "")
+            for v_call, j_call, dc in zip(v_calls, j_calls, dups):
+                v = self._normalize_gene(v_call or "")
+                j = self._normalize_gene(j_call or "")
                 dc_i = int(dc or 0)
                 entry = locus_data.setdefault((v, j), [0, 0])
                 entry[0] += 1
@@ -520,8 +520,8 @@ class GeneUsage:
             return
 
         for clone in repertoire.clonotypes:
-            v = self._normalize_gene(clone.v_gene or "")
-            j = self._normalize_gene(clone.j_gene or "")
+            v = self._normalize_gene(clone.v_call or "")
+            j = self._normalize_gene(clone.j_call or "")
             dc = clone.duplicate_count or 0
             entry = locus_data.setdefault((v, j), [0, 0])
             entry[0] += 1
@@ -951,7 +951,7 @@ def _extract_marginal_gene(gene: object, *, axis: int) -> str:
     ----------
     gene
         VJ key from ``compute_batch_corrected_gene_usage(..., scope='vj')``.
-        Expected shape is ``(v_gene, j_gene)``.
+        Expected shape is ``(v_call, j_call)``.
     axis
         ``0`` for V-gene, ``1`` for J-gene.
     """

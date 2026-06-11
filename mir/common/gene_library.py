@@ -342,9 +342,9 @@ class GeneLibrary:
     def coding_v_genes(self) -> set[str]:
         return set(self._coding_v_genes)
 
-    def is_coding(self, v_gene: str) -> bool:
-        """Return True iff *v_gene* belongs to the functional V-gene set."""
-        return self._base_gene_name(v_gene) in self._coding_v_genes
+    def is_coding(self, v_call: str) -> bool:
+        """Return True iff *v_call* belongs to the functional V-gene set."""
+        return self._base_gene_name(v_call) in self._coding_v_genes
 
     def is_functional(self, allele_or_gene: str) -> bool:
         """Return True iff *allele_or_gene* resolves to a functional V entry.

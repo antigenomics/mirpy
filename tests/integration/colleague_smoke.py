@@ -25,12 +25,12 @@ from mir.embedding.tcremp import TCREmp
 
 # A handful of human TRB clonotypes (no data files needed).
 _CLONOTYPES = [
-    Clonotype(sequence_id="1", locus="TRB", v_gene="TRBV9*01",
-              j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF", _validate=False),
-    Clonotype(sequence_id="2", locus="TRB", v_gene="TRBV19*01",
-              j_gene="TRBJ2-1*01", junction_aa="CASSIRSTDTQYF", _validate=False),
-    Clonotype(sequence_id="3", locus="TRB", v_gene="TRBV28*01",
-              j_gene="TRBJ1-1*01", junction_aa="CASSLAPGATNEKLFF", _validate=False),
+    Clonotype(sequence_id="1", locus="TRB", v_call="TRBV9*01",
+              j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF", _validate=False),
+    Clonotype(sequence_id="2", locus="TRB", v_call="TRBV19*01",
+              j_call="TRBJ2-1*01", junction_aa="CASSIRSTDTQYF", _validate=False),
+    Clonotype(sequence_id="3", locus="TRB", v_call="TRBV28*01",
+              j_call="TRBJ1-1*01", junction_aa="CASSLAPGATNEKLFF", _validate=False),
 ]
 
 

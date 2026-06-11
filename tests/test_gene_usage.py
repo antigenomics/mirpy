@@ -39,8 +39,8 @@ def _make_trb_clonotypes(*vj_counts: tuple[str, str, int, int]) -> list[Clonotyp
                     sequence_id=str(idx),
                     locus="TRB",
                     junction_aa=junction_aa,
-                    v_gene=v,
-                    j_gene=j,
+                    v_call=v,
+                    j_call=j,
                     duplicate_count=dc,
                 )
             )
@@ -287,8 +287,8 @@ class TestPrecomputeOlgaGeneUsage:
     def _mock_control_df() -> pl.DataFrame:
         return pl.DataFrame(
             {
-                "v_gene": ["TRBV20-1*01", "TRBV20-1*01", "TRBV5-1*01"],
-                "j_gene": ["TRBJ2-7*01", "TRBJ1-2*01", "TRBJ2-7*01"],
+                "v_call": ["TRBV20-1*01", "TRBV20-1*01", "TRBV5-1*01"],
+                "j_call": ["TRBJ2-7*01", "TRBJ1-2*01", "TRBJ2-7*01"],
             }
         )
 
@@ -494,8 +494,8 @@ class TestPgenGeneUsageAdjustment:
 
         weighted: dict[tuple, float] = defaultdict(float)
         for rec in records:
-            v = rec["v_gene"].split("*")[0]
-            j = rec["j_gene"].split("*")[0]
+            v = rec["v_call"].split("*")[0]
+            j = rec["j_call"].split("*")[0]
             weighted[(v, j)] += adj_large.factor("TRB", v, j)
 
         w1 = weighted.get((self._V1, self._J1), 0.0)
@@ -528,8 +528,8 @@ class TestPgenGeneUsageAdjustment:
                                                        pgen_adjustment=adj)
         for r_raw, r_adj in zip(recs_raw, recs_adj):
             assert r_adj["pgen_raw"] == r_raw["pgen_raw"]
-            v = r_adj["v_gene"].split("*")[0]
-            j = r_adj["j_gene"].split("*")[0]
+            v = r_adj["v_call"].split("*")[0]
+            j = r_adj["j_call"].split("*")[0]
             f = adj.factor("TRB", v, j)
             p = r_raw["pgen_raw"]
             if p is not None and p > 0:

@@ -40,12 +40,12 @@ def _row(
     *,
     locus: str = "TRB",
     id: int = 1,
-    v_gene: str = "TRBV5-1",
-    c_gene: str = "TRBC1",
+    v_call: str = "TRBV5-1",
+    c_call: str = "TRBC1",
     duplicate_count: int = 10,
 ) -> dict:
     return dict(
-        id=id, locus=locus, v_gene=v_gene, c_gene=c_gene,
+        id=id, locus=locus, v_call=v_call, c_call=c_call,
         junction_aa=junction_aa, duplicate_count=duplicate_count,
     )
 
@@ -55,8 +55,8 @@ def _rows_to_rearrangements(rows: list[dict]) -> list[Clonotype]:
         Clonotype(
             sequence_id=str(d["id"]),
             locus=d["locus"],
-            v_gene=d["v_gene"],
-            c_gene=d["c_gene"],
+            v_call=d["v_call"],
+            c_call=d["c_call"],
             junction_aa=d["junction_aa"],
             duplicate_count=d["duplicate_count"],
             _validate=False,
@@ -116,8 +116,8 @@ class TestSummarizeByGenePl:
 
     def test_different_loci(self):
         df = _make_pl_df([
-            _row("CASSLA", id=1, locus="TRB", v_gene="V1", c_gene="C1", duplicate_count=1),
-            _row("CASSLA", id=2, locus="TRA", v_gene="V2", c_gene="C2", duplicate_count=4),
+            _row("CASSLA", id=1, locus="TRB", v_call="V1", c_call="C1", duplicate_count=1),
+            _row("CASSLA", id=2, locus="TRA", v_call="V2", c_call="C2", duplicate_count=4),
         ])
         s = plmod.summarize_by_gene(plmod.expand_kmers(df, k=4))
         trb = s.filter((pl.col("locus") == "TRB") & (pl.col("kmer_seq") == "CASS"))
@@ -130,11 +130,11 @@ class TestSummarizeByGenePl:
         df = _make_pl_df(rows)
         full = (
             plmod.summarize_by_gene(plmod.expand_kmers(df, k=3))
-            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+            .sort(["locus", "v_call", "c_call", "kmer_seq"])
         )
         chunked = (
             plmod.summarize_by_gene_chunked(df, k=3, chunk_size=5)
-            .sort(["locus", "v_gene", "c_gene", "kmer_seq"])
+            .sort(["locus", "v_call", "c_call", "kmer_seq"])
         )
         assert chunked.to_dicts() == full.to_dicts()
 
@@ -152,12 +152,12 @@ class TestSummarizeByPosPl:
 class TestSummarizeByVPl:
     def test_different_v_genes(self):
         df = _make_pl_df([
-            _row("CASSLA", id=1, v_gene="TRBV5-1", duplicate_count=3),
-            _row("CASSLA", id=2, v_gene="TRBV6-2", duplicate_count=7),
+            _row("CASSLA", id=1, v_call="TRBV5-1", duplicate_count=3),
+            _row("CASSLA", id=2, v_call="TRBV6-2", duplicate_count=7),
         ])
         s = plmod.summarize_by_v(plmod.expand_kmers(df, k=4))
-        cass_v5 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("v_gene") == "TRBV5-1"))
-        cass_v6 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("v_gene") == "TRBV6-2"))
+        cass_v5 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("v_call") == "TRBV5-1"))
+        cass_v6 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("v_call") == "TRBV6-2"))
         assert cass_v5["rearrangement_count"][0] == 1 and cass_v5["duplicate_count"][0] == 3
         assert cass_v6["rearrangement_count"][0] == 1 and cass_v6["duplicate_count"][0] == 7
 
@@ -165,12 +165,12 @@ class TestSummarizeByVPl:
 class TestSummarizeByCPl:
     def test_different_c_genes(self):
         df = _make_pl_df([
-            _row("CASSLA", id=1, c_gene="TRBC1", duplicate_count=2),
-            _row("CASSLA", id=2, c_gene="TRBC2", duplicate_count=8),
+            _row("CASSLA", id=1, c_call="TRBC1", duplicate_count=2),
+            _row("CASSLA", id=2, c_call="TRBC2", duplicate_count=8),
         ])
         s = plmod.summarize_by_c(plmod.expand_kmers(df, k=4))
-        cass_c1 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("c_gene") == "TRBC1"))
-        cass_c2 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("c_gene") == "TRBC2"))
+        cass_c1 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("c_call") == "TRBC1"))
+        cass_c2 = s.filter((pl.col("kmer_seq") == "CASS") & (pl.col("c_call") == "TRBC2"))
         assert cass_c1["rearrangement_count"][0] == 1 and cass_c1["duplicate_count"][0] == 2
         assert cass_c2["rearrangement_count"][0] == 1 and cass_c2["duplicate_count"][0] == 8
 
@@ -179,9 +179,9 @@ class TestFetchPl:
     @pytest.fixture()
     def data(self):
         df = _make_pl_df([
-            _row("CASSLA", id=1, v_gene="TRBV5-1", c_gene="TRBC1", duplicate_count=3),
-            _row("CASSXY", id=2, v_gene="TRBV5-1", c_gene="TRBC1", duplicate_count=7),
-            _row("TTTXYZ", id=3, locus="TRA", v_gene="TRAV12", c_gene="TRAC", duplicate_count=1),
+            _row("CASSLA", id=1, v_call="TRBV5-1", c_call="TRBC1", duplicate_count=3),
+            _row("CASSXY", id=2, v_call="TRBV5-1", c_call="TRBC1", duplicate_count=7),
+            _row("TTTXYZ", id=3, locus="TRA", v_call="TRAV12", c_call="TRAC", duplicate_count=1),
         ])
         ex = plmod.expand_kmers(df, k=4)
         return df, ex
@@ -224,9 +224,9 @@ class TestCrossImplementation:
     @pytest.fixture()
     def shared_input(self):
         dicts = [
-            _row("CASSLA", id=1, duplicate_count=3, v_gene="TRBV5-1", c_gene="TRBC1"),
-            _row("CASSXY", id=2, duplicate_count=7, v_gene="TRBV5-1", c_gene="TRBC1"),
-            _row("CASSLA", id=3, duplicate_count=2, v_gene="TRBV6-2", c_gene="TRBC2"),
+            _row("CASSLA", id=1, duplicate_count=3, v_call="TRBV5-1", c_call="TRBC1"),
+            _row("CASSXY", id=2, duplicate_count=7, v_call="TRBV5-1", c_call="TRBC1"),
+            _row("CASSLA", id=3, duplicate_count=2, v_call="TRBV6-2", c_call="TRBC2"),
         ]
         objs = _rows_to_rearrangements(dicts)
         pl_df = _make_pl_df(dicts)
@@ -245,14 +245,14 @@ class TestCrossImplementation:
         k = 4
         # Polars
         s_pl = plmod.summarize_by_gene(plmod.expand_kmers(pl_df, k)).sort(
-            ["locus", "v_gene", "c_gene", "kmer_seq"]
+            ["locus", "v_call", "c_call", "kmer_seq"]
         )
         # Naive (object-based)
         s_obj = summarize_rearrangements(objs, k)
 
         # For each Polars summary row, verify it matches the naive result
         for row in s_pl.iter_rows(named=True):
-            key = Kmer(row["locus"], row["v_gene"], row["c_gene"],
+            key = Kmer(row["locus"], row["v_call"], row["c_call"],
                        row["kmer_seq"].encode("ascii"))
             assert key in s_obj
             assert row["rearrangement_count"] == s_obj[key].rearrangement_count
@@ -299,8 +299,8 @@ class TestBenchmarkImplementations:
                 rec["junction_aa"],
                 id=i,
                 locus="TRB",
-                v_gene=rec["v_gene"].split("*")[0],
-                c_gene="",
+                v_call=rec["v_call"].split("*")[0],
+                c_call="",
                 duplicate_count=1,
             )
             for i, rec in enumerate(seqs)

@@ -42,16 +42,16 @@ def _mk_clonotype(
     sid: str,
     aa: str,
     *,
-    v_gene: str = "TRBV7-9*01",
-    j_gene: str = "TRBJ2-1*01",
+    v_call: str = "TRBV7-9*01",
+    j_call: str = "TRBJ2-1*01",
     duplicate_count: int = 1,
 ) -> Clonotype:
     return Clonotype(
         sequence_id=sid,
         locus="TRB",
         junction_aa=aa,
-        v_gene=allele_to_major(v_gene),
-        j_gene=allele_to_major(j_gene),
+        v_call=allele_to_major(v_call),
+        j_call=allele_to_major(j_call),
         duplicate_count=max(1, int(duplicate_count)),
         _validate=False,
     )
@@ -99,8 +99,8 @@ def synthetic_control_repertoire(
         _mk_clonotype(
             f"c{i}",
             str(rec.get("junction_aa", "")),
-            v_gene=str(rec.get("v_gene", "TRBV7-9*01")),
-            j_gene=str(rec.get("j_gene", "TRBJ2-1*01")),
+            v_call=str(rec.get("v_call", "TRBV7-9*01")),
+            j_call=str(rec.get("j_call", "TRBJ2-1*01")),
             duplicate_count=int(rec.get("duplicate_count", 1) or 1),
         )
         for i, rec in enumerate(df.to_dict(orient="records"))
@@ -135,8 +135,8 @@ def real_control_repertoire(
         _mk_clonotype(
             f"r{i}",
             str(rec.get("junction_aa", "")),
-            v_gene=str(rec.get("v_gene", "TRBV7-9*01")),
-            j_gene=str(rec.get("j_gene", "TRBJ2-1*01")),
+            v_call=str(rec.get("v_call", "TRBV7-9*01")),
+            j_call=str(rec.get("j_call", "TRBJ2-1*01")),
             duplicate_count=int(rec.get("duplicate_count", 1) or 1),
         )
         for i, rec in enumerate(df.to_dict(orient="records"))

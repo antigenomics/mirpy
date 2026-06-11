@@ -139,8 +139,8 @@ genes (which, having no allele information, cannot exclude any allele).
 
 This applies to all V/J-restricted search paths:
 
-- edit-distance graph construction (`v_gene_match`)
-- neighborhood enrichment stats (`match_v_gene`, `match_j_gene`)
+- edit-distance graph construction (`v_call_match`)
+- neighborhood enrichment stats (`match_v_call`, `match_j_call`)
 - metaclonotype clustering
 - association scans (`match_mode="v"/"j"/"vj"`)
 - TCRdist `find_metaclonotypes`
@@ -359,8 +359,8 @@ td = TcrDist.from_defaults(
     # fixed_gaps=None   → full BioPython DP  (~780× slower)
 )
 
-cln1 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
-cln2 = Clonotype(v_gene="TRBV19*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
+cln1 = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF")
+cln2 = Clonotype(v_call="TRBV19*01", j_call="TRBJ2-7*01", junction_aa="CASSIRASYEQYF")
 
 d    = td.dist(cln1, cln2)                         # single pair
 row  = td.dist_one_to_many(cln1, refs)             # (K,) array
@@ -410,7 +410,7 @@ motif_pwms = load_motif_pwms("motif_pwms.txt.gz")   # OLGA backgrounds
 seqs = ["CASSGRSYEQYF", "CASSGRTNEQYF", ...]        # CDR3 sequences
 
 bg  = get_vj_background(
-    motif_pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+    motif_pwms, v_call="TRBV19*01", j_call="TRBJ2-7*01",
     length=13, species="HomoSapiens", gene="TRB",
 )
 pwm  = compute_pwm(seqs)
@@ -527,7 +527,7 @@ of prototype clonotypes, enabling rapid downstream analysis, dimensionality
 reduction, and machine learning
 (Kremlyakova *et al.* 2025, *J. Mol. Biol.*, PMID:[40368275](https://pubmed.ncbi.nlm.nih.gov/40368275/)).
 
-Gene input robustness: allele suffixes are optional for `v_gene` / `j_gene` in
+Gene input robustness: allele suffixes are optional for `v_call` / `j_call` in
 embedding input. Missing suffixes are normalized to `*01` before matrix lookup
 so `TRBV5-1` behaves like `TRBV5-1*01`.
 
@@ -538,8 +538,8 @@ from mir.common.clonotype import Clonotype
 model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000, junction_method="fixed_gap")
 
 clonotypes = [
-    Clonotype(v_gene="TRBV10-3*01", j_gene="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
-    Clonotype(v_gene="TRBV20-1*01", j_gene="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
+    Clonotype(v_call="TRBV10-3*01", j_call="TRBJ2-7*01", junction_aa="CASSIRSSYEQYF"),
+    Clonotype(v_call="TRBV20-1*01", j_call="TRBJ1-1*01", junction_aa="CSARDSSYEQYF"),
 ]
 X = model.embed(clonotypes)   # shape (2, 3000) — float32 array
 ```

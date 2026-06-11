@@ -94,7 +94,7 @@ result = compute_alice(
 )
 
 # result.table columns:
-#   sequence_id, locus, junction_aa, v_gene, j_gene,
+#   sequence_id, locus, junction_aa, v_call, j_call,
 #   n_neighbors, N_possible, pgen_raw, pgen,
 #   expected_neighbors, fold_enrichment, p_value, q_value
 
@@ -178,7 +178,7 @@ result = compute_tcrnet(
 )
 
 # result.table columns:
-#   sequence_id, locus, junction_aa, v_gene, j_gene,
+#   sequence_id, locus, junction_aa, v_call, j_call,
 #   n_neighbors, N_possible,
 #   m_control_neighbors (raw), M_control_possible,
 #   sample_density, control_density (q-adjusted),

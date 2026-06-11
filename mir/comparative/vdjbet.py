@@ -74,12 +74,12 @@ def _resolve_locus(repertoire: Repertoire) -> str:
         if clone.locus:
             return clone.locus
         # J-gene prefix is more reliable for mixed-locus files (e.g. TRBJ → TRB).
-        loc = infer_locus(clone.j_gene or clone.v_gene or "")
+        loc = infer_locus(clone.j_call or clone.v_call or "")
         if loc:
             return loc
     raise ValueError(
         "Cannot determine locus from repertoire. "
-        "Set Repertoire.locus or populate Clonotype.locus / v_gene fields."
+        "Set Repertoire.locus or populate Clonotype.locus / v_call fields."
     )
 
 
@@ -409,8 +409,8 @@ class PgenBinPool:
                 rec = pool[int(i)]
                 result.append((
                     rec["junction_aa"],
-                    _to_major_allele(rec.get("v_gene", "")),
-                    _to_major_allele(rec.get("j_gene", "")),
+                    _to_major_allele(rec.get("v_call", "")),
+                    _to_major_allele(rec.get("j_call", "")),
                 ))
         return result
 
@@ -544,7 +544,7 @@ def _compute_ref_bins(
             continue
         if pgen_adjustment is not None:
             pgen_val = pgen_adjustment.adjust_pgen(
-                locus, clone.v_gene or "", clone.j_gene or "", pgen_val
+                locus, clone.v_call or "", clone.j_call or "", pgen_val
             )
             if pgen_val <= 0:
                 continue

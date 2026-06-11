@@ -508,10 +508,10 @@ def _cell_row_to_clonotype(row: dict[str, object]) -> Clonotype:
         locus=str(row.get("locus") or ""),
         junction=str(row.get("junction") or ""),
         junction_aa=str(row.get("junction_aa") or ""),
-        v_gene=str(row.get("v_gene") or ""),
-        d_gene=str(row.get("d_gene") or ""),
-        j_gene=str(row.get("j_gene") or ""),
-        c_gene=str(row.get("c_gene") or ""),
+        v_call=str(row.get("v_call") or ""),
+        d_call=str(row.get("d_call") or ""),
+        j_call=str(row.get("j_call") or ""),
+        c_call=str(row.get("c_call") or ""),
     )
     for key in (
         "vdjdb_record_id",

@@ -98,8 +98,8 @@ class TestSingleChainVDJdbTCREmpQuality:
                     {
                         "sequence_id": c.sequence_id,
                         "epitope": ep,
-                        "v_gene": c.v_gene,
-                        "j_gene": c.j_gene,
+                        "v_call": c.v_call,
+                        "j_call": c.j_call,
                         "junction_aa": c.junction_aa,
                     }
                 )
@@ -122,7 +122,7 @@ class TestSingleChainVDJdbTCREmpQuality:
         )
 
         clonos = [
-            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            Clonotype(v_call=r["v_call"], j_call=r["j_call"], junction_aa=r["junction_aa"])
             for r in subset.iter_rows(named=True)
         ]
         labels = subset.get_column("epitope_cat").to_numpy()
@@ -170,11 +170,11 @@ class TestPairedVDJdbTCREmpQuality:
                 {
                     "pair_id": pair.pair_id,
                     "epitope": meta.get("antigen.epitope", ""),
-                    "tra_v": chains["TRA"].v_gene,
-                    "tra_j": chains["TRA"].j_gene,
+                    "tra_v": chains["TRA"].v_call,
+                    "tra_j": chains["TRA"].j_call,
                     "tra_junction": chains["TRA"].junction_aa,
-                    "trb_v": chains["TRB"].v_gene,
-                    "trb_j": chains["TRB"].j_gene,
+                    "trb_v": chains["TRB"].v_call,
+                    "trb_j": chains["TRB"].j_call,
                     "trb_junction": chains["TRB"].junction_aa,
                 }
             )
@@ -330,8 +330,8 @@ class TestSingleChainVDJdbMixedLargeBootstrap:
                     {
                         "sequence_id": c.sequence_id,
                         "epitope": ep,
-                        "v_gene": c.v_gene,
-                        "j_gene": c.j_gene,
+                        "v_call": c.v_call,
+                        "j_call": c.j_call,
                         "junction_aa": c.junction_aa,
                     }
                 )
@@ -354,14 +354,14 @@ class TestSingleChainVDJdbMixedLargeBootstrap:
         )
 
         real_clonos = [
-            Clonotype(v_gene=r["v_gene"], j_gene=r["j_gene"], junction_aa=r["junction_aa"])
+            Clonotype(v_call=r["v_call"], j_call=r["j_call"], junction_aa=r["junction_aa"])
             for r in subset.iter_rows(named=True)
         ]
         real_labels = subset.get_column("epitope_cat").to_list()
 
         rng = np.random.default_rng(SEED)
-        v_genes = df.get_column("v_gene").drop_nulls().unique().to_list()
-        j_genes = df.get_column("j_gene").drop_nulls().unique().to_list()
+        v_calls = df.get_column("v_call").drop_nulls().unique().to_list()
+        j_calls = df.get_column("j_call").drop_nulls().unique().to_list()
         olga = OlgaModel(locus="TRB", species="human", seed=SEED)
         random_junctions = olga.generate_sequences_parallel(
             self.N_RANDOM,
@@ -377,8 +377,8 @@ class TestSingleChainVDJdbMixedLargeBootstrap:
 
         random_clonos = [
             Clonotype(
-                v_gene=v_genes[int(rng.integers(0, len(v_genes)))],
-                j_gene=j_genes[int(rng.integers(0, len(j_genes)))],
+                v_call=v_calls[int(rng.integers(0, len(v_calls)))],
+                j_call=j_calls[int(rng.integers(0, len(j_calls)))],
                 junction_aa=j,
             )
             for j in random_junctions
@@ -430,10 +430,10 @@ class TestNoiseOnly10k:
     def test_noise_only_eps_is_small(self):
         sample = VDJdbSlimParser().parse_file(_VDJDB_SLIM_FILE, species="HomoSapiens")
         trb_df = pl.DataFrame(
-            [{"v_gene": c.v_gene, "j_gene": c.j_gene} for c in sample["TRB"].clonotypes]
+            [{"v_call": c.v_call, "j_call": c.j_call} for c in sample["TRB"].clonotypes]
         )
-        v_genes = trb_df.get_column("v_gene").drop_nulls().unique().to_list()
-        j_genes = trb_df.get_column("j_gene").drop_nulls().unique().to_list()
+        v_calls = trb_df.get_column("v_call").drop_nulls().unique().to_list()
+        j_calls = trb_df.get_column("j_call").drop_nulls().unique().to_list()
 
         olga = OlgaModel(locus="TRB", species="human", seed=SEED)
         junctions = olga.generate_sequences_parallel(self.N_NOISE, n_jobs=8, seed=SEED)
@@ -442,8 +442,8 @@ class TestNoiseOnly10k:
         rng = np.random.default_rng(SEED)
         noise_clonos = [
             Clonotype(
-                v_gene=v_genes[int(rng.integers(0, len(v_genes)))],
-                j_gene=j_genes[int(rng.integers(0, len(j_genes)))],
+                v_call=v_calls[int(rng.integers(0, len(v_calls)))],
+                j_call=j_calls[int(rng.integers(0, len(j_calls)))],
                 junction_aa=j,
             )
             for j in junctions

@@ -212,8 +212,8 @@ def _df_to_locus_repertoire(df: pl.DataFrame, locus: str) -> LocusRepertoire:
                 duplicate_count=max(1, int(rec.get("duplicate_count", 1) or 1)),
                 junction=str(rec.get("junction", "")),
                 junction_aa=str(rec.get("junction_aa", "")),
-                v_gene=allele_to_major(str(rec.get("v_gene", ""))),
-                j_gene=allele_to_major(str(rec.get("j_gene", ""))),
+                v_call=allele_to_major(str(rec.get("v_call", ""))),
+                j_call=allele_to_major(str(rec.get("j_call", ""))),
                 _validate=False,
             )
         )
@@ -350,7 +350,7 @@ def _compute_tcrnet_metrics_batch(
         m_stat = (m_count + pseudocount) * q_factor  # alpha: q scales effective successes for both modes
         if use_gene_scaling:
             p_gene = lookup_gene_frac(
-                match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
+                match_mode, clonotype.v_call or "", clonotype.j_call or "",
                 gene_usage_fracs,
             )
             M_val: float = p_gene * m_background_total
@@ -394,8 +394,8 @@ _TCRNET_TABLE_SCHEMA: dict[str, type] = {
     "sequence_id": pl.Utf8,
     "locus": pl.Utf8,
     "junction_aa": pl.Utf8,
-    "v_gene": pl.Utf8,
-    "j_gene": pl.Utf8,
+    "v_call": pl.Utf8,
+    "j_call": pl.Utf8,
     "n_neighbors": pl.Int64,
     "N_possible": pl.Int64,
     "m_control_neighbors": pl.Float64,
@@ -428,8 +428,8 @@ def tcrnet_table(
                     "sequence_id": clonotype.sequence_id,
                     "locus": locus,
                     "junction_aa": clonotype.junction_aa,
-                    "v_gene": clonotype.v_gene,
-                    "j_gene": clonotype.j_gene,
+                    "v_call": clonotype.v_call,
+                    "j_call": clonotype.j_call,
                     "n_neighbors": n,
                     "N_possible": N,
                     "m_control_neighbors": float(m),
@@ -537,8 +537,8 @@ def compute_tcrnet(
             background=None,
             metric=metric,
             threshold=threshold,
-            match_v_gene=match_v,
-            match_j_gene=match_j,
+            match_v_call=match_v,
+            match_j_call=match_j,
             add_background_pseudocount=False,
             n_jobs=n_jobs,
         )
@@ -547,8 +547,8 @@ def compute_tcrnet(
             background=crep,
             metric=metric,
             threshold=threshold,
-            match_v_gene=match_v,
-            match_j_gene=match_j,
+            match_v_call=match_v,
+            match_j_call=match_j,
             add_background_pseudocount=False,
             n_jobs=n_jobs,
         )
@@ -705,7 +705,7 @@ def metaclonotypes_from_tcrnet(
         seed_clonotype_ids=seeds,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v,
-        match_j_gene=match_j,
+        match_v_call=match_v,
+        match_j_call=match_j,
         cluster_prefix="tcrnet_mc",
     )

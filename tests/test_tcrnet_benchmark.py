@@ -82,13 +82,13 @@ def _sequence_table(rep: LocusRepertoire) -> pd.DataFrame:
             {
                 "junction_aa": c.junction_aa,
                 "count": int(c.duplicate_count),
-                "v_gene": c.v_gene,
-                "j_gene": c.j_gene,
+                "v_call": c.v_call,
+                "j_call": c.j_call,
             }
         )
     df = pd.DataFrame(rows)
     grouped = (
-        df.groupby(["junction_aa", "v_gene", "j_gene"], as_index=False)
+        df.groupby(["junction_aa", "v_call", "j_call"], as_index=False)
         .agg(count=("count", "sum"))
         .sort_values("count", ascending=False)
     )
@@ -123,8 +123,8 @@ def _sequences_to_clonotypes(df: pd.DataFrame) -> list[Clonotype]:
                 locus="TRB",
                 junction_aa=str(row.junction_aa),
                 duplicate_count=int(row.count),
-                v_gene=str(getattr(row, "v_gene", "") or ""),
-                j_gene=str(getattr(row, "j_gene", "") or ""),
+                v_call=str(getattr(row, "v_call", "") or ""),
+                j_call=str(getattr(row, "j_call", "") or ""),
                 _validate=False,
             )
         )
@@ -394,7 +394,7 @@ def test_tcrnet_benchmark_b35_epl_connected_component_vs_real_control(capsys) ->
     )
 
     table = _tcrnet_table_with_counts(target, result.table.to_pandas())
-    dedup = table.drop_duplicates(["junction_aa", "v_gene", "j_gene"]).copy()
+    dedup = table.drop_duplicates(["junction_aa", "v_call", "j_call"]).copy()
 
     # High-confidence donor-enriched clonotypes versus real control.
     enriched = dedup[(dedup["p.adj"] < 1e-6) & (dedup["fold"] >= 2.0)].copy()

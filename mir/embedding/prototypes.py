@@ -7,7 +7,7 @@ repository.  They are **never** regenerated at build or test time.
 Each file contains up to :data:`N_PROTOTYPES` rows drawn from a real
 repertoire control (when one is available for the species/locus) or from a
 synthetic OLGA-generated control, de-duplicated on the
-(v_gene, j_gene, junction_aa) triple.
+(v_call, j_call, junction_aa) triple.
 
 Typical usage::
 
@@ -31,7 +31,7 @@ N_PROTOTYPES: int = 10_000
 """Maximum number of prototypes per species/locus combination."""
 
 _RESOURCE_SUBDIR = "prototypes"
-_COLS = ["v_gene", "j_gene", "junction_aa"]
+_COLS = ["v_call", "j_call", "junction_aa"]
 
 
 def _prototypes_dir() -> Path:
@@ -89,7 +89,7 @@ def load_prototypes(
             prototypes when ``None``.
 
     Returns:
-        DataFrame with columns ``v_gene``, ``j_gene``, ``junction_aa``.
+        DataFrame with columns ``v_call``, ``j_call``, ``junction_aa``.
         Row order is fixed and matches the generation order from
         :mod:`mir.resources.prototypes.generate_prototypes`.
 
@@ -103,7 +103,7 @@ def load_prototypes(
     Example:
         >>> df = load_prototypes("human", "TRB", n=100)
         >>> df.columns
-        ['v_gene', 'j_gene', 'junction_aa']
+        ['v_call', 'j_call', 'junction_aa']
         >>> len(df)
         100
     """

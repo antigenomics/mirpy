@@ -135,11 +135,11 @@ V/J matching uses `genes_match` semantics: a **bare gene** (`TRBV19`) is a
 wildcard that matches any allele; a **specific allele** (`TRBV19*02`) matches
 only `TRBV19*02` and bare `TRBV19`, but NOT `TRBV19*01`.
 
-V/J-restricted neighbour search (`match_v_gene=True`, `match_j_gene=True`) is 1.5–2× faster
+V/J-restricted neighbour search (`match_v_call=True`, `match_j_call=True`) is 1.5–2× faster
 than unrestricted on natural repertoires via the grouped-trie strategy.
 
 `build_edit_distance_graph` returns an igraph Graph; vertices carry `name` (junction_aa),
-`r_id`, `v_gene`, `j_gene`, `c_gene`. Use `g.vs["j_gene"]` directly.
+`r_id`, `v_call`, `j_call`, `c_call`. Use `g.vs["j_call"]` directly.
 
 ## 8. Control Repertoires
 
@@ -401,7 +401,7 @@ from mir.biomarkers.motif_logo import (
 )
 
 pwms  = load_motif_pwms("motif_pwms.txt.gz")
-bg    = get_vj_background(pwms, v_gene="TRBV19*01", j_gene="TRBJ2-7*01",
+bg    = get_vj_background(pwms, v_call="TRBV19*01", j_call="TRBJ2-7*01",
                            length=13, species="HomoSapiens", gene="TRB")
 logo  = compute_logo(compute_pwm(sequences), background=bg)
 
@@ -449,7 +449,7 @@ V-gene/CDR3 weight rationale, parallel performance table, and metaclonotype API 
 ```python
 from mir.common.repertoire import SampleRepertoire
 
-clonotypes = [Clonotype(junction_aa=cdr3, locus="TRB", v_gene=v, duplicate_count=cnt) for ...]
+clonotypes = [Clonotype(junction_aa=cdr3, locus="TRB", v_call=v, duplicate_count=cnt) for ...]
 sample = SampleRepertoire.from_clonotypes(clonotypes, sample_id="donor1")
 ```
 

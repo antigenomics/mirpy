@@ -24,8 +24,8 @@ def _clonotype(
     seq_id: str,
     nt_seq: str,
     aa_seq: str,
-    v_gene: str = "TRBV1",
-    j_gene: str = "TRBJ1",
+    v_call: str = "TRBV1",
+    j_call: str = "TRBJ1",
     locus: str = "TRB",
     dup: int = 1,
 ) -> Clonotype:
@@ -34,8 +34,8 @@ def _clonotype(
         sequence_id=seq_id,
         junction=nt_seq,
         junction_aa=aa_seq,
-        v_gene=v_gene,
-        j_gene=j_gene,
+        v_call=v_call,
+        j_call=j_call,
         locus=locus,
         duplicate_count=dup,
     )
@@ -44,7 +44,7 @@ def _clonotype(
 def test_neighborhood_single_clonotype_hamming() -> None:
     """Single clonotype should have itself as the only neighbor."""
     rep = LocusRepertoire(
-        clonotypes=[_clonotype("c1", "ATG", "M", v_gene="TRBV1", j_gene="TRBJ1")],
+        clonotypes=[_clonotype("c1", "ATG", "M", v_call="TRBV1", j_call="TRBJ1")],
         locus="TRB",
     )
 
@@ -59,9 +59,9 @@ def test_neighborhood_identical_sequences_hamming() -> None:
     """Identical sequences should be neighbors with hamming distance 0."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "CCG", "PRK", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "CCG", "PRK", v_call="TRBV1", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
@@ -123,18 +123,18 @@ def test_neighborhood_levenshtein_allows_unequal_length() -> None:
     assert stats["c2"]["neighbor_count"] == 2  # c1 and c2
 
 
-def test_neighborhood_match_v_gene() -> None:
-    """With match_v_gene=True, neighbors must have same v_gene."""
+def test_neighborhood_match_v_call() -> None:
+    """With match_v_call=True, neighbors must have same v_call."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "MVA", v_gene="TRBV2", j_gene="TRBJ1"),  # different V
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "MVA", v_call="TRBV2", j_call="TRBJ1"),  # different V
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, match_v_gene=True)
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, match_v_call=True)
 
     assert stats["c1"]["neighbor_count"] == 2  # c1 and c2 (same V)
     assert stats["c1"]["potential_neighbors"] == 2
@@ -146,14 +146,14 @@ def test_neighborhood_match_v_gene_ignores_allele_suffix() -> None:
     """V-gene matching should treat TRBVx and TRBVx*01 as the same key."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ2"),
-            _clonotype("c3", "ATG", "MVA", v_gene="TRBV2*01", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV1*01", j_call="TRBJ2"),
+            _clonotype("c3", "ATG", "MVA", v_call="TRBV2*01", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_call=True)
 
     assert stats["c1"]["neighbor_count"] == 2
     assert stats["c1"]["potential_neighbors"] == 2
@@ -163,13 +163,13 @@ def test_neighborhood_specific_allele_does_not_match_different_allele() -> None:
     """*01 and *02 are distinct alleles — should not count as neighbors."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1*02", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1*01", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV1*02", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_call=True)
 
     # c1 (*01) should NOT count c2 (*02) as a neighbor.
     assert stats["c1"]["neighbor_count"] == 1  # only self
@@ -180,33 +180,33 @@ def test_neighborhood_bare_query_matches_all_alleles() -> None:
     """Bare-gene query is a wildcard and finds neighbors in all allele groups."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c_bare", "ATG", "MVA", v_gene="TRBV1",    j_gene="TRBJ1"),
-            _clonotype("c_01",   "ATG", "MVA", v_gene="TRBV1*01", j_gene="TRBJ1"),
-            _clonotype("c_02",   "ATG", "MVA", v_gene="TRBV1*02", j_gene="TRBJ1"),
-            _clonotype("c_other","ATG", "MVA", v_gene="TRBV2*01", j_gene="TRBJ1"),
+            _clonotype("c_bare", "ATG", "MVA", v_call="TRBV1",    j_call="TRBJ1"),
+            _clonotype("c_01",   "ATG", "MVA", v_call="TRBV1*01", j_call="TRBJ1"),
+            _clonotype("c_02",   "ATG", "MVA", v_call="TRBV1*02", j_call="TRBJ1"),
+            _clonotype("c_other","ATG", "MVA", v_call="TRBV2*01", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_gene=True)
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=0, match_v_call=True)
 
     # c_bare (wildcard) should find c_01, c_02, and itself; not c_other.
     assert stats["c_bare"]["neighbor_count"] == 3
     assert stats["c_bare"]["potential_neighbors"] == 3
 
 
-def test_neighborhood_match_j_gene() -> None:
-    """With match_j_gene=True, neighbors must have same j_gene."""
+def test_neighborhood_match_j_call() -> None:
+    """With match_j_call=True, neighbors must have same j_call."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV2", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ2"),  # different J
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV2", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ2"),  # different J
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, match_j_gene=True)
+    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1, match_j_call=True)
 
     assert stats["c1"]["neighbor_count"] == 2  # c1 and c2 (same J)
     assert stats["c1"]["potential_neighbors"] == 2
@@ -215,19 +215,19 @@ def test_neighborhood_match_j_gene() -> None:
 
 
 def test_neighborhood_match_v_and_j_gene() -> None:
-    """With both match_v_gene and match_j_gene=True, both must match."""
+    """With both match_v_call and match_j_call=True, both must match."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ2"),
-            _clonotype("c4", "ATG", "MVA", v_gene="TRBV2", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ2"),
+            _clonotype("c4", "ATG", "MVA", v_call="TRBV2", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
 
     stats = compute_neighborhood_stats(
-        rep, metric="hamming", threshold=1, match_v_gene=True, match_j_gene=True
+        rep, metric="hamming", threshold=1, match_v_call=True, match_j_call=True
     )
 
     assert stats["c1"]["neighbor_count"] == 2  # c1 and c2 (both match)
@@ -238,14 +238,14 @@ def test_neighborhood_sample_repertoire() -> None:
     """Compute neighborhood stats for multi-locus SampleRepertoire."""
     trb = LocusRepertoire(
         clonotypes=[
-            _clonotype("b1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1", locus="TRB"),
-            _clonotype("b2", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1", locus="TRB"),
+            _clonotype("b1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1", locus="TRB"),
+            _clonotype("b2", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1", locus="TRB"),
         ],
         locus="TRB",
     )
     tra = LocusRepertoire(
         clonotypes=[
-            _clonotype("a1", "TTT", "FFF", v_gene="TRAV1", j_gene="TRAJ1", locus="TRA"),
+            _clonotype("a1", "TTT", "FFF", v_call="TRAV1", j_call="TRAJ1", locus="TRA"),
         ],
         locus="TRA",
     )
@@ -334,9 +334,9 @@ def test_neighborhood_convergent_rearrangements() -> None:
     """
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),  # different nt, same aa
-            _clonotype("c3", "AAA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),  # different nt, same aa
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),  # different nt, same aa
+            _clonotype("c3", "AAA", "MVA", v_call="TRBV1", j_call="TRBJ1"),  # different nt, same aa
         ],
         locus="TRB",
     )
@@ -353,14 +353,14 @@ def test_neighborhood_stats_background_pseudocount() -> None:
     """Background mode adds +1 pseudocount for query clonotype membership."""
     query = LocusRepertoire(
         clonotypes=[
-            _clonotype("q1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("q2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("q1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("q2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
     background = LocusRepertoire(
         clonotypes=[
-            _clonotype("b1", "CCC", "CCC", v_gene="TRBV2", j_gene="TRBJ2"),
+            _clonotype("b1", "CCC", "CCC", v_call="TRBV2", j_call="TRBJ2"),
         ],
         locus="TRB",
     )
@@ -378,9 +378,9 @@ def test_neighborhood_stats_background_same_as_query_is_equivalent() -> None:
     """Syntax sugar: explicit background=self must equal self-mode stats."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "AAA", "MLA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "AAA", "MLA", v_call="TRBV1", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
@@ -399,11 +399,11 @@ def test_neighborhood_stats_background_same_as_query_is_equivalent() -> None:
 def test_neighborhood_parallel_matches_single_worker() -> None:
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
-            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ2"),
         ],
         locus="TRB",
     )
@@ -412,16 +412,16 @@ def test_neighborhood_parallel_matches_single_worker() -> None:
         rep,
         metric="hamming",
         threshold=1,
-        match_v_gene=False,
-        match_j_gene=False,
+        match_v_call=False,
+        match_j_call=False,
         n_jobs=1,
     )
     parallel = compute_neighborhood_stats(
         rep,
         metric="hamming",
         threshold=1,
-        match_v_gene=False,
-        match_j_gene=False,
+        match_v_call=False,
+        match_j_call=False,
         n_jobs=4,
     )
 
@@ -432,8 +432,8 @@ def test_add_neighborhood_enrichment_metadata_background_equals_self() -> None:
     """Parent/background stats and enrichment are consistent when background=self."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "GTA", "MVA", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "MVA", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "GTA", "MVA", v_call="TRBV1", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
@@ -502,16 +502,16 @@ def test_neighborhood_grouped_vj_explicit_values() -> None:
     # c4 and c5 share the same CDR3 but differ in J — each isolated in its own group.
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
-            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ2"),
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, match_v_gene=True, match_j_gene=True)
+    stats = compute_neighborhood_stats(rep, match_v_call=True, match_j_call=True)
     trb = stats
 
     # (TRBV1, TRBJ1) group has 3 members; c1 sees c2 and c3 (both 1mm)
@@ -531,17 +531,17 @@ def test_neighborhood_grouped_vj_explicit_values() -> None:
 
 
 def test_neighborhood_grouped_v_only_explicit_values() -> None:
-    """match_v_gene=True, match_j_gene=False: groups by V only; J is ignored."""
+    """match_v_call=True, match_j_call=False: groups by V only; J is ignored."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ2"),
-            _clonotype("c3", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_call="TRBV1", j_call="TRBJ2"),
+            _clonotype("c3", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
 
-    stats = compute_neighborhood_stats(rep, match_v_gene=True, match_j_gene=False)
+    stats = compute_neighborhood_stats(rep, match_v_call=True, match_j_call=False)
 
     # c1 and c2 share TRBV1 (different J, but J not required); c1↔c2 are 1mm
     assert stats["c1"]["neighbor_count"] == 2
@@ -557,21 +557,21 @@ def test_neighborhood_grouped_cross_background_query_absent() -> None:
     """Cross-background: query V/J absent from background → pseudocount only."""
     query = LocusRepertoire(
         clonotypes=[
-            _clonotype("q1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
+            _clonotype("q1", "ATG", "CASSLGQETQYF", v_call="TRBV1", j_call="TRBJ1"),
         ],
         locus="TRB",
     )
     # Background has no TRBV1/TRBJ1 sequences
     background = LocusRepertoire(
         clonotypes=[
-            _clonotype("b1", "CCC", "CASSLGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+            _clonotype("b1", "CCC", "CASSLGQETQYF", v_call="TRBV2", j_call="TRBJ2"),
         ],
         locus="TRB",
     )
 
     stats = compute_neighborhood_stats(
         query, background=background, metric="hamming", threshold=1,
-        match_v_gene=True, match_j_gene=True,
+        match_v_call=True, match_j_call=True,
     )
 
     # No background group for TRBV1/TRBJ1 → only the pseudocount for self
@@ -583,11 +583,11 @@ def test_neighborhood_parallel_grouped_matches_serial_grouped() -> None:
     """Parallel grouped-trie path produces identical results to the serial path."""
     rep = LocusRepertoire(
         clonotypes=[
-            _clonotype("c1", "ATG", "CASSLGQETQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c2", "ATG", "CASSLGQETQFF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_gene="TRBV1", j_gene="TRBJ1"),
-            _clonotype("c4", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ1"),
-            _clonotype("c5", "ATG", "CASSPGQETQYF", v_gene="TRBV2", j_gene="TRBJ2"),
+            _clonotype("c1", "ATG", "CASSLGQETQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c2", "ATG", "CASSLGQETQFF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c3", "ATG", "CASSLGQDTQYF", v_call="TRBV1", j_call="TRBJ1"),
+            _clonotype("c4", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ1"),
+            _clonotype("c5", "ATG", "CASSPGQETQYF", v_call="TRBV2", j_call="TRBJ2"),
         ],
         locus="TRB",
     )
@@ -597,10 +597,10 @@ def test_neighborhood_parallel_grouped_matches_serial_grouped() -> None:
         _ne_mod._NEIGHBOR_PARALLEL_MIN_CLONOTYPES = 2  # force parallel path for small rep
 
         serial = compute_neighborhood_stats_by_locus(
-            rep, match_v_gene=True, match_j_gene=True, n_jobs=1,
+            rep, match_v_call=True, match_j_call=True, n_jobs=1,
         )
         parallel = compute_neighborhood_stats_by_locus(
-            rep, match_v_gene=True, match_j_gene=True, n_jobs=4,
+            rep, match_v_call=True, match_j_call=True, n_jobs=4,
         )
     finally:
         _ne_mod._NEIGHBOR_PARALLEL_MIN_CLONOTYPES = original_min

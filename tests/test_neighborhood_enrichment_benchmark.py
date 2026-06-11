@@ -64,7 +64,7 @@ def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
         locus_rep,
         metric="hamming",
         threshold=1,
-        match_v_gene=False,
+        match_v_call=False,
         n_jobs=1,
     )
     compute_serial_s = time.perf_counter() - t0
@@ -74,7 +74,7 @@ def test_neighborhood_shorter_sequences_more_neighbors(capsys) -> None:
         locus_rep,
         metric="hamming",
         threshold=1,
-        match_v_gene=False,
+        match_v_call=False,
         n_jobs=workers,
     )
     compute_s = time.perf_counter() - t0
@@ -250,8 +250,8 @@ def test_neighborhood_runtime_gilg_vs_synthetic_1m(capsys) -> None:
             background=control,
             metric="hamming",
             threshold=1,
-            match_v_gene=False,
-            match_j_gene=False,
+            match_v_call=False,
+            match_j_call=False,
             n_jobs=w,
         )
         elapsed = time.perf_counter() - t0

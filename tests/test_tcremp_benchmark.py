@@ -3,7 +3,7 @@
 Tests cover:
 - Parallel chunking speedup
 - Fixed-gap vs BioPython distance performance
-- PCA validation on embeddings (correlation with v_gene, j_gene, junction_aa length)
+- PCA validation on embeddings (correlation with v_call, j_call, junction_aa length)
 - AIRR epitope specificity (within-epitope vs between-epitope distances)
 """
 
@@ -91,9 +91,9 @@ class TestTCREmpParallelChunking:
         
         for n_clon in self.N_CLONOTYPES_LIST:
             # Generate diverse clonotypes by sampling random V/J and random junction lengths
-            v_genes = [f"TRBV{np.random.randint(1, 31)}-{np.random.randint(1, 4)}*01" 
+            v_calls = [f"TRBV{np.random.randint(1, 31)}-{np.random.randint(1, 4)}*01" 
                       for _ in range(n_clon)]
-            j_genes = [f"TRBJ{np.random.randint(1, 3)}-{np.random.randint(1, 8)}*01" 
+            j_calls = [f"TRBJ{np.random.randint(1, 3)}-{np.random.randint(1, 8)}*01" 
                       for _ in range(n_clon)]
             
             # Random junction sequences (amino acids, length 8-20)
@@ -104,8 +104,8 @@ class TestTCREmpParallelChunking:
             ]
             
             clonotypes_dict[n_clon] = [
-                Clonotype(v_gene=v, j_gene=j, junction_aa=junc)
-                for v, j, junc in zip(v_genes, j_genes, junctions)
+                Clonotype(v_call=v, j_call=j, junction_aa=junc)
+                for v, j, junc in zip(v_calls, j_calls, junctions)
             ]
         
         return clonotypes_dict
@@ -318,23 +318,23 @@ class TestTCREmpPCAValidation:
         j_gene_pool = [f"TRBJ{i}-{j}*01" for i in range(1, 3) for j in range(1, 8)]
         aa_chars = "ACDEFGHIKLMNPQRSTVWY"
         
-        v_genes = np.random.choice(v_gene_pool, size=self.N_CLONOTYPES)
-        j_genes = np.random.choice(j_gene_pool, size=self.N_CLONOTYPES)
+        v_calls = np.random.choice(v_gene_pool, size=self.N_CLONOTYPES)
+        j_calls = np.random.choice(j_gene_pool, size=self.N_CLONOTYPES)
         junction_lengths = np.random.randint(8, 21, size=self.N_CLONOTYPES)
         
         clonotypes = []
-        for v, j, length in zip(v_genes, j_genes, junction_lengths):
+        for v, j, length in zip(v_calls, j_calls, junction_lengths):
             junc = "".join(np.random.choice(list(aa_chars), size=length))
-            clonotypes.append(Clonotype(v_gene=v, j_gene=j, junction_aa=junc))
+            clonotypes.append(Clonotype(v_call=v, j_call=j, junction_aa=junc))
         
         # Embed clonotypes
         X = model.embed(clonotypes, n_jobs=1)
         
-        return X, clonotypes, v_genes, j_genes, junction_lengths
+        return X, clonotypes, v_calls, j_calls, junction_lengths
 
     def test_pca_embedding_validation(self, embedded_data, capsys):
         """Perform PCA and validate correlation with biological features."""
-        X, clonotypes, v_genes, j_genes, junction_lengths = embedded_data
+        X, clonotypes, v_calls, j_calls, junction_lengths = embedded_data
         
         # Import scikit-learn for PCA
         try:
@@ -368,10 +368,10 @@ class TestTCREmpPCAValidation:
         print("=" * 100)
         
         v_gene_groups = {}
-        for i, v_gene in enumerate(v_genes):
-            if v_gene not in v_gene_groups:
-                v_gene_groups[v_gene] = []
-            v_gene_groups[v_gene].append(i)
+        for i, v_call in enumerate(v_calls):
+            if v_call not in v_gene_groups:
+                v_gene_groups[v_call] = []
+            v_gene_groups[v_call].append(i)
         
         best_v_pc = None
         best_v_pval = 1.0
@@ -398,10 +398,10 @@ class TestTCREmpPCAValidation:
         print("=" * 100)
         
         j_gene_groups = {}
-        for i, j_gene in enumerate(j_genes):
-            if j_gene not in j_gene_groups:
-                j_gene_groups[j_gene] = []
-            j_gene_groups[j_gene].append(i)
+        for i, j_call in enumerate(j_calls):
+            if j_call not in j_gene_groups:
+                j_gene_groups[j_call] = []
+            j_gene_groups[j_call].append(i)
         
         best_j_pc = None
         best_j_pval = 1.0
@@ -535,7 +535,7 @@ class TestTCREmpAIRREpitopeSpecificity:
             junc_list[motif_pos:motif_pos+2] = list(features["junction_motif"])
             junc = "".join(junc_list)
             
-            clonotypes.append(Clonotype(v_gene=v, j_gene=j, junction_aa=junc))
+            clonotypes.append(Clonotype(v_call=v, j_call=j, junction_aa=junc))
         
         return clonotypes
 
@@ -645,7 +645,7 @@ class TestTCREmpUserPrototypeFile:
         # Create a valid TSV file
         proto_file = tmp_path / "prototypes.tsv"
         proto_file.write_text(
-            "v_gene\tj_gene\tjunction_aa\n"
+            "v_call\tj_call\tjunction_aa\n"
             "TRBV10-3*01\tTRBJ2-7*01\tCASSIRSSYEQYF\n"
             "TRBV19*01\tTRBJ1-2*01\tCASAFGTQFF\n"
         )
@@ -665,7 +665,7 @@ class TestTCREmpUserPrototypeFile:
         # Missing junction_aa column
         proto_file = tmp_path / "prototypes_bad.tsv"
         proto_file.write_text(
-            "v_gene\tj_gene\n"
+            "v_call\tj_call\n"
             "TRBV10-3*01\tTRBJ2-7*01\n"
         )
         
@@ -676,7 +676,7 @@ class TestTCREmpUserPrototypeFile:
         """Test that warning about incomparability is raised."""
         proto_file = tmp_path / "prototypes.csv"
         proto_file.write_text(
-            "v_gene,j_gene,junction_aa\n"
+            "v_call,j_call,junction_aa\n"
             "TRBV10-3*01,TRBJ2-7*01,CASSIRSSYEQYF\n"
         )
         
@@ -697,7 +697,7 @@ class TestTCREmpUserPrototypeFile:
 
 
 def _clonotype(v: str, j: str, junction_aa: str) -> Clonotype:
-    return Clonotype(v_gene=v, j_gene=j, junction_aa=junction_aa)
+    return Clonotype(v_call=v, j_call=j, junction_aa=junction_aa)
 
 
 def _measure(fn):
@@ -757,7 +757,7 @@ class TestBenchmarkDistanceCorrelation:
         print(f"       model build: {t_build:.2f}s  peak={mb_build:.0f} MB")
 
         clonotypes = [
-            _clonotype(r["v_gene"], r["j_gene"], r["junction_aa"])
+            _clonotype(r["v_call"], r["j_call"], r["junction_aa"])
             for r in model.prototypes.iter_rows(named=True)
         ]
         print(f"[CORR] Embedding {self.N_PROTO} clonotypes × {self.N_PROTO} prototypes (n_jobs=1)")
@@ -840,7 +840,7 @@ class TestBenchmarkThroughput:
         rows = base.prototypes.to_dicts()
         return {
             n: [
-                _clonotype(rows[i % 100]["v_gene"], rows[i % 100]["j_gene"],
+                _clonotype(rows[i % 100]["v_call"], rows[i % 100]["j_call"],
                            rows[i % 100]["junction_aa"])
                 for i in range(n)
             ]
@@ -882,7 +882,7 @@ class TestBenchmarkMultiprocessing:
         rows = base.prototypes.to_dicts()
         return {
             n: [
-                _clonotype(rows[i % 100]["v_gene"], rows[i % 100]["j_gene"],
+                _clonotype(rows[i % 100]["v_call"], rows[i % 100]["j_call"],
                            rows[i % 100]["junction_aa"])
                 for i in range(n)
             ]

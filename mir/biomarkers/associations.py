@@ -97,7 +97,7 @@ def build_public_clonotype_panel(
 ) -> list[Clonotype]:
     """Build an exact public clonotype panel from a sample cohort.
 
-    Public clonotypes are defined by exact ``(junction_aa, v_gene, j_gene)``
+    Public clonotypes are defined by exact ``(junction_aa, v_call, j_call)``
     identity and retained when present in at least ``min_sample_fraction`` of
     samples or ``min_sample_count`` samples, whichever is larger.
     """
@@ -120,8 +120,8 @@ def build_public_clonotype_panel(
         for clonotype in repertoire.clonotypes:
             key = (
                 clonotype.junction_aa,
-                strip_allele(clonotype.v_gene),
-                strip_allele(clonotype.j_gene),
+                strip_allele(clonotype.v_call),
+                strip_allele(clonotype.j_call),
             )
             seen.add(key)
             exemplar.setdefault(key, clonotype)
@@ -136,8 +136,8 @@ def build_public_clonotype_panel(
                     sequence_id=clone.sequence_id,
                     locus=locus,
                     junction_aa=clone.junction_aa,
-                    v_gene=clone.v_gene,
-                    j_gene=clone.j_gene,
+                    v_call=clone.v_call,
+                    j_call=clone.j_call,
                     duplicate_count=clone.duplicate_count,
                     _validate=False,
                 )
@@ -201,8 +201,8 @@ def associate_clonotype_metadata(
                 "target_id": _target_id(target),
                 "locus": target.locus,
                 "junction_aa": target.junction_aa,
-                "v_gene": target.v_gene,
-                "j_gene": target.j_gene,
+                "v_call": target.v_call,
+                "j_call": target.j_call,
                 "metadata_field": metadata_field,
                 "metadata_value": metadata_value,
                 "levels": categories,
@@ -284,10 +284,10 @@ def associate_paired_clonotype_metadata(
                 "locus_pair": f"{paired_target.clonotype1.locus}_{paired_target.clonotype2.locus}",
                 "junction_aa_1": paired_target.clonotype1.junction_aa,
                 "junction_aa_2": paired_target.clonotype2.junction_aa,
-                "v_gene_1": paired_target.clonotype1.v_gene,
-                "v_gene_2": paired_target.clonotype2.v_gene,
-                "j_gene_1": paired_target.clonotype1.j_gene,
-                "j_gene_2": paired_target.clonotype2.j_gene,
+                "v_gene_1": paired_target.clonotype1.v_call,
+                "v_gene_2": paired_target.clonotype2.v_call,
+                "j_gene_1": paired_target.clonotype1.j_call,
+                "j_gene_2": paired_target.clonotype2.j_call,
                 "metadata_field": metadata_field,
                 "metadata_value": metadata_value,
                 "levels": categories,
@@ -469,15 +469,15 @@ def _count_single_chain_matches(
         return sum(
             1
             for clonotype in candidates
-            if (not match_v or genes_match(clonotype.v_gene, target.v_gene))
-            and (not match_j or genes_match(clonotype.j_gene, target.j_gene))
+            if (not match_v or genes_match(clonotype.v_call, target.v_call))
+            and (not match_j or genes_match(clonotype.j_call, target.j_call))
         )
 
     matched = 0
     for clonotype in repertoire.clonotypes:
-        if match_v and not genes_match(clonotype.v_gene, target.v_gene):
+        if match_v and not genes_match(clonotype.v_call, target.v_call):
             continue
-        if match_j and not genes_match(clonotype.j_gene, target.j_gene):
+        if match_j and not genes_match(clonotype.j_call, target.j_call):
             continue
         if is_within_threshold(clonotype.junction_aa, target.junction_aa, params.metric, params.max_distance):
             matched += 1
@@ -506,9 +506,9 @@ def _pair_matches(observed: PairedClonotype, target: PairedClonotype, params: As
 
 def _single_chain_matches(observed: Clonotype, target: Clonotype, params: AssociationParams) -> bool:
     match_v, match_j = match_flags(normalize_match_mode(params.match_mode))
-    if match_v and not genes_match(observed.v_gene, target.v_gene):
+    if match_v and not genes_match(observed.v_call, target.v_call):
         return False
-    if match_j and not genes_match(observed.j_gene, target.j_gene):
+    if match_j and not genes_match(observed.j_call, target.j_call):
         return False
     return is_within_threshold(observed.junction_aa, target.junction_aa, params.metric, params.max_distance)
 
@@ -664,8 +664,8 @@ def _build_contrast_rows(
                 "target_id": _target_id(target),
                 "locus": target.locus,
                 "junction_aa": target.junction_aa,
-                "v_gene": target.v_gene,
-                "j_gene": target.j_gene,
+                "v_call": target.v_call,
+                "j_call": target.j_call,
                 "metadata_field": metadata_field,
                 "level": level,
                 "detected_in_level": detected_in,
@@ -728,7 +728,7 @@ def _apply_p_adjustment(df: pl.DataFrame, *, p_col: str, q_col: str, method: str
 def _target_id(target: Clonotype) -> str:
     if target.sequence_id:
         return target.sequence_id
-    return f"{target.locus}:{target.v_gene}:{target.j_gene}:{target.junction_aa}"
+    return f"{target.locus}:{target.v_call}:{target.j_call}:{target.junction_aa}"
 
 
 def _paired_target_id(target: PairedClonotype) -> str:

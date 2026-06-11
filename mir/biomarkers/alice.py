@@ -398,7 +398,7 @@ def _compute_alice_metrics_batch(
             # Scale N and pgen by OLGA V/J gene usage so λ = N_total × pgen
             # (gene-usage-conditioned N and pgen cancel in λ, but k is V/J-filtered).
             p_gene = lookup_gene_frac(
-                match_mode, clonotype.v_gene or "", clonotype.j_gene or "",
+                match_mode, clonotype.v_call or "", clonotype.j_call or "",
                 gene_usage_fracs,
             )
             N = int(round(p_gene * n_background_total))
@@ -458,8 +458,8 @@ _ALICE_TABLE_SCHEMA: dict[str, type] = {
     "sequence_id": pl.Utf8,
     "locus": pl.Utf8,
     "junction_aa": pl.Utf8,
-    "v_gene": pl.Utf8,
-    "j_gene": pl.Utf8,
+    "v_call": pl.Utf8,
+    "j_call": pl.Utf8,
     "n_neighbors": pl.Int64,
     "N_possible": pl.Int64,
     "pgen_raw": pl.Float64,
@@ -490,7 +490,7 @@ def alice_hit_clusters(
 
     Args:
         hits_df: DataFrame of ALICE hits — must contain ``junction_aa`` and
-            ``v_gene`` columns.
+            ``v_call`` columns.
         full_df: Full ALICE result table for the same sample(s), required when
             ``non_enriched_neighbors=True``.  May contain non-hit sequences.
         non_enriched_neighbors: When ``True``, every non-enriched sequence in
@@ -520,7 +520,7 @@ def alice_hit_clusters(
     def _vfam(v: str) -> str:
         return _strip_allele(v)
 
-    has_v = "v_gene" in hits_df.columns
+    has_v = "v_call" in hits_df.columns
 
     def _uf(rows: list[tuple[str, str]]) -> list[int]:
         n = len(rows)
@@ -559,7 +559,7 @@ def alice_hit_clusters(
         assert full_df is not None
         if has_v:
             hit_keys: set = set(
-                zip(hits_df["junction_aa"], hits_df["v_gene"].map(_vfam))
+                zip(hits_df["junction_aa"], hits_df["v_call"].map(_vfam))
             )
         else:
             hit_keys = set(hits_df["junction_aa"])
@@ -567,7 +567,7 @@ def alice_hit_clusters(
         neighbor_rows = []
         for _, row in full_df.iterrows():
             junction_aa = str(row.get("junction_aa", ""))
-            vf = _vfam(str(row.get("v_gene", ""))) if has_v else ""
+            vf = _vfam(str(row.get("v_call", ""))) if has_v else ""
             key: tuple | str = (junction_aa, vf) if has_v else junction_aa
             if key in hit_keys:
                 continue
@@ -596,7 +596,7 @@ def alice_hit_clusters(
         combined = hits_df
 
     if has_v:
-        rows_for_uf = list(zip(combined["junction_aa"], combined["v_gene"]))
+        rows_for_uf = list(zip(combined["junction_aa"], combined["v_call"]))
     else:
         rows_for_uf = [(c, "") for c in combined["junction_aa"]]
 
@@ -621,8 +621,8 @@ def alice_table(
                     "sequence_id": clonotype.sequence_id,
                     "locus": locus,
                     "junction_aa": clonotype.junction_aa,
-                    "v_gene": clonotype.v_gene,
-                    "j_gene": clonotype.j_gene,
+                    "v_call": clonotype.v_call,
+                    "j_call": clonotype.j_call,
                     "n_neighbors": n,
                     "N_possible": N,
                     "pgen_raw": float(md.get(f"{metadata_prefix}_pgen_raw", 0.0)),
@@ -719,8 +719,8 @@ def compute_alice(
             background=None,
             metric="hamming",
             threshold=neighborhood_threshold,
-            match_v_gene=match_v,
-            match_j_gene=match_j,
+            match_v_call=match_v,
+            match_j_call=match_j,
             add_background_pseudocount=False,
             n_jobs=n_jobs,
         )
@@ -864,7 +864,7 @@ def metaclonotypes_from_alice(
         seed_clonotype_ids=seeds,
         metric=metric,
         threshold=threshold,
-        match_v_gene=match_v,
-        match_j_gene=match_j,
+        match_v_call=match_v,
+        match_j_call=match_j,
         cluster_prefix="alice_mc",
     )

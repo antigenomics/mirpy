@@ -35,7 +35,7 @@ class TestResolveOutput:
 
 
 def _write_olga(path: Path) -> None:
-    # OLGA format: no header; columns junction, junction_aa, v_gene, j_gene
+    # OLGA format: no header; columns junction, junction_aa, v_call, j_call
     rows = [
         "TGTGCCAGCAGC\tCASS\tTRBV5-1*01\tTRBJ2-7*01",
         "TGTGCCAGCTTT\tCASF\tTRBV20-1*01\tTRBJ2-1*01",

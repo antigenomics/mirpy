@@ -18,6 +18,7 @@ from typing import Callable, Iterator
 import pandas as pd
 import polars as pl
 
+from mir.common.alleles import allele_with_default
 from mir.common.clonotype import Clonotype
 from mir.common.diversity import (
     CountField,
@@ -35,6 +36,34 @@ _GENE_PREFIX_TO_LOCUS: dict[str, str] = {
     "TRA": "TRA", "TRB": "TRB", "TRG": "TRG", "TRD": "TRD",
     "IGH": "IGH", "IGK": "IGK", "IGL": "IGL",
 }
+
+
+def _normalize_external_frame(df: pl.DataFrame) -> pl.DataFrame:
+    """Normalise an externally-supplied frame to mirpy's internal AIRR schema.
+
+    Applied only at external import entry points (``from_pandas`` / ``from_polars``
+    with ``_normalize_input=True``) — never on internal fast paths.  Two steps:
+
+    1. Map accepted input column names (VDJtools ``v``, legacy ``v_gene``, AIRR
+       ``v_call``) to internal ``*_call`` names via the single canonical map.
+    2. Harmonise gene-call alleles with :func:`allele_with_default`: bare genes
+       receive the major allele ``*01``; explicit alleles (e.g. ``*02``) are kept.
+    """
+    # Lazy import avoids the parser ↔ repertoire import cycle (parser imports us).
+    from mir.common.parser import _INPUT_TO_INTERNAL
+
+    rename = {c: _INPUT_TO_INTERNAL[c] for c in df.columns
+              if c in _INPUT_TO_INTERNAL and _INPUT_TO_INTERNAL[c] != c}
+    if rename:
+        df = df.rename(rename)
+    gene_cols = [c for c in ("v_call", "d_call", "j_call", "c_call") if c in df.columns]
+    if gene_cols:
+        df = df.with_columns([
+            pl.col(c).cast(pl.Utf8).fill_null("")
+              .map_elements(allele_with_default, return_dtype=pl.Utf8).alias(c)
+            for c in gene_cols
+        ])
+    return df
 
 
 def infer_locus(gene_name: str) -> str:
@@ -194,13 +223,13 @@ class LocusRepertoire:
                 _Clonotype(_validate=False,
                     sequence_id=sid, locus=c['locus'],
                     duplicate_count=dup, umi_count=umi, junction=jnt, junction_aa=jaa,
-                    v_gene=vg, d_gene=dg, j_gene=jg,
+                    v_call=vg, d_call=dg, j_call=jg,
                     v_sequence_end=ve, d_sequence_start=ds,
                     d_sequence_end=de, j_sequence_start=js,
                 )
                 for sid, dup, umi, jnt, jaa, vg, dg, jg, ve, ds, de, js in zip(
                     c['seq_ids'], c['dup_counts'], c.get('umi_counts', [0] * len(c['seq_ids'])), c['junctions'], c['junction_aas'],
-                    c['v_genes'], c['d_genes'], c['j_genes'],
+                    c['v_calls'], c['d_calls'], c['j_calls'],
                     c['v_ends'], c['d_starts'], c['d_ends'], c['j_starts'],
                 )
             ]
@@ -461,6 +490,7 @@ class LocusRepertoire:
         locus: str = "",
         repertoire_id: str = "",
         repertoire_metadata: dict | None = None,
+        _normalize_input: bool = False,
     ) -> LocusRepertoire:
         """Deserialise a Polars DataFrame (AIRR schema) into a :class:`LocusRepertoire`.
 
@@ -475,7 +505,13 @@ class LocusRepertoire:
             Identifier for the resulting repertoire.
         repertoire_metadata:
             Metadata dict for the resulting repertoire.
+        _normalize_input:
+            When ``True`` (external import paths), map legacy/VDJtools column
+            names to internal ``*_call`` names and default bare alleles to ``*01``.
+            Internal callers leave this ``False`` to keep the fast path allocation-free.
         """
+        if _normalize_input:
+            df = _normalize_external_frame(df)
         obj = cls.__new__(cls)
         obj.locus = locus
         obj._clonotypes_cache = None
@@ -516,6 +552,7 @@ class LocusRepertoire:
             locus=locus,
             repertoire_id=repertoire_id,
             repertoire_metadata=repertoire_metadata,
+            _normalize_input=True,
         )
 
     # ------------------------------------------------------------------
@@ -592,7 +629,7 @@ class LocusRepertoire:
         self,
         other: LocusRepertoire,
         odds_ratio_threshold: float = 2.0,
-        compare_by: Callable[[Clonotype], object] = lambda x: (x.junction_aa, x.v_gene),
+        compare_by: Callable[[Clonotype], object] = lambda x: (x.junction_aa, x.v_call),
     ) -> LocusRepertoire:
         """Remove clonotypes whose fold-enrichment over *other* is below threshold.
 
@@ -633,10 +670,10 @@ class LocusRepertoire:
         """Return a dict counting occurrences of each V/D/J gene segment."""
         usage: dict[str, int] = defaultdict(int)
         for c in self.clonotypes:
-            usage[c.v_gene] += 1
-            usage[c.j_gene] += 1
-            if c.d_gene:
-                usage[c.d_gene] += 1
+            usage[c.v_call] += 1
+            usage[c.j_call] += 1
+            if c.d_call:
+                usage[c.d_call] += 1
         return dict(usage)
 
     def make_chunks(
@@ -782,8 +819,8 @@ class LocusRepertoire:
         if not hasattr(self, "_trie"):
             self._trie = Trie(
                 sequences=[c.junction_aa for c in self.clonotypes],
-                vGenes=[c.v_gene for c in self.clonotypes],
-                jGenes=[c.j_gene for c in self.clonotypes],
+                vGenes=[c.v_call for c in self.clonotypes],
+                jGenes=[c.j_call for c in self.clonotypes],
             )
         return self._trie
 
@@ -865,8 +902,8 @@ class SampleRepertoire:
         from mir.common.repertoire import SampleRepertoire, infer_locus
 
         clonotypes = [
-            Clonotype(junction_aa="CASSEGF", v_gene="TRBV3-1", locus="TRB"),
-            Clonotype(junction_aa="CATSEGF", v_gene="TRAV21",  locus="TRA"),
+            Clonotype(junction_aa="CASSEGF", v_call="TRBV3-1", locus="TRB"),
+            Clonotype(junction_aa="CATSEGF", v_call="TRAV21",  locus="TRA"),
         ]
         sr = SampleRepertoire.from_clonotypes(clonotypes, sample_id="donor_1")
         trb = sr["TRB"]
@@ -1317,6 +1354,7 @@ class SampleRepertoire:
         locus_column: str = "locus",
         sample_id: str = "",
         sample_metadata: dict | None = None,
+        _normalize_input: bool = False,
     ) -> SampleRepertoire:
         """Deserialise a Polars DataFrame into a :class:`SampleRepertoire`.
 
@@ -1334,7 +1372,12 @@ class SampleRepertoire:
             Identifier for the resulting sample.
         sample_metadata:
             Metadata dict for the resulting sample.
+        _normalize_input:
+            When ``True`` (external import paths), map legacy/VDJtools column
+            names to internal ``*_call`` names and default bare alleles to ``*01``.
         """
+        if _normalize_input:
+            df = _normalize_external_frame(df)
         loci: dict[str, LocusRepertoire] = {}
         if locus_column in df.columns:
             for locus_val in df[locus_column].unique().to_list():
@@ -1365,6 +1408,7 @@ class SampleRepertoire:
             locus_column=locus_column,
             sample_id=sample_id,
             sample_metadata=sample_metadata,
+            _normalize_input=True,
         )
 
     # ------------------------------------------------------------------

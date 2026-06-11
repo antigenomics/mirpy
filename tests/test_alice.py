@@ -435,7 +435,7 @@ def test_alice_hit_clusters_vgene_restriction() -> None:
             "CASSVGVYSTDTQYF",  # TRBV9 — 1mm from first
             "CASSXXXXXAAAAAA",  # TRBV5-1 — different V, isolated
         ],
-        "v_gene": ["TRBV9*01", "TRBV9*01", "TRBV9*01", "TRBV5-1*01"],
+        "v_call": ["TRBV9*01", "TRBV9*01", "TRBV9*01", "TRBV5-1*01"],
         "q_value": [1e-10, 1e-8, 1e-7, 1e-6],
     })
     result = alice_hit_clusters(hits)
@@ -446,11 +446,11 @@ def test_alice_hit_clusters_vgene_restriction() -> None:
     assert sizes.min() == 1, "expected TRBV5-1 as singleton"
 
     # All three TRBV9 sequences share the same cluster_id
-    trbv9_ids = result[result["v_gene"] == "TRBV9*01"]["cluster_id"].unique()
+    trbv9_ids = result[result["v_call"] == "TRBV9*01"]["cluster_id"].unique()
     assert len(trbv9_ids) == 1, "TRBV9 sequences must be in the same cluster"
 
     # TRBV5-1 sequence is in a different cluster
-    trbv5_id = result[result["v_gene"] == "TRBV5-1*01"]["cluster_id"].iloc[0]
+    trbv5_id = result[result["v_call"] == "TRBV5-1*01"]["cluster_id"].iloc[0]
     assert trbv5_id != trbv9_ids[0], "TRBV5-1 must not merge with TRBV9 cluster"
 
 
@@ -461,7 +461,7 @@ def test_alice_hit_clusters_non_enriched_neighbors() -> None:
 
     hits = pd.DataFrame({
         "junction_aa": ["CASSVGLYSTDTQYF"],
-        "v_gene": ["TRBV9*01"],
+        "v_call": ["TRBV9*01"],
         "q_value": [1e-10],
     })
     full = pd.DataFrame({
@@ -470,7 +470,7 @@ def test_alice_hit_clusters_non_enriched_neighbors() -> None:
             "CASSVGLFSTDTQYF",  # 1mm TRBV9 neighbor — should be added
             "CASSDIFFERENTXXX",  # far away — should not be added
         ],
-        "v_gene": ["TRBV9*01", "TRBV9*01", "TRBV9*01"],
+        "v_call": ["TRBV9*01", "TRBV9*01", "TRBV9*01"],
         "q_value": [1e-10, 1.0, 1.0],
     })
     result = alice_hit_clusters(hits, full_df=full, non_enriched_neighbors=True)
@@ -488,7 +488,7 @@ def test_alice_hit_clusters_requires_full_df_for_neighbors() -> None:
     import pandas as pd
     from mir.biomarkers.alice import alice_hit_clusters
 
-    hits = pd.DataFrame({"junction_aa": ["CASSLGQETQYF"], "v_gene": ["TRBV5-1*01"]})
+    hits = pd.DataFrame({"junction_aa": ["CASSLGQETQYF"], "v_call": ["TRBV5-1*01"]})
     with pytest.raises(ValueError, match="full_df"):
         alice_hit_clusters(hits, non_enriched_neighbors=True)
 

@@ -9,15 +9,15 @@ from mir.common.parser import ClonotypeTableParser
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 
-# VDJtools → AIRR column rename (mirrors _VDJTOOLS_TO_AIRR in parser.py)
+# VDJtools → internal column rename (mirrors _INPUT_TO_INTERNAL in parser.py)
 _RENAME = {
     "count":   "duplicate_count",
     "#count":  "duplicate_count",
     "cdr3nt":  "junction",
     "cdr3aa":  "junction_aa",
-    "v":       "v_gene",
-    "d":       "d_gene",
-    "j":       "j_gene",
+    "v":       "v_call",
+    "d":       "d_call",
+    "j":       "j_call",
     "VEnd":    "v_sequence_end",
     "DStart":  "d_sequence_start",
     "DEnd":    "d_sequence_end",
@@ -63,7 +63,7 @@ class TestFromPolars:
 
     def test_v_gene_str(self):
         for c in self.clonotypes:
-            assert isinstance(c.v_gene, str)
+            assert isinstance(c.v_call, str)
 
     def test_duplicate_count(self):
         expected = self.df["duplicate_count"].to_list()
@@ -132,14 +132,14 @@ class TestClonotypeConstruction:
     def test_gene_entry_normalised_to_str(self):
         from mir.common.gene_library import GeneEntry
         entry = GeneEntry("TRBV3-1*01")
-        c = Clonotype(junction_aa="CASSEGF", v_gene=entry)
-        assert isinstance(c.v_gene, str)
-        assert c.v_gene == "TRBV3-1*01"
+        c = Clonotype(junction_aa="CASSEGF", v_call=entry)
+        assert isinstance(c.v_call, str)
+        assert c.v_call == "TRBV3-1*01"
 
     def test_none_gene_becomes_empty_string(self):
-        c = Clonotype(junction_aa="CASSEGF", v_gene=None, j_gene=None)
-        assert c.v_gene == ""
-        assert c.j_gene == ""
+        c = Clonotype(junction_aa="CASSEGF", v_call=None, j_call=None)
+        assert c.v_call == ""
+        assert c.j_call == ""
 
     def test_id_property_alias(self):
         c = Clonotype(sequence_id="abc123", junction_aa="CASSEGF")
@@ -158,7 +158,7 @@ class TestClonotypeConstruction:
         assert not c.is_canonical()
 
     def test_serialize_keys(self):
-        c = Clonotype(sequence_id="1", junction_aa="CASSEGF", v_gene="TRBV3-1*01")
+        c = Clonotype(sequence_id="1", junction_aa="CASSEGF", v_call="TRBV3-1*01")
         d = c.serialize()
         assert set(d.keys()) == set(Clonotype._POLARS_SCHEMA.keys())
 
@@ -195,8 +195,8 @@ class TestParserIntegration:
             {
                 "junction_aa": ["CASSF"],
                 "junction": ["TGTGCTAGCAGTTTC"],
-                "v_gene": ["TRBV10-1*01"],
-                "j_gene": ["TRBJ1-1*01"],
+                "v_call": ["TRBV10-1*01"],
+                "j_call": ["TRBJ1-1*01"],
                 "duplicate_count": [3],
                 "umi_count": [2],
                 "locus": ["TRB"],

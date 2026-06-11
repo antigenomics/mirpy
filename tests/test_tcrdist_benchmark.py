@@ -117,7 +117,7 @@ def _parse_bare_sequences(path: Path) -> list[Clonotype]:
 
 
 def _parse_flat_file(path: Path, sep: str = "\t") -> list[Clonotype]:
-    """Parse a flat TSV/CSV with columns: junction_aa, v_gene, j_gene, count."""
+    """Parse a flat TSV/CSV with columns: junction_aa, v_call, j_call, count."""
     clonotypes = []
     with _open_file(path) as fh:
         header = fh.readline().strip().split(sep)
@@ -129,11 +129,11 @@ def _parse_flat_file(path: Path, sep: str = "\t") -> list[Clonotype]:
             None,
         )
         v_col = next(
-            (col[k] for k in ("v_gene", "v_call", "v_b_gene", "vgene") if k in col),
+            (col[k] for k in ("v_call", "v_call", "v_b_gene", "vgene") if k in col),
             None,
         )
         j_col = next(
-            (col[k] for k in ("j_gene", "j_call", "j_b_gene", "jgene") if k in col),
+            (col[k] for k in ("j_call", "j_call", "j_b_gene", "jgene") if k in col),
             None,
         )
         count_col = next(
@@ -152,8 +152,8 @@ def _parse_flat_file(path: Path, sep: str = "\t") -> list[Clonotype]:
             junction_aa = parts[junc_col].strip()
             if not junction_aa or not junction_aa[0].isalpha():
                 continue
-            v_gene = parts[v_col].strip() if v_col is not None else ""
-            j_gene = parts[j_col].strip() if j_col is not None else ""
+            v_call = parts[v_col].strip() if v_col is not None else ""
+            j_call = parts[j_col].strip() if j_col is not None else ""
             count = 1
             if count_col is not None and count_col < len(parts):
                 try:
@@ -164,8 +164,8 @@ def _parse_flat_file(path: Path, sep: str = "\t") -> list[Clonotype]:
                 Clonotype(
                     sequence_id=f"seq_{i}",
                     junction_aa=junction_aa,
-                    v_gene=v_gene,
-                    j_gene=j_gene,
+                    v_call=v_call,
+                    j_call=j_call,
                     duplicate_count=count,
                     locus="TRB",
                 )
@@ -200,8 +200,8 @@ def _synthetic_gilgfvftl_clonotypes() -> list[Clonotype]:
         Clonotype(
             sequence_id=f"gilg_{i:04d}",
             junction_aa=junc,
-            v_gene=v,
-            j_gene=j,
+            v_call=v,
+            j_call=j,
             duplicate_count=max(1, 10 - i),
             locus="TRB",
         )
@@ -328,8 +328,8 @@ def test_influenza_metaclonotypes(td, gilgfvftl_clonotypes, gilgfvftl_rep):
 
 def test_influenza_v19_cluster_dominates(td, gilgfvftl_clonotypes, gilgfvftl_rep):
     """TRBV19 sequences should be closest to each other (antigen specificity)."""
-    v19_clns = [c for c in gilgfvftl_clonotypes if (c.v_gene or "").startswith("TRBV19")]
-    other_clns = [c for c in gilgfvftl_clonotypes if not (c.v_gene or "").startswith("TRBV19")]
+    v19_clns = [c for c in gilgfvftl_clonotypes if (c.v_call or "").startswith("TRBV19")]
+    other_clns = [c for c in gilgfvftl_clonotypes if not (c.v_call or "").startswith("TRBV19")]
 
     if len(v19_clns) < 2 or not other_clns:
         pytest.skip("Need both TRBV19 and non-TRBV19 sequences")
