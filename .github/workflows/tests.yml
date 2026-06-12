@@ -58,8 +58,13 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python -m pytest tests -m "not benchmark and not integration" -q
 
+  # CI benchmark tier: the GitHub-appropriate subset only.
+  # Excludes slow_benchmark (M3 ~15 min tier) and very_slow_benchmark
+  # (M3 ~30 min on-demand comprehensive tier) — those need a developer
+  # workstation's RAM/cores and local datasets, and overrun hosted-runner
+  # limits.  See benchmarks.md (repo root) for the full tier definitions.
   test-heavy:
-    name: Heavy tests on ${{ matrix.os }}
+    name: CI benchmarks on ${{ matrix.os }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -100,7 +105,7 @@ jobs:
           shutil.rmtree(dst, ignore_errors=True);
           shutil.copytree(src, dst)"
 
-      - name: Run benchmark and integration suites
+      - name: Run CI benchmark tier (fast benchmarks + integration)
         env:
           RUN_BENCHMARKS: "1"
           RUN_INTEGRATION: "1"
@@ -120,4 +125,4 @@ jobs:
           MIRPY_BENCH_SYNTH_SMALL_CAP_S: "900"
           MIRPY_BENCH_TCRNET_REAL_MAX_SECONDS: "1800"
         working-directory: ${{ runner.temp }}
-        run: python -m pytest tests -m "(benchmark or integration) and not very_slow_benchmark" -q
+        run: python -m pytest tests -m "(benchmark or integration) and not slow_benchmark and not very_slow_benchmark" -q

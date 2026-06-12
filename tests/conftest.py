@@ -1,3 +1,24 @@
+"""Shared pytest fixtures, benchmark gating, and the benchmark tier system.
+
+Benchmark / integration tiers (see ``benchmarks.md`` at the repo root for full
+details, run commands, and recorded performance/accuracy).  All require ``RUN_BENCHMARK=1`` (and ``RUN_INTEGRATION=1`` for
+integration tests):
+
+* **CI tier** — ``benchmark and not slow_benchmark and not very_slow_benchmark``.
+  Fast, hosted-runner-safe benchmarks plus integration tests.  Runs on GitHub
+  Actions (push to ``dev``).  Per-test soft budget ``benchmark_max_seconds`` (120 s).
+* **M3 standard tier** — ``slow_benchmark and not very_slow_benchmark``.  Runs on a
+  developer workstation (e.g. M3, 16 cores / 48 GB) in well under ~15 min total.
+  Per-test guard ``MIRPY_BENCH_SLOW_TIMEOUT_S``.
+* **M3 comprehensive tier** — ``very_slow_benchmark``.  On-demand only; full-scale
+  subsamples and real-control corpora, ~30 min total on the same workstation.
+  Per-test guard ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``.
+
+Subsample sizes default to statistically meaningful full-scale values; CI shrinks
+them via env vars (``MIRPY_BENCHMARK_SCALE``, ``MIRPY_*_SUBSAMPLES``, etc.) so the
+CI tier stays within hosted-runner limits.
+"""
+
 import os
 import time
 from pathlib import Path
@@ -152,11 +173,18 @@ def benchmark_log_path() -> Path:
     return p
 
 
-def benchmark_slow_timeout_s(default: float = 1800.0) -> float:
+def benchmark_slow_timeout_s(default: float = 300.0) -> float:
+    """Per-test cap for the M3 standard (``slow_benchmark``) tier (≤15 min total).
+
+    Measured tier total ~68 s on M3 (slowest single test ~21 s); 300 s is a
+    generous runaway guard. Override with ``MIRPY_BENCH_SLOW_TIMEOUT_S``.
+    """
     return max(1.0, _env_float("MIRPY_BENCH_SLOW_TIMEOUT_S", default))
 
 
-def benchmark_very_slow_timeout_s(default: float = 1800.0) -> float:
+def benchmark_very_slow_timeout_s(default: float = 900.0) -> float:
+    """Per-test cap for the M3 comprehensive (``very_slow_benchmark``) tier
+    (≤30 min total, on-demand). Override with ``MIRPY_BENCH_VERY_SLOW_TIMEOUT_S``."""
     return max(1.0, _env_float("MIRPY_BENCH_VERY_SLOW_TIMEOUT_S", default))
 
 

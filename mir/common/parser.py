@@ -219,7 +219,13 @@ class ClonotypeTableParser:
         return df
 
     def parse_inner(self, df: pd.DataFrame) -> list[Clonotype]:
-        """Parse an already-normalised pandas DataFrame. Converts to polars internally."""
+        """Parse a pandas DataFrame into clonotypes (converts to polars internally).
+
+        Column names are normalised to internal AIRR names first, so callers may
+        pass raw tables using legacy ``v_gene``/VDJtools ``v`` spellings directly.
+        The rename is idempotent, so passing an already-normalised frame is fine.
+        """
+        df = self.normalize_df(df)
         # Avoid pl.from_pandas here because nullable pandas extension dtypes
         # (e.g. Int64) require pyarrow during conversion.
         data = {
