@@ -146,8 +146,8 @@ def _normalize_gliph_df(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(
         {
             "junction_aa": raw["junction_aa"].astype(str).str.strip(),
-            "v_call": raw["v_call"].astype(str).str.strip(),
-            "j_call": raw["j_call"].astype(str).str.strip(),
+            "v_call": raw["v_gene"].astype(str).str.strip(),
+            "j_call": raw["j_gene"].astype(str).str.strip(),
             "duplicate_count": pd.to_numeric(raw["duplicate_count"], errors="coerce").fillna(1).astype(int),
             "reference_id": raw["reference_id"].astype(str).str.strip(),
             "stimulus": raw["stimulus"].astype(str).str.strip(),

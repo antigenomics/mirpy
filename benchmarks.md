@@ -11,6 +11,60 @@ env RUN_BENCHMARK=1 python -m pytest tests/ -s -q --tb=short
 
 ---
 
+## Benchmark tiers
+
+Benchmarks are split into three tiers by where they can run in *meaningful time on
+adequate resources*, expressed with three cumulative pytest markers
+(`benchmark` ⊃ `slow_benchmark` ⊃ `very_slow_benchmark`). All are gated behind
+`RUN_BENCHMARK=1` (integration tests behind `RUN_INTEGRATION=1`). The tier system
+is implemented in `tests/conftest.py`.
+
+| Tier | Marker selection | Where | Budget | When | Measured total |
+|------|------------------|-------|--------|------|----------------|
+| **CI** | `benchmark and not slow_benchmark and not very_slow_benchmark` (152 tests) | GitHub Actions (4 vCPU / 16 GB) | under runner limit | every push to `dev` | — |
+| **M3 standard** | `slow_benchmark and not very_slow_benchmark` (7 tests) | dev workstation (M3, 16 cores / 48 GB) | ≤ 15 min | local, on request | **~68 s** |
+| **M3 comprehensive** | `very_slow_benchmark` (21 tests) | same workstation | ≤ 30 min | on-demand only | see below |
+
+**Why the split:** the slow/very-slow tiers are not primarily CPU-bound — they need
+a workstation's RAM and locally-staged datasets (the ~28 M-row real-control corpus,
+full repertoire cohorts). On hosted runners the bottleneck is data staging, not
+compute: e.g. the COVID-19 association scan is ~21 s / ~2 GB RSS at 120 samples on
+M3, but its data staging overran the hosted-runner limit. Hosted runners therefore
+run only the fast, self-contained benchmarks.
+
+```fish
+# CI tier (what GitHub runs)
+env RUN_BENCHMARK=1 RUN_INTEGRATION=1 python -m pytest tests \
+  -m "(benchmark or integration) and not slow_benchmark and not very_slow_benchmark" -q
+
+# M3 standard tier (~15 min)
+env RUN_BENCHMARK=1 RUN_INTEGRATION=1 MIRPY_BENCH_WORKERS="1,8" python -m pytest tests \
+  -m "slow_benchmark and not very_slow_benchmark" -q --durations=15
+
+# M3 comprehensive tier (~30 min, on-demand)
+env RUN_BENCHMARK=1 RUN_INTEGRATION=1 MIRPY_BENCH_WORKERS="1,8" python -m pytest tests \
+  -m "very_slow_benchmark" -q --durations=21
+```
+
+### Statistical validity & subsampling
+
+Defaults are sized for statistically meaningful results; CI shrinks workloads via
+env vars (`MIRPY_BENCHMARK_SCALE`, `MIRPY_*_SUBSAMPLES`, `MIRPY_COVID_BENCH_SAMPLES`,
+…) without changing test code. The **COVID-19 association scan** asserts `auc > 0.5`
+and a non-empty Fisher↔depth top-100 overlap; the public-clonotype panel and AUC
+stabilise only with enough samples (deterministic selection, so reproducible, not
+flaky):
+
+| samples | AUC | runtime (M3) | note |
+|---------|-----|--------------|------|
+| 24 | ~0.51 | ~10 s | marginal — too few |
+| 60 | ~0.88 | ~15 s | |
+| 120 (default) | ~0.57–0.61 | ~21 s | meaningful; keep `MIRPY_COVID_BENCH_SAMPLES ≥ ~60` |
+
+The test self-skips below 20 filtered samples.
+
+---
+
 ## Notebook execution — full suite
 
 All 11 notebooks run cell-by-cell via `tmp/run_notebook.py` (per-cell timeout 900 s, CWD `notebooks/`, headless matplotlib via `MPLBACKEND=Agg`).
@@ -749,10 +803,10 @@ The machine has 32 GB RAM; both tiers share the same cap to avoid surprising lim
 
 ## Timeout configuration
 
-| Tier | Marker | Default cap | Override env var |
+| Tier | Marker | Default per-test cap | Override env var |
 | --- | --- | --- | --- |
-| Standard | `@slow_benchmark` | 1 800 s | `MIRPY_BENCH_SLOW_TIMEOUT_S` |
-| Very slow | `@very_slow_benchmark` | 1 800 s | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` |
+| Standard (M3 ≤15 min) | `@slow_benchmark` | 300 s | `MIRPY_BENCH_SLOW_TIMEOUT_S` |
+| Very slow (M3 ≤30 min) | `@very_slow_benchmark` | 900 s | `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` |
 
 ---
 
@@ -767,8 +821,8 @@ The machine has 32 GB RAM; both tiers share the same cap to avoid surprising lim
 | `MIRPY_BENCH_WORKERS` | 8 | Comma-separated worker counts for repertoire benchmarks |
 | `MIRPY_BENCHMARK_SCALE` | 0.5 | Multiplier for micro-benchmark loop counts (0.05–1.0) |
 | `MIRPY_BENCHMARK_MAX_SECONDS` | 120.0 | Per-test wall-clock cap for standard benchmarks |
-| `MIRPY_BENCH_SLOW_TIMEOUT_S` | 1800 | Timeout for `@slow_benchmark` tests |
-| `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` | 1800 | Timeout for `@very_slow_benchmark` tests |
+| `MIRPY_BENCH_SLOW_TIMEOUT_S` | 300 | Per-test cap for `@slow_benchmark` (M3 standard tier) |
+| `MIRPY_BENCH_VERY_SLOW_TIMEOUT_S` | 900 | Per-test cap for `@very_slow_benchmark` (M3 comprehensive tier) |
 | `MIRPY_BENCH_MEMORY_LIMIT_GB` | **32** | RSS cap for `@benchmark` tests (GB) |
 | `MIRPY_BENCH_MEMORY_LIMIT_VERY_SLOW_GB` | 32 | RSS cap for `@very_slow_benchmark` tests (GB) |
 | `MIRPY_BENCH_BAG_OF_KMERS_MAX_ROWS` | 2 000 000 | Row cap for bag-of-k-mers control profile |
