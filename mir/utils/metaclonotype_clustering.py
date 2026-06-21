@@ -132,7 +132,7 @@ def metaclonotypes_from_search_scope(
 ) -> MetaClonotypeClustering:
     """Build metaclonotypes from representative-centered search neighborhoods.
 
-    The ``neighbor_selector`` callback can be backed by tcrtrie search scopes,
+    The ``neighbor_selector`` callback can be backed by seqtree search scopes,
     edit-distance scopes, or continuous-radius score thresholds.
     """
     import polars as pl

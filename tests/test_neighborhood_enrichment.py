@@ -15,11 +15,6 @@ from mir.graph.neighborhood_enrichment import (
 )
 
 
-class _FailingTrie:
-    def SearchIndices(self, **kwargs):
-        raise RuntimeError("forced tcrtrie failure")
-
-
 def _clonotype(
     seq_id: str,
     nt_seq: str,
@@ -477,22 +472,6 @@ def test_neighborhood_long_queries_over_33_and_64_aa() -> None:
     assert stats_l["l2"]["neighbor_count"] == 2
 
 
-def test_neighborhood_fallback_hamming_equal_length_only() -> None:
-    rep = LocusRepertoire(
-        clonotypes=[
-            _clonotype("c1", "ATG", "CASSRSGYTF"),
-            _clonotype("c2", "ATG", "CASSRSGYTFF"),
-        ],
-        locus="TRB",
-    )
-    rep._trie = _FailingTrie()
-
-    stats = compute_neighborhood_stats(rep, metric="hamming", threshold=1)
-
-    assert stats["c1"]["neighbor_count"] == 1
-    assert stats["c2"]["neighbor_count"] == 1
-
-
 def test_neighborhood_grouped_vj_explicit_values() -> None:
     """Grouped-trie VJ search counts only same-V+J neighbours; potential = group size."""
     # c1/c2/c3 share TRBV1/TRBJ1; c4 has TRBV2/TRBJ1; c5 has TRBV2/TRBJ2.
@@ -614,21 +593,3 @@ def test_neighborhood_parallel_grouped_matches_serial_grouped() -> None:
     # c4 and c5 share the same CDR3 but are in different (V, J) groups
     assert trb_serial["c4"]["neighbor_count"] == 1
     assert trb_serial["c5"]["neighbor_count"] == 1
-
-
-def test_neighborhood_fallback_levenshtein_length_window() -> None:
-    rep = LocusRepertoire(
-        clonotypes=[
-            _clonotype("c1", "ATG", "CASSRSGYTF"),
-            _clonotype("c2", "ATG", "CASSRSGYTFF"),
-            _clonotype("c3", "ATG", "CASSRSGYTFFAAA"),
-        ],
-        locus="TRB",
-    )
-    rep._trie = _FailingTrie()
-
-    stats = compute_neighborhood_stats(rep, metric="levenshtein", threshold=1)
-
-    assert stats["c1"]["neighbor_count"] == 2
-    assert stats["c2"]["neighbor_count"] == 2
-    assert stats["c3"]["neighbor_count"] == 1

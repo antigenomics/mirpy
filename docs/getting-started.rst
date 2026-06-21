@@ -279,7 +279,7 @@ Point-by-point clustering entry points
    * ``mir.biomarkers.metaclonotypes_from_alice``
    * ``mir.biomarkers.metaclonotypes_from_tcrnet``
 
-* tcrtrie/custom search scope clustering (substitutions/indels/total edits):
+* seqtree/custom search scope clustering (substitutions/indels/total edits):
 
    * ``mir.common.metaclonotypes_from_search_scope``
    * ``mir.utils.metaclonotype_clustering.metaclonotypes_from_search_scope``

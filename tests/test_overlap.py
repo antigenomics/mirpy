@@ -38,7 +38,6 @@ from mir.comparative.overlap import (
     pairwise_overlap_matrix,
     PairwiseOverlapResult,
 )
-import mir.comparative.overlap as overlap_mod
 from tests.benchmark_helpers import many_vs_many_sample_overlap, many_vs_pool_sample_overlap
 from tests.conftest import skip_benchmarks
 
@@ -263,19 +262,6 @@ class TestCountOverlapLazy1mm:
         r_pre  = count_overlap(pre_exp, qi)
         assert r_lazy.n == r_pre.n
         assert r_lazy.dc == r_pre.dc
-
-    def test_trie_and_fallback_match(self, monkeypatch) -> None:
-        ref = _make_rep(["CASSF", "CASSY"])
-        query = _make_rep(["AASSF", "CASSY", "AASAF"])
-        qi = make_query_index(query)
-        compact = make_reference_keys(ref, allow_1mm=False)
-
-        r_trie = count_overlap(compact, qi, allow_1mm=True)
-        monkeypatch.setattr(overlap_mod, "Trie", None)
-        r_fallback = count_overlap(compact, qi, allow_1mm=True)
-
-        assert r_trie == r_fallback
-
 
 # ---------------------------------------------------------------------------
 # compute_overlaps

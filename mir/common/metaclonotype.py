@@ -299,7 +299,7 @@ def metaclonotypes_from_search_scope(
 ) -> MetaClonotypeClustering:
     """Build representative-centered metaclonotypes from a custom search scope.
 
-    This is suitable for tcrtrie-backed scope search (substitutions/indels/
+    This is suitable for seqtree-backed scope search (substitutions/indels/
     max edits) and any custom neighborhood API that returns member IDs for a
     representative query.
     """
