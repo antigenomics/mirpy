@@ -57,10 +57,9 @@ sc = [
 ]
 # Build-time only: regenerate region_annotations.txt or annotate a custom gene
 # library. Also requires the `mmseqs2` binary (conda install -c bioconda mmseqs2).
-# Plain embedding/similarity never import arda. arda is distributed on GitHub
-# (not PyPI), so this extra uses a direct reference.
+# Plain embedding/similarity never import arda.
 arda = [
-  "arda @ git+https://github.com/antigenomics/arda.git",
+  "arda>=2.0.2",
 ]
 dev = [
   "pytest>=8",
