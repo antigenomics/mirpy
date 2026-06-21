@@ -10,7 +10,7 @@
 [![PyPI](https://img.shields.io/pypi/v/mirpy-lib.svg)](https://pypi.org/project/mirpy-lib/)
 [![Python](https://img.shields.io/pypi/pyversions/mirpy-lib.svg)](https://pypi.org/project/mirpy-lib/)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
-[![CI](https://github.com/antigenomics/mirpy/actions/workflows/ci.yml/badge.svg)](https://github.com/antigenomics/mirpy/actions/workflows/ci.yml)
+[![CI](https://github.com/antigenomics/mirpy/actions/workflows/tests.yml/badge.svg)](https://github.com/antigenomics/mirpy/actions/workflows/tests.yml)
 [![Docs](https://github.com/antigenomics/mirpy/actions/workflows/docs.yml/badge.svg?branch=dev)](https://antigenomics.github.io/mirpy/)
 
 `mirpy` is a Python library for AIRR-seq and immune repertoire analysis.
