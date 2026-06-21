@@ -106,11 +106,15 @@ def _tcrnet_table_with_counts(rep: LocusRepertoire, result_table: pd.DataFrame) 
 
 
 def _collect_neighbor_sequences(rep: LocusRepertoire, query_sequences: list[str]) -> set[str]:
+    import seqtree
+
+    seqs = [c.junction_aa for c in rep.clonotypes]
+    index = seqtree.Index.build(seqs, alphabet="aa")
+    params = seqtree.SearchParams(max_subs=1, max_total_edits=1, engine="seqtm")
     found: set[str] = set()
     for seq in query_sequences:
-        hits = rep.trie.SearchIndices(seq, maxSubstitution=1, maxInsertion=0, maxDeletion=0, maxEdits=1)
-        for idx, _ in hits:
-            found.add(rep.clonotypes[int(idx)].junction_aa)
+        for hit in index.search(seq, params):
+            found.add(seqs[hit.ref_id])
     return found
 
 

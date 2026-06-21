@@ -29,10 +29,7 @@ exclude_patterns = [
 autosummary_generate = False
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
-autodoc_mock_imports = [
-    "multipy",
-    "pympler",
-]
+autodoc_mock_imports = []
 
 html_baseurl = "https://docs.isalgo.dev/mirpy/"
 html_theme = "pydata_sphinx_theme"

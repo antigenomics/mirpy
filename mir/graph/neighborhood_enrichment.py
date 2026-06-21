@@ -11,13 +11,11 @@ a given search scope:
 
 Performance
 -----------
-All searches are backed by **tcrtrie** for sub-linear trie-based lookups.  A
-brute-force Python fallback is used only when tcrtrie raises (e.g. for
-sequences longer than 64 AA for Hamming or 33 AA for Levenshtein).
-
-For V/J-restricted searches, background sequences are grouped by (V,J) key and
-a separate small Trie is built per group.  This eliminates the O(N × k) Python
-validation loop that dominates for natural repertoires.
+Searches are backed by **seqtree** (``seqtm`` engine) for sub-linear lookups.  A
+single index is built per locus over the canonical background sequences; V/J
+gene matching is applied as a cheap :func:`~mir.common.alleles.genes_match`
+post-filter on the small hit set, and ``potential_neighbors`` is read from a
+gene-key counter.
 
 Parallelism is automatic: :func:`compute_neighborhood_stats_by_locus` spawns
 ``n_jobs`` worker processes via ``ProcessPoolExecutor`` when the repertoire
@@ -38,19 +36,14 @@ import numpy as np
 _MP_CTX = multiprocessing.get_context("spawn")
 from typing import TYPE_CHECKING
 
-from tcrtrie import Trie
-
-from mir.common.alleles import genes_match, strip_allele
+from mir.common.alleles import genes_match
 from mir.graph._trie_utils import (
-    _is_trie_safe,
-    hit_index,
-    make_trie,
+    make_index,
+    make_params,
     resolve_n_jobs,
-    search_indices_with_fallback,
-    search_limits,
+    search_canon_indices,
     validate_metric,
 )
-from mir.graph.distance_utils import is_within_threshold
 from mir.utils.shared_memory import (
     SharedArraySpec,
     attach_shared_array,
@@ -65,207 +58,6 @@ if TYPE_CHECKING:
 
 _NEIGHBOR_WORKER_STATE: dict[str, t.Any] = {}
 _NEIGHBOR_PARALLEL_MIN_CLONOTYPES = 20_000
-
-
-def _init_neighbor_worker(
-    query_sequences: list[str],
-    query_sequence_ids: list[str],
-    query_v_calls: list[str],
-    query_j_calls: list[str],
-    background_sequences_spec: SharedArraySpec,
-    background_v_calls_spec: SharedArraySpec,
-    background_j_calls_spec: SharedArraySpec,
-    metric: str,
-    threshold: int,
-    match_v_call: bool,
-    match_j_call: bool,
-    background_size: int,
-    potential_counter: dict[t.Any, int] | None,
-    add_self_pseudocount: bool,
-) -> None:
-    """Initialize per-process state for neighborhood batch workers."""
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    background_sequences_arr, background_sequences_shm = attach_shared_array(background_sequences_spec)
-    background_v_calls_arr, background_v_calls_shm = attach_shared_array(background_v_calls_spec)
-    background_j_calls_arr, background_j_calls_shm = attach_shared_array(background_j_calls_spec)
-
-    background_sequences = np.char.decode(background_sequences_arr, "ascii").tolist()
-    background_v_calls = np.char.decode(background_v_calls_arr, "ascii").tolist()
-    background_j_calls = np.char.decode(background_j_calls_arr, "ascii").tolist()
-
-    _NEIGHBOR_WORKER_STATE["query_sequences"] = query_sequences
-    _NEIGHBOR_WORKER_STATE["query_sequence_ids"] = query_sequence_ids
-    _NEIGHBOR_WORKER_STATE["query_v_calls"] = query_v_calls
-    _NEIGHBOR_WORKER_STATE["query_j_calls"] = query_j_calls
-    _NEIGHBOR_WORKER_STATE["background_sequences"] = background_sequences
-    _NEIGHBOR_WORKER_STATE["background_v_calls"] = background_v_calls
-    _NEIGHBOR_WORKER_STATE["background_j_calls"] = background_j_calls
-    _NEIGHBOR_WORKER_STATE["metric"] = metric
-    _NEIGHBOR_WORKER_STATE["threshold"] = threshold
-    _NEIGHBOR_WORKER_STATE["match_v_call"] = match_v_call
-    _NEIGHBOR_WORKER_STATE["match_j_call"] = match_j_call
-    _NEIGHBOR_WORKER_STATE["background_size"] = background_size
-    _NEIGHBOR_WORKER_STATE["potential_counter"] = potential_counter
-    _NEIGHBOR_WORKER_STATE["add_self_pseudocount"] = add_self_pseudocount
-    _NEIGHBOR_WORKER_STATE["shm_handles"] = (
-        background_sequences_shm,
-        background_v_calls_shm,
-        background_j_calls_shm,
-    )
-    trie, trie_to_orig = make_trie(background_sequences, background_v_calls, background_j_calls)
-    _NEIGHBOR_WORKER_STATE["trie"] = trie
-    _NEIGHBOR_WORKER_STATE["canon_background_seqs"] = [background_sequences[i] for i in trie_to_orig]
-    _NEIGHBOR_WORKER_STATE["canon_background_v"]    = [background_v_calls[i] for i in trie_to_orig]
-    _NEIGHBOR_WORKER_STATE["canon_background_j"]    = [background_j_calls[i] for i in trie_to_orig]
-
-
-def _potential_neighbor_count_from_genes(
-    *,
-    v_call: str,
-    j_call: str,
-    background_size: int,
-    match_v_call: bool,
-    match_j_call: bool,
-    counter: dict[t.Any, int] | None,
-) -> int:
-    if counter is None:
-        return background_size
-    key = _gene_key(
-        v_call,
-        j_call,
-        match_v_call=match_v_call,
-        match_j_call=match_j_call,
-    )
-    return int(counter.get(key, 0))
-
-
-def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
-    """Process-pool worker for neighborhood query ranges."""
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    start, stop = range_pair
-    query_sequences = _NEIGHBOR_WORKER_STATE["query_sequences"]
-    query_sequence_ids = _NEIGHBOR_WORKER_STATE["query_sequence_ids"]
-    query_v_calls = _NEIGHBOR_WORKER_STATE["query_v_calls"]
-    query_j_calls = _NEIGHBOR_WORKER_STATE["query_j_calls"]
-    background_sequences = _NEIGHBOR_WORKER_STATE["background_sequences"]
-    background_v_calls = _NEIGHBOR_WORKER_STATE["background_v_calls"]
-    background_j_calls = _NEIGHBOR_WORKER_STATE["background_j_calls"]
-    canon_background_seqs = _NEIGHBOR_WORKER_STATE["canon_background_seqs"]
-    canon_background_v    = _NEIGHBOR_WORKER_STATE["canon_background_v"]
-    canon_background_j    = _NEIGHBOR_WORKER_STATE["canon_background_j"]
-    trie = _NEIGHBOR_WORKER_STATE["trie"]
-    metric = _NEIGHBOR_WORKER_STATE["metric"]
-    threshold = _NEIGHBOR_WORKER_STATE["threshold"]
-    match_v_call = _NEIGHBOR_WORKER_STATE["match_v_call"]
-    match_j_call = _NEIGHBOR_WORKER_STATE["match_j_call"]
-    background_size = _NEIGHBOR_WORKER_STATE["background_size"]
-    potential_counter = _NEIGHBOR_WORKER_STATE["potential_counter"]
-    add_self_pseudocount = _NEIGHBOR_WORKER_STATE["add_self_pseudocount"]
-
-    out: dict[str, dict[str, int]] = {}
-    for i in range(start, stop):
-        if not _is_trie_safe(query_sequences[i]):
-            out[query_sequence_ids[i]] = {"actual": 0, "potential": 0}
-            continue
-        hits = search_indices_with_fallback(
-            trie,
-            query=query_sequences[i],
-            metric=metric,
-            threshold=threshold,
-            sequences=canon_background_seqs,
-            v_call_filter=query_v_calls[i] if match_v_call else None,
-            j_call_filter=query_j_calls[i] if match_j_call else None,
-            v_calls=canon_background_v,
-            j_calls=canon_background_j,
-        )
-        potential_neighbors = _potential_neighbor_count_from_genes(
-            v_call=query_v_calls[i],
-            j_call=query_j_calls[i],
-            background_size=background_size,
-            match_v_call=match_v_call,
-            match_j_call=match_j_call,
-            counter=potential_counter,
-        )
-        neighbor_count = len(hits)
-        if add_self_pseudocount:
-            potential_neighbors += 1
-            neighbor_count += 1
-        out[query_sequence_ids[i]] = {
-            "neighbor_count": int(neighbor_count),
-            "potential_neighbors": int(potential_neighbors),
-        }
-    return out
-
-def _is_same_background(
-    repertoire: "LocusRepertoire | SampleRepertoire",
-    background: "LocusRepertoire | SampleRepertoire | None",
-) -> bool:
-    return background is None or background is repertoire
-
-
-def _iter_loci(
-    repertoire: "LocusRepertoire | SampleRepertoire",
-) -> dict[str, "LocusRepertoire"]:
-    from mir.common.repertoire import LocusRepertoire, SampleRepertoire
-
-    if isinstance(repertoire, SampleRepertoire):
-        return dict(repertoire.loci)
-    if isinstance(repertoire, LocusRepertoire):
-        return {repertoire.locus: repertoire}
-    raise TypeError("repertoire must be LocusRepertoire or SampleRepertoire")
-
-
-def _background_locus_map(
-    query_loci: dict[str, "LocusRepertoire"],
-    background: "LocusRepertoire | SampleRepertoire | None",
-) -> dict[str, "LocusRepertoire"]:
-    if background is None:
-        return query_loci
-
-    bg_loci = _iter_loci(background)
-    out: dict[str, "LocusRepertoire"] = {}
-    for locus, qrep in query_loci.items():
-        out[locus] = bg_loci.get(locus, qrep.__class__(clonotypes=[], locus=locus))
-    return out
-
-
-def _build_potential_counter(
-    background_clonotypes: list,
-    *,
-    match_v_call: bool,
-    match_j_call: bool,
-) -> dict[t.Any, int] | None:
-    if not match_v_call and not match_j_call:
-        return None
-    counter: dict[t.Any, int] = {}
-    for clonotype in background_clonotypes:
-        key = _gene_key(
-            clonotype.v_call,
-            clonotype.j_call,
-            match_v_call=match_v_call,
-            match_j_call=match_j_call,
-        )
-        counter[key] = counter.get(key, 0) + 1
-    return counter
-
-
-def _potential_neighbor_count(
-    clonotype,
-    *,
-    background_size: int,
-    match_v_call: bool,
-    match_j_call: bool,
-    counter: dict[t.Any, int] | None,
-) -> int:
-    if counter is None:
-        return background_size
-    key = _gene_key(
-        clonotype.v_call,
-        clonotype.j_call,
-        match_v_call=match_v_call,
-        match_j_call=match_j_call,
-    )
-    return int(counter.get(key, 0))
 
 
 def _gene_key(
@@ -318,197 +110,186 @@ def _matching_group_keys(
     return result
 
 
-def _build_grouped_tries(
-    sequences: list[str],
-    v_calls: list[str],
-    j_calls: list[str],
+def _build_potential_counter(
+    background_clonotypes: list,
     *,
     match_v_call: bool,
     match_j_call: bool,
-) -> tuple[dict[tuple, list[str]], dict[tuple, "Trie"], dict[tuple, list[str]]]:
-    """Group sequences by V/J gene key and build one small Trie per group.
-
-    Returns ``(group_seqs, group_tries, group_canon_seqs)`` where
-    ``group_seqs[key]`` is the full CDR3 list (including non-canonical),
-    ``group_tries[key]`` is a Trie built from canonical sequences only, and
-    ``group_canon_seqs[key]`` is the canonical-only subsequence used by the
-    trie (indices returned by the trie index into this list, not group_seqs).
-
-    This replaces the single-large-trie + Python V/J validation approach with
-    N_groups smaller tries, each searched without filters, eliminating the
-    O(N × k_avg) Python loop that dominates for natural repertoires.
-
-    Note: Long-CDR3 brute-force augmentation (>64 AA for Hamming, >33 for
-    Levenshtein) is not applied here because TCR CDR3s are always short.  If
-    future callers pass synthetic long sequences the count may be slightly
-    under-reported; this is explicitly acceptable and matches the behavior of
-    ``search_indices_with_fallback`` on the same data.
-    """
-    group_seqs: dict[tuple, list[str]] = {}
-    for seq, v, j in zip(sequences, v_calls, j_calls):
-        key = _gene_key(v, j, match_v_call=match_v_call, match_j_call=match_j_call)
-        group_seqs.setdefault(key, []).append(seq)
-    group_tries: dict[tuple, Trie] = {}
-    group_canon_seqs: dict[tuple, list[str]] = {}
-    for key, seqs in group_seqs.items():
-        n = len(seqs)
-        trie, trie_to_orig = make_trie(seqs, [""] * n, [""] * n)
-        group_tries[key] = trie
-        group_canon_seqs[key] = [seqs[i] for i in trie_to_orig]
-    return group_seqs, group_tries, group_canon_seqs
-
-
-def _count_grouped_neighbors(
-    query: str,
-    group_trie: "Trie",
-    canon_seqs: list[str],
-    metric: str,
-    threshold: int,
-) -> int:
-    """Count Hamming/Levenshtein neighbors of *query* in a gene-group trie.
-
-    ``canon_seqs`` must be the canonical-only subsequence used to build the
-    trie (returned as the third element of ``_build_grouped_tries``).  Trie hit
-    indices are in canonical space (0..len(canon_seqs)-1).
-    """
-    max_sub, max_ins, max_del, max_edits = search_limits(metric, threshold)
-    n = len(canon_seqs)
-    try:
-        hits = group_trie.SearchIndices(
-            query=query,
-            maxSubstitution=max_sub,
-            maxInsertion=max_ins,
-            maxDeletion=max_del,
-            maxEdits=max_edits,
+) -> dict[t.Any, int] | None:
+    """Count background clonotypes per V/J gene key (``None`` when no gene flag)."""
+    if not match_v_call and not match_j_call:
+        return None
+    counter: dict[t.Any, int] = {}
+    for clonotype in background_clonotypes:
+        key = _gene_key(
+            clonotype.v_call,
+            clonotype.j_call,
+            match_v_call=match_v_call,
+            match_j_call=match_j_call,
         )
-    except Exception:
-        return sum(1 for s in canon_seqs if is_within_threshold(query, s, metric, threshold))
-    count = 0
-    for hit in hits:
-        local_idx = hit_index(hit)
-        if 0 <= local_idx < n and is_within_threshold(query, canon_seqs[local_idx], metric, threshold):
-            count += 1
-    return count
+        counter[key] = counter.get(key, 0) + 1
+    return counter
 
 
-def _compute_grouped_query_batch(
-    query_clonotypes: list,
-    sequence_ids: list[str],
-    group_seqs: dict[tuple, list[str]],
-    group_tries: dict[tuple, "Trie"],
-    group_canon_seqs: dict[tuple, list[str]],
-    *,
-    metric: str,
-    threshold: int,
-    match_v_call: bool,
-    match_j_call: bool,
-    add_self_pseudocount: bool,
-) -> dict[str, dict[str, int]]:
-    """Serial grouped-trie batch: one or more trie lookups per query gene group."""
-    all_keys = list(group_tries)
-    out: dict[str, dict[str, int]] = {}
-    for clonotype, seq_id in zip(query_clonotypes, sequence_ids):
-        matching = _matching_group_keys(
-            clonotype.v_call, clonotype.j_call, all_keys,
-            match_v_call=match_v_call, match_j_call=match_j_call,
-        )
-        nc = 0
-        pn = 0
-        for key in matching:
-            g_seqs = group_seqs.get(key)
-            g_trie = group_tries.get(key)
-            g_canon = group_canon_seqs.get(key, [])
-            if g_trie is not None:
-                nc += _count_grouped_neighbors(clonotype.junction_aa, g_trie, g_canon, metric, threshold)
-                pn += len(g_seqs) if g_seqs is not None else 0
-        if add_self_pseudocount:
-            nc += 1
-            pn += 1
-        out[seq_id] = {"neighbor_count": nc, "potential_neighbors": pn}
-    return out
-
-
-def _compute_grouped_key_batch_worker(
-    bg_by_key: dict[tuple, list[str]],
-    q_by_key: dict[tuple, tuple[list[str], list[str]]],
-    metric: str,
-    threshold: int,
-) -> dict[str, dict[str, int]]:
-    """Build tries for assigned (V,J) key groups and search their queries.
-
-    Each worker receives only the background and query data for its assigned keys,
-    builds exactly those tries, and returns partial raw counts (no pseudocount —
-    the caller accumulates across groups and applies pseudocount once).
-    Tries are built once per key globally (not once per worker).
-    """
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    out: dict[str, dict[str, int]] = {}
-    for key, bg_seqs in bg_by_key.items():
-        q_data = q_by_key.get(key)
-        if q_data is None:
-            continue
-        q_seqs, q_ids = q_data
-        n = len(bg_seqs)
-        trie, trie_to_orig = make_trie(bg_seqs, [""] * n, [""] * n)
-        canon_bg = [bg_seqs[i] for i in trie_to_orig]
-        for q_seq, seq_id in zip(q_seqs, q_ids):
-            nc = _count_grouped_neighbors(q_seq, trie, canon_bg, metric, threshold)
-            # Accumulate across groups — a query may appear in multiple groups.
-            if seq_id in out:
-                out[seq_id]["neighbor_count"] += nc
-                out[seq_id]["potential_neighbors"] += n
-            else:
-                out[seq_id] = {"neighbor_count": nc, "potential_neighbors": n}
-    return out
-
-
-def _compute_query_batch(
-    query_clonotypes: list,
-    sequence_ids: list[str],
-    background_sequences: list[str],
+def _compute_query_range(
+    query_sequences: list[str],
+    query_v_calls: list[str],
+    query_j_calls: list[str],
+    query_sequence_ids: list[str],
+    index,
+    idx_to_orig: list[int],
     background_v_calls: list[str],
     background_j_calls: list[str],
-    trie,
-    *,
+    params,
+    background_size: int,
+    match_v_call: bool,
+    match_j_call: bool,
+    potential_counter: dict[t.Any, int] | None,
+    bg_keys: list[tuple[str, ...]],
+    add_self_pseudocount: bool,
+    start: int,
+    stop: int,
+) -> dict[str, dict[str, int]]:
+    """Count neighbors and potential neighbors for query indices in [start, stop).
+
+    ``neighbor_count`` = index hits whose background V/J pass ``genes_match``;
+    ``potential_neighbors`` = sum of gene-key counts matching the query (wildcard),
+    or ``background_size`` when no gene flag is set.
+    """
+    out: dict[str, dict[str, int]] = {}
+    for i in range(start, stop):
+        qv = query_v_calls[i]
+        qj = query_j_calls[i]
+        neighbor_count = 0
+        for ci in search_canon_indices(index, query_sequences[i], params):
+            orig = idx_to_orig[ci]
+            if match_v_call and not genes_match(qv, background_v_calls[orig]):
+                continue
+            if match_j_call and not genes_match(qj, background_j_calls[orig]):
+                continue
+            neighbor_count += 1
+
+        if potential_counter is None:
+            potential_neighbors = background_size
+        else:
+            potential_neighbors = sum(
+                potential_counter[key]
+                for key in _matching_group_keys(
+                    qv, qj, bg_keys, match_v_call=match_v_call, match_j_call=match_j_call
+                )
+            )
+
+        if add_self_pseudocount:
+            neighbor_count += 1
+            potential_neighbors += 1
+        out[query_sequence_ids[i]] = {
+            "neighbor_count": int(neighbor_count),
+            "potential_neighbors": int(potential_neighbors),
+        }
+    return out
+
+
+def _init_neighbor_worker(
+    query_sequences: list[str],
+    query_sequence_ids: list[str],
+    query_v_calls: list[str],
+    query_j_calls: list[str],
+    background_sequences_spec: SharedArraySpec,
+    background_v_calls_spec: SharedArraySpec,
+    background_j_calls_spec: SharedArraySpec,
     metric: str,
     threshold: int,
     match_v_call: bool,
     match_j_call: bool,
     background_size: int,
     potential_counter: dict[t.Any, int] | None,
+    bg_keys: list[tuple[str, ...]],
     add_self_pseudocount: bool,
-    start: int,
-    stop: int,
-) -> dict[str, dict[str, int]]:
-    out: dict[str, dict[str, int]] = {}
-    for i in range(start, stop):
-        clonotype = query_clonotypes[i]
-        hits = search_indices_with_fallback(
-            trie,
-            query=clonotype.junction_aa,
-            metric=metric,
-            threshold=threshold,
-            sequences=background_sequences,
-            v_call_filter=clonotype.v_call if match_v_call else None,
-            j_call_filter=clonotype.j_call if match_j_call else None,
-            v_calls=background_v_calls,
-            j_calls=background_j_calls,
-        )
-        potential_neighbors = _potential_neighbor_count(
-            clonotype,
-            background_size=background_size,
-            match_v_call=match_v_call,
-            match_j_call=match_j_call,
-            counter=potential_counter,
-        )
-        neighbor_count = len(hits)
-        if add_self_pseudocount:
-            potential_neighbors += 1
-            neighbor_count += 1
-        out[sequence_ids[i]] = {
-            "neighbor_count": int(neighbor_count),
-            "potential_neighbors": int(potential_neighbors),
-        }
+) -> None:
+    """Initialize per-process state for neighborhood batch workers."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    bg_seq_arr, bg_seq_shm = attach_shared_array(background_sequences_spec)
+    bg_v_arr, bg_v_shm = attach_shared_array(background_v_calls_spec)
+    bg_j_arr, bg_j_shm = attach_shared_array(background_j_calls_spec)
+
+    background_sequences = np.char.decode(bg_seq_arr, "ascii").tolist()
+    index, idx_to_orig = make_index(background_sequences)
+
+    _NEIGHBOR_WORKER_STATE.update(
+        query_sequences=query_sequences,
+        query_sequence_ids=query_sequence_ids,
+        query_v_calls=query_v_calls,
+        query_j_calls=query_j_calls,
+        background_v_calls=np.char.decode(bg_v_arr, "ascii").tolist(),
+        background_j_calls=np.char.decode(bg_j_arr, "ascii").tolist(),
+        index=index,
+        idx_to_orig=idx_to_orig,
+        params=make_params(metric, threshold),
+        background_size=background_size,
+        match_v_call=match_v_call,
+        match_j_call=match_j_call,
+        potential_counter=potential_counter,
+        bg_keys=bg_keys,
+        add_self_pseudocount=add_self_pseudocount,
+        shm_handles=(bg_seq_shm, bg_v_shm, bg_j_shm),
+    )
+
+
+def _compute_query_batch_worker(range_pair: tuple[int, int]) -> dict[str, dict[str, int]]:
+    """Process-pool worker for neighborhood query ranges."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    s = _NEIGHBOR_WORKER_STATE
+    return _compute_query_range(
+        s["query_sequences"],
+        s["query_v_calls"],
+        s["query_j_calls"],
+        s["query_sequence_ids"],
+        s["index"],
+        s["idx_to_orig"],
+        s["background_v_calls"],
+        s["background_j_calls"],
+        s["params"],
+        s["background_size"],
+        s["match_v_call"],
+        s["match_j_call"],
+        s["potential_counter"],
+        s["bg_keys"],
+        s["add_self_pseudocount"],
+        range_pair[0],
+        range_pair[1],
+    )
+
+
+def _is_same_background(
+    repertoire: "LocusRepertoire | SampleRepertoire",
+    background: "LocusRepertoire | SampleRepertoire | None",
+) -> bool:
+    return background is None or background is repertoire
+
+
+def _iter_loci(
+    repertoire: "LocusRepertoire | SampleRepertoire",
+) -> dict[str, "LocusRepertoire"]:
+    from mir.common.repertoire import LocusRepertoire, SampleRepertoire
+
+    if isinstance(repertoire, SampleRepertoire):
+        return dict(repertoire.loci)
+    if isinstance(repertoire, LocusRepertoire):
+        return {repertoire.locus: repertoire}
+    raise TypeError("repertoire must be LocusRepertoire or SampleRepertoire")
+
+
+def _background_locus_map(
+    query_loci: dict[str, "LocusRepertoire"],
+    background: "LocusRepertoire | SampleRepertoire | None",
+) -> dict[str, "LocusRepertoire"]:
+    if background is None:
+        return query_loci
+
+    bg_loci = _iter_loci(background)
+    out: dict[str, "LocusRepertoire"] = {}
+    for locus, qrep in query_loci.items():
+        out[locus] = bg_loci.get(locus, qrep.__class__(clonotypes=[], locus=locus))
     return out
 
 
@@ -531,13 +312,8 @@ def _compute_locus_stats(
     q_seq_ids = [c.sequence_id for c in query_clonotypes]
     n_background = len(background_clonotypes)
     if n_background == 0:
-        return {
-            seq_id: {
-                "neighbor_count": int(1 if add_self_pseudocount else 0),
-                "potential_neighbors": int(1 if add_self_pseudocount else 0),
-            }
-            for seq_id in q_seq_ids
-        }
+        v = 1 if add_self_pseudocount else 0
+        return {sid: {"neighbor_count": v, "potential_neighbors": v} for sid in q_seq_ids}
 
     background_sequences = [c.junction_aa for c in background_clonotypes]
     background_v_calls = [c.v_call or "" for c in background_clonotypes]
@@ -547,110 +323,36 @@ def _compute_locus_stats(
     query_j_calls = [c.j_call or "" for c in query_clonotypes]
     n_query = len(query_clonotypes)
 
-    # ── Grouped-trie path (V/J-restricted search) ────────────────────────────
-    # Build one small Trie per (V,J) group rather than filtering one large Trie
-    # in Python.  Each per-group Trie is ~N_total / N_groups sequences, so the
-    # search is faster and no Python V/J validation loop is needed.
-    if match_v_call or match_j_call:
-        # Group background sequences by (V,J) key.
-        bg_by_key: dict[tuple, list[str]] = {}
-        for seq, v, j in zip(background_sequences, background_v_calls, background_j_calls):
-            key = _gene_key(v, j, match_v_call=match_v_call, match_j_call=match_j_call)
-            bg_by_key.setdefault(key, []).append(seq)
+    potential_counter = _build_potential_counter(
+        background_clonotypes, match_v_call=match_v_call, match_j_call=match_j_call
+    )
+    bg_keys = list(potential_counter) if potential_counter is not None else []
 
-        if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
-            g_seqs, g_tries, g_canon = _build_grouped_tries(
-                background_sequences, background_v_calls, background_j_calls,
-                match_v_call=match_v_call, match_j_call=match_j_call,
-            )
-            return _compute_grouped_query_batch(
-                query_clonotypes, q_seq_ids, g_seqs, g_tries, g_canon,
-                metric=metric, threshold=threshold,
-                match_v_call=match_v_call, match_j_call=match_j_call,
-                add_self_pseudocount=add_self_pseudocount,
-            )
-
-        # Parallel grouped path: distribute (V,J) key groups across workers.
-        # Each worker builds only its assigned tries (1/n_jobs of the total),
-        # so each trie is built exactly once — no per-worker rebuild overhead.
-        # A query may expand to multiple bg keys (allele wildcard semantics),
-        # so q_by_key is built with _matching_group_keys and counts are
-        # accumulated additively across workers; pseudocount applied once below.
-        all_bg_keys = list(bg_by_key)
-        q_by_key: dict[tuple, tuple[list[str], list[str]]] = {}
-        for q, seq_id, v, j in zip(query_sequences, q_seq_ids, query_v_calls, query_j_calls):
-            for key in _matching_group_keys(v, j, all_bg_keys, match_v_call=match_v_call, match_j_call=match_j_call):
-                if key not in q_by_key:
-                    q_by_key[key] = ([], [])
-                q_by_key[key][0].append(q)
-                q_by_key[key][1].append(seq_id)
-
-        # Assign keys to workers in round-robin by descending bg size (load balance).
-        sorted_keys = sorted(bg_by_key, key=lambda k: len(bg_by_key[k]), reverse=True)
-        worker_bg: list[dict] = [{} for _ in range(n_jobs)]
-        worker_q: list[dict] = [{} for _ in range(n_jobs)]
-        for i, key in enumerate(sorted_keys):
-            w = i % n_jobs
-            worker_bg[w][key] = bg_by_key[key]
-            if key in q_by_key:
-                worker_q[w][key] = q_by_key[key]
-
-        # Merge partial results additively (a query may appear in multiple workers).
-        results: dict[str, dict[str, int]] = {}
-        with ProcessPoolExecutor(max_workers=n_jobs, mp_context=_MP_CTX) as executor:
-            futures = [
-                executor.submit(
-                    _compute_grouped_key_batch_worker,
-                    worker_bg[w], worker_q[w], metric, threshold,
-                )
-                for w in range(n_jobs)
-                if worker_bg[w]
-            ]
-            for f in futures:
-                for seq_id, counts in f.result().items():
-                    if seq_id in results:
-                        results[seq_id]["neighbor_count"] += counts["neighbor_count"]
-                        results[seq_id]["potential_neighbors"] += counts["potential_neighbors"]
-                    else:
-                        results[seq_id] = dict(counts)
-        # Apply pseudocount once per query after all groups have been merged.
-        if add_self_pseudocount:
-            for counts in results.values():
-                counts["neighbor_count"] += 1
-                counts["potential_neighbors"] += 1
-        # Queries that matched no background group get zero/pseudocount.
-        for seq_id in q_seq_ids:
-            if seq_id not in results:
-                v = 1 if add_self_pseudocount else 0
-                results[seq_id] = {"neighbor_count": v, "potential_neighbors": v}
-        return results
-
-    # ── Single-trie path (no V/J restriction) ────────────────────────────────
-    # Trie construction deferred here so the grouped path never pays this cost.
-    trie = background_locus.trie
-    potential_counter = None  # match_v_call=False, match_j_call=False → no counter needed
     if n_jobs <= 1 or n_query < _NEIGHBOR_PARALLEL_MIN_CLONOTYPES:
-        return _compute_query_batch(
-            query_clonotypes,
+        index, idx_to_orig = make_index(background_sequences)
+        return _compute_query_range(
+            query_sequences,
+            query_v_calls,
+            query_j_calls,
             q_seq_ids,
-            background_sequences,
+            index,
+            idx_to_orig,
             background_v_calls,
             background_j_calls,
-            trie,
-            metric=metric,
-            threshold=threshold,
-            match_v_call=False,
-            match_j_call=False,
-            background_size=n_background,
-            potential_counter=potential_counter,
-            add_self_pseudocount=add_self_pseudocount,
-            start=0,
-            stop=n_query,
+            make_params(metric, threshold),
+            n_background,
+            match_v_call,
+            match_j_call,
+            potential_counter,
+            bg_keys,
+            add_self_pseudocount,
+            0,
+            n_query,
         )
 
     batch_size = max(1, ceil(n_query / n_jobs))
     ranges = [(start, min(start + batch_size, n_query)) for start in range(0, n_query, batch_size)]
-    results = {}
+    results: dict[str, dict[str, int]] = {}
     shared_handles = []
     try:
         bg_seq_spec, bg_seq_shm = create_shared_array(fixed_bytes_array(background_sequences))
@@ -674,10 +376,11 @@ def _compute_locus_stats(
                 bg_j_spec,
                 metric,
                 threshold,
-                False,
-                False,
+                match_v_call,
+                match_j_call,
                 n_background,
                 potential_counter,
+                bg_keys,
                 add_self_pseudocount,
             ),
         ) as executor:

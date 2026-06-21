@@ -274,24 +274,19 @@ def _target_hits(enriched: pd.DataFrame, ref_df: pd.DataFrame, *, threshold: int
         for label, grp in ref_df.groupby("target_label")
     }
     enriched_seqs = enriched["junction_aa"].dropna().astype(str).drop_duplicates().tolist()
-    erep = LocusRepertoire(
-        clonotypes=[Clonotype(sequence_id=str(i), locus="TRB", junction_aa=s, duplicate_count=1, _validate=False) for i, s in enumerate(enriched_seqs)],
-        locus="TRB",
+    import seqtree
+
+    index = seqtree.Index.build(enriched_seqs, alphabet="aa")
+    params = seqtree.SearchParams(
+        max_subs=int(threshold), max_total_edits=int(threshold), engine="seqtm"
     )
     hits_by_target: dict[str, int] = {}
     all_hit_sequences: set[str] = set()
     for label, refs in target_to_seqs.items():
         hit: set[str] = set()
         for seq in refs:
-            matches = erep.trie.SearchIndices(
-                query=seq,
-                maxSubstitution=int(threshold),
-                maxInsertion=0,
-                maxDeletion=0,
-                maxEdits=int(threshold),
-            )
-            for idx, _ in matches:
-                hit.add(erep.clonotypes[int(idx)].junction_aa)
+            for match in index.search(seq, params):
+                hit.add(enriched_seqs[match.ref_id])
         hits_by_target[label] = len(hit)
         all_hit_sequences.update(hit)
     return hits_by_target, all_hit_sequences

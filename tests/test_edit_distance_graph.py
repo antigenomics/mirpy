@@ -67,16 +67,6 @@ def _edge_set(g) -> set[frozenset[int]]:
     return {frozenset(e.tuple) for e in g.es}
 
 
-class _FailingTrie:
-    def __init__(self, sequences, vGenes, jGenes):
-        self.sequences = sequences
-        self.v_calls = vGenes
-        self.j_calls = jGenes
-
-    def SearchIndices(self, **kwargs):
-        raise RuntimeError("forced tcrtrie failure")
-
-
 # ---------------------------------------------------------------------------
 # Hamming graph tests
 # ---------------------------------------------------------------------------
@@ -387,39 +377,6 @@ def test_long_queries_over_33_and_64_aa_work() -> None:
 
     assert g_h.ecount() == 1
     assert g_l.ecount() == 1
-
-
-def test_fallback_hamming_compares_only_equal_lengths(monkeypatch) -> None:
-    monkeypatch.setattr("mir.graph._trie_utils.Trie", _FailingTrie)
-
-    seq_len10 = "CASSRSGYTF"
-    seq_len10_1mm = "XASSRSGYTF"
-    seq_len11 = "CASSRSGYTFF"
-    graph = build_edit_distance_graph(
-        [_r(0, seq_len10), _r(1, seq_len10_1mm), _r(2, seq_len11)],
-        metric="hamming",
-        threshold=1,
-        nproc=1,
-    )
-
-    assert _edge_set(graph) == {frozenset((0, 1))}
-
-
-def test_fallback_levenshtein_applies_length_window(monkeypatch) -> None:
-    monkeypatch.setattr("mir.graph._trie_utils.Trie", _FailingTrie)
-
-    seq_len10 = "CASSRSGYTF"
-    seq_len11 = "CASSRSGYTFF"       # lev=1 vs len10
-    seq_len14 = "CASSRSGYTFFAAA"    # |len diff|=4 vs len10 (> threshold)
-
-    graph = build_edit_distance_graph(
-        [_r(0, seq_len10), _r(1, seq_len11), _r(2, seq_len14)],
-        metric="levenshtein",
-        threshold=1,
-        nproc=1,
-    )
-
-    assert _edge_set(graph) == {frozenset((0, 1))}
 
 
 # ---------------------------------------------------------------------------

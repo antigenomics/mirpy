@@ -809,22 +809,6 @@ class LocusRepertoire:
         return self.segment_usage()
 
     # ------------------------------------------------------------------
-    # Trie (kept for downstream code)
-    # ------------------------------------------------------------------
-
-    @property
-    def trie(self):
-        """Lazy :class:`tcrtrie.Trie` built from junction_aa / V / J strings."""
-        from tcrtrie import Trie
-        if not hasattr(self, "_trie"):
-            self._trie = Trie(
-                sequences=[c.junction_aa for c in self.clonotypes],
-                vGenes=[c.v_call for c in self.clonotypes],
-                jGenes=[c.j_call for c in self.clonotypes],
-            )
-        return self._trie
-
-    # ------------------------------------------------------------------
     # Dunder
     # ------------------------------------------------------------------
 

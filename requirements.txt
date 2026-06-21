@@ -25,15 +25,12 @@ python_igraph>=0.10.6
 # ── Runtime — pure Python packages ────────────────────────────────────────────
 # Strict pins are safe here (no binary-compat concerns).
 biopython==1.81
-multipy==0.16
 olga==1.2.4
 pandas==2.0.3
 pyarrow>=15
 polars==1.39.3
-pympler==1.1
 seaborn==0.12.2
-textdistance==4.5.0
-tcrtrie>=0.2.3
+seqtree>=0.0.3
 tqdm==4.66.2
 kneed>=0.8.1
 

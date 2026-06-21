@@ -381,6 +381,9 @@ class OlgaModel:
         self.v_names: list[str] = [x[0] for x in genomic_data.__dict__["genV"]]
         self.j_names: list[str] = [x[0] for x in genomic_data.__dict__["genJ"]]
         self.gen_model = generative_model
+        # expose the genomic data (V/J CDR3-portion germline segments + anchors) so callers can
+        # derive trimming/germline-retention profiles (see mir.basic.trimming).
+        self.genomic_data = genomic_data
 
         if self.is_d_present:
             self.pgen_model    = pgen.GenerationProbabilityVDJ(generative_model, genomic_data)
@@ -973,7 +976,7 @@ def get_p_productive(locus: str, species: str) -> float:
 
 
 class McPgenPool:
-    """Monte-Carlo generation-probability pool backed by tcrtrie.
+    """Monte-Carlo generation-probability pool backed by a CDR3 ``Counter``.
 
     Stores a large set of productive CDR3 sequences (synthetic or real) and
     answers Pgen queries by counting exact or Hamming-1 matches.
@@ -1057,16 +1060,15 @@ class McPgenPool:
         seqs: list[str],
         n_jobs: int = 1,
     ) -> list[float]:
-        """Bulk Hamming-1 Pgen estimation via tcrtrie + inner-position filter.
+        """Bulk Hamming-1 Pgen estimation via hash-enumeration + inner-position filter.
 
-        Searches the pool for sequences within Hamming distance 1 of each
-        query, keeps only matches where the mismatch falls inside the inner
-        window (positions ``[skip_ends, L - skip_ends)``), and sums
-        pool-sequence counts.
+        For each query, enumerates all Hamming-1 variants over the inner window
+        (positions ``[skip_ends, L - skip_ends)``), looks each up directly in the
+        pool ``Counter``, and sums pool-sequence counts.
 
         Args:
             seqs: CDR3 amino-acid sequences.
-            n_jobs: Thread count passed to tcrtrie's batch search.
+            n_jobs: Worker count (currently the bulk loop runs serially).
 
         Returns:
             Pgen estimates in input order.

@@ -258,12 +258,12 @@ class TestMcPgenBenchmark:
         r_exact, rmse_exact = _log10_corr_and_rmse(mc_exact, olga_pgens)
         r_1mm, _ = _log10_corr_and_rmse(mc_1mm, olga_pgens)
 
-        # tcrtrie batch query is always faster than serial OLGA (even at 500K pool)
+        # hash-enumeration batch query is always faster than serial OLGA (even at 500K pool)
         assert speedup_1mm >= 5.0, (
             f"MC 1mm speedup {speedup_1mm:.1f}x vs OLGA; expected ≥5x (pool={_BENCH_N:,})"
         )
         if _BENCH_N >= 10_000_000:
-            # At 10M pool the tcrtrie search dominates, not OLGA model init overhead
+            # At 10M pool the hash-enumeration search dominates, not OLGA model init overhead
             assert speedup_1mm >= 50.0, (
                 f"At 10M pool, MC 1mm speedup {speedup_1mm:.1f}x; expected ≥50x"
             )

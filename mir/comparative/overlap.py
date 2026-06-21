@@ -54,7 +54,7 @@ from mir.basic.mirseq_compat import is_coding as is_coding_aa
 from mir.common.alleles import allele_to_major, strip_allele
 from mir.common.clonotype import Clonotype
 from mir.common.repertoire import LocusRepertoire
-from mir.graph._trie_utils import hit_index, search_limits
+from mir.graph._trie_utils import make_index, make_params, search_canon_indices
 from mir.utils.shared_memory import (
     SharedArraySpec,
     attach_shared_array,
@@ -62,11 +62,6 @@ from mir.utils.shared_memory import (
     create_shared_array,
     fixed_bytes_array,
 )
-
-try:
-    from tcrtrie import Trie
-except Exception:  # pragma: no cover - optional runtime dependency guard
-    Trie = None
 
 _VALID_OVERLAP_SPACES = {"ntvj", "nt", "aavj", "aa"}
 _AA_OVERLAP_SPACES = {"aavj", "aa"}
@@ -155,11 +150,8 @@ def _prepare_target(
     total_dc2 = sum(dc2) or 1
 
     trie = None
-    if metric != "exact" and threshold > 0 and qi2 and Trie is not None:
-        try:
-            trie = Trie(sequences=[k[0] for k in keys2], vGenes=[k[1] for k in keys2], jGenes=[k[2] for k in keys2])
-        except Exception:
-            trie = None
+    if metric != "exact" and threshold > 0 and qi2:
+        trie = make_index([k[0] for k in keys2])  # (index, idx_to_orig)
 
     rep_ref = None
     _prepared = _PreparedTarget(
@@ -331,56 +323,6 @@ def _sequence_for_space(
     if overlap_space in _AA_OVERLAP_SPACES:
         return clone.junction_aa
     return clone.junction
-
-
-def _count_overlap_1mm_trie(
-    reference_keys: frozenset[_Key],
-    query_index: dict[_Key, int],
-) -> tuple[int, int]:
-    if not reference_keys or not query_index or Trie is None:
-        return _count_overlap_1mm_expansion(reference_keys, query_index)
-
-    q_keys = list(query_index.keys())
-    q_jaa = [k[0] for k in q_keys]
-    q_v = [k[1] for k in q_keys]
-    q_j = [k[2] for k in q_keys]
-    q_dc = [query_index[k] for k in q_keys]
-
-    try:
-        trie = Trie(
-            sequences=q_jaa,
-            vGenes=q_v,
-            jGenes=q_j,
-            with_counts=False,
-            with_indices=True,
-        )
-        max_sub, max_ins, max_del, max_edits = search_limits("hamming", 1)
-    except Exception:
-        return _count_overlap_1mm_expansion(reference_keys, query_index)
-
-    matched_idx: set[int] = set()
-    for jaa, v, j in reference_keys:
-        if not jaa:
-            continue
-        try:
-            hits = trie.SearchIndices(
-                cdr3=jaa,
-                maxSub=max_sub,
-                maxIns=max_ins,
-                maxDel=max_del,
-                maxEdits=max_edits,
-            )
-        except Exception:
-            return _count_overlap_1mm_expansion(reference_keys, query_index)
-        for hit in hits:
-            idx = hit_index(hit)
-            if idx in matched_idx:
-                continue
-            # Preserve exact V/J key semantics used by dict-based matching.
-            if q_v[idx] == v and q_j[idx] == j:
-                matched_idx.add(idx)
-
-    return len(matched_idx), sum(q_dc[i] for i in matched_idx)
 
 
 def _count_overlap_1mm_expansion(
@@ -639,7 +581,7 @@ def count_overlap(
                 n += 1
                 total_dc += dc
     else:
-        n, total_dc = _count_overlap_1mm_trie(reference_keys, query_index)
+        n, total_dc = _count_overlap_1mm_expansion(reference_keys, query_index)
 
     n_normalized = (n / target_n) if target_n is not None and target_n > 0 else None
     dc_normalized = (
@@ -995,19 +937,19 @@ def _trie_search_serial(
     keys1: list[_Key],
     dc1: list[int],
     total_dc1: int,
-    trie: object,
+    index,
+    idx_to_orig: list[int],
+    params,
     v2: list[str],
     j2: list[str],
     dc2: list[int],
     total_dc2: int,
-    max_sub: int,
-    max_ins: int,
-    max_del: int,
-    max_edits: int,
 ) -> tuple[set[int], set[int], int, float]:
-    """Search all s1 clones against a pre-built s2 trie.
+    """Search all s1 clones against a pre-built s2 seqtree index.
 
-    Returns ``(s1_matched_idx, s2_matched_idx, dc1_matched_total, mh_pairs_sum)``.
+    V/J keys are filtered by exact equality (matching the dict-based key
+    semantics).  Returns
+    ``(s1_matched_idx, s2_matched_idx, dc1_matched_total, mh_pairs_sum)``.
     """
     s1_matched: set[int] = set()
     s2_matched: set[int] = set()
@@ -1015,25 +957,14 @@ def _trie_search_serial(
     mh_sum = 0.0
 
     for i1, ((jaa, v, j), dc) in enumerate(zip(keys1, dc1)):
-        v_filter = v or None
-        j_filter = j or None
-        try:
-            hits = trie.SearchIndices(
-                query=jaa,
-                maxSubstitution=max_sub,
-                maxInsertion=max_ins,
-                maxDeletion=max_del,
-                maxEdits=max_edits,
-                vGeneFilter=v_filter,
-                jGeneFilter=j_filter,
-            )
-        except Exception:
-            continue
-
         any_hit = False
         p_i = dc / total_dc1
-        for hit in hits:
-            i2 = hit_index(hit)
+        for ci in search_canon_indices(index, jaa, params):
+            i2 = idx_to_orig[ci]
+            if v and v2[i2] != v:
+                continue
+            if j and j2[i2] != j:
+                continue
             if not any_hit:
                 s1_matched.add(i1)
                 dc1_matched += dc
@@ -1058,10 +989,10 @@ def _pw_trie_worker_init(
     dc2_spec: SharedArraySpec,
     total_dc1: int,
     total_dc2: int,
-    limits: tuple[int, int, int, int],
+    metric: str,
+    threshold: int,
 ) -> None:
     global _PW_TRIE_STATE
-    from tcrtrie import Trie as _Trie
 
     jaa2_arr, jaa2_shm = attach_shared_array(jaa2_spec)
     v2_arr, v2_shm = attach_shared_array(v2_spec)
@@ -1073,11 +1004,11 @@ def _pw_trie_worker_init(
     j2 = np.char.decode(j2_arr, "ascii").tolist()
     dc2 = dc2_arr.tolist()
 
+    index, idx_to_orig = make_index(jaa2)
     _PW_TRIE_STATE = {
-        "trie": _Trie(sequences=jaa2, vGenes=v2, jGenes=j2),
+        "index": index, "idx_to_orig": idx_to_orig, "params": make_params(metric, threshold),
         "v2": v2, "j2": j2, "dc2": dc2,
         "total_dc1": total_dc1, "total_dc2": total_dc2,
-        "limits": limits,
         "shm_handles": (jaa2_shm, v2_shm, j2_shm, dc2_shm),
     }
 
@@ -1087,10 +1018,9 @@ def _pw_trie_worker_call(
 ) -> tuple[list[int], list[int], int, float]:
     """Process a chunk of s1 clones. Returns (i1_matched, i2_matched, dc1_matched, mh_sum)."""
     st = _PW_TRIE_STATE
-    trie = st["trie"]
+    index, idx_to_orig, params = st["index"], st["idx_to_orig"], st["params"]
     v2, j2, dc2 = st["v2"], st["j2"], st["dc2"]
     total_dc1, total_dc2 = st["total_dc1"], st["total_dc2"]
-    max_sub, max_ins, max_del, max_edits = st["limits"]
 
     s1_matched: set[int] = set()
     s2_matched: set[int] = set()
@@ -1098,25 +1028,14 @@ def _pw_trie_worker_call(
     mh_sum = 0.0
 
     for i1_global, jaa, v, j, dc in chunk:
-        v_filter = v or None
-        j_filter = j or None
-        try:
-            hits = trie.SearchIndices(
-                query=jaa,
-                maxSubstitution=max_sub,
-                maxInsertion=max_ins,
-                maxDeletion=max_del,
-                maxEdits=max_edits,
-                vGeneFilter=v_filter,
-                jGeneFilter=j_filter,
-            )
-        except Exception:
-            continue
-
         any_hit = False
         p_i = dc / total_dc1
-        for hit in hits:
-            i2 = hit_index(hit)
+        for ci in search_canon_indices(index, jaa, params):
+            i2 = idx_to_orig[ci]
+            if v and v2[i2] != v:
+                continue
+            if j and j2[i2] != j:
+                continue
             if not any_hit:
                 s1_matched.add(i1_global)
                 dc1_matched += dc
@@ -1136,16 +1055,16 @@ def _compute_trie_pairwise(
     n_jobs: int = 1,
     prepared_target: _PreparedTarget | None = None,
 ) -> PairwiseOverlapResult:
-    """Approximate pairwise overlap via tcrtrie.
+    """Approximate pairwise overlap via seqtree.
 
-    Builds the trie from *qi2* and searches all clones from *qi1* against it.
-    Returns ``n1_matched`` (qi1 clones with ≥ 1 hit) and ``n2_matched``
+    Builds a seqtree index from *qi2* and searches all clones from *qi1* against
+    it.  Returns ``n1_matched`` (qi1 clones with ≥ 1 hit) and ``n2_matched``
     (qi2 clones hit by ≥ 1 qi1 clone) independently for symmetric metrics.
     """
     mode = f"{metric}:{threshold}"
     n1, n2 = len(qi1), len(qi2)
 
-    if n1 == 0 or n2 == 0 or Trie is None:
+    if n1 == 0 or n2 == 0:
         return _empty_pairwise(n1, n2, mode, True)
 
     if prepared_target is not None:
@@ -1155,7 +1074,7 @@ def _compute_trie_pairwise(
         j2 = [k[2] for k in keys2]
         dc2 = prepared_target.dc2
         total_dc2 = prepared_target.total_dc2
-        trie = prepared_target.trie
+        index, idx_to_orig = prepared_target.trie
     else:
         keys2 = list(qi2.keys())
         jaa2 = [k[0] for k in keys2]
@@ -1163,16 +1082,13 @@ def _compute_trie_pairwise(
         j2 = [k[2] for k in keys2]
         dc2 = [qi2[k] for k in keys2]
         total_dc2 = sum(dc2) or 1
-        try:
-            trie = Trie(sequences=jaa2, vGenes=v2, jGenes=j2)
-        except Exception:
-            return _empty_pairwise(n1, n2, mode, True)
+        index, idx_to_orig = make_index(jaa2)
 
     keys1 = list(qi1.keys())
     dc1 = [qi1[k] for k in keys1]
     total_dc1 = sum(dc1) or 1
 
-    limits = search_limits(metric, threshold)
+    params = make_params(metric, threshold)
 
     # Process startup can dominate runtime for modest query sizes.
     if n_jobs > 1 and len(keys1) < 50_000:
@@ -1180,13 +1096,9 @@ def _compute_trie_pairwise(
 
     if n_jobs == 1:
         s1_idx, s2_idx, dc1_matched, mh_sum = _trie_search_serial(
-            keys1, dc1, total_dc1, trie, v2, j2, dc2, total_dc2, *limits,
+            keys1, dc1, total_dc1, index, idx_to_orig, params, v2, j2, dc2, total_dc2,
         )
-        if prepared_target is None:
-            del trie  # free before spawning (not needed here but consistent)
     else:
-        if prepared_target is None:
-            del trie  # rebuilt inside each worker via initializer
         chunk_size = max(1, len(keys1) // n_jobs)
         chunks = [
             [(i, keys1[i][0], keys1[i][1], keys1[i][2], dc1[i])
@@ -1209,7 +1121,7 @@ def _compute_trie_pairwise(
                 max_workers=n_jobs,
                 mp_context=_MP_CTX,
                 initializer=_pw_trie_worker_init,
-                initargs=(jaa2_spec, v2_spec, j2_spec, dc2_spec, total_dc1, total_dc2, limits),
+                initargs=(jaa2_spec, v2_spec, j2_spec, dc2_spec, total_dc1, total_dc2, metric, threshold),
             ) as pool:
                 partial = list(pool.map(_pw_trie_worker_call, chunks))
         finally:
@@ -1345,15 +1257,8 @@ def pairwise_overlap(
         total_dc2 = sum(dc2) or 1
 
         trie = None
-        if metric != "exact" and threshold > 0 and qi2 and Trie is not None:
-            try:
-                trie = Trie(
-                    sequences=[k[0] for k in keys2],
-                    vGenes=[k[1] for k in keys2],
-                    jGenes=[k[2] for k in keys2],
-                )
-            except Exception:
-                trie = None
+        if metric != "exact" and threshold > 0 and qi2:
+            trie = make_index([k[0] for k in keys2])  # (index, idx_to_orig)
 
         rep_ref = None
         try:
