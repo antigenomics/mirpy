@@ -81,7 +81,7 @@ Use the cloned repo setup when developing or running docs/notebooks locally.
 | --- | --- |
 | `mir.common` | Clonotypes, repertoires, parsers, segment libraries |
 | `mir.distances` | Aligners, Hamming/Levenshtein search, graph utilities, TCRdist |
-| `mir.basic` | Sampling, segment usage, alphabet helpers, Pgen utilities |
+| `mir.basic` | Sampling, segment usage, alphabet helpers, Pgen utilities, OLGA germline-retention/trimming profiles + fast `PgenLite` |
 | `mir.graph` | Edit-distance graphs, neighbourhood enrichment, token graphs, single-cell pairing |
 | `mir.embedding` | Prototype embeddings: TCREmp, PairedTCREmp |
 | `mir.comparative` | Pairwise overlap metrics (Jaccard, D, F, Morisita-Horn), trie-accelerated approximate matching, VDJBet Pgen-matched null distributions |
