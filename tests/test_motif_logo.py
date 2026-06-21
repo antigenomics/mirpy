@@ -1130,6 +1130,34 @@ class TestBuildTerminalAnchoredLogo(unittest.TestCase):
             non_null = logo["bg_height"].drop_nulls()
             self.assertGreater(len(non_null), 0)
 
+    def test_germline_retention_discounts_selection(self):
+        """germline_retention down-weights selection at germline-conserved N positions."""
+        from mir.basic.trimming import retention_profiles
+        import random
+        rng = random.Random(0)
+        aas = list("ACDEFGHIKLMNPQRSTVWY")
+        def _rand15():
+            mid = "".join(rng.choice(aas) for _ in range(5))
+            return f"CASS{mid}TDTQYF"
+        ctrl = pl.DataFrame({
+            "junction_aa": [_rand15() for _ in range(500)],
+            "v_call": ["TRBV9"] * 500,
+            "j_call": ["TRBJ2-3"] * 500,
+        })
+        seqs_df = self._SEQS_DF.filter(pl.col("j_call") == "TRBJ2-3")
+        ret = retention_profiles(locus="TRB", species="human")
+        kw = dict(n_term=8, c_term=7, control_df=ctrl, min_control_seqs=50)
+        base = build_terminal_anchored_logo(seqs_df, None, **kw)
+        disc = build_terminal_anchored_logo(seqs_df, None, germline_retention=ret, **kw)
+        if "bg_height" not in base.columns or "bg_height" not in disc.columns:
+            self.skipTest("no background coverage")
+        # CASS occupies N positions 0..3 — germline for TRBV9, so discount shrinks them.
+        nblock = lambda df: df.filter(pl.col("pos") < 4)["bg_height"].abs().sum()
+        b, d = nblock(base), nblock(disc)
+        self.assertLessEqual(d, b + 1e-9)
+        if b > 1e-6:
+            self.assertLess(d, b)
+
     def test_no_background_source_returns_ic_only(self):
         """Calling with no motif_pwms and no control_df must still return a logo (IC only)."""
         logo = build_terminal_anchored_logo(

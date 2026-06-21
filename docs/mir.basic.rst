@@ -20,6 +20,14 @@ mir.basic.pgen module
    :undoc-members:
    :show-inheritance:
 
+mir.basic.trimming module
+-------------------------
+
+.. automodule:: mir.basic.trimming
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 mir.basic.token\_tables module
 ------------------------------
 

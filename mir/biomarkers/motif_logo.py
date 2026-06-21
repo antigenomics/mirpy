@@ -907,6 +907,7 @@ def build_terminal_anchored_logo(
     cdr3_col: str = "junction_aa",
     v_col: str = "v_call",
     j_col: str = "j_call",
+    germline_retention: tuple[dict[str, list[float]], dict[str, list[float]]] | None = None,
 ) -> pl.DataFrame:
     """Build a terminal-anchored logo with background subtracted in linear space.
 
@@ -978,6 +979,12 @@ def build_terminal_anchored_logo(
         cdr3_col: CDR3 column name (default ``"junction_aa"``).
         v_col: V-gene column name (default ``"v_call"``).
         j_col: J-gene column name (default ``"j_call"``).
+        germline_retention: Optional ``(retV, retJ)`` profiles from
+            :func:`mir.basic.trimming.retention_profiles`.  When given, selection
+            (``bg_height``) heights are down-weighted by ``(1 - retention)`` at
+            each position of the length's dominant V/J, so the selection logo
+            highlights antigen-driven insert-core variation instead of germline
+            flank conservation.  The IC logo is unaffected.
 
     Returns:
         Polars DataFrame with columns ``pos``, ``label``, ``aa``, ``count``,
@@ -993,6 +1000,15 @@ def build_terminal_anchored_logo(
         >>> fig, axes = plot_motif_logos(logo, divider_after=n_term - 1)
     """
     seqs_all = sequences_df[cdr3_col].to_list()
+    retV, retJ = germline_retention if germline_retention is not None else (None, None)
+    if retV is not None:
+        # Key by base gene so bare ("TRBV9") and allele ("TRBV9*01") V/J calls both resolve.
+        def _base_keyed(d):
+            out: dict[str, list[float]] = {}
+            for gene, prof in d.items():
+                out.setdefault(gene.split("*", 1)[0], prof)
+            return out
+        retV, retJ = _base_keyed(retV), _base_keyed(retJ)
 
     # Step 1: IC logo from terminal-anchored frequencies
     ta_pwm = build_terminal_anchored_pwm(
@@ -1028,6 +1044,8 @@ def build_terminal_anchored_logo(
         first_row = dom.row(0, named=True)
         v_dom = str(first_row[v_col])
         j_dom = str(first_row[j_col])
+        rv = retV.get(v_dom.split("*", 1)[0]) if retV is not None else None
+        rj = retJ.get(j_dom.split("*", 1)[0]) if retJ is not None else None
 
         # Try control first, then motif_pwms
         bg: pl.DataFrame | None = None
@@ -1062,6 +1080,11 @@ def build_terminal_anchored_logo(
         for aa in AA_ORDER:
             for p in range(length):
                 h = h_lookup.get((p, aa), 0.0)
+                if retV is not None:
+                    av = rv[p] if (rv is not None and p < len(rv)) else 0.0
+                    kk = length - 1 - p
+                    bjv = rj[kk] if (rj is not None and kk < len(rj)) else 0.0
+                    h *= 1.0 - (av if av > bjv else bjv)  # discount germline-retained positions
 
                 # N-block contribution
                 if p < n_term:
