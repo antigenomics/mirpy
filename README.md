@@ -17,7 +17,7 @@ in embedding space approximates pairwise alignment distance (see [`THEORY.md`](T
 ## Install
 
 ```bash
-pip install mirpy-lib            # core: numpy, polars, scikit-learn, seqtree, vdjtools
+pip install mirpy-lib            # core: numpy, polars, scipy, scikit-learn, seqtree, vdjtools
 pip install "mirpy-lib[bench]"   # + benchmark / theory experiments
 ```
 
@@ -86,10 +86,10 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 |---|---|
 | `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
 | `mir.embedding.pca` | PCA denoising of embeddings |
-| `mir.distances` | junction distance (`seqtree.gapblock`) + baked germline distances |
+| `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
 | `mir.bench` | VDJdb loader, DBSCAN clustering + F1/retention, theory experiments |
-| `mir.density` | continuous-density TCRNET/ALICE — enrichment + noise-filtering (Theory T6) |
-| `mir.ml` | neural codecs (Part 2, planned) |
+| `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel) + noise-filtering (Theory T6) |
+| `mir.ml` | neural codecs — forward/inverse/Pgen/unified (Part 2, experimental; `[ml]` extra) |
 
 ## Background subtraction & clustering (`mir.density`)
 

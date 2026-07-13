@@ -4,7 +4,7 @@ Version 3 is a slim, embedding-focused rewrite. Heavy machinery is delegated to
 sibling packages rather than duplicated:
 
 * alignment → ``seqtree`` (``seqtree.gapblock``),
-* VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (extra ``[rearrangement]``),
+* VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (core dependency),
 * VDJdb annotation / E-values → ``vdjmatch`` (extra ``[annotate]``),
 * build-time germline region annotation → ``arda`` (extra ``[build]``).
 

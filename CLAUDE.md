@@ -33,7 +33,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
 
 ## Layout (`mir/`)
 - `aliases.py`, `alleles.py` — species/locus + allele normalization.
-- `distances/junction.py` — `junction_distance_matrix` (seqtree.gapblock). `distances/germline.py`
+- `distances/junction.py` — `junction_distance_matrix` (seqtree.gapblock). Coordinate knobs (all
+  default to the published space, threaded through `TCREmp`): `metric="squared"` (=`d`, default) |
+  `"sqrt"` (metric `ρ=√d`, benchmarked a wash — `SQRT_D_MIGRATION.md`); `matrix=` a custom
+  `seqtree.SubstitutionMatrix` (pam250/structural/from_similarity); `alignment="gapblock"` (default)
+  | `"sw"` (paper-exact Smith-Waterman, lazy BioPython, validation-only). `distances/germline.py`
   — resource-backed V/J/CDR1/CDR2 lookup with allele cascade.
 - `embedding/prototypes.py` — bundled prototype loader. `embedding/tcremp.py` — `TCREmp` /
   `PairedTCREmp` (polars frame in → `(N,3K)` float32). `embedding/pca.py` — PCA denoise (T3).
@@ -57,9 +61,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
 ## Build / test / run
 - Conda env **`mirpy`** (Python 3.12; do NOT use `.venv` here). `pip install -e .`
   (pure-Python hatchling; no C build). Extras: `[bench] [annotate] [build] [ml] [docs] [dev]`.
-- Tests: `python -m pytest tests/ -q` (45 pass, ~2s; all self-contained on bundled resources).
+- Tests: `python -m pytest tests/ -q` (71 pass, ~5s; all self-contained on bundled resources).
 - Experiments: `python experiments/reproduce_supplementary.py` (theory S1–S3),
-  `python experiments/benchmark_vdjdb.py` (Table S1). See `THEORY.md`.
+  `python experiments/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
+  (geometry saturates by K≈100 — T.1/S4), `analyze_pc_decomposition.py` (V/J η² ≈0.44/0.49,
+  CDR3-length η² 0.13 & R²=0.95; germline low-rank ~13 PCs — T.4). See `THEORY.md`.
 
 ## Conventions
 - AIRR polars frames in/out, keyed by `vdjtools.io.schema` names (`v_call, j_call, junction_aa,
