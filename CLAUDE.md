@@ -52,7 +52,13 @@ to their owners instead.
   `py3-none-any` wheel; regenerate `generate_prototypes.py` via `vdjtools.model.generate`.
 - **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper
   regime (Fig 1's dataset-specific factor). Exact Table S1 F1 needs the paper's VDJdb release.
-- **Part 2 (v3.1+)**: absorb `irrm-codec` into `mir.ml` — forward encoder (seq→embedding), inverse
-  decoder (embedding→seq), Pgen-from-embedding regressor; continuous-density TCRNET (T6); IGH/SHM
-  (T5); epitope/MHC extension. Free supervision from HF `airr_benchmark` + `vdjtools` sampling.
+- **Part 2 (v3.1+)** — `mir.ml` (torch, `[ml]` extra), absorbing `irrm-codec`:
+  - **DONE forward codec** — `mir/ml/{tokenize,encoder,train}.py`: fixed-len-40 one-hot →
+    CNN → junction-distance embedding, free supervision (gapblock targets). Test mean cosine
+    **0.935** on TRB (n=10k, K=1000; paper 0.887). `experiments/train_forward_encoder.py`.
+    The junction component is the expensive part; V/J are cheap germline lookups. DNN inference
+    is K-independent (wins over gapblock at large K / on GPU).
+  - **TODO**: full-embedding variant (feed V/J via `nn.Embedding`); inverse decoder
+    (embedding→seq, IGH hard); Pgen-from-embedding regressor; continuous-density TCRNET (T6);
+    IGH/SHM (T5); epitope/MHC. Scale training on HF `airr_benchmark` + `vdjtools` sampling.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
