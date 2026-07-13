@@ -25,7 +25,8 @@ from mir.distances.junction import junction_distance_matrix
 
 
 def junction_dissimilarity(cdr3s, threads: int = 0) -> np.ndarray:
-    """Symmetric ``(n, n)`` junction dissimilarity ``d_ij`` (v3 gapblock metric)."""
+    """Symmetric ``(n, n)`` junction dissimilarity ``d_ij`` (v3 gapblock; a
+    negative-type semimetric / squared Hilbert distance, not a metric — ρ=√d is)."""
     return junction_distance_matrix(cdr3s, cdr3s, threads=threads)
 
 
