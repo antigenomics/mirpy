@@ -27,13 +27,14 @@ dependencies = [
   "polars",
   "scikit-learn",
   "seqtree>=0.3.0",
+  # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
+  # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
+  "vdjtools",
   "tqdm",
 ]
 license = {text = "GPL-3.0 license"}
 
 [project.optional-dependencies]
-# Runtime Pgen + synthetic sampling (VDJ rearrangement model).
-rearrangement = ["vdjtools"]
 # VDJdb annotation / E-values for the benchmark harness.
 annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt / germline distance
