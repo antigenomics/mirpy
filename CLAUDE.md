@@ -100,9 +100,14 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     enrichment `E(z)=f_obs/f_gen` in embedding space; Poisson (ALICE, P_gen bg) or binomial
     (TCRNET, control bg) + BH q; water-level calibration for the naive regime. Theory
     `tcrnet_convergence` confirms the r→0 graph limit (ρ 0.37→−0.05 as radius grows). Benchmarks
-    `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py` on HF `isalgo/airr_{yfv19,ankspond,benchmark}`.
+    `experiments/benchmark_density_{yfv,ankspond,tcrnet,vdjdb}.py` on HF
+    `isalgo/airr_{yfv19,ankspond,benchmark,control}` + VDJdb slim.
     **Key lesson**: real repertoires are pervasively convergent, so a P_gen background flags ~40% of
     clones — use a *biological control* (differential: day15-vs-day0, B27±, CMV-vs-control) for
     specificity, and process the **full repertoire** (subsampling dilutes the sparse antigen clusters).
+    `benchmark_density_vdjdb.py` makes this quantitative: VDJdb TRB ridges bystander-filtered by
+    `reference.id` (≥2 PMIDs) + admixed `airr_control` noise; under P_gen the noise over-flags 43%
+    vs 1% under a control bg (46× signal:noise lift), and it counts mountains/epitope (GILGFVFTL 32,
+    NLVPMVATV 4 — polyclonality tracks precursor freq, Pogorelyy 2018).
   - **TODO**: epitope/MHC; scale codec on HF `airr_benchmark` (10–100M).
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

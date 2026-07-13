@@ -92,7 +92,7 @@ shared with query data.
 | **S1 / T4** `d_ij` law | Gamma > Normal | Gamma ≈ Normal (AIC tie) | Gamma ≈ Normal (AIC tie) |
 | **S1 / T4** `D_ij` law | GEV/Fréchet ≫ Normal, ξ=+0.11 | **GEV wins** (KS .021 vs .078), ξ≈−0.03 | **GEV wins** (KS .017 vs .082), ξ≈0.00 |
 | **S3** real vs model prototypes | 0.96 | — | **0.940** |
-| **Table S1** VDJdb TRB antigen clustering | mean F1 91%, retention 18% | — | *(re-run pending on arda coords)* |
+| **Table S1** VDJdb TRB antigen clustering | mean F1 91%, retention 18% | — | mean F1 81%, retention 17% |
 
 The core claims reproduce on the arda-native coordinate system: the embedding distance tracks
 alignment distance (T1: SW 0.575 ≈ paper 0.56), `D_ij` is extreme-value distributed (T4), and the
