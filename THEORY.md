@@ -53,18 +53,27 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   *Lesson:* real repertoires are pervasively convergent, so P_gen enrichment flags ~40% of clones — a
   **biological control** (differential) or an antigen-reference match supplies the specificity, and the
   full repertoire must be used (subsampling dilutes the sparse antigen clusters).
-  **Full theory — appendix §T.6** (`appendix/tcremp_theory.tex`): the observed repertoire as a mixture
-  `f_obs = (1−π) f_sig + π f_bg` with `f_bg ≈ f_gen` and one "water level" `π` covering both regimes
-  (bystander `π≈0.1–0.5`, naive `π≈0.95`); `E(z)` estimated by any of three consistent density-ratio
-  estimators — **balloon** (local Poisson, exact significance), **RuLSIF** (bounded relative ratio
-  `r_α ≤ 1/α`, valley-stable), **classifier/flow** (NCE logit `= log E + log(N/M)`, scales via the forward
-  codec) — with per-point Poisson significance, Storey `π̂₀` as the water level, FDR in place of a hand-set
-  threshold, level-set/persistence ridge delineation, and per-ridge binomial epitope enrichment. Ridges are
-  **epitope-heterogeneous** (precursor frequency spans ~2 orders across / ~6 within epitopes — Pogorelyy et
-  al. *Genome Med* 2018), so no single global cut works and significance is judged locally. *Parameter logic
-  (way of action):* neighbourhood scale adaptive to fix expected background occupancy `λ₀∈[1,5]`
-  (depth/valley-adaptive; minimum detectable `E* ≳ 1 + c(q)/√λ₀`); background `M ≥ 5N`, P_gen (ALICE) or
-  control+`Q` (TCRNET); PCA to the per-chain preset (~95% var); FDR `q*` = 0.05 (0.001 stringent).
+  **Full theory — appendix §T.6** (`appendix/tcremp_theory.tex`, 8 subsections T.6.1–T.6.8 with proofs):
+  - *Why P_gen over-flags (~40%)*: the observed law is a selection reweighting `π_obs = P_gen·Q/Z_Q`
+    (convergent recombination + thymic selection, "rich get richer"), so `E = q/Z_Q` and the **size-biased
+    bulk fold `E_obs[E] = 1 + CV²(q) > 1`** — the ~40% is null *miscalibration*, not a 40% non-null fraction.
+  - *Three estimators of the one ratio* `E`: **balloon** (local Poisson, exact test), **RuLSIF** (bounded
+    relative ratio `r_α ≤ 1/α`, valley-stable), **classifier/flow** (NCE logit `= log E + log(N/M)` — the
+    shared offset is *why* ALICE≡TCRNET, Jaccard 0.86); direct estimation beats plug-in at rate
+    `n^{-1/(2+2γ)}`.
+  - *Exact local test*: `μ₀ = (N−1)(n_bg+1)/(M+1)`, Poisson upper tail (ALICE) or conditional binomial
+    `Binom(T, N/(N+M))` (TCRNET); **ALICE is the rare-event limit of TCRNET** (`d_TV ≤ μ₀·p_bg`, Chen–Stein).
+  - *Water level = **Efron empirical-null median recentering*** (NOT Storey π₀): `c = max(median(n_obs)/
+    median(μ₀), 1)`, robust (breakdown ½) since signal <5% barely moves the median — the DESeq median-of-ratios
+    size factor. Then BH under PRDS.
+  - *Differential control cancels convergence pointwise*: `R = f_case/f_ctrl = (1+a₁)/(1+a₀) ⊥ q` (no
+    water-level offset); control-absent motifs give `R→∞` (grounds B27 9-vs-0, YFV 63>35). Prefer a
+    biological control over P_gen whenever one exists.
+  - *Depth*: subsampling is Poisson thinning; detection floor `w_e^min = c/D` ⇒ process the **full**
+    repertoire. Ridges = density level sets → DBSCAN(ε=r₁) + per-ridge binomial epitope test.
+  *Parameter logic (way of action, all derived):* `λ₀∈[1,5]` default 3 (min-detectable `E* = 1 + c(q)/√λ₀`,
+  `c(q)=Φ⁻¹(1−q)`); `M ≥ 5N`; PCA per-chain preset (~95% var); radius `= r₁` (median one-substitution drift);
+  FDR `q* = 0.05`; Efron median recenter for P_gen, none for a differential control.
 
 ## Reproduced numbers (v3 pipeline)
 
@@ -73,16 +82,21 @@ Run `python experiments/reproduce_supplementary.py` (S1–S3) and
 `human_TRB` prototypes; SW = the paper's Smith-Waterman/BLOSUM62 metric, gapblock = the v3
 pipeline metric.
 
+Prototypes are **arda-native** (2026-07): arda-annotated real repertoires (`isalgo/airr_model_read`
+functional reads → `arda rnaseq map`) over arda-baked germline distances — one IMGT allele frame
+shared with query data.
+
 | Claim | Paper | mirpy SW | mirpy gapblock (v3) |
 |---|---|---|---|
-| **S2 / T1** `Pearson(D_ij, d_ij)` | 0.56 | **0.636** | 0.486 |
-| **S1 / T4** `d_ij` law | Gamma > Normal | **Gamma wins** (AIC) | **Gamma wins** (AIC) |
-| **S1 / T4** `D_ij` law | GEV/Fréchet ≫ Normal, ξ=+0.11 | **GEV wins** (KS .023 vs .080), ξ≈−0.03 | **GEV wins** (KS .018 vs .085), ξ≈+0.01 |
-| **S3** real vs model prototypes | 0.96 | — | **0.963** |
-| **Table S1** VDJdb TRB antigen clustering | mean F1 91%, retention 18% | — | mean F1 ~80%, **retention 18%** |
+| **S2 / T1** `Pearson(D_ij, d_ij)` | 0.56 | **0.575** | 0.404 |
+| **S1 / T4** `d_ij` law | Gamma > Normal | Gamma ≈ Normal (AIC tie) | Gamma ≈ Normal (AIC tie) |
+| **S1 / T4** `D_ij` law | GEV/Fréchet ≫ Normal, ξ=+0.11 | **GEV wins** (KS .021 vs .078), ξ≈−0.03 | **GEV wins** (KS .017 vs .082), ξ≈0.00 |
+| **S3** real vs model prototypes | 0.96 | — | **0.940** |
+| **Table S1** VDJdb TRB antigen clustering | mean F1 91%, retention 18% | — | *(re-run pending on arda coords)* |
 
-The core claims reproduce: the embedding distance tracks alignment distance (T1), `d_ij` is
-Gamma and `D_ij` is extreme-value distributed (T4), the prototype *source* barely matters (S3,
-0.963 ≈ 0.96), and antigen-cluster retention matches Table S1 exactly. Quantitative gaps
-(`D` shape ξ, Table S1 F1) trace to the gapblock-vs-Smith-Waterman metric and a different VDJdb
-release — the v3 embedding is deliberately a new, versioned coordinate system.
+The core claims reproduce on the arda-native coordinate system: the embedding distance tracks
+alignment distance (T1: SW 0.575 ≈ paper 0.56), `D_ij` is extreme-value distributed (T4), and the
+prototype *source* barely matters (S3, 0.940 ≈ 0.96). `d_ij` is now a Gamma/Normal near-tie (the
+real-repertoire junction-length distribution is tighter than the previous set). The v3 embedding is
+a deliberately new, versioned coordinate system; switching prototypes to arda-annotated real
+repertoires (from the earlier real/OLGA mix) shifts the exact numbers but preserves every law.

@@ -15,10 +15,21 @@ delegates:
   (`vdjtools.model.reference`), Pgen + synthetic sampling (`vdjtools.model.{load_bundled,
   native.pgen_aa_batch, generate.generate}`).
 - **vdjmatch** (`[annotate]`) — VDJdb annotation / E-values.
-- **arda** (`[build]`) — build-time germline region annotation.
+- **arda** (`[build]`) — build-time germline region annotation. **arda is the single germline
+  source of truth**: prototypes, germline-distance matrices, and all query data share one arda IMGT
+  allele namespace. Needs `ARDA_HOME` at build time (`arda-mapper` wheel; no cmake build for
+  germline reading, but `arda rnaseq map` fetches mmseqs2).
 
-mirpy is **read-only** from vdjtools' perspective; never edit the sibling repos — surface bugs
-to their owners instead.
+The reference/prototype coordinate system is **arda-native** (2026-07): `mir/resources/germline_dist`
+is baked from arda germline (`build_region_annotations.py` → arda `markup.aa.tsv`); prototypes
+(`generate_prototypes.py`) come from **arda-annotated real repertoires** (`isalgo/airr_model_read`
+functional reads → `arda rnaseq map`), giving arda names + a real junction manifold. NB: arda-native
+generative models via `vdjtools.model.from_arda` exist (EM-learned, used as the density P_gen
+background) but their synthetic junctions embed *worse* than real repertoires (degenerate lengths,
+negative S2) — so prototypes use real reads, not model generation.
+
+mirpy is normally read-only to the sibling repos; the `from_arda` builder + a tandem-D generation
+fix were added to `vdjtools` under the owner's direction (this is that owner's ecosystem).
 
 ## Layout (`mir/`)
 - `aliases.py`, `alleles.py` — species/locus + allele normalization.
