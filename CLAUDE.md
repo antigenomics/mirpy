@@ -52,13 +52,16 @@ to their owners instead.
   `py3-none-any` wheel; regenerate `generate_prototypes.py` via `vdjtools.model.generate`.
 - **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper
   regime (Fig 1's dataset-specific factor). Exact Table S1 F1 needs the paper's VDJdb release.
-- **Part 2 (v3.1+)** — `mir.ml` (torch, `[ml]` extra), absorbing `irrm-codec`:
-  - **DONE forward codec** — `mir/ml/{tokenize,encoder,train}.py`: fixed-len-40 one-hot →
-    CNN → junction-distance embedding, free supervision (gapblock targets). Test mean cosine
-    **0.935** on TRB (n=10k, K=1000; paper 0.887). `experiments/train_forward_encoder.py`.
-    The junction component is the expensive part; V/J are cheap germline lookups. DNN inference
-    is K-independent (wins over gapblock at large K / on GPU).
-  - **TODO**: full-embedding variant (feed V/J via `nn.Embedding`); inverse decoder
-    (embedding→seq, IGH hard); Pgen-from-embedding regressor; continuous-density TCRNET (T6);
-    IGH/SHM (T5); epitope/MHC. Scale training on HF `airr_benchmark` + `vdjtools` sampling.
+- **Part 2 (v3.1+)** — `mir.ml` (torch, `[ml]` extra), absorbing `irrm-codec`. Codec targets the
+  **95%-variance PCA-compacted junction embedding** (T3: 1000-D junction → ~64 PCs), fit train-only.
+  V/J stay exact germline lookups (nothing to learn); the codec's job is the junction part.
+  Results at n=25k TRB on M3 MPS (`experiments/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`):
+  - **DONE forward codec** (`tokenize,encoder,train`): seq → compact code, reconstruction
+    cosine **0.9987** (paper 0.887). DNN inference is K-independent.
+  - **DONE inverse codec** (`decoder`, `train.train_inverse_decoder`): 64-PC code → seq,
+    exact-match **0.41**, token-acc 0.97 (irrm-codec 0.50 from the *full* embedding).
+  - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.965**,
+    **136× faster** than the native DP.
+  - **TODO**: unify encoder+decoder (light fine-tune preserving geometry); continuous-density
+    TCRNET (T6); IGH/SHM (T5, the hard chain); epitope/MHC. Scale on HF `airr_benchmark`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

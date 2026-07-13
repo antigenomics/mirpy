@@ -35,7 +35,7 @@ def main(n: int = 8000, k: int = 1000, epochs: int = 30) -> None:
 
     enc, metrics = train_forward_encoder(seqs, targets, epochs=epochs)
     print(f"\nRESULT: test mean cosine = {metrics['test_cosine']:.4f}  "
-          f"(n={metrics['n']}, K={k}, epochs={epochs})")
+          f"(n={metrics['n']}, K={k} -> {metrics['n_components']} PCs @95% var, epochs={epochs})")
 
     # timing: DNN vs gapblock for the same batch
     import numpy as np

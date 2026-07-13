@@ -30,3 +30,36 @@ def test_forward_encoder_learns():
     assert m["test_cosine"] > 0.3                # learns real signal
     Z = enc.encode(seqs[:10])
     assert Z.shape == (10, 64)
+
+
+def test_inverse_decoder_learns():
+    pytest.importorskip("torch")
+    from sklearn.decomposition import PCA
+
+    from mir.distances.junction import junction_distance_matrix
+    from mir.embedding.prototypes import load_prototypes
+    from mir.ml.train import train_inverse_decoder
+
+    protos = load_prototypes("human", "TRB", n=300)["junction_aa"].to_list()
+    seqs = load_prototypes("human", "TRB", n=1200)["junction_aa"].to_list()
+    codes = PCA(n_components=0.95, whiten=True, random_state=0).fit_transform(
+        junction_distance_matrix(seqs, protos))
+    dec, m = train_inverse_decoder(codes, seqs, epochs=8, verbose=False, seed=0)
+    assert m["token_acc"] > 0.5                  # learns to invert
+    out = dec.decode(codes[:5])
+    assert len(out) == 5 and all(isinstance(s, str) for s in out)
+
+
+def test_pgen_regressor_learns():
+    pytest.importorskip("torch")
+    import numpy as np
+
+    from mir.embedding.prototypes import load_prototypes
+    from mir.ml.train import train_pgen_regressor
+
+    seqs = load_prototypes("human", "TRB", n=1200)["junction_aa"].to_list()
+    # learnable synthetic target: a function of CDR3 length
+    target = np.array([-len(s) for s in seqs], dtype=np.float32)
+    reg, m = train_pgen_regressor(seqs, target, epochs=8, verbose=False, seed=0)
+    assert m["pearson"] > 0.5
+    assert reg.predict(seqs[:5]).shape == (5,)
