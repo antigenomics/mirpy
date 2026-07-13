@@ -28,7 +28,12 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   embedding-space `D_ij ~` generalized extreme value / Fréchet (min-over-K extreme-value limit).
   *Empirically:* supplementary **S1**.
 - **T5 — SHM / IGH** (Part 2). Somatic hypermutation as a perturbation bounds embedding drift by
-  mutation load — explains why IGH is the hardest chain for the neural decoder.
+  mutation load: `D_k = ‖φ(k-mutated) − φ(x)‖` is ~linear/sublinear in `k` (`mir.bench.theory.
+  shm_embedding_drift`; linear-R² 0.97–0.99). IGH's longer CDR3 gives the *lowest* per-mutation
+  drift (101 vs TRB 138) — the embedding is robust to SHM. IGH's hard *reconstruction* is instead
+  over-compaction: the 95% code (68 PCs) gives exact-match 0.009, but 99% (371 PCs) gives 0.152
+  (≈ irrm-codec's 0.16) — so variance retention should be chain-adaptive, not the frame
+  (only 0.1% of IGH CDR3s exceed the length-40 frame). `experiments/benchmark_igh_shm.py`.
 - **T6 — density space** (Part 2). Enrichment as observed-density ÷ `P_gen`-pushforward-density
   in embedding space; graph neighbour-enrichment (TCRNET/ALICE) converges to this density ratio
   — the basis for continuous background subtraction.
