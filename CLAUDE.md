@@ -61,7 +61,17 @@ to their owners instead.
   - **DONE inverse codec** (`decoder`, `train.train_inverse_decoder`): 64-PC code → seq,
     exact-match **0.41**, token-acc 0.97 (irrm-codec 0.50 from the *full* embedding).
   - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.965**,
-    **136× faster** than the native DP.
-  - **TODO**: unify encoder+decoder (light fine-tune preserving geometry); continuous-density
-    TCRNET (T6); IGH/SHM (T5, the hard chain); epitope/MHC. Scale on HF `airr_benchmark`.
+    **136× faster** than the native DP. Breakdown (`experiments/benchmark_pgen_variants.py`):
+    r ranks marginalized > J > V > V&J (a CDR3-only regressor best predicts the pure-CDR3
+    marginalized Pgen; V&J-conditional depends on unseen genes) and 1mm > exact (smoother ball).
+  - **DONE unified codec** (`codec.py`): jointly train encoder+decoder with a geometry-anchor
+    term (`lambda_embed`) — code stays ≈ the true embedding (distances preserved) while
+    round-tripping seq→code→seq; encoder+decoder co-adapt (roundtrip_exact > decode_true_exact).
+  - **DONE smart shipping** (`bundle.py`): **embeddings are only comparable if prototypes + PCA
+    rotation match.** `CodecBundle` serializes the PCA transform + a prototype hash + weights;
+    `load` refuses a prototype-hash mismatch so incomparable embeddings can't be mixed. Any
+    trained codec MUST be shipped as a bundle, never bare weights.
+  - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py`.
+  - **TODO**: continuous-density TCRNET (T6); IGH/SHM (T5, the hard chain); epitope/MHC;
+    scale on HF `airr_benchmark`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
