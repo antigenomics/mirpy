@@ -336,6 +336,54 @@ Smith--Waterman construction --- a metric-dependent detail, not a qualitative di
   \label{fig:s1}
 \end{figure}
 
+\paragraph{Why not learn the representation?} A natural alternative to Eq.~\eqref{eq:embedding} is to
+train a self-supervised sequence model --- a masked or autoregressive ``receptor language model'' --- and
+use its latent as the embedding. The recombination model shows why this cannot improve on the alignment
+geometry for specificity. Two properties of $\Pgen$ are decisive: it is \emph{low-complexity} and it is
+\emph{antigen-blind}.
+
+First, the repertoire process has little learnable structure. $\Pgen$ factorises as a shallow Bayesian
+network --- germline gene choice, a nearest-neighbour (dinucleotide Markov) insertion chain, and
+independent trimming \cite{Murugan2012,Marcou2018} --- so its \emph{predictive information}, the mutual
+information between a CDR3 prefix and its remainder (the excess entropy of the process), is bounded by the
+description length of that network: a few bits, and short-range. Natural language carries large predictive
+information --- syntax, semantics, world knowledge --- that deep representations discover and compress; a
+CDR3 carries almost none beyond its germline templating and local insertion statistics. A likelihood-trained
+model therefore converges to a sufficient statistic for $\Pgen$ itself and has nothing further to represent.
+
+Second, and decisively, $\Pgen$ has no antigen variable: generation precedes and is independent of antigen
+selection. Let $A$ be the antigen a receptor $X$ recognises, unobserved during self-supervised training.
+
+\begin{proposition}[No unsupervised separation of specificity]\label{prop:nofreelunch}
+Let a representation $f$ be fitted by any objective that is a functional of the unlabelled generation
+marginal $\Pgen$ alone. Then the training signal carries zero information about the antigen partition,
+$I(\text{objective};A)=0$; the population objective is invariant under relabelling of antigens, and the
+alignment of $f(X)$ with $A$ is fixed by the inductive bias of $f$ (its architecture, tokenisation, and
+metric), not by learning.
+\end{proposition}
+\begin{proof}[Sketch]
+The loss depends on $X$ only through $\Pgen$, which is antigen-blind ($A$ enters only at selection, after
+generation); the data-processing inequality gives $I(f;A)\le I(\text{training data};A)=0$ for any $f$
+measurable with respect to the unlabelled sample. Hence the population objective is unchanged by any
+permutation of antigen labels, so its minimisers cannot prefer an antigen-separating $f$ over an
+antigen-mixing one on the strength of the data. \qed
+\end{proof}
+
+Specificity separation in a receptor embedding is thus an \emph{inductive-bias} phenomenon, not a learned
+one: it is present exactly insofar as the chosen geometry matches the biophysics of recognition. The
+prototype embedding builds in precisely the right bias --- the alignment metric that supplementary Fig.~S5
+shows tracks structural (C$\alpha$ {\scshape RMSD}) similarity --- with no training and no antigen labels. A
+learned network has only three options: (i) recover $\Pgen$, which does not separate antigens
+(Prop.~\ref{prop:nofreelunch}); (ii) be supervised by scarce antigen labels, abandoning the unsupervised
+premise and the unlimited $\Pgen$-sampling that makes the approach attractive; or (iii) regress onto the
+alignment geometry itself --- which is exactly the Part~2 forward codec (\code{mir/ml/encoder.py}), a network
+trained to reproduce $\varphi$. Option (iii) is not a competitor to the prototype embedding but an
+accelerator of it: the network learns to \emph{compute} the distance functional quickly, not to discover a
+better coordinate, and its embeddings are only as good as the $\varphi$ it approximates. In this precise
+sense the alignment-to-reference geometry is the canonical unsupervised coordinate for a repertoire whose
+only structure is an antigen-blind generative model, and prototypes are its minimal, assumption-free
+realisation.
+
 \section{{\normalfont\scshape TCR}s, three-component embeddings, and paired chains}\label{sec:tcr}
 
 \paragraph{The product metric} {\scshape TCREMP} emits three distances per prototype --- a V-germline, a
@@ -450,6 +498,58 @@ Part~2: estimate $f_{\mathrm{gen}}$ once from $\Pgen$ samples (or from the fast 
 $\varphi\approx$ neural network, \code{mir/ml/encoder.py}), estimate $f_{\mathrm{obs}}$ by kernel density
 or a normalising flow, and report $E(z)$ directly --- no neighbourhood graph, and a smooth enrichment
 field rather than per-vertex counts.
+
+\section{Privacy: the embedding as a keyed, lossy representation}\label{sec:privacy}
+
+Immune repertoires are individually identifying --- like genomic data, a person's {\scshape TCR}s are a
+stable, near-unique fingerprint --- so whether an embedding may be shared in place of raw sequences is a
+practical question with a clean geometric answer. Reproducing a coordinate requires two secrets: the
+prototype set $P=\{p_k\}$ and the {\scshape PCA} rotation $W$ fitted to the cohort (together with the
+centring $\mu$ and scaling). Write the released representation as $Z=(\varphi(X)-\mu)\,W\in\R^{n\times m}$
+with $m\ll 3K$.
+
+\paragraph{Three barriers to reconstruction} \emph{(i) Lossy projection.} {\scshape PCA} to $m$ components
+discards a $(3K-m)$-dimensional subspace, so $\varphi\mapsto Z$ is many-to-one and non-invertible on the
+discarded directions \emph{even given} $W$ --- an information-theoretic barrier no decoder can cross.
+\emph{(ii) Unknown anchors.} Recovering $x$ from $\varphi(x)=(d(x,p_k))_k$ is reconstruction from distances
+to \emph{unknown} reference points in a discrete sequence space, a hard combinatorial inverse problem
+without $P$. \emph{(iii) Data-dependent mixing.} $W$ is estimated from the cohort, not a public transform;
+without it the released numbers are linear combinations of unknown prototype distances. Releasing $Z$ alone
+is therefore a \textbf{keyed, lossy pseudonymisation}: the pair $(P,W)$ is a secret key, and without it
+reconstruction reduces to a hard inverse problem stacked on an irreversible compression.
+
+\paragraph{What it does not protect} The embedding is built to preserve pairwise geometry
+(Prop.~\ref{prop:lipschitz}--\ref{prop:energy}), and that is precisely what a linkage adversary exploits. A
+key-holder --- or anyone able to embed a reference sequence under the same $(P,W)$ --- can (a) test
+membership by embedding a candidate and matching it against $Z$ (re-identification / membership inference),
+(b) link the same patient across releases through preserved distances, and (c) invert approximately with a
+trained decoder: the Part~2 inverse codec (\code{mir/ml/decoder.py}) demonstrates that $\varphi$ is
+approximately invertible \emph{given the key}. Distance preservation is thus double-edged --- the source of
+the embedding's analytic value and of its linkage risk. Keyed pseudonymisation is not anonymisation.
+
+\paragraph{A differential-privacy mechanism the geometry hands us} The Lipschitz property of
+Prop.~\ref{prop:lipschitz} turns the embedding into a clean substrate for a formal guarantee. Replacing one
+receptor moves its coordinate by $\norm{\varphi(x)-\varphi(x')}_2\le\sqrt K\,d(x,x')\le\sqrt K\,d_{\max}$,
+so $X\mapsto\varphi(X)$ has bounded $\ell^2$ sensitivity.
+
+\begin{proposition}[Private release of the embedding]\label{prop:dp}
+Releasing $\tilde Z=(\varphi(X)-\mu)W+N$ with $N$ Gaussian of scale
+$\sigma\propto \sqrt K\,d_{\max}\,\norm{W}_2/\varepsilon$ satisfies record-level
+$(\varepsilon,\delta)$-differential privacy, and by Prop.~\ref{prop:lipschitz} the induced distortion of any
+pairwise embedding distance $D_{ij}$ is $O(\sigma\sqrt m)$ --- a privacy/utility trade-off governed entirely
+by the sensitivity constant $\sqrt K\,d_{\max}$.
+\end{proposition}
+\begin{proof}[Sketch]
+The bounded $\ell^2$ sensitivity of $\varphi$ composed with the linear map $W$ gives Gaussian-mechanism
+sensitivity $\sqrt K\,d_{\max}\norm{W}_2$; the Gaussian mechanism then yields $(\varepsilon,\delta)$-{\scshape
+DP} for $\sigma$ as stated, and the triangle inequality bounds the perturbation of each $D_{ij}$ by the noise
+magnitude $O(\sigma\sqrt m)$. \qed
+\end{proof}
+
+\paragraph{Recommendation} For patient data, treat $(P,W)$ as a managed secret, release only the truncated
+projection $Z$ (never $\varphi$ or the invertible residual), and --- when a provable guarantee is required
+rather than obscurity --- add the calibrated noise of Prop.~\ref{prop:dp}, whose cost is a quantifiable,
+Lipschitz-bounded distortion of the very distances the analysis depends on.
 
 \section{Insights, reproduction, and open problems}\label{sec:insights}
 
