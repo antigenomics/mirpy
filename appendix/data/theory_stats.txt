@@ -1,0 +1,11 @@
+r_sw	0.639268
+r_gb	0.487816
+ks_d_gamma	0.0140281
+ks_d_normal	0.0126618
+aic_d_gamma	1.74158e+06
+aic_d_normal	1.74159e+06
+ks_D_gev	0.0210081
+ks_D_normal	0.0780549
+xi	-0.0245667
+r_s3	0.965092
+n	2500
