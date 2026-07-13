@@ -19,9 +19,15 @@ penalty). The result ``d`` is a *negative-type semimetric* — a squared Hilbert
 distance ``d = ‖ψ(a)−ψ(b)‖²`` (symmetric, ``d(a,a)=0``, non-negative) — not itself a
 metric; the induced genuine metric is ``ρ = √d`` (see ``mir/distances/junction.py``).
 V/J and CDR1/CDR2 distances are looked up
-from baked matrices (:class:`mir.distances.germline.GermlineDistances`). Input is a
-polars DataFrame with the ``vdjtools.io.schema`` columns ``v_call``, ``j_call``,
-``junction_aa``.
+from baked matrices (:class:`mir.distances.germline.GermlineDistances`), same Gram
+construction. Input is a polars DataFrame with the ``vdjtools.io.schema`` columns
+``v_call``, ``j_call``, ``junction_aa``.
+
+Coordinate-system options (all default to the published v3 space): ``metric="sqrt"`` maps
+every block to the metric ``ρ=√d`` (benchmarked a wash — ``SQRT_D_MIGRATION.md`` — so
+``"squared"`` is default); ``matrix=`` a custom ``seqtree.SubstitutionMatrix`` and
+``alignment="sw"`` (paper-exact Smith-Waterman, slow) reshape the junction block — see
+:func:`mir.distances.junction.junction_distance_matrix`.
 
 Typical usage::
 
@@ -72,9 +78,14 @@ class TCREmp:
         mode: str = "vjcdr3",
         gap_positions: tuple[int, ...] = DEFAULT_GAP_POSITIONS,
         threads: int = 0,
+        metric: str = "squared",
+        matrix=None,
+        alignment: str = "gapblock",
     ):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+        if metric not in ("squared", "sqrt"):
+            raise ValueError(f"metric must be 'squared' or 'sqrt', got {metric!r}")
         missing = set(_REQUIRED_COLS) - set(prototypes.columns)
         if missing:
             raise ValueError(f"prototypes missing columns: {sorted(missing)}")
@@ -82,6 +93,9 @@ class TCREmp:
         self.locus = locus
         self.mode = mode
         self.threads = threads
+        self.metric = metric
+        self._matrix = matrix
+        self._alignment = alignment
         self._germline = germline
         self._proto_v = prototypes["v_call"].to_list()
         self._proto_j = prototypes["j_call"].to_list()
@@ -145,9 +159,11 @@ class TCREmp:
         return 3 * self.n_prototypes
 
     def _junction_distances(self, junctions: list[str]) -> np.ndarray:
+        # squared d always; embed() applies the sqrt metric uniformly across all three blocks
         return junction_distance_matrix(
             junctions, self._proto_junction,
             gap_positions=self._gap_positions, threads=self.threads,
+            matrix=self._matrix, alignment=self._alignment,
         )
 
     def embed(self, clonotypes: pl.DataFrame) -> np.ndarray:
@@ -173,6 +189,10 @@ class TCREmp:
                 comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr)
             )
         out[:, 2::3] = self._junction_distances(clonotypes["junction_aa"].to_list())
+        if self.metric == "sqrt":
+            # all three blocks are the same Gram dissimilarity d; sqrt uniformly -> the metric
+            # ρ = √d, homogeneous across V/J/junction (SQRT_D_MIGRATION.md §3.2).
+            np.sqrt(np.clip(out, 0.0, None, out=out), out=out)
         return out
 
 
@@ -235,4 +255,17 @@ if __name__ == "__main__":
         assert X.dtype == np.float32
         assert np.isfinite(X).all()
         print(f"  mode={mode}: X {X.shape} range [{X.min():.1f}, {X.max():.1f}]")
+    # metric="sqrt": ρ = √d elementwise over all blocks
+    Xd = TCREmp.from_defaults("human", "TRB", n_prototypes=50).embed(df)
+    Xs = TCREmp.from_defaults("human", "TRB", n_prototypes=50, metric="sqrt").embed(df)
+    assert np.allclose(Xs, np.sqrt(np.clip(Xd, 0.0, None)), atol=1e-4)
+    # custom matrix (pam250) and Smith-Waterman alignment both run and give finite embeddings
+    import seqtree
+    Xp = TCREmp.from_defaults("human", "TRB", n_prototypes=50,
+                              matrix=seqtree.SubstitutionMatrix.pam250()).embed(df)
+    Xw = TCREmp.from_defaults("human", "TRB", n_prototypes=50, alignment="sw").embed(df)
+    assert np.isfinite(Xp).all() and Xp.shape == (2, 150)
+    assert np.isfinite(Xw).all() and Xw.shape == (2, 150)
+    print(f"  metric=sqrt ρ==√d OK; pam250 & SW alignment OK (SW junc range "
+          f"[{Xw[:, 2::3].min():.1f}, {Xw[:, 2::3].max():.1f}])")
     print("mir.embedding.tcremp self-check OK")

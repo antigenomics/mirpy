@@ -92,6 +92,9 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
         return junction_distance_matrix(
             df["junction_aa"].to_list(), model._proto_junction,
             gap_positions=model._gap_positions, threads=model.threads,
+            metric=getattr(model, "metric", "squared"),      # match the model's coordinate options
+            matrix=getattr(model, "_matrix", None),
+            alignment=getattr(model, "_alignment", "gapblock"),
         ).astype(np.float32)  # float32 halves the whole-repertoire memory footprint
     return _slice(model.embed(df), space).astype(np.float32, copy=False)
 
@@ -366,8 +369,13 @@ def neighbor_enrichment(
         raise ValueError(f"abundance length {a.shape[0]} != N_obs {n_obs_total}")
     g = _WEIGHTS[weight](a)
     idx = obs_tree.query_radius(obs, rad, return_distance=False)  # neighbour index lists
-    n_obs = np.fromiter((ix.size - 1 for ix in idx), dtype=np.int64, count=n_obs_total)
-    S = np.fromiter((g[ix].sum() for ix in idx), dtype=np.float64, count=n_obs_total) - g  # excl self
+    # vectorised weighted mass: flatten the ragged neighbour lists and one bincount, instead of a
+    # Python sum per point (the whole-repertoire hot path — ~400k points).
+    counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=n_obs_total)
+    cols = np.concatenate(idx) if n_obs_total else np.empty(0, dtype=np.intp)
+    rows = np.repeat(np.arange(n_obs_total), counts)
+    n_obs = counts - 1                                            # exclude self
+    S = np.bincount(rows, weights=g[cols], minlength=n_obs_total) - g  # weighted mass, excl self
     mean_g = float(g.mean())
     phi = float((g * g).mean() / mean_g)  # dispersion index E[g²]/E[g] (=1 for g≡1)
 
