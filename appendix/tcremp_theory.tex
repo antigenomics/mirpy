@@ -1546,6 +1546,167 @@ so a phenotype is read by a within-batch (or batch-adjusted) contrast, standardi
 tested against a label-permutation null --- depth entering only as the variance the permutation test already
 accounts for, and batch removed by the contrast.
 
+\subsection{Normalising heterogeneous {\normalfont\scshape RNA}-seq: depth, kit, read length, and the tissue
+infiltration confound}\label{sec:samp-norm}
+
+The target modality --- bulk {\scshape RNA}-seq, $10^2$--$10^4$ clonotypes per chain but $10^5$ samples with
+clinical metadata (\S\ref{sec:sample}) --- is heterogeneous on four axes that Eq.~\eqref{eq:nuisance} folded
+into one batch field: sequencing \emph{depth}, library \emph{kit}/primer chemistry, \emph{read length}, and, in
+tissue uniquely, the T-cell \emph{content} itself. The measure factorisation sorts these into three fates ---
+\emph{quotiented for free}, \emph{corrected on an anchor}, and \emph{kept as biology} --- and the sorting is not
+a matter of taste: it follows from whether a nuisance scales every clonotype alike or reshapes the profile.
+Write the recovered read count of clonotype $\sigma$ in sample $S$ as
+\begin{equation}\label{eq:countfactor}
+  a_\sigma \;\approx\; \underbrace{g(\sigma)}_{\text{kit gain}}\cdot
+  \underbrace{R\,\theta\,c}_{\text{$\sigma$-independent scalars}}\cdot\,p_\sigma\cdot\xi_\sigma,
+  \qquad \textstyle\sum_\sigma p_\sigma=1,
+\end{equation}
+with $R$ the sequenced library size, $\theta$ the T-cell fraction (\emph{infiltration}), $c$ the mean receptor
+transcripts per T cell, $p_\sigma$ the true clonal frequency \emph{within} the T-cell compartment, $g(\sigma)>0$
+the kit- and length-dependent amplification gain, and $\xi_\sigma$ multinomial sampling noise. The recovered
+{\scshape TCR} depth is $N=\sum_\sigma a_\sigma\approx R\theta c\sum_\tau g(\tau)p_\tau$. The one structural fact
+is that $R,\theta,c$ do \emph{not} depend on $\sigma$ whereas $g(\sigma)$ does, and everything below is that
+distinction applied.
+
+\begin{proposition}[Frequencies quotient every scalar; only the kit gain survives]\label{prop:freqquotient}
+Under Eq.~\eqref{eq:countfactor} the frequency representation $f_\sigma=a_\sigma/\sum_\tau a_\tau$ cancels every
+$\sigma$-independent factor,
+\begin{equation}\label{eq:freqquotient}
+  f_\sigma \;=\; \frac{g(\sigma)\,p_\sigma}{\sum_\tau g(\tau)\,p_\tau},
+\end{equation}
+so depth $R$ \emph{and} infiltration $\theta$ (and $c$) vanish identically while the $\sigma$-dependent gain $g$
+does not. Consequently a frequency-weighted $\Phi(S)$ is exactly invariant to sequencing depth and to
+infiltration, and the \emph{only} multiplicative nuisance it still carries is the kit/length gain $g$.
+\end{proposition}
+\begin{proof}
+$R\theta c$ pull out of numerator and of the denominator sum and cancel; $g(\sigma)$ and $p_\sigma$ are
+$\sigma$-indexed and remain. Invariance of $\Phi_1$ to $N$ is Prop.~\ref{prop:kme}; the identical argument gives
+invariance to $\theta$ and $c$, which occupy the same scalar position in Eq.~\eqref{eq:countfactor}. \end{proof}
+
+This is the organising statement, and it is almost embarrassingly simple: depth and infiltration are the
+\emph{same kind of thing} --- a scalar amount of material --- so frequency normalisation kills both with no
+model, while the kit gain is a \emph{different kind of thing} --- a reshaping of the profile --- that no rescale
+can remove. The three remaining axes each take one consequence.
+
+\paragraph{Depth: standardise coverage, do not chase depth} Once frequencies quotient $R$, the only residue of
+depth is estimation variance (Prop.~\ref{prop:kme}) and a diversity bias that coverage standardisation removes
+(Prop.~\ref{prop:antag}). Do \emph{not} down-sample deep samples to a common \emph{depth} --- that discards real
+observations to match the shallowest sample. Standardise to a common \emph{coverage} $C^\ast$ and floor samples
+whose $\hat C$ falls below it. More finely, depth acts through a per-clonotype \emph{detection probability}: a
+clonotype of frequency $f$ is seen at depth $s$ with probability $\approx 1-(1-f)^{s/\bar s}$ (relative to a
+reference depth $\bar s$), so depth enters as an exponent --- a censoring, not a rescaling. This is why an
+ad-hoc inverse-depth reweighting $w_i\propto 1/s_i$ has \emph{no} calibrated null, whereas the
+Poisson--binomial detection model does: it is the sample-level face of the exact point-process test of
+\S\ref{sec:dens-poisson}, and it is what a co-occurrence or enrichment statistic should be built on.
+
+\paragraph{Infiltration: estimate it, carry it, never normalise it away} In tissue the count total conflates two
+things frequency normalisation deliberately cannot see, and the reflex to ``normalise for depth'' destroys a
+prognostic signal.
+
+\begin{proposition}[Infiltration is identifiable, and is a channel not a normaliser]\label{prop:infiltration}
+The recovered {\scshape TCR} depth $N\approx R\,\theta\,c$ confounds technical depth $R$ with biological
+infiltration $\theta$: a shallowly sequenced sample and a T-cell-poor tissue are indistinguishable from $N$
+alone. But $\theta$ is separately identifiable from the {\scshape TCR} read \emph{fraction}
+\begin{equation}\label{eq:readfrac}
+  \hat\theta \;\propto\; \frac{N_{\mathrm{TCR}}}{N_{\mathrm{total}}}\;=\;\frac{R\theta c}{R}\;=\;\theta c,
+\end{equation}
+in which the library size $R$ divides out. Hence: \emph{(i)} estimate infiltration from the read fraction (or a
+deconvolution signature \cite{Newman2015}) and carry it as an explicit scalar channel; \emph{(ii)} build
+$\Phi(S)$ on frequencies, so repertoire \emph{shape} (clonality, focusing) is orthogonal to \emph{amount}
+$\theta$ (Prop.~\ref{prop:freqquotient}); \emph{(iii)} the depth--infiltration confound in $N$ alone is resolved
+by Eq.~\eqref{eq:readfrac}, and what stays irreducible is only the joint low-$R$, low-$\theta$ regime, where
+$n_{\mathrm{eff}}$ collapses and $\Phi$ is coverage-limited.
+\end{proposition}
+\begin{proof}
+Eq.~\eqref{eq:countfactor} gives $N=R\theta c\sum g p$; dividing by the total mapped reads
+$N_{\mathrm{total}}\approx R$ removes $R$, leaving $\theta c$ up to the kit constant $\sum g p$. Orthogonality of
+shape to $\theta$ is Prop.~\ref{prop:freqquotient}. When both $R$ and $\theta$ are small $N$ is small, so
+$n_{\mathrm{eff}}\le N$ is small and the $O(n_{\mathrm{eff}}^{-1/2})$ bound of Prop.~\ref{prop:kme} is loose ---
+an uncertainty to propagate, not a bias to subtract. \end{proof}
+
+This answers ``depth and infiltration are not distinguishable'' directly: from the count total $N$ alone they
+indeed are not, but the read \emph{fraction} $N_{\mathrm{TCR}}/N_{\mathrm{total}}$ separates them, being a
+technical-over-technical ratio in which depth cancels and infiltration does not \cite{Bolotin2017}. Down-sampling
+to a common depth --- the amplicon reflex --- would erase exactly the prognostic tumour-infiltrating-lymphocyte
+signal that makes tissue {\scshape RNA}-seq worth sequencing. Infiltration is not noise; it is a low-dimensional
+biological channel that sits \emph{beside} $\Phi(S)$: $\theta$ says how much T cell, $\Phi$ says of what shape,
+and the two are complementary. The correction burden is regime-dependent. In peripheral blood, where lymphocyte
+density per unit volume is roughly constant, $N$ is \emph{primarily technical} and $\theta$ a light adjustment;
+in a tumour biopsy $N$ folds in the {\scshape TIL} fraction across a ${\sim}10^4$-fold range, and separating
+$\theta$ from depth is essential. The same count total that is a disposable nuisance in blood is a biological
+readout in tissue --- which is exactly why it must be routed to a channel, not to a normaliser.
+
+\paragraph{Kit and read length: correct the $\sigma$-dependent gain on an anchor} The surviving gain $g(\sigma)$
+is not arbitrary. Read length enters through a length-recovery curve, and chemistry through a $V$/$J$ bias ---
+both confined to the low-rank germline subspace, not the {\scshape CDR3}-motif directions.
+
+\begin{proposition}[Read-length dropout is length-censoring]\label{prop:lengthcensor}
+Read length $L$ enters $g$ only through a recovery curve $r_L(\ell)$ decreasing in junction length $\ell$:
+$g(\sigma)=r_L(\ell_\sigma)\,g_{\mathrm{chem}}(\sigma)$. This is missing-not-at-random on the length marginal ---
+it depresses the long-{\scshape CDR3} tail and drops the clonotypes there --- and it is confined to the
+length/$V$-$J$ subspace (Prop.~\ref{prop:rank}). Two corrections restore comparability: \emph{(i)} restrict to
+the length range commonly recoverable across kits (the intersection of supports) --- lossy but assumption-free;
+or \emph{(ii)} reweight surviving clonotypes by $1/r_L(\ell)$ (Horvitz--Thompson), $r_L$ calibrated on samples
+sequenced at several read lengths.
+\end{proposition}
+
+Both the chemistry bias and the residual of a confounded batch (Rem.~\ref{rem:batchconfound}) live in the
+low-rank germline-plus-depth subspace, orthogonal to the {\scshape CDR3}-motif directions that carry specificity
+(Prop.~\ref{prop:rank}). So the correction is a \emph{subspace} operation, not a global rescale: estimate the
+batch shift on an anchor and project it out of the $V$/$J$-usage and length coordinates, leaving the motif
+coordinates untouched. The anchor is what makes the shift identifiable, and there are three sources, strongest
+first. A \emph{technical replicate} or a shared \emph{reference sample} run on every kit measures
+$\delta_{\mathrm{batch}}$ directly, whether subtracted empirical-Bayes ({\scshape ComBat}-style
+\cite{JohnsonComBat2007}) or aligned as clouds (Harmony-style \cite{Korsunsky2019}). \emph{Negative-control
+features} --- the germline $V$/$J$ usage \emph{predicted by} the rearrangement model $\Pgen$, which is
+biology-invariant --- play the role of {\scshape RUV}'s housekeeping genes, letting the batch direction be
+estimated from features that carry no signal \cite{GagnonBartschRUV2012}. Weakest, batch \emph{indicators} alone
+suffice only under the balanced design of Prop.~\ref{prop:batch}. With no anchor and batch confounded with the
+phenotype the shift is unidentifiable (Rem.~\ref{rem:batchconfound}): the projection removes its bulk, but only
+balancing batches across the phenotype at design time is a complete fix.
+
+\begin{remark}[Stratified conditional testing beats regression adjustment]\label{rem:cmh}
+When a covariate moves the marginal frequencies alongside depth --- age (thymic involution lowers naive output),
+{\scshape HLA}, {\scshape CMV} status --- adjust by \emph{stratification} rather than by residualising on a
+linear term. Bin samples by $(\lfloor\log_{10}s\rfloor \times \text{covariate band})$ and test the phenotype
+association conditional on the strata with a Cochran--Mantel--Haenszel test \cite{MantelHaenszel1959}, estimating
+the marginal frequencies $\hat f_k$ \emph{within} each stratum. Conditioning on depth \emph{and} the covariate
+jointly is strictly more stringent than adjusting for either: a signal that survives is neither a depth artefact
+nor the age-related clonal contraction that would otherwise masquerade as disease-specific focusing. The test
+degrades gracefully to the exact point-process form (\S\ref{sec:dens-poisson}) when a stratum is too small for
+the normal approximation.
+\end{remark}
+
+\paragraph{Course of action} Table~\ref{tab:norm} is the recipe --- each nuisance treated by its nature, not by
+a single omnibus ``normalisation''. The discipline reduces to one line: \emph{scalars are quotiented by
+frequencies, shape distortions are projected out on an anchor, and the one scalar that is biology ---
+infiltration --- is kept as its own channel.}
+
+\begin{table}[h]
+  \centering
+  \caption{Normalising a heterogeneous {\scshape RNA}-seq cohort. Each nuisance is handled by whether it scales
+  clonotypes uniformly ($\sigma$-independent, quotiented by frequencies) or reshapes the profile
+  ($\sigma$-dependent, corrected on an anchor) --- with infiltration the one scalar deliberately \emph{not}
+  removed.}
+  \label{tab:norm}
+  \begin{tabular}{@{}llp{4.5cm}l@{}}
+    \toprule
+    Nuisance & Nature & Treatment & Basis \\
+    \midrule
+    depth $R$ & $\sigma$-indep.\ technical & frequencies; coverage-standardise diversity &
+      Prop.~\ref{prop:freqquotient},~\ref{prop:antag} \\
+    infiltration $\theta$ & $\sigma$-indep.\ \emph{biological} & estimate from read fraction; carry as a
+      channel & Prop.~\ref{prop:infiltration}, Eq.~\eqref{eq:readfrac} \\
+    kit / primer chemistry & $\sigma$-dep.\ shape & anchored subspace correction ($V$/$J$ usage); spare
+      {\scshape CDR3} & Prop.~\ref{prop:batch}, Rem.~\ref{rem:batchconfound} \\
+    read length & $\sigma$-dep.\ censoring & common-range restrict / inverse-recovery reweight &
+      Prop.~\ref{prop:lengthcensor} \\
+    pipeline / batch & $\sigma$-dep.\ shift & within-batch contrast; $\Pgen$-reference normalise &
+      Prop.~\ref{prop:batch} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \subsection{Compression: the background is a model, the signal is a list}\label{sec:samp-compress}
 
 A deep repertoire lists $10^5$--$10^6$ clonotypes, but its \emph{information} is far smaller: most of it is the

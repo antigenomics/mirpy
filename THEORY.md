@@ -114,6 +114,29 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
     residualize on batch / stratify MMD / normalize by the P_gen pushforward. Always compare *contrasts*,
     not raw positions. (Variable sample length is a non-issue: the measure `ρ_S` is fixed-dimensional whatever
     `|S|` is; cardinality re-enters only as richness `⁰D`.)
+  - *(f) RNA-seq normalization course of action* (appendix §T.7.9 `sec:samp-norm`, Table `tab:norm`) — the
+    raw count factorizes `a_σ ≈ g(σ)·R·θ·c·p_σ` (kit gain `g(σ)`, library size `R`, T-cell fraction/**infiltration**
+    `θ`, per-cell expression `c`, true frequency `p_σ`). The organizing fact: **σ-independent scalars (`R`, `θ`, `c`)
+    cancel under frequency normalization** (`prop:freqquotient`) — depth *and* infiltration vanish for free — while the
+    **σ-dependent kit gain `g(σ)` is the only surviving multiplicative nuisance**. So nuisances sort into three fates:
+    (1) **depth** — quotiented by frequencies, coverage-standardize diversity, never down-sample to common *depth*;
+    (2) **infiltration `θ`** — the tissue confound: `N = R·θ·c` conflates depth and infiltration, but `θ` is
+    identifiable from the **TCR read fraction** `N_TCR/N_total ∝ θ` (divides out `R`) — **carry it as an explicit
+    scalar channel, never normalize it away** (down-sampling erases the prognostic TIL signal); `Φ` on frequencies is
+    orthogonal to `θ` (`prop:infiltration`); irreducible only in the joint low-`R`, low-`θ` coverage-limited regime;
+    (3) **kit/read-length** — σ-dependent *shape* distortion (V/J-usage bias + long-CDR3 length-censoring, MNAR,
+    `prop:lengthcensor`), corrected as a **subspace projection on an anchor** (technical replicate / reference sample =
+    ComBat/Harmony; P_gen-predicted V/J usage = RUV negative-controls) sparing the CDR3-motif directions, or
+    restrict-to-common-length / inverse-recovery reweight. One line: *scalars quotiented by frequencies, shape
+    distortions projected out on an anchor, infiltration kept as its own channel.* **Statistical machinery**
+    (`rem:cmh`, refined from an internal receptor-GNN whitepaper): depth acts through a per-clonotype
+    **detection probability** `≈1-(1-f)^{s/s̄}` (a censoring/exponent, the sample-level face of the T6 exact
+    point-process test) — so naive inverse-depth weighting `w∝1/s` has *no calibrated null* while the
+    Poisson-binomial detection model does; for covariates (age/HLA/CMV) that move marginal frequencies, **stratify
+    not regress** — bin by `(⌊log₁₀s⌋ × covariate band)` and use a **Cochran–Mantel–Haenszel** conditional test
+    (Mantel & Haenszel 1959), degrading to the exact test in small strata. Regime tiering: **blood** depth ≈
+    technical (light adjustment); **tumor/tissue** depth folds in TIL fraction (10⁴-fold range → separate `θ`,
+    keep as channel).
   *Way of action (all derived — appendix Table `tab:sample`):* frequencies not counts (scale-free); concave
   `g=log1p`/Anscombe (Zipf-robust); RFF length-scale `= r₁` (one-substitution); coverage- not
   depth-standardized diversity; MMD, HLA-stratified for antigen specificity. *Central use case:* low-coverage
