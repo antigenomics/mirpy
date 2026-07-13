@@ -92,6 +92,9 @@ def junction_distance_matrix(
         alignment: ``"gapblock"`` (default, fast) or ``"sw"`` (paper-exact Smith-Waterman, slow).
     """
     if alignment == "sw":
+        if matrix is not None:  # the SW backend is fixed to BioPython BLOSUM62 — don't silently ignore
+            raise ValueError("matrix= is only supported for alignment='gapblock'; "
+                             "the 'sw' backend is fixed to BioPython BLOSUM62")
         return _apply_metric(_sw_distance_matrix(queries, refs), metric)
     if alignment != "gapblock":
         raise ValueError(f"alignment must be 'gapblock' or 'sw', got {alignment!r}")

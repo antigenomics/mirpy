@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import polars as pl
 
-_GENE_TO_LOCUS = {"TRA": "TRA", "TRB": "TRB"}
-
 
 def load_vdjdb(path: str) -> pl.DataFrame:
     """Return an AIRR frame with ``v_call, j_call, junction_aa, locus, epitope``.

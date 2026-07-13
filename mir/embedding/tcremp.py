@@ -50,11 +50,10 @@ import polars as pl
 from mir.aliases import normalize_locus_alias, normalize_species_alias
 from mir.distances.germline import GermlineDistances, load_germline_distances
 from mir.distances.junction import junction_distance_matrix
-from mir.embedding.prototypes import N_PROTOTYPES, load_prototypes
+from mir.embedding.prototypes import load_prototypes
 
 MODES = ("vjcdr3", "cdr123")
 DEFAULT_GAP_POSITIONS: tuple[int, ...] = (3, 4, -4, -3)
-DEFAULT_N_PROTOTYPES = 3000
 
 # mode -> ((component, query_gene_column, prototype_gene_attr), ...) for the two
 # germline slots (0, 1). The junction is always slot 2.

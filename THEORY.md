@@ -30,9 +30,10 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
 - **T5 — SHM / IGH** (Part 2). Somatic hypermutation as a perturbation bounds embedding drift by
   mutation load: `D_k = ‖φ(k-mutated) − φ(x)‖` is ~linear/sublinear in `k` (`mir.bench.theory.
   shm_embedding_drift`; linear-R² 0.97–0.99). IGH's longer CDR3 gives the *lowest* per-mutation
-  drift (101 vs TRB 138) — the embedding is robust to SHM. IGH's hard *reconstruction* is instead
-  over-compaction: the 95% code (68 PCs) gives exact-match 0.009, but 99% (371 PCs) gives 0.152
-  (≈ irrm-codec's 0.16) — so variance retention should be chain-adaptive, not the frame
+  drift (104 vs TRB 128) — the embedding is robust to SHM. IGH's hard *reconstruction* is instead
+  over-compaction: on arda coords the 95% code (95 PCs) gives exact-match 0.115, but 99% (422 PCs)
+  gives 0.356 (> the old 0.152; real IGH prototypes reconstruct better) — so variance retention
+  should be chain-adaptive, not the frame
   (only 0.1% of IGH CDR3s exceed the length-40 frame). `experiments/benchmark_igh_shm.py`.
 - **T6 — density space** (Part 2, `mir.density`). Enrichment as observed-density ÷
   `P_gen`-pushforward-density in embedding space, `E(z) = f_obs(z)/f_gen(z)` with `f_gen = φ_# P_gen`;

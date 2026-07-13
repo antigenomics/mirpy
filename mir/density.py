@@ -458,7 +458,8 @@ def generate_background(
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
-    Lazy ``vdjtools`` dependency (``[rearrangement]``). Returns a frame with
+    Lazy ``vdjtools.model`` import (``vdjtools`` is a core dependency; imported here only to defer
+    the cost). Returns a frame with
     ``junction_aa``, ``v_call``, ``j_call`` — ready for ``TCREmp.embed`` — sampled from the
     vdjtools VDJ-rearrangement model, i.e. a Monte-Carlo estimate of the
     ``f_gen = φ_# P_gen`` pushforward (the ALICE analog background).
