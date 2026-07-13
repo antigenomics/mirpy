@@ -44,6 +44,8 @@ build = ["arda-mapper>=2.5", "biopython"]
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting.
 bench = ["kneed", "matplotlib", "seaborn"]
+# Interactive marimo notebooks (docs/examples).
+examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
 docs = [
   "sphinx>=7.2,<9",
