@@ -1,0 +1,501 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsthm}
+\usepackage{mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{dsfont}  % \mathds{1} indicator
+% Old-style journal look (matches ../../vdjtools/appendix): OldStandard text + matching OpenType
+% math, small-caps headings, run-in paragraphs. Requires lualatex (pinned in .latexmkrc).
+\usepackage{OldStandard}
+\usepackage{unicode-math}
+\setmathfont{OldStandard-Math.otf}
+\usepackage{titlesec}
+\usepackage{fancyvrb}
+\usepackage[hidelinks]{hyperref}
+
+\linespread{1.15}
+\setlength{\parindent}{2em}
+\titleformat{\section}{\normalfont\large\scshape\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\scshape\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\paragraph}[runin]{\bfseries\scshape}{}{0pt}{}[.]
+\titlespacing*{\paragraph}{\parindent}{0.4em}{0.6em}
+
+\newtheoremstyle{oldplain}{}{}{\itshape}{}{\scshape}{.}{.5em}{}
+\newtheoremstyle{oldrem}{}{}{\normalfont}{}{\scshape}{.}{.5em}{}
+\theoremstyle{oldplain}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\theoremstyle{oldrem}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+\newcommand{\Pgen}{P_{\mathrm{gen}}}
+\newcommand{\R}{\mathds{R}}  % dsfont blackboard (OldStandard-Math lacks some \mathbb glyphs)
+\newcommand{\E}{\mathds{E}}
+\newcommand{\junc}{\mathrm{junc}}
+\newcommand{\code}[1]{\texttt{#1}}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+\DeclareMathOperator{\Cov}{Cov}
+
+\title{Prototype embeddings for immune receptors:\\
+  geometry, statistics, and the {\normalfont\scshape TCREMP} coordinate system}
+\author{Mikhail Shugay\textsuperscript{1,2,3}\thanks{Correspondence:
+  \href{mailto:mikhail.shugay@gmail.com}{mikhail.shugay@gmail.com}}}
+\date{%
+  \small
+  \textsuperscript{1}Institute of Translational Medicine, Russian National Medical State University, Moscow, Russia\\
+  \textsuperscript{2}Department of Genomics of Adaptive Immunity, Shemyakin--Ovchinnikov Institute of Bioorganic Chemistry RAS, Moscow, Russia\\
+  \textsuperscript{3}Institute of Molecular Biology NAS RA, Erevan, Armenia\\[6pt]
+  \normalsize\textit{Appendix T --- {\normalfont\scshape TCREMP} embedding geometry}%
+}
+
+\renewcommand{\thesection}{T.\arabic{section}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+{\scshape TCREMP} \cite{Kremlyakova2025} embeds an immune receptor as the vector of its alignment
+distances to a fixed set of \emph{prototype} receptors sampled from the V(D)J recombination model
+\cite{Murugan2012,Sethna2019}. This appendix gives the mathematics behind that construction. We first
+develop the general theory of \emph{prototype} (landmark) embeddings of a metric space --- their
+Lipschitz and isometry properties, the negative-type condition under which the alignment dissimilarity
+is an honest squared Hilbert distance \cite{Schoenberg1938}, the energy functional that makes
+embedding-space Euclidean distance track pairwise alignment distance, and a landmark sample-complexity
+bound (\S\ref{sec:foundations}--\S\ref{sec:metric}). We then specialise to immune receptors: taking the
+prototype measure to be the generation distribution $\Pgen$ turns each coordinate into a Monte-Carlo
+sketch of a receptor's relationship to the generative repertoire, which explains why the choice of
+prototype source scarcely matters and yields the observed Gamma / extreme-value distribution laws
+(\S\ref{sec:immune}). The three-component structure of the {\scshape TCR} embedding and paired-chain
+concatenation are read off as a product metric, with the germline blocks provably low-rank
+(\S\ref{sec:tcr}); somatic hypermutation is a bounded perturbation that explains why {\scshape IGH} is
+the hardest chain (\S\ref{sec:igh}); and the pushforward of $\Pgen$ onto embedding space is the null
+model for density-based background subtraction (\S\ref{sec:density}). Every quantitative claim is
+reproduced in-repo (\S\ref{sec:insights}, Table~\ref{tab:reproduced}) by \code{mir/bench/theory.py}.
+\end{abstract}
+
+\section{Foundations of prototype embeddings}\label{sec:foundations}
+
+\paragraph{Setup} Let $(X,d)$ be a (semi)metric space of receptor sequences: $d$ is symmetric,
+$d(x,x)=0$, and --- as we verify for the alignment dissimilarity in \S\ref{sec:metric} ---
+non-negative. Fix an ordered set of \emph{prototypes} $P=\{p_1,\dots,p_K\}\subset X$. The
+\textbf{prototype embedding} is the landmark map
+\begin{equation}\label{eq:embedding}
+  \varphi : X \to \R^{K}, \qquad \varphi(x) = \bigl(d(x,p_1),\,d(x,p_2),\,\dots,\,d(x,p_K)\bigr),
+\end{equation}
+and the induced \textbf{embedding distance} is $D(x,y)=\norm{\varphi(x)-\varphi(y)}_2$. Figure~\ref{fig:schematic}
+shows the pipeline. In {\scshape TCREMP} the prototypes are drawn from $\Pgen$, $d$ is a BLOSUM alignment
+dissimilarity, and $\varphi$ carries three coordinate blocks per prototype (\S\ref{sec:tcr}); the
+foundational results below hold for any $(X,d,P)$.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{diagram_embedding.pdf}
+  \caption{The {\scshape TCREMP} prototype-embedding pipeline. A receptor $x$ is mapped to the vector of
+  its alignment distances to prototypes $p_k$ sampled from the recombination model $\Pgen$; Euclidean
+  distance in the resulting $\R^{3K}$ coordinate system approximates pairwise alignment distance
+  (Prop.~\ref{prop:lipschitz}--\ref{prop:energy}), and specificity groups become compact clusters.}
+  \label{fig:schematic}
+\end{figure}
+
+\paragraph{Non-expansiveness} The single structural fact from which everything else follows is that each
+coordinate of $\varphi$ is $1$-Lipschitz.
+
+\begin{proposition}[Lipschitz coordinates and the upper bound]\label{prop:lipschitz}
+For every prototype $p$ and all $x,y\in X$, $\lvert d(x,p)-d(y,p)\rvert \le d(x,y)$. Consequently
+\begin{equation}\label{eq:upper}
+  \norm{\varphi(x)-\varphi(y)}_\infty \;\le\; d(x,y)
+  \qquad\text{and}\qquad
+  D(x,y)=\norm{\varphi(x)-\varphi(y)}_2 \;\le\; \sqrt{K}\,d(x,y).
+\end{equation}
+\end{proposition}
+\begin{proof}
+The triangle inequality gives $d(x,p)\le d(x,y)+d(y,p)$ and $d(y,p)\le d(x,y)+d(x,p)$, so
+$\lvert d(x,p)-d(y,p)\rvert\le d(x,y)$. Taking the maximum over $p\in P$ gives the $\ell^\infty$ bound;
+summing the squares of $K$ terms each $\le d(x,y)^2$ and taking the root gives the $\ell^2$ bound. \qed
+\end{proof}
+
+Proposition~\ref{prop:lipschitz} is the rigorous half of the headline ``embedding distance $\lesssim$
+alignment distance'' claim: no pair is ever \emph{farther} apart in embedding space (up to $\sqrt K$)
+than its alignment distance. The reverse --- that close-in-embedding implies close-in-alignment --- is
+not automatic and is where the prototypes must do work.
+
+\paragraph{Exactness in the limit} With enough prototypes the $\ell^\infty$ bound is tight.
+
+\begin{proposition}[Kuratowski isometry]\label{prop:kuratowski}
+If $P=X$ then $\norm{\varphi(x)-\varphi(y)}_\infty = d(x,y)$ for all $x,y$; that is, $\varphi$ is an
+isometric embedding of $(X,d)$ into $(\ell^\infty,\norm{\cdot}_\infty)$.
+\end{proposition}
+\begin{proof}
+The upper bound is Prop.~\ref{prop:lipschitz}. For the lower bound take the prototype $p=y$: then
+$\lvert d(x,y)-d(y,y)\rvert = d(x,y)$, so the supremum over prototypes is at least $d(x,y)$. \qed
+\end{proof}
+
+The construction of Eq.~\eqref{eq:embedding} is thus the Kuratowski/Fr\'echet embedding, and the
+supplementary experiments that use the sequences themselves as prototypes (\S S1--S2 of
+\cite{Kremlyakova2025}) are exactly this isometric regime, read out in $\ell^2$ rather than $\ell^\infty$.
+Passing from $\ell^\infty$ to $\ell^2$ costs the $\sqrt K$ factor of Eq.~\eqref{eq:upper} but makes the
+coordinates amenable to {\scshape PCA} and Euclidean clustering.
+
+\paragraph{Why $\ell^2$ distance tracks alignment distance} Fix a prototype-sampling measure $\mu$ on
+$X$ (in {\scshape TCREMP}, $\mu=\Pgen$) and draw $p_1,\dots,p_K$ i.i.d.\ from $\mu$.
+
+\begin{proposition}[Energy functional]\label{prop:energy}
+Define the $\mu$-energy dissimilarity
+$\bar D_\mu^2(x,y) \coloneqq \E_{p\sim\mu}\!\bigl[(d(x,p)-d(y,p))^2\bigr]$. Then
+$\tfrac1K D(x,y)^2 \to \bar D_\mu^2(x,y)$ almost surely as $K\to\infty$, and $\bar D_\mu^2$ is a
+$\mu$-dependent (semi)metric with $0\le\bar D_\mu^2(x,y)\le d(x,y)^2$.
+\end{proposition}
+\begin{proof}
+$\tfrac1K D^2 = \tfrac1K\sum_k (d(x,p_k)-d(y,p_k))^2$ is an empirical mean of i.i.d.\ terms bounded by
+$d(x,y)^2$ (Prop.~\ref{prop:lipschitz}); the strong law gives the limit and the bound, and symmetry
+plus the triangle inequality for $\norm{\cdot}_2$ make $\bar D_\mu$ a semimetric. \qed
+\end{proof}
+
+Proposition~\ref{prop:energy} says $D$ estimates a fixed monotone-in-$d$ functional $\bar D_\mu$: two
+receptors that are close under $d$ have similar distance profiles to the whole of $\mu$ and hence small
+$\bar D_\mu$, while dissimilar receptors have systematically different profiles. This is the mechanism
+behind supplementary Fig.~S2 --- the empirical Pearson correlation between $D_{ij}$ and $d_{ij}$
+(Fig.~\ref{fig:s2}, $R=0.64$ under Smith--Waterman, $0.49$ under the \code{gapblock} metric of
+\S\ref{sec:metric}) --- and behind S2c/d, where $D_{ik}$ concordates with means of $d_{ik}$ over the
+prototype set: those means are Monte-Carlo estimates of $\bar D_\mu$.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_s2_correlation.pdf}
+  \caption{Embedding-space Euclidean distance $D_{ij}$ against pairwise dissimilarity $d_{ij}$ for
+  $n=2500$ CDR3$\beta$ used as their own prototypes (Prop.~\ref{prop:energy}; reproduces suppl.\ S2).
+  Left: Smith--Waterman $d$; right: the \code{gapblock} metric shipped in v3. Generated by
+  \code{mir/bench/theory.py::s2\_dissimilarity\_distance\_correlation}.}
+  \label{fig:s2}
+\end{figure}
+
+\paragraph{How many prototypes} The $\sqrt K$ gap of Eq.~\eqref{eq:upper} is worst-case; for the
+\emph{random} landmark map the relative fluctuation of $\tfrac1K D^2$ around $\bar D_\mu^2$ is
+$O(K^{-1/2})$ by Prop.~\ref{prop:energy}, so a Johnson--Lindenstrauss-style argument
+\cite{JohnsonLindenstrauss1984} on the bounded coordinates gives the following.
+
+\begin{proposition}[Landmark sample complexity]\label{prop:samplecomplexity}
+Let $S\subset X$ with $\lvert S\rvert=n$. For $K = O(\varepsilon^{-2}\log n)$ i.i.d.\ prototypes, with
+high probability every pair $x,y\in S$ satisfies
+$\bigl\lvert \tfrac1K D(x,y)^2 - \bar D_\mu^2(x,y)\bigr\rvert \le \varepsilon\,d(x,y)^2$ simultaneously.
+\end{proposition}
+\begin{proof}[Sketch]
+Each coordinate difference $(d(x,p)-d(y,p))^2\in[0,d(x,y)^2]$ is bounded; Hoeffding gives a
+$\exp(-2K\varepsilon^2)$ tail for the deviation of the $K$-average from $\bar D_\mu^2$ per pair, and a
+union bound over the $\binom n2$ pairs closes with $K=\Theta(\varepsilon^{-2}\log n)$. \qed
+\end{proof}
+
+The logarithmic dependence on $n$ is the theoretical counterpart of supplementary Fig.~S4, where the
+{\scshape UMAP} of an antigen-specific set stabilises once $K\gtrsim 100$ prototypes are used: the
+embedding geometry saturates at a prototype count that grows only logarithmically with the data.
+Prototype embeddings are the $\emph{empirical}$ / Nystr\"om feature map of the alignment kernel, and
+Landmark {\scshape MDS} \cite{deSilvaTenenbaum2004,FaloutsosLin1995} and the dissimilarity representation
+\cite{PekalskaDuin2005} are the classical instances; the {\scshape PCA} step of \S\ref{sec:tcr} is
+Landmark {\scshape MDS} on $\varphi$.
+
+\section{The alignment dissimilarity as a metric}\label{sec:metric}
+
+\paragraph{The Gram construction} {\scshape TCREMP} scores two sequences by an alignment similarity $s$
+and converts it to a dissimilarity by
+\begin{equation}\label{eq:gram}
+  d(a,b) = s(a,a) + s(b,b) - 2\,s(a,b).
+\end{equation}
+This is exactly the squared distance $\norm{\psi(a)-\psi(b)}^2$ induced by a feature map $\psi$ whenever
+$s$ is an inner product, $s(a,b)=\langle\psi(a),\psi(b)\rangle$. The v3 implementation
+(\code{mir/distances/junction.py}) reads $d$ off directly: \code{seqtree}'s \code{blosum62()} is already
+the Gram transform of Eq.~\eqref{eq:gram}, and \code{gapblock.score\_matrix} returns $d$ as a genuine
+metric (zero diagonal, symmetric, non-negative), selecting the best of contiguous gap-block placements
+at offsets $(3,4,-4,-3)$.
+
+\begin{definition}
+A symmetric $d$ with zero diagonal is of \emph{negative type} (equivalently, $-d$ is conditionally
+positive definite) if $\sum_{i,j} c_i c_j\, d(x_i,x_j)\le 0$ for all finite $\{x_i\}$ and all
+$\{c_i\}$ with $\sum_i c_i = 0$.
+\end{definition}
+
+\begin{proposition}[When Eq.~\eqref{eq:gram} is an honest distance]\label{prop:schoenberg}
+$d$ of Eq.~\eqref{eq:gram} is of negative type if and only if the centred similarity matrix
+$s$ is positive semidefinite, in which case $\sqrt d$ embeds isometrically into a Hilbert space
+and $d=\norm{\psi(\cdot)-\psi(\cdot)}^2$ for the associated feature map $\psi$.
+\end{proposition}
+\begin{proof}[Sketch]
+This is Schoenberg's theorem \cite{Schoenberg1938}: $d$ is of negative type iff $e^{-t d}$ is a positive
+definite kernel for all $t>0$ iff $d=\norm{\psi(x)-\psi(y)}^2$ for a Hilbert map $\psi$; expanding the
+square recovers Eq.~\eqref{eq:gram} with $s(a,b)=\langle\psi(a),\psi(b)\rangle$, so negative type of $d$
+is the positive semidefiniteness of the centred $s$. See \cite{NegativeTypeHilbert2023,CNDkernels2013}
+for the modern bi-Lipschitz refinements. \qed
+\end{proof}
+
+\paragraph{Alignment scores need correction} General pairwise-alignment similarities (Smith--Waterman,
+BLAST) are \emph{not} positive semidefinite, so Eq.~\eqref{eq:gram} can violate $d\ge 0$ or the triangle
+inequality; canonicalising an alignment score into a metric requires an explicit correction
+\cite{BlastMetric2025}. In v3 this correction is the non-negativity clamp inside \code{seqtree}'s Gram
+transform --- a projection of the score onto the nearest conditionally-negative-definite cone --- which
+guarantees the metric axioms Prop.~\ref{prop:lipschitz}--\ref{prop:kuratowski} rely on. The choice of
+$s$ (BLOSUM62 here; \textsc{tcrBLOSUM} or a {\scshape VDJ}-specific matrix are alternatives) selects
+\emph{which} metric; all are admissible provided the clamp restores negative type.
+
+\paragraph{Gap-block versus Smith--Waterman} The v3 junction metric replaces a full Smith--Waterman
+optimisation by the best of four predetermined contiguous gap-block placements. When the optimal CDR3
+alignment inserts a single contiguous gap inside the hypervariable core --- the generic case once the
+conserved Cys/Phe anchors are fixed --- the gap-block score equals the Smith--Waterman optimum; the two
+diverge only for multi-gap alignments of very unequal lengths. Empirically the induced coordinate systems
+are strongly but not perfectly aligned (Fig.~\ref{fig:s2}: the same $D$--$d$ correlation is $R=0.64$ for
+Smith--Waterman and $R=0.49$ for \code{gapblock}), so v3 embeddings are a \emph{new, versioned}
+coordinate system rather than a bit-for-bit reproduction of the published one.
+
+\section{Immune receptors and the recombination model}\label{sec:immune}
+
+\paragraph{The prototype measure is $\Pgen$} The diversity of an immune repertoire is astronomically
+large, but it is not arbitrary: it is the image of a low-entropy stochastic process, the V(D)J
+recombination model $\Pgen$ \cite{Murugan2012,Marcou2018,Sethna2019}. {\scshape TCREMP} takes the
+prototype-sampling measure of \S\ref{sec:foundations} to be exactly this model, so each coordinate
+$\varphi(x)_k = d(x,p_k)$, $p_k\sim\Pgen$, measures the alignment distance from $x$ to a typical product
+of recombination.
+
+\begin{proposition}[Distance-profile functional]\label{prop:profile}
+For $p\sim\Pgen$ the empirical distribution of $\{\varphi(x)_k\}_{k=1}^K$ converges weakly to the law of
+$d(x,p)$. Hence $\varphi(x)$ is a Monte-Carlo sketch of the map $x\mapsto \mathrm{Law}_{\,p\sim\Pgen}\,
+d(x,p)$, and two receptors with the same distance-profile-to-$\Pgen$ are asymptotically
+embedding-indistinguishable.
+\end{proposition}
+\begin{proof}
+The coordinates are i.i.d.\ evaluations of the fixed $1$-Lipschitz map $p\mapsto d(x,p)$ under $\Pgen$;
+the Glivenko--Cantelli theorem gives uniform convergence of their empirical law to that of $d(x,p)$. \qed
+\end{proof}
+
+This reframes what the embedding ``learns'': not a language model of receptor sequences --- which the
+entropy of $\Pgen$ ($\sim\!40$ bits for {\scshape TRB}) makes futile --- but each receptor's geometric
+relationship to the generative distribution itself. It also predicts that the embedding is insensitive
+to how the prototypes are obtained, provided they cover the same support.
+
+\begin{proposition}[Prototype-source robustness]\label{prop:robust}
+Let $\mu,\nu$ be two prototype measures that are mutually absolutely continuous with bounded density
+ratio $\rho = d\mu/d\nu$ on the support of the repertoire. Then the energy dissimilarities of
+Prop.~\ref{prop:energy} satisfy $\bar D_\mu^2(x,y) = \E_{\nu}[\rho(p)\,(d(x,p)-d(y,p))^2]$, so the two
+embeddings induce distances that agree up to the $\chi^2$ discrepancy between $\mu$ and $\nu$; as
+$\chi^2(\mu\,\Vert\,\nu)\to 0$ the pairwise-distance vectors become perfectly correlated.
+\end{proposition}
+\begin{proof}[Sketch]
+Importance sampling rewrites the $\mu$-expectation as a $\nu$-expectation with weight $\rho$; a
+Cauchy--Schwarz bound on $\Cov$ under the two measures controls the correlation of the resulting
+distance vectors by $\chi^2(\mu\,\Vert\,\nu)=\E_\nu[\rho^2]-1$. \qed
+\end{proof}
+
+A real healthy-donor repertoire (Britanova \emph{et al.} \cite{Britanova2016}) and the synthetic
+recombination model (Murugan \emph{et al.} \cite{Murugan2012}) are, after thymic selection, close in
+exactly this sense, which is why supplementary Fig.~S3 finds their embedding distances correlated at
+$R=0.96$ --- reproduced here at $R=0.97$ (Fig.~\ref{fig:s3}).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.52\linewidth]{fig_s3_prototype_source.pdf}
+  \caption{Pairwise embedding distances built from real (Britanova \cite{Britanova2016}) versus model
+  (OLGA/Murugan \cite{Murugan2012,Sethna2019}) prototypes agree ($R=0.97$; suppl.\ S3), confirming
+  Prop.~\ref{prop:robust}. \code{mir/bench/theory.py::prototype\_source\_correlation}.}
+  \label{fig:s3}
+\end{figure}
+
+\paragraph{Distribution laws} The random construction also fixes the shape of the two histograms that
+dominate any embedding analysis.
+
+\begin{proposition}[Dissimilarity and distance laws]\label{prop:laws}
+Under mild mixing of per-position alignment contributions: (i) the pairwise dissimilarity $d_{ij}$ is
+asymptotically Gamma-distributed --- a sum of many non-negative, bounded per-column penalties, so the
+central-limit tendency is tempered by positivity and right-skew; (ii) the embedding distance $D_{ij}$
+follows a generalized extreme value (Fr\'echet--Gumbel) law rather than a Gaussian, because
+$D=\norm{\varphi(x)-\varphi(y)}_2$ is dominated by its largest coordinate differences, which are
+extreme-value statistics over the $K$ prototypes.
+\end{proposition}
+\begin{proof}[Sketch]
+(i) $d$ is a sum of per-aligned-column Gram penalties (Eq.~\eqref{eq:gram}), each in a bounded
+non-negative range; a Gamma law is the maximum-entropy fit to a positive sum with matched mean and
+variance, and dominates the Gaussian on the skew (Fig.~\ref{fig:s1}, left). (ii) By
+Prop.~\ref{prop:kuratowski} the $\ell^\infty$ part of $D$ equals $d(x,y)$, an extreme over prototypes;
+the Fisher--Tippett--Gnedenko theorem \cite{deHaanFerreira2006} forces the maximum of $K$ light-tailed
+coordinate differences into the {\scshape GEV} family, and the same tail governs $\ell^2$ once distances
+concentrate in high dimension \cite{Beyer1999} (Fig.~\ref{fig:s1}, right). \qed
+\end{proof}
+
+Both laws are confirmed on v3 (Fig.~\ref{fig:s1}): the Gamma fit to $d_{ij}$ beats the Gaussian on
+\textsc{aic}, and the {\scshape GEV} fit to $D_{ij}$ beats the Gaussian decisively
+(Kolmogorov--Smirnov $0.021$ versus $0.078$). The fitted shape $\xi\approx 0$ places v3 at the
+Gumbel--Fr\'echet boundary, marginally lighter-tailed than the $\xi=+0.11$ of the published
+Smith--Waterman construction --- a metric-dependent detail, not a qualitative difference.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_s1_distributions.pdf}
+  \caption{Distribution laws (Prop.~\ref{prop:laws}; suppl.\ S1). Left: $d_{ij}$ is Gamma, not Gaussian.
+  Right: $D_{ij}$ follows a {\scshape GEV}/Fr\'echet law (\textsc{ks} $0.021$) that the Gaussian
+  ($0.078$) misses on the heavy right tail. \code{mir/bench/theory.py::fit\_distributions}.}
+  \label{fig:s1}
+\end{figure}
+
+\section{{\normalfont\scshape TCR}s, three-component embeddings, and paired chains}\label{sec:tcr}
+
+\paragraph{The product metric} {\scshape TCREMP} emits three distances per prototype --- a V-germline, a
+J-germline, and a junction distance (or CDR1, CDR2, junction) --- interleaved into $\R^{3K}$
+(\code{mir/embedding/tcremp.py}). Writing $\varphi=(\varphi_V,\varphi_J,\varphi_\junc)$ for the three
+blocks, the block structure of the Euclidean norm gives the exact decomposition
+\begin{equation}\label{eq:product}
+  D(x,y)^2 = D_V(x,y)^2 + D_J(x,y)^2 + D_\junc(x,y)^2,
+\end{equation}
+so the embedding metric is the orthogonal sum of the per-component metrics.
+
+\begin{proposition}[Paired-chain concatenation]\label{prop:paired}
+For a paired receptor $(\alpha,\beta)$ embedded by concatenating the per-chain maps,
+$D_{\mathrm{pair}}(x,y)^2 = D_\alpha(x,y)^2 + D_\beta(x,y)^2$. More generally, concatenating landmark
+embeddings of independent factors realises the $\ell^2$ product of the factor metrics.
+\end{proposition}
+\begin{proof}
+Concatenation stacks coordinate blocks; the squared $\ell^2$ norm of a stacked vector is the sum of the
+squared block norms, which is Eq.~\eqref{eq:product} extended across chains. \qed
+\end{proof}
+
+Paired $\alpha\beta${\scshape TCR} embedding (suppl.\ S4) and, prospectively, the concatenation of
+epitope- and {\scshape MHC}-groove coordinates into a single {\scshape TCR}--pMHC vector are therefore
+principled: each modality contributes an orthogonal block and distances add in quadrature.
+
+\paragraph{The germline blocks are low-rank} The V and J coordinates depend on the sequence only through
+its germline gene identity, which explains the redundancy that {\scshape PCA} removes.
+
+\begin{proposition}[Germline rank bound]\label{prop:rank}
+Let $G_V$ be the number of distinct V alleles present in a dataset $S$. The V-block matrix
+$\Phi_V\in\R^{\lvert S\rvert\times K}$ with rows $\varphi_V(x)$ has at most $G_V$ distinct rows, hence
+$\operatorname{rank}\Phi_V \le G_V$. The same holds for J with $G_J$, and $G_V,G_J \ll K$.
+\end{proposition}
+\begin{proof}
+$\varphi_V(x)_k = d_V(v(x), v(p_k))$ depends on $x$ only through its V allele $v(x)$ (the germline
+distances are a fixed allele$\times$allele table, \code{mir/distances/germline.py}); receptors sharing a
+V allele have identical V-rows, so there are at most $G_V$ distinct rows and the rank is bounded by
+$G_V$. \qed
+\end{proof}
+
+A human {\scshape TRB} repertoire has $G_V\lesssim 60$, $G_J\lesssim 15$, against $K$ in the thousands:
+two-thirds of the raw coordinates live in a subspace of dimension $\le G_V+G_J$. The
+\code{StandardScaler}$\to$\code{PCA} step (\code{mir/embedding/pca.py}) recovers this compact basis ---
+Landmark {\scshape MDS} on $\varphi$ --- and an {\scshape ANOVA} of the leading components against gene
+usage recovers the germline axes, while the junction block carries the residual $\Theta(K)$-dimensional
+specificity signal.
+
+\paragraph{Structural grounding} That the metric is biologically meaningful, not merely combinatorial, is
+shown by supplementary Fig.~S5: embedding distances between {\scshape TCR}:pMHC complexes correlate with
+the C$\alpha$ {\scshape RMSD} of their crystal structures. Formally this asserts a Lipschitz map from the
+sequence metric $(X,d)$ into the structural metric, so that specificity groups --- receptors binding one
+epitope --- occupy small-diameter regions of embedding space, and clustering recovers them (Table~S1;
+\code{mir/bench/metrics.py}).
+
+\section{{\normalfont\scshape IGH} and somatic hypermutation}\label{sec:igh}
+
+B-cell receptors differ from {\scshape TCR}s in one decisive respect: after recombination they undergo
+somatic hypermutation ({\scshape SHM}), a context-dependent point-mutation process \cite{Yaari2013}.
+Write $M_m$ for an operator applying $m$ substitutions to a germline-rearranged sequence.
+
+\begin{proposition}[Bounded embedding drift]\label{prop:drift}
+There is a constant $c$ (the maximal per-substitution Gram penalty) such that $d(x,M_m x)\le c\,m$, and
+therefore $D(\varphi(x),\varphi(M_m x)) \le \sqrt{K}\,c\,m$. Embedding drift under {\scshape SHM} is
+linear in the mutation load $m$.
+\end{proposition}
+\begin{proof}
+Each substitution changes at most one aligned column of Eq.~\eqref{eq:gram}, by at most the bounded
+penalty range $c$; $m$ substitutions change $d$ by at most $c\,m$, and Prop.~\ref{prop:lipschitz}
+propagates this to $D$ with the $\sqrt K$ factor. \qed
+\end{proof}
+
+Proposition~\ref{prop:drift} has two consequences. First, a clonal lineage under affinity maturation
+traces a path in embedding space whose step size is set by the per-generation mutation load, so the
+embedding preserves lineage proximity --- the substrate for density and trajectory analysis
+(\S\ref{sec:density}). Second, it explains why {\scshape IGH} is the hardest chain for the neural codec
+of Part~2 (forward cosine $0.79$, exact reconstruction $0.16$, against $\ge0.93$/$0.50$ for {\scshape
+TCR}): (i) {\scshape IGH} CDR3s are long, so the fixed-length-40 gap-block tokenisation
+(\code{mir/ml/tokenize.py}) truncates an appreciable fraction of the variable middle, discarding
+information; (ii) {\scshape SHM} inflates the junction distance by $\Theta(m)$, so germline-rearrangement
+prototypes sampled from $\Pgen$ systematically under-cover the mutated support (the density ratio $\rho$
+of Prop.~\ref{prop:robust} becomes large and the robustness guarantee degrades); and (iii) the
+per-receptor entropy is higher. The remedy the theory suggests is to separate the {\scshape SHM}-robust
+germline distance (V/J, Prop.~\ref{prop:rank}) from the mutation-inflated junction distance and to
+augment the prototype set with a mutation model, i.e.\ to sample prototypes from $\Pgen$ pushed through
+$M_m$ rather than from $\Pgen$ alone.
+
+\section{Density geometry and background subtraction}\label{sec:density}
+
+The embedding turns a repertoire into a point cloud in $\R^{3K}$ (or its {\scshape PCA} projection), and
+the natural null model is the pushforward of the generation measure.
+
+\begin{definition}
+Let $f_{\mathrm{gen}} = \varphi_{\#}\Pgen$ be the density of embedded prototypes and $f_{\mathrm{obs}}$
+the density of an observed repertoire on embedding space. The \emph{enrichment} of a region is the
+density ratio $E(z)=f_{\mathrm{obs}}(z)/f_{\mathrm{gen}}(z)$.
+\end{definition}
+
+\begin{proposition}[Continuous limit of neighbour enrichment]\label{prop:tcrnet}
+The graph neighbourhood test of {\scshape TCRNET}/{\scshape ALICE} --- comparing the observed count of
+receptors within an alignment radius $r$ of $z$ to its expectation under $\Pgen$ --- converges, as
+$r\to 0$, to the density ratio $E(z)$. Convergent selection is precisely the set where $E(z)>1$.
+\end{proposition}
+\begin{proof}[Sketch]
+The observed and expected neighbour counts in a ball of radius $r$ are $f_{\mathrm{obs}}(z)$ and
+$f_{\mathrm{gen}}(z)$ times the common ball volume $+o(r^{d})$; their ratio tends to $E(z)$ as the
+volume shrinks, which is the standard consistency of a balloon density-ratio estimator. \qed
+\end{proof}
+
+Proposition~\ref{prop:tcrnet} recasts graph-based background subtraction as continuous density-ratio
+estimation on embedding space, which is the foundation for the {\scshape TCRNET}-without-graphs method of
+Part~2: estimate $f_{\mathrm{gen}}$ once from $\Pgen$ samples (or from the fast forward codec
+$\varphi\approx$ neural network, \code{mir/ml/encoder.py}), estimate $f_{\mathrm{obs}}$ by kernel density
+or a normalising flow, and report $E(z)$ directly --- no neighbourhood graph, and a smooth enrichment
+field rather than per-vertex counts.
+
+\section{Insights, reproduction, and open problems}\label{sec:insights}
+
+\paragraph{A unifying view} The results above place {\scshape TCREMP} in a well-understood corner of
+metric geometry. The map $\varphi$ is the empirical (Nystr\"om) feature map of the alignment kernel; its
+$\ell^\infty$ read-out is the Kuratowski isometry, its $\ell^2$ read-out is Landmark {\scshape MDS}, and
+its {\scshape PCA} is the classical scaling of the landmark columns. Three observations may be of
+independent interest beyond immunology: (a) taking the landmark measure to be a \emph{generative model}
+of the data ($\Pgen$) rather than a random subsample makes the embedding a sketch of each point's
+relation to the data-generating process, and makes prototype choice provably robust
+(Prop.~\ref{prop:robust}); (b) high-dimensional prototype-embedding distances obey a generalized
+extreme value law (Prop.~\ref{prop:laws}), a clean consequence of distance concentration that is easy to
+mistake for Gaussian; and (c) the germline rank bound (Prop.~\ref{prop:rank}) shows how categorical
+side-information injects exactly-low-rank structure into an otherwise full-rank distance embedding.
+
+\paragraph{Reproduction} Every quantitative statement is regenerated by \code{mir/bench/theory.py} and
+the data/figure scripts in this directory (\code{gen\_theory\_data.py}, the \code{*.gp} gnuplot scripts,
+\code{diagram\_embedding.dot}); Table~\ref{tab:reproduced} collects the numbers.
+
+\begin{table}[h]
+  \centering
+  \caption{Theory predictions and their v3 reproduction (\code{mir/bench/theory.py}; $n=2500$
+  CDR3$\beta$). Paper values from \cite{Kremlyakova2025}, suppl.\ S1--S3.}
+  \label{tab:reproduced}
+  \begin{tabular}{lccc}
+    \toprule
+    Claim & Paper & mirpy (Smith--Waterman) & mirpy (\code{gapblock} v3)\\
+    \midrule
+    S2 / Prop.~\ref{prop:energy}: $\mathrm{corr}(D_{ij},d_{ij})$ & $0.56$ & $0.64$ & $0.49$ \\
+    S1 / Prop.~\ref{prop:laws}: law of $d_{ij}$ & Gamma $>$ Normal & Gamma $>$ Normal & Gamma $>$ Normal \\
+    S1 / Prop.~\ref{prop:laws}: law of $D_{ij}$ & GEV, $\xi{=}{+}0.11$ & GEV $\gg$ Normal, $\xi{\approx}0$ & GEV $\gg$ Normal, $\xi{\approx}0$ \\
+    S3 / Prop.~\ref{prop:robust}: real vs.\ model prototypes & $0.96$ & --- & $0.97$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Open problems} Four questions are left open. (1) Sharp distortion constants for the lower
+bound complementary to Prop.~\ref{prop:lipschitz} when prototypes are $\Pgen$-sampled, i.e.\ a
+Bourgain-type \cite{Bourgain1985} guarantee tuned to the recombination measure rather than to the worst
+case. (2) The exact extreme-value index $\xi$ of Prop.~\ref{prop:laws} as a function of the substitution
+matrix and prototype count. (3) A mutation-corrected metric for {\scshape IGH} that makes
+Prop.~\ref{prop:robust} hold under {\scshape SHM} (\S\ref{sec:igh}). (4) Consistency and rates for the
+density-ratio estimator of Prop.~\ref{prop:tcrnet} on the {\scshape PCA}-projected embedding, which would
+put continuous background subtraction on the same footing as the graph tests it replaces.
+
+\bibliographystyle{unsrt}
+\bibliography{refs}
+
+\end{document}

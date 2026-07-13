@@ -21,3 +21,10 @@ Every dataset used by mirpy v3, its origin, and how to regenerate it.
 
 Bundled model / Pgen data used at runtime lives in **vdjtools** (`vdjtools.model` bundled
 parquet marginals for 7 loci × {olga, learned}) — see the vdjtools `SOURCES.md`.
+
+## Theory appendix (`appendix/`)
+
+| Dataset / asset | Path | What / provenance | Regenerate |
+|---|---|---|---|
+| Theory figure data | `appendix/data/*.tsv`, `theory_stats.txt` | S1–S3 dissimilarity/distance samples, distribution fits, correlations; **computed** (not experimental) by reusing `mir.bench.theory` on the bundled `human_TRB` prototypes | `python appendix/gen_theory_data.py` (conda `mirpy` env, `[bench]` extra) |
+| gnuplot-palettes | *not vendored* (clone to `../gnuplot-palettes` or set `$GNUPLOT_PALETTES`) | ColorBrewer palettes from github.com/Gnuplotting/gnuplot-palettes; used by the `appendix/*.gp` scripts. **External tool, not a submodule** | `git clone https://github.com/Gnuplotting/gnuplot-palettes.git ../gnuplot-palettes` |
