@@ -87,8 +87,8 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 | `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
 | `mir.embedding.pca` | PCA denoising of embeddings |
 | `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
-| `mir.bench` | VDJdb loader, DBSCAN clustering + F1/retention, theory experiments |
-| `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel) + noise-filtering (Theory T6) |
+| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`) |
+| `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
 | `mir.ml` | neural codecs — forward/inverse/Pgen/unified (Part 2, experimental; `[ml]` extra) |
 
 ## Background subtraction & clustering (`mir.density`)
@@ -116,6 +116,10 @@ patient vs healthy) — differential enrichment cancels generic public convergen
 antigen-specific response. With no control, `generate_background(locus, n)` samples the vdjtools
 P_gen model (the ALICE regime); the "water level" of a naive repertoire is handled by the
 empirical-null calibration. See `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py`.
+
+At whole-repertoire scale, pass `neighbor_enrichment(..., backend="kdtree")` (exact scipy cKDTree,
+5–9× faster than the default BallTree) or `backend="ann"` (approximate pynndescent, ~30× faster
+past ~10⁵ clones, trading a small conservative undercount); see `experiments/benchmark_ann.py`.
 
 ## Reproduce the paper
 

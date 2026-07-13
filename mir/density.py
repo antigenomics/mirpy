@@ -362,9 +362,14 @@ def neighbor_enrichment(
         weight: Concave size transform ``g`` — ``"log1p"`` (default), ``"anscombe"``, or
             ``"distinct"`` (``g≡1``, ignore sizes even if ``abundance`` is given).
         orphan: When abundance-aware, combine the size p-value with the breadth p-value by Fisher.
-        backend: ``"exact"`` (default, BallTree — exact and reproducible) or ``"ann"`` (approximate
-            pynndescent kNN for whole-repertoire scale; recall < 1 undercounts, biasing enrichment
-            conservatively — see :func:`_ann_neighbors`).
+        backend: neighbour engine. ``"exact"`` (default, BallTree — exact, reproducible),
+            ``"kdtree"`` (scipy cKDTree — **also exact**, multithreaded, 5–9× faster; the
+            recommended speedup), or ``"ann"`` (approximate pynndescent kNN for whole-repertoire
+            scale — ~30× faster than BallTree at ≥40k but recall < 1 undercounts, biasing enrichment
+            conservatively; see :func:`_ann_neighbors`). ``"kdtree"`` is bit-identical to
+            ``"exact"`` at a *fixed* ``radius``; in balloon mode counts differ by at most ±1 at the
+            ball boundary (a float-epsilon difference in the computed k-th-neighbour distance),
+            which is negligible — prefer ``"kdtree"`` unless reproducing the BallTree baseline exactly.
 
     Returns:
         An :class:`EnrichmentResult`; ``fold`` is the (calibrated) density ratio ``E(z)``. In
@@ -394,6 +399,27 @@ def neighbor_enrichment(
 
         def _lists_obs():
             return obs_tree.query_radius(obs, rad, return_distance=False)
+    elif backend == "kdtree":  # exact, multithreaded scipy cKDTree — 5-9x faster than BallTree
+        from scipy.spatial import cKDTree
+
+        obs_tree, bg_tree = cKDTree(obs), cKDTree(bg)
+        if radius is None:
+            k = int(round(lambda0 * n_bg_total / n_ref))
+            k = min(max(k, 1), n_bg_total)
+            d = bg_tree.query(obs, k=k, workers=-1)[0]
+            rad = d[:, -1] if d.ndim == 2 else d  # cKDTree returns 1-D for k==1
+            radius_out = float(np.median(rad))
+        else:
+            rad = np.full(n_obs_total, float(radius))
+            radius_out = float(radius)
+        n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=-1).astype(np.int64)
+
+        def _count_obs():
+            return (obs_tree.query_ball_point(obs, rad, return_length=True, workers=-1) - 1).astype(np.int64)
+
+        def _lists_obs():
+            return [np.asarray(x, dtype=np.intp)
+                    for x in obs_tree.query_ball_point(obs, rad, workers=-1)]
     elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
         rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
             obs, bg, radius, lambda0, n_ref)

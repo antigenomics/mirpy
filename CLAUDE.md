@@ -44,10 +44,15 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `embedding/presets.py` — per-chain `n_prototypes` + PC recommendations (`get_preset`);
   `from_defaults(n_prototypes=None)` uses them. Compact chains (IGK/IGL/TRG) 1000 protos / ~20
   PCs; diverse chains (IGH/TR*) 2000 / ~65 PCs (95%), ~220–300 PCs (99%, for codec reconstruction).
-- `bench/` — `vdjdb.py` (loader), `metrics.py` (DBSCAN+kneedle, F1/retention), `theory.py`
-  (S1–S3 + T5 + T6 `tcrnet_convergence`). Needs `[bench]`.
+- `bench/` — `vdjdb.py` (loader), `metrics.py` (`cluster(method=…)` DBSCAN default | HDBSCAN | OPTICS,
+  kneedle eps, F1/retention), `theory.py` (S1–S3 + T5 + T6 `tcrnet_convergence` + `codec_losslessness`).
+  Needs `[bench]`. Clustering is a precision/coverage trade-off (`experiments/benchmark_clustering.py`):
+  DBSCAN tightest/purest (paper regime), HDBSCAN ~3× coverage at lower F1 (variable-density), OPTICS
+  dominated, KMeans no noise-rejection.
 - `density.py` — continuous-density TCRNET/ALICE (T6): `fit_density_space` (one shared PCA basis),
-  `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration),
+  `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration;
+  `backend=` **exact** BallTree default | **kdtree** exact scipy cKDTree 5–9× faster | **ann**
+  pynndescent ~30× at ≥1e5, recall<1 conservative — `experiments/benchmark_ann.py`),
   `enriched_mask`, `denoise_and_cluster`, `generate_background` (vdjtools P_gen, lazy). Torch-free
   (scipy/sklearn). Prefer a **biological control** as background (differential) over P_gen.
   **Abundance-aware** (T6 sec:dens-abund): pass `abundance=` (clone sizes) + `weight="log1p"`/`anscombe`
@@ -61,7 +66,8 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
 ## Build / test / run
 - Conda env **`mirpy`** (Python 3.12; do NOT use `.venv` here). `pip install -e .`
   (pure-Python hatchling; no C build). Extras: `[bench] [annotate] [build] [ml] [docs] [dev]`.
-- Tests: `python -m pytest tests/ -q` (71 pass, ~5s; all self-contained on bundled resources).
+- Tests: `python -m pytest tests/ -q` (78 pass; `-m "not integration"` for the ~5s fast tier —
+  the pynndescent ANN parity test carries a one-time JIT cost). All self-contained on bundled resources.
 - Experiments: `python experiments/reproduce_supplementary.py` (theory S1–S3),
   `python experiments/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
   (geometry saturates by K≈100 — T.1/S4), `analyze_pc_decomposition.py` (V/J η² ≈0.44/0.49,
