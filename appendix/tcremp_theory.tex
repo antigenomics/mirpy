@@ -7,7 +7,7 @@
 \usepackage{booktabs}
 \usepackage{dsfont}  % \mathds{1} indicator
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric,decorations.pathmorphing}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric,decorations.pathmorphing,decorations.pathreplacing}
 % Dark2 (ColorBrewer, colourblind-safe) — matches the gnuplot Dark2 palette used by the S1--S3 figures
 \definecolor{cTeal}{HTML}{1B9E77}
 \definecolor{cOrange}{HTML}{D95F02}
@@ -1173,9 +1173,19 @@ sample; $\varphi,\Pgen,r_1$ are as in \S\ref{sec:density}.
 
   % ---- Stage 2: weighted point cloud (the measure) ----
   \node[draw=cGray,thick,rounded corners,minimum width=2.7cm,minimum height=2.5cm,fill=cGray!4] (cloud) at (4.2,0.75) {};
-  \node[align=center,anchor=south,font=\scriptsize] at (cloud.north) {measure $\rho_S$\\ on $\R^{p}$};
-  \foreach \x/\y/\r in {3.45/0.35/1.5, 3.75/1.35/1, 4.75/1.45/2.6, 4.95/1.20/2, 4.60/1.10/1.5, 3.55/1.05/1, 4.30/0.25/3, 5.00/0.55/1.5, 3.95/0.75/1, 4.55/1.55/1.5, 3.60/0.55/1}
-     \fill[cTeal!70,draw=cGray] (\x,\y) circle (\r pt);
+  \node[align=center,anchor=south,font=\scriptsize] at (cloud.north) {measures $\rho_S$, $\rho_{S'}$\\ on $\R^{p}$};
+  % S (teal) cloud
+  \foreach \x/\y/\r in {3.35/0.55/2, 3.68/1.32/1.5, 4.68/1.40/2.6, 4.48/0.95/2, 3.60/0.82/1.5, 4.88/0.55/1.5}
+     \fill[cTeal!75,draw=cGray] (\x,\y) circle (\r pt);
+  % S' (orange) cloud -- two clonotypes overlap S (shared), one is distinct
+  \foreach \x/\y/\r in {4.58/1.28/2, 3.42/0.46/1.5, 5.12/1.02/2}
+     \fill[cOrange!80,draw=cGray] (\x,\y) circle (\r pt);
+  % highlight the shared-overlap region
+  \draw[cGray,dashed] (4.55,1.18) ellipse (0.38 and 0.34);
+  \node[cGray,font=\tiny] at (4.55,1.64) {shared};
+  % inline legend
+  \fill[cTeal!75] (3.02,-0.22) circle(1.7pt);  \node[font=\tiny,anchor=west] at (3.10,-0.22) {$S$};
+  \fill[cOrange!80] (3.66,-0.22) circle(1.7pt); \node[font=\tiny,anchor=west] at (3.74,-0.22) {$S'$};
 
   \draw[->,thick] (5.65,0.75) -- node[above,align=center,font=\scriptsize]{$\mu,\ \{{}^qD\},\ \Sigma$} (7.05,0.75);
 
@@ -1192,9 +1202,10 @@ sample; $\varphi,\Pgen,r_1$ are as in \S\ref{sec:density}.
 \end{tikzpicture}
 \caption{The sample-level embedding turns a \emph{variable-length} repertoire into a \emph{fixed-width}
 vector. Two repertoires of different clonotype counts ($|S|{=}6$, $|S'|{=}3$; real values span
-$10^2$--$10^6$) become the same object --- a size-weighted measure $\rho_S$ on embedding space --- and are
-then summarised by the three blocks (mean $\mu$, diversity profile $\{{}^qD\}$, second moment $\Sigma$) into
-vectors of identical dimension $D$. The list length is never a coordinate; it survives only as the richness
+$10^2$--$10^6$) become two size-weighted measures $\rho_S,\rho_{S'}$ on the \emph{same} embedding space ---
+overlapping where the repertoires share clonotypes, their distance being the {\scshape MMD} --- and are then
+summarised by the three blocks (mean $\mu$, diversity profile $\{{}^qD\}$, second moment $\Sigma$) into vectors
+of identical dimension $D$. The list length is never a coordinate; it survives only as the richness
 $\;^0D$ inside the diversity block.}
 \label{fig:samppipe}
 \end{figure}
@@ -1282,17 +1293,16 @@ lives. The tension is a theorem, not an accident.
   \foreach \i/\h in {0/2.0,1/1.25,2/0.9,3/0.68} \fill[cTeal,draw=cGray] (\i*0.34,0) rectangle ++(0.28,\h);
   \foreach \i/\h in {4/0.5,5/0.4,6/0.32,7/0.26,8/0.20,9/0.16,10/0.13,11/0.12,12/0.11,13/0.11,14/0.10,15/0.10,16/0.10,17/0.10,18/0.10,19/0.10,20/0.10,21/0.10}
     \fill[cOrange,draw=cGray] (\i*0.34,0) rectangle ++(0.28,\h);
-  \draw[->,cGray] (-0.15,0) -- (7.7,0) node[right,font=\scriptsize]{clonotypes, ranked by size};
-  \draw[->,cGray] (-0.15,0) -- (-0.15,2.25) node[above,font=\scriptsize]{$a_\sigma$};
-  % head annotation
-  \draw[cTeal!60!black,thick] (0,2.2) -- (1.3,2.2);
-  \node[cTeal!60!black,anchor=south west,align=left,font=\scriptsize] at (0,2.25)
-    {\textbf{head} --- abundant clones\\ dominate the mean $\Phi_1$ (\emph{depth-robust})};
-  % tail annotation
-  \draw[cOrange!80!black,thick] (1.4,0.62) -- (7.5,0.62);
-  \node[cOrange!80!black,anchor=north,align=center,font=\scriptsize] at (4.4,0.55)
-    {\textbf{tail} --- singletons/doubletons $f_1,f_2$ carry richness $\;^0D$ and set coverage $\hat C$
-     (\emph{depth-sensitive})};
+  \draw[->,cGray] (-0.15,0) -- (7.95,0) node[right,font=\scriptsize]{clonotypes, ranked by size};
+  \draw[->,cGray] (-0.15,0) -- (-0.15,2.45) node[above,font=\scriptsize]{$a_\sigma$};
+  % head annotation: label above-right, leader arrow to the head bars (clear of bars)
+  \node[cTeal!60!black,anchor=west,align=left,font=\scriptsize] (hl) at (1.85,1.95)
+    {\textbf{head}: abundant clones\\ dominate the mean $\Phi_1$\\ (\emph{depth-robust})};
+  \draw[cTeal!60!black,->,thick] (hl.west) to[out=180,in=70] (0.45,1.32);
+  % tail annotation: brace + label BELOW the axis, clear of the bars
+  \draw[cOrange!80!black,thick,decorate,decoration={brace,mirror,amplitude=4pt}] (1.42,-0.08) -- (7.5,-0.08);
+  \node[cOrange!80!black,anchor=north,align=center,font=\scriptsize] at (4.46,-0.42)
+    {\textbf{tail}: singletons/doubletons $f_1,f_2$ carry richness $\;^0D$, set coverage $\hat C$ (\emph{depth-sensitive})};
 \end{tikzpicture}
 \caption{The depth$\leftrightarrow$diversity antagonism, on the (Zipf/power-law \cite{Desponds2016}) clone-size
 curve. The frequency-weighted mean $\Phi_1$ is governed by the abundant \emph{head} and barely moves under
@@ -1472,34 +1482,57 @@ in Prop.~\ref{prop:hla}; and \emph{reference normalisation}, dividing each sampl
 $\Pgen$ pushforward $f_{\mathrm{gen}}$ (\S\ref{sec:density}), which removes the multiplicative bias common to
 the generation background. In every case the operative object is a \emph{contrast}, never a raw position.
 
+\begin{remark}[When batch is confounded with the phenotype]\label{rem:batchconfound}
+The cancellation of Prop.~\ref{prop:batch} needs the batch to be \emph{balanced} across the contrast --- case
+and control both present in each batch (Fig.~\ref{fig:sampbatch}a). If instead batch is \emph{confounded} with
+the phenotype --- all cases sequenced in one run, all controls in another --- the batch shift
+$\delta_{\mathrm{batch}}$ and the biological effect $v$ are aliased: the observed group difference is
+$v+\delta_{\mathrm{batch}}$ and no contrast can separate them (Fig.~\ref{fig:sampbatch}b). This is a design
+failure, unidentifiable in general. It is \emph{partly} rescued by structure: a batch acts mainly through
+$V$/$J$ primer-amplification bias and sequencing depth, which live in the low-rank germline subspace
+(\S\ref{sec:tcr}, Prop.~\ref{prop:rank}) and the depth/diversity direction --- largely orthogonal to the
+junction/{\scshape CDR3}-motif directions that carry antigen specificity. Projecting out the $V$/$J$-usage and
+depth components (or conditioning the {\scshape MMD} on $V$/$J$ usage) removes the bulk of a confounded batch
+effect while sparing the {\scshape CDR3} signal, and a spike-in or technical replicate calibrates the residual.
+Full confounding, though, cannot be undone after the fact: the only complete remedy is to balance batches
+across the phenotype at design time.
+\end{remark}
+
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2mm]}]
-  \def\vx{1.5}\def\vy{0.55}
-  \coordinate (a1) at (0,0.15);
-  \coordinate (b1) at (\vx,0.15+\vy);
-  \coordinate (a2) at (0.75,1.95);
-  \coordinate (b2) at (0.75+\vx,1.95+\vy);
-  \draw[->,dashed,cGray,thick] (a1) -- (a2)
-    node[midway,left,cGray,font=\scriptsize] {$\delta_{\mathrm{batch}}$};
-  \draw[->,cTeal,very thick] (a1) -- (b1)
-    node[midway,below right=-1pt,cTeal!55!black,font=\scriptsize] {$v$};
-  \draw[->,cOrange,very thick] (a2) -- (b2)
-    node[midway,above left=-1pt,cOrange!70!black,font=\scriptsize] {$v$};
-  \fill[cTeal] (a1) circle(2.6pt);   \draw[cTeal,thick,fill=white]   (b1) circle(2.6pt);
-  \fill[cOrange] (a2) circle(2.6pt); \draw[cOrange,thick,fill=white] (b2) circle(2.6pt);
-  \node[anchor=west,align=left,font=\scriptsize] at (3.3,1.55)
-    {\textbullet\ filled $=$ case, \ $\circ$ open $=$ control\\[2pt]
-     batch 1 (\textcolor{cTeal!55!black}{teal}), batch 2 (\textcolor{cOrange!70!black}{orange})\\[2pt]
-     absolute positions differ by the batch\\ shift $\delta_{\mathrm{batch}}$, but the biological\\
-     contrast $v=$ case$\to$control is identical};
-  \draw[->,cGray] (-0.4,-0.35) -- (2.6,-0.35) node[right,font=\scriptsize]{embedding coordinate 1};
+  % ================= panel (a): balanced -> cancels =================
+  \coordinate (a1) at (0,0.15);   \coordinate (b1) at (1.25,0.55);   % batch 1 (teal): case -> control
+  \coordinate (a2) at (0.55,1.55); \coordinate (b2) at (1.8,1.95);   % batch 2 (orange): case -> control
+  \draw[->,dashed,cGray] (a1) -- (a2) node[midway,left,cGray,font=\scriptsize] {$\delta$};
+  \draw[->,cTeal,very thick]   (a1) -- (b1) node[midway,below right=-2pt,cTeal!55!black,font=\scriptsize] {$v$};
+  \draw[->,cOrange,very thick] (a2) -- (b2) node[midway,above left=-2pt,cOrange!70!black,font=\scriptsize] {$v$};
+  \fill[cTeal] (a1) circle(2.4pt);   \draw[cTeal,thick,fill=white]   (b1) circle(2.4pt);
+  \fill[cOrange] (a2) circle(2.4pt); \draw[cOrange,thick,fill=white] (b2) circle(2.4pt);
+  \node[align=center,font=\scriptsize,anchor=north] at (0.95,-0.35)
+    {\textbf{(a) balanced}\\ within-batch $v$ recovers biology};
+  % ================= panel (b): confounded -> aliased =================
+  \begin{scope}[xshift=5.3cm]
+    \coordinate (c) at (0,0.15);   \coordinate (k) at (1.35,1.7);   % case (batch1), control (batch2)
+    \coordinate (m) at (1.35,0.55);                                  % hidden: control-if-same-batch
+    \draw[->,cTeal,dashed,thick] (c) -- (m) node[midway,below right=-2pt,cTeal!55!black,font=\scriptsize] {$v$};
+    \draw[->,cGray,dashed,thick] (m) -- (k) node[midway,right,cGray,font=\scriptsize] {$\delta$};
+    \draw[->,very thick,black!65] (c) -- (k) node[midway,above left=-1pt,font=\scriptsize] {$v{+}\delta$};
+    \fill[cTeal] (c) circle(2.4pt);   \draw[cOrange,thick,fill=white] (k) circle(2.4pt);
+    \fill[cGray!45] (m) circle(1.7pt);
+    \node[align=center,font=\scriptsize,anchor=north] at (0.7,-0.35)
+      {\textbf{(b) confounded}\\ $v{+}\delta$ aliased --- unidentifiable};
+  \end{scope}
 \end{tikzpicture}
-\caption{Batch effects cancel in a within-batch contrast (Prop.~\ref{prop:batch}). Two batches sit at different
-absolute positions in embedding space --- the batch shift $\delta_{\mathrm{batch}}$ moves a whole batch
-together --- so raw sample positions are confounded. But the case$\to$control vector $v$ (the biological effect)
-is the \emph{same} in both batches, so a within-batch (paired) contrast recovers it free of $\delta$. This is
-the sample-level image of the differential control of \S\ref{sec:dens-diff}.}
+\caption{Batch cancellation needs a balanced design (Prop.~\ref{prop:batch}, Rem.~\ref{rem:batchconfound}).
+\textbf{(a)} When both batches contain case and control, the case$\to$control vector $v$ (biology) is identical
+across batches while their absolute positions differ by the batch shift $\delta$, so a within-batch (paired)
+contrast recovers $v$ free of $\delta$. \textbf{(b)} When batch is confounded with the phenotype --- cases in
+one run, controls in another --- the observed difference is $v+\delta$ with no within-batch pair to split it
+(the true $v$ and $\delta$, dashed, are unobservable): they are \emph{aliased} and unidentifiable. Filled $=$
+case, open $=$ control; teal $=$ batch 1, orange $=$ batch 2. Structure partly rescues (b) --- $\delta$ lives
+mainly in the $V$/$J$-usage and depth subspace, adjustable without unmixing the {\scshape CDR3} signal
+(Rem.~\ref{rem:batchconfound}).}
 \label{fig:sampbatch}
 \end{figure}
 
