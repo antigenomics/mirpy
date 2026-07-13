@@ -63,17 +63,20 @@ BG_MULT = 5          # background size = BG_MULT x |obs|  (>= 5N for a stable ra
 _COLS = ("junction_aa", "v_call", "j_call")
 
 
-def load_vdjdb_signal(path: str, chain: str, min_ref: int) -> pl.DataFrame:
-    """VDJdb clonotypes for *chain*, one row per unique (junction, v, j) with a corroboration count.
+def load_vdjdb_signal(path: str, chain: str, min_ref: int, species: str = "HomoSapiens") -> pl.DataFrame:
+    """VDJdb clonotypes for *chain* / *species*, one row per unique (junction, v, j) with a corroboration count.
 
     ``reference.id`` is a comma-joined PMID list, so the number of independent references is
     ``str.split(",").len()``. A clonotype seen under several epitopes keeps its best-corroborated
-    epitope. Returns ``junction_aa, v_call, j_call, epitope, n_ref``.
+    epitope. Restricted to *species* (default human) since we embed against human prototypes and a
+    human control/P_gen background — the full release also carries mouse and macaque TRBs. Returns
+    ``junction_aa, v_call, j_call, epitope, n_ref``.
     """
     raw = pl.read_csv(path, separator="\t", infer_schema_length=0)
     return (
         raw.filter(
             (pl.col("gene") == chain)
+            & (pl.col("species") == species)
             & pl.col("cdr3").is_not_null()
             & pl.col("antigen.epitope").is_not_null()
             & pl.col("reference.id").is_not_null()
