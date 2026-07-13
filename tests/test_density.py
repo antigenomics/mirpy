@@ -70,6 +70,33 @@ def test_balloon_mode_detects_injected_cluster():
     assert res.radius > 0
 
 
+def test_abundance_weighted_channels_and_robustness():
+    # breadth = a convergent singleton cluster; depth = one hyperexpanded clone. The weighted test
+    # keeps the cluster (breadth), the depth channel flags the big clone, and concavity keeps the
+    # Zipf tail from dominating. (A lone orphan is BH-conservative among N clones — a side-channel.)
+    rng = np.random.default_rng(3)
+    bg = rng.standard_normal((5000, 8))
+    obs = rng.standard_normal((800, 8))
+    obs[:40] = np.full(8, 2.5) + 0.05 * rng.standard_normal((40, 8))  # convergent family (breadth)
+    a = np.ones(800)
+    a[400] = 5000.0                                     # a hyperexpanded clone (depth signal)
+    res = neighbor_enrichment(obs, bg, lambda0=3.0, abundance=a, weight="log1p")
+    assert res.score is not None and res.pvalue_size is not None and res.pvalue_breadth is not None
+    assert enriched_mask(res)[:40].mean() > 0.8         # breadth keeps the convergent family
+    assert (res.pvalue_breadth[:40] < 0.05).mean() > 0.8
+    assert res.pvalue_size[400] == res.pvalue_size.min() < 0.01  # depth flags the hyperexpanded clone
+    assert res.score.max() < 100                        # concavity: weighted mass is O(log), not O(size)
+
+
+def test_abundance_distinct_weight_ignores_sizes():
+    rng = np.random.default_rng(4)
+    obs, bg = rng.standard_normal((300, 6)), rng.standard_normal((700, 6))
+    a = rng.integers(1, 50, size=300).astype(float)
+    base = neighbor_enrichment(obs, bg, radius=0.8)
+    same = neighbor_enrichment(obs, bg, radius=0.8, abundance=a, weight="distinct")
+    assert np.array_equal(base.n_obs, same.n_obs) and same.score is None  # g≡1 endpoint
+
+
 def test_unknown_test_raises():
     obs, bg = np.zeros((3, 2)), np.ones((3, 2))
     with pytest.raises(ValueError):

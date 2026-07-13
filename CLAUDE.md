@@ -46,6 +46,10 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration),
   `enriched_mask`, `denoise_and_cluster`, `generate_background` (vdjtools P_gen, lazy). Torch-free
   (scipy/sklearn). Prefer a **biological control** as background (differential) over P_gen.
+  **Abundance-aware** (T6 sec:dens-abund): pass `abundance=` (clone sizes) + `weight="log1p"`/`anscombe`
+  to swap the distinct in-ball count for the variance-stabilised mass `S=Σg(a_j)` (compound-Poisson
+  Gamma tail, dispersion `φ=E[g²]/E[g]`) plus a per-clonotype orphan/depth channel `P(A≥a_j)` Fisher-
+  combined with breadth. Default `abundance=None` = distinct count (unchanged, `g≡1`).
 - `ml/` — Part 2 (torch), neural codecs.
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
   `germline_dist/` (baked `.npz`, from `build_germline_dist.py`).
