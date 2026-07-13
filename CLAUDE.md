@@ -26,6 +26,9 @@ to their owners instead.
   — resource-backed V/J/CDR1/CDR2 lookup with allele cascade.
 - `embedding/prototypes.py` — bundled prototype loader. `embedding/tcremp.py` — `TCREmp` /
   `PairedTCREmp` (polars frame in → `(N,3K)` float32). `embedding/pca.py` — PCA denoise (T3).
+  `embedding/presets.py` — per-chain `n_prototypes` + PC recommendations (`get_preset`);
+  `from_defaults(n_prototypes=None)` uses them. Compact chains (IGK/IGL/TRG) 1000 protos / ~20
+  PCs; diverse chains (IGH/TR*) 2000 / ~65 PCs (95%), ~220–300 PCs (99%, for codec reconstruction).
 - `bench/` — `vdjdb.py` (loader), `metrics.py` (DBSCAN+kneedle, F1/retention), `theory.py`
   (S1–S3 experiments). Needs `[bench]`.
 - `ml/` — Part 2 (torch), empty stub.

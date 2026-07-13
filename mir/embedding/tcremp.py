@@ -98,13 +98,21 @@ class TCREmp:
         cls,
         species: str,
         locus: str,
-        n_prototypes: int = DEFAULT_N_PROTOTYPES,
+        n_prototypes: int | None = None,
         mode: str = "vjcdr3",
         **kwargs,
     ) -> "TCREmp":
-        """Build from the bundled prototypes and baked germline distances."""
+        """Build from the bundled prototypes and baked germline distances.
+
+        ``n_prototypes=None`` uses the per-chain recommended preset
+        (:func:`mir.embedding.presets.get_preset`).
+        """
+        from mir.embedding.presets import get_preset
+
         species_c = normalize_species_alias(species)
         locus_c = normalize_locus_alias(locus)
+        if n_prototypes is None:
+            n_prototypes = get_preset(species_c, locus_c).n_prototypes
         prototypes = load_prototypes(species_c, locus_c, n=n_prototypes)
         germline = load_germline_distances(species_c, locus_c)
         return cls(species_c, locus_c, prototypes, germline, mode=mode, **kwargs)
@@ -177,10 +185,11 @@ class PairedTCREmp:
         cls,
         species: str,
         loci: tuple[str, str] = ("TRA", "TRB"),
-        n_prototypes: int = DEFAULT_N_PROTOTYPES,
+        n_prototypes: int | None = None,
         mode: str = "vjcdr3",
         **kwargs,
     ) -> "PairedTCREmp":
+        # n_prototypes=None -> each locus uses its own recommended preset
         chains = {
             locus: TCREmp.from_defaults(species, locus, n_prototypes, mode, **kwargs)
             for locus in loci
