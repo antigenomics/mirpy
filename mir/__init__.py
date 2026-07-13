@@ -1,17 +1,41 @@
-'''MIR library in python'''
+"""mirpy — ML-oriented embeddings for immune receptor repertoires (TCR/BCR).
 
-# todo: consider importing from modules in all init
+Version 3 is a slim, embedding-focused rewrite. Heavy machinery is delegated to
+sibling packages rather than duplicated:
+
+* alignment → ``seqtree`` (``seqtree.gapblock``),
+* VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (extra ``[rearrangement]``),
+* VDJdb annotation / E-values → ``vdjmatch`` (extra ``[annotate]``),
+* build-time germline region annotation → ``arda`` (extra ``[build]``).
+
+The classical repertoire toolkit lives on the ``legacy-v2`` branch (``mirpy-lib`` 2.x).
+"""
+
+from __future__ import annotations
 
 import os
 
-def get_resource_path(name=None):
-    path = os.path.realpath(__file__)
-    directory = os.path.dirname(path)
-    subdirectory = os.path.join(directory, "resources")
+__version__ = "3.0.0"
+
+
+def get_resource_path(name: str | None = None):
+    """Return the absolute path to a bundled resource under ``mir/resources``.
+
+    Args:
+        name: Resource file or directory name. When ``None``, return the sorted
+            list of top-level resource names instead of a path.
+
+    Returns:
+        The absolute path as a string, or the sorted list of resource names
+        when ``name`` is ``None``.
+
+    Raises:
+        FileNotFoundError: If ``name`` does not resolve to a bundled resource.
+    """
+    resources = os.path.join(os.path.dirname(os.path.realpath(__file__)), "resources")
     if name is None:
-        filenames = os.listdir(subdirectory)
-        return sorted(filenames)
-    path = os.path.join(subdirectory, name)
-    if not (os.path.isfile(path) or os.path.isdir(path)):
-        raise Exception("Missing resource")
+        return sorted(os.listdir(resources))
+    path = os.path.join(resources, name)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Missing resource: {name!r}")
     return path
