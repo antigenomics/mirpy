@@ -71,15 +71,21 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
 - **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper
   regime (Fig 1's dataset-specific factor). Exact Table S1 F1 needs the paper's VDJdb release.
 - **Part 2 (v3.1+)** — `mir.ml` (torch, `[ml]` extra), absorbing `irrm-codec`. Codec targets the
-  **95%-variance PCA-compacted junction embedding** (T3: 1000-D junction → ~64 PCs), fit train-only.
+  **PCA-compacted junction embedding** (T3: 1000-D junction → ~51 PCs @95% var on arda coords,
+  99% for reconstruction), fit train-only.
   V/J stay exact germline lookups (nothing to learn); the codec's job is the junction part.
-  Results at n=25k TRB on M3 MPS (`experiments/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`):
+  Results on M3 MPS (`experiments/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`),
+  **re-pinned on the arda-native coords** (2026-07-13):
   - **DONE forward codec** (`tokenize,encoder,train`): seq → compact code, reconstruction
-    cosine **0.9987** (paper 0.887). DNN inference is K-independent.
-  - **DONE inverse codec** (`decoder`, `train.train_inverse_decoder`): 64-PC code → seq,
-    exact-match **0.41**, token-acc 0.97 (irrm-codec 0.50 from the *full* embedding).
-  - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.965**,
-    **136× faster** than the native DP. Breakdown (`experiments/benchmark_pgen_variants.py`):
+    cosine **0.9984** (n=8k; paper 0.887). DNN inference is K-independent. Geometry is fine at
+    95% (51 PCs) — only *reconstruction* is compaction-sensitive (below).
+  - **DONE inverse codec** (`decoder`, `train.train_inverse_decoder`): 284-PC code (99% var) →
+    seq, exact-match **0.40**, token-acc 0.97 (irrm-codec 0.50 from the *full* embedding). **NB:
+    the arda-real prototypes are lower-rank, so TRB 95%-var is only 51 PCs → exact 0.08
+    (over-compacted); 99% (284 PCs) restores 0.40.** The T5 chain-adaptive lesson now bites TRB
+    too, not just IGH/TRD — the decoder default is 99%.
+  - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.967**,
+    **~190× faster** than the native DP. Breakdown (`experiments/benchmark_pgen_variants.py`):
     r ranks marginalized > J > V > V&J (a CDR3-only regressor best predicts the pure-CDR3
     marginalized Pgen; V&J-conditional depends on unseen genes) and 1mm > exact (smoother ball).
   - **DONE unified codec** (`codec.py`): jointly train encoder+decoder with a geometry-anchor
@@ -92,10 +98,12 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py` (forward cos 0.997–0.999
     universal; inverse chain-dependent — short κ/λ/γ/mouse easy, IGH/TRD hard).
   - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `experiments/benchmark_igh_shm.py`):
-    SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH lowest slope — robust
-    to SHM). IGH's hard reconstruction is **over-compaction, not the frame**: 95% code (68 PCs)
-    → exact 0.009, 99% (371 PCs) → 0.152 (≈ irrm-codec 0.16). ⇒ variance retention should be
-    **chain-adaptive** (compact chains 95%, diverse IGH/TRD 99%); the bundle already ships per-codec.
+    SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH 104/mut < TRB 128/mut
+    — IGH lowest slope, robust to SHM). IGH's hard reconstruction is **over-compaction, not the
+    frame**: on arda coords 95% code (95 PCs) → exact 0.115, 99% (422 PCs) → 0.356 (> old 0.152;
+    real IGH prototypes reconstruct better). ⇒ variance retention should be **chain-adaptive**
+    (95% preserves geometry; 99% needed for reconstruction on the compact arda prototypes — TRB
+    and IGH/TRD alike); the bundle already ships per-codec.
   - **DONE T6 (continuous-density TCRNET/ALICE)** (`mir/density.py`): graph-free balloon
     enrichment `E(z)=f_obs/f_gen` in embedding space; Poisson (ALICE, P_gen bg) or binomial
     (TCRNET, control bg) + BH q; water-level calibration for the naive regime. Theory
