@@ -1124,8 +1124,10 @@ standardisation reconciles them (\S\ref{sec:samp-div}), that similarity-aware di
 that same mean (\S\ref{sec:samp-simdiv}), that interactions live in its second moment
 (\S\ref{sec:samp-interact}), how {\scshape HLA} conditioning enters (\S\ref{sec:samp-hla}), that the whole
 construction is the codebook-free limit of the graph--cluster--histogram heuristic (\S\ref{sec:samp-codebook}),
-and how the two technical nuisances --- sequencing \emph{depth} and \emph{batch} --- are decoupled from
-biological signal (\S\ref{sec:samp-decouple}).
+how the two technical nuisances --- sequencing \emph{depth} and \emph{batch} --- are decoupled from biological
+signal (\S\ref{sec:samp-decouple}), how the whole compresses to a model-plus-signal code
+(\S\ref{sec:samp-compress}), and how that signal traces back to the exact clonotypes and motifs driving a
+phenotype (\S\ref{sec:samp-trace}).
 
 \begin{definition}[The sample measure]\label{def:sampmeasure}
 A sample (repertoire) is a multiset $S=\{(\sigma,a_\sigma)\}$ of clonotypes $\sigma$ with read counts
@@ -1511,6 +1513,114 @@ so a phenotype is read by a within-batch (or batch-adjusted) contrast, standardi
 tested against a label-permutation null --- depth entering only as the variance the permutation test already
 accounts for, and batch removed by the contrast.
 
+\subsection{Compression: the background is a model, the signal is a list}\label{sec:samp-compress}
+
+A deep repertoire lists $10^5$--$10^6$ clonotypes, but its \emph{information} is far smaller: most of it is the
+near-neutral background that the recombination model already predicts, and only a sparse signal --- the
+antigen-driven, convergent \emph{metaclonotypes} --- is genuinely new. This invites a two-part
+(description-length) code \cite{CoverThomas2006}, and the mixture of \S\ref{sec:dens-mix} makes it precise:
+$f_{\mathrm{obs}}=(1-\pi)\,f_{\mathrm{sig}}+\pi\,f_{\mathrm{bg}}$ with background
+$f_{\mathrm{bg}}\approx\varphi_{\#}(\Pgen\!\cdot\!Q/Z_Q)$, the pushforward of the selection-reweighted
+generation law.
+
+\begin{proposition}[The background is model-compressible]\label{prop:compress}
+The background sub-repertoire contributes to $\Phi(S)$ only through the deterministic functional
+$\mu_{\mathrm{bg}}=\int\psi\,d\varphi_{\#}(\Pgen Q/Z_Q)$ of the model $(\Pgen,Q)$, up to an
+$O(n_{\mathrm{eff}}^{-1/2})$ sampling fluctuation (Prop.~\ref{prop:kme}); its diversity block is the model's
+coverage-standardised Hill profile. Hence storing $(\Pgen,Q,N,\pi)$ and the enriched set determines $\Phi(S)$
+to that precision at a description length \emph{independent of the number of naive clonotypes}.
+\end{proposition}
+\begin{proof}
+The background clonotypes are draws from $\Pgen Q/Z_Q$; their frequency-weighted mean feature converges to
+$\mu_{\mathrm{bg}}$ with fluctuation $O(n_{\mathrm{eff}}^{-1/2})$ by Prop.~\ref{prop:kme}, and their Hill
+numbers to the model's (Prop.~\ref{prop:antag}). Neither depends on \emph{which} naive clonotypes were drawn,
+only on the model and the depth, so the naive list carries no information about $\Phi$ beyond the sampling
+noise. \end{proof}
+
+The code is therefore
+\begin{equation}\label{eq:twopart}
+  \Phi(S)\ \approx\ \underbrace{\pi\,\mu_{\mathrm{bg}}(\Pgen,Q)}_{\text{model: }O(1)\text{ description}}
+  \;+\;(1-\pi)\!\!\underbrace{\sum_{\sigma\in\mathrm{signal}}\!\!w_\sigma\,\psi(z_\sigma)}_{\text{explicit metaclonotypes}} :
+\end{equation}
+store \emph{(i)} the shared model plus the per-sample scalars $(N,\pi,{}^qD)$ --- a constant-size summary of the
+naive bulk --- and \emph{(ii)} the sparse list of enriched metaclonotypes above the density water-level
+(\S\ref{sec:density}), the incompressible remainder (Fig.~\ref{fig:samptrace}). This is ``compress the
+predictable, keep the surprising'': the naive part, being the image of a ${\sim}40$-bit process
+(\S\ref{sec:immune}), collapses onto the model, while the signal --- typically $<5\%$ of clonotypes --- is
+retained verbatim. Across a cohort the model is shared, so only $(N,\pi,{}^qD,\text{signal})$ vary per sample;
+the codec of \S\ref{sec:losslessness} is the per-sequence layer beneath this per-sample one. The embedding as a
+whole is not a compressor --- \S\ref{sec:losslessness} shows the per-sequence code is an \emph{expansion}; the
+compression here is at the \emph{ensemble} level, in not storing what the model generates.
+
+\subsection{Tracing the signal back to clonotypes and motifs}\label{sec:samp-trace}
+
+A repertoire feature that predicts a phenotype is actionable only if the exact receptor can be named: to build a
+diagnostic or a therapeutic against an autoimmune-associated {\scshape TCR} one needs its $V$ gene and
+{\scshape CDR3} sequence, not a summary vector. The sample embedding is lossy on the background by design
+(\S\ref{sec:samp-compress}) but the signal is both localisable and retained.
+
+\begin{proposition}[Witness attribution to metaclonotypes]\label{prop:witness}
+Let $\mu_A,\mu_B$ be the mean embeddings of two sample groups. The {\scshape MMD} witness $w=\mu_A-\mu_B$
+\cite{Gretton2012} scores a clonotype $\sigma$ by
+\begin{equation}\label{eq:witness}
+  s(\sigma)=\langle w,\psi(\varphi(\sigma))\rangle
+  =\sum_{a\in A}w_a\,k(\varphi(\sigma),z_a)-\sum_{b\in B}w_b\,k(\varphi(\sigma),z_b),
+\end{equation}
+the kernel-smoothed differential enrichment of $\sigma$ between the groups; the receptors maximising $s$ are the
+response-associated ones. By the product-metric factorisation of $\varphi$ (\S\ref{sec:tcr}) the kernel splits
+over the $V$/$J$ and junction blocks, so $s$ decomposes into a germline-usage part and a {\scshape CDR3}-motif
+part --- naming a $(V,\ \text{{\scshape CDR3} $k$-mer})$ \emph{metaclonotype} \cite{Glanville2017,Dash2017}.
+\end{proposition}
+\begin{proof}
+$\langle w,\psi(\varphi(\sigma))\rangle=\langle\mu_A-\mu_B,\psi(\varphi(\sigma))\rangle$ expands via
+$\psi^\top\psi=k$ (Eq.~\eqref{eq:rff}) to Eq.~\eqref{eq:witness}. A product kernel $k=k_V k_J k_{\junc}$ on the
+interleaved blocks (\S\ref{sec:tcr}) factorises the score, and thresholding the junction factor on shared
+$k$-mers recovers the {\scshape CDR3} motif. \end{proof}
+
+Three routes read the signal back, in increasing specificity. \emph{(i) The witness} (Eq.~\eqref{eq:witness})
+ranks every observed clonotype by its contribution to the group difference --- a linear read-off of the same
+embedding, no auxiliary model. \emph{(ii) Density ridges} (\S\ref{sec:density}): the enriched regions cluster
+(level sets / {\scshape DBSCAN}) into metaclonotypes --- a $V$ gene $+$ {\scshape CDR3} $k$-mer motif in the
+{\scshape GLIPH}/{\scshape TCR}dist sense \cite{Glanville2017,Dash2017}, the standard actionable unit.
+\emph{(iii) Retention, not reconstruction}: the exact sequence is \emph{kept}, not decoded. The two-part code of
+\S\ref{sec:samp-compress} retains the signal clonotypes verbatim ($V$ call $+$ junction string), so tracing an
+autoimmune cluster to its receptors is a \emph{retrieval}. The inverse codec of \S\ref{sec:losslessness} serves
+the complementary task --- \emph{generating} novel candidate sequences inside a ridge (to design a probe or
+expand a motif family) --- not recovering observed ones, which are on hand. The design is thus lossy on the
+noise and lossless on the signal: exactly where immunological traceability demands it, the exact
+$(V,\text{{\scshape CDR3}})$ receptor survives, ready for a tetramer, a diagnostic, or a therapeutic.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2mm]}]
+  % ---- repertoire: diffuse background + one dense signal ridge ----
+  \node[draw=cGray,thick,rounded corners,minimum width=2.4cm,minimum height=2.3cm,fill=cGray!4] (rep) at (0,0){};
+  \node[anchor=south,font=\scriptsize] at (rep.north) {repertoire $\rho_S$};
+  \foreach \x/\y in {-0.7/0.55,-0.4/-0.5,0.55/0.6,0.68/-0.45,-0.62/0.02,0.15/-0.68,-0.2/0.5,-0.05/-0.15,-0.78/-0.28,0.0/0.7}
+    \fill[cGray!55] (\x,\y) circle(1pt);
+  \foreach \x/\y in {0.36/0.06,0.46/0.16,0.56/0.0,0.42/-0.12,0.52/0.1} \fill[cOrange] (\x,\y) circle(1.7pt);
+  \draw[->,thick] (1.3,0.45) -- (2.35,0.95);
+  \draw[->,thick] (1.3,-0.25) -- (2.35,-0.75);
+  % ---- background -> model (compressed) ----
+  \node[draw=cTeal!60!black,thick,rounded corners,fill=cTeal!8,align=center,font=\scriptsize] (mod) at (4.0,0.95)
+    {\textbf{background} $\to$ model\\ $\Pgen\!\cdot\!Q$, \ $(N,\pi,{}^qD)$\\ \emph{compressed}};
+  % ---- signal -> explicit metaclonotype list ----
+  \node[draw=cOrange!70!black,thick,rounded corners,fill=cOrange!8,align=left,font=\scriptsize] (lst) at (4.15,-0.8)
+    {\textbf{signal} $\to$ metaclonotypes\\ \code{TRBV9 CASSVGL[YF]STDTQYF}\\ \emph{kept verbatim}};
+  % ---- trace to actionable ----
+  \draw[->,thick,cOrange!70!black] (lst.east) -- ++(0.35,0)
+    node[right,align=left,font=\scriptsize] {witness $\to$ exact\\ $(V,\text{{\scshape CDR3}})$:\\ tetramer / test / therapy};
+\end{tikzpicture}
+\caption{The two-part sample code and its traceability. The naive \emph{background} (grey) is the image of the
+${\sim}40$-bit generation-plus-selection process, so it is stored as the model $(\Pgen,Q)$ plus the per-sample
+scalars $(N,\pi,{}^qD)$ --- compressed, not enumerated (\S\ref{sec:samp-compress}, Prop.~\ref{prop:compress}).
+The sparse \emph{signal} (orange ridge) --- antigen-driven, convergent metaclonotypes above the density
+water-level --- is kept verbatim as a list of $(V,\ \text{{\scshape CDR3}})$ motifs. The {\scshape MMD} witness
+(Prop.~\ref{prop:witness}) ranks these by phenotype association, so a response- or autoimmune-linked cluster is
+traced to the \emph{exact} receptor sequences it retains --- ready for a tetramer, diagnostic, or therapeutic.}
+\label{fig:samptrace}
+\end{figure}
+
 \paragraph{Course of action} The default $\Phi(S)$ concatenates three blocks, each owning one requirement:
 the {\scshape RFF} kernel mean $\Phi_1$ (backbone; (a),(b)), the coverage-standardised Hill profile $\Phi_2$
 ((c)), and the second moment $\Sigma_S$ ((d)), with a learned set network as the co-equal alternative to
@@ -1543,6 +1653,89 @@ and its depth-robustness, aging, and {\scshape CMV}/{\scshape HLA} benchmarks.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\section{Sample embeddings as a neural-network modality}\label{sec:samp-nn}
+
+The sample-level embedding of \S\ref{sec:sample} is built to be a \emph{modality}: a fixed-width tensor that
+plugs into a neural network directly, or fuses with other data types in a multimodal model. This section makes
+the computation explicit --- the architecture that maps a variable-length list of clonotype embeddings and
+counts to $\Phi(S)$, how it is stored, and how it composes downstream (Fig.~\ref{fig:sampnn}).
+
+\paragraph{The architecture is a set-pooling network} By Prop.~\ref{prop:sampinv} the map
+$\{(z_\sigma,a_\sigma)\}\mapsto\Phi(S)$ is a permutation-invariant set network of the Deep Sets form
+\cite{Zaheer2017}: a per-clonotype feature $\psi(z_\sigma)$, a size weight
+$w_\sigma=g(a_\sigma)/\!\sum_\tau g(a_\tau)$, a sum-pool $\sum_\sigma w_\sigma\psi(z_\sigma)$, and a read-out.
+Two instantiations share one computational graph. The \emph{fixed} network takes $\psi$ = random-Fourier
+features and needs no training --- a single forward pass computing the kernel mean $\Phi_1$, the diversity
+block, and the second moment. The \emph{learned} network takes $\psi$ = an {\scshape mlp} and replaces the sum
+by attention pooling --- a Set Transformer or {\scshape DeepRC} \cite{Lee2019,Widrich2020} whose inducing points
+are trained metaclonotype detectors --- and is fit end-to-end to a label. Both reduce the ragged clonotype axis
+to the same fixed $(D,)$ output, so one can initialise from the fixed embedding and fine-tune into the learned
+one.
+
+\paragraph{Tensor shapes and the ragged axis} A batch is a ragged stack of samples: sample $i$ is a matrix
+$Z_i\in\R^{n_i\times p}$ of its clonotype embeddings with a count vector $a_i\in\R^{n_i}$, and the per-sample
+$n_i$ differ (Fig.~\ref{fig:samppipe}). The pooling layer contracts that ragged axis --- $\sum_\sigma$ over the
+$n_i$ clonotypes --- to a fixed $(D,)$ vector, giving a dense $(\text{batch},D)$ tensor that any downstream
+{\scshape mlp} or transformer consumes. This contraction is the whole point of the set-network view: variable
+length enters, fixed width leaves (\S\ref{sec:samp-measure}), with no padding or truncation of the clonotype
+list.
+
+\paragraph{Storage} $\Phi(S)$ is a fixed $(D,)$ float tensor --- the three blocks concatenated (mean $D_\mu$,
+diversity, second moment). A cohort is then an ordinary $(\text{$n$ samples},\,D)$ design matrix, cached once
+and reused across models. For archival or cohort-scale storage the two-part code of \S\ref{sec:samp-compress}
+is the compact form --- the shared model plus per-sample $(N,\pi,{}^qD)$ and the sparse metaclonotype list, from
+which $\Phi$ is reconstituted. Training a \emph{learned} pooler instead consumes the raw ragged
+$\{(Z_i,a_i)\}$; the clonotype embeddings are cheap to recompute from the sequences (\S\ref{sec:foundations}, or
+the forward codec of \S\ref{sec:losslessness}).
+
+\paragraph{As a modality in multimodal models} Because $\Phi(S)$ is a fixed-width vector it drops into any
+fusion scheme. \emph{Early} fusion concatenates it with other modalities --- clinical covariates,
+bulk/single-cell transcriptome, proteomics, and the {\scshape HLA} genotype of Prop.~\ref{prop:hla} --- into
+one input; \emph{intermediate}/\emph{late} fusion gives each modality its own encoder and combines them by
+attention or cross-attention. The repertoire branch is exactly the set-pooling network above; {\scshape HLA}
+enters both as a fusion input and, per Prop.~\ref{prop:hla}, as the stratifier of the repertoire distance. The
+two-part code (\S\ref{sec:samp-compress}) keeps the fused model interpretable: an attribution on the repertoire
+branch traces back through the witness (Prop.~\ref{prop:witness}) to the exact metaclonotypes
+(\S\ref{sec:samp-trace}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2mm]},
+  L/.style={draw=cGray,thick,rounded corners=2pt,align=center,inner sep=4pt}]
+  % ---- inputs ----
+  \node[L,fill=cTeal!12]   (Z) at (0,4.3)   {clonotype embeddings $Z$\\ $(n_\sigma,\ p)$};
+  \node[L,fill=cOrange!12] (A) at (5.6,4.3) {clone counts $a$\\ $(n_\sigma,)$};
+  % ---- per-clonotype layers ----
+  \node[L] (psi) at (0,3.0)   {$\psi$:\ {\scshape rff} or {\scshape mlp}\ \ $(n_\sigma,\ D)$};
+  \node[L] (g)   at (5.6,3.0) {$g(\cdot)$ weight\ \ $(n_\sigma,)$};
+  \draw[->] (Z)--(psi);  \draw[->] (A)--(g);
+  % ---- pooling: the permutation-invariant contraction ----
+  \node[L,fill=cPurple!12,minimum width=7.2cm] (pool) at (2.8,1.7)
+    {\textbf{weighted sum-pool}\ \ $\displaystyle\sum_\sigma w_\sigma\,\psi(z_\sigma)$,\ \ $w_\sigma=g(a_\sigma)/\!\textstyle\sum g$\\[1pt]
+     {\scriptsize permutation-invariant --- the ragged $n_\sigma$ axis collapses \ (learned: attention / Set Transformer)}};
+  \draw[->] (psi)-- (pool.north-|psi);  \draw[->] (g)-- (pool.north-|g);
+  % ---- Phi ----
+  \node[L,fill=cPurple!24,minimum width=7.2cm] (phi) at (2.8,0.4)
+    {$\Phi(S)\in\R^{D}$ \ (fixed):\ \ $\mu\ \|\ \{{}^qD\}\ \|\ \Sigma$};
+  \draw[->] (pool)--(phi);
+  % ---- downstream branches ----
+  \node[L] (head) at (0,-1.1) {{\scshape mlp} head\\ age / {\scshape cmv} / {\scshape hla}};
+  \node[L,fill=cPink!12] (fuse) at (5.6,-1.1) {$\oplus$ fuse (concat / cross-attn)\\ $+$ clinical, {\scshape rna}-seq, {\scshape hla}\ldots};
+  \draw[->] (phi.south-|head) -- (head);
+  \draw[->] (phi.south-|fuse) -- (fuse);
+  \node[font=\scriptsize,below=2mm of fuse] {multimodal model};
+\end{tikzpicture}
+\caption{The sample embedding as a neural-network block. A ragged batch --- sample $i$ a matrix of $n_i$
+clonotype embeddings $Z_i$ with counts $a_i$ --- is featurised per clonotype ($\psi$ = {\scshape rff} for the
+fixed embedding, a learned {\scshape mlp} for the trained one), weighted by the variance-stabilised clone size
+$g(a_\sigma)$, and \textbf{sum-pooled}: the ragged $n_\sigma$ axis collapses to a fixed $\R^D$ vector
+(Prop.~\ref{prop:sampinv},~\ref{prop:kme}), so variable-length repertoires become a dense $(\text{batch},D)$
+tensor. The learned variant swaps the sum for attention pooling (Set Transformer / {\scshape DeepRC}). $\Phi(S)$
+then feeds an {\scshape mlp} head (age / {\scshape cmv} / {\scshape hla}) or fuses with other modalities
+(clinical, transcriptomic, {\scshape hla}) as one branch of a multimodal model.}
+\label{fig:sampnn}
+\end{figure}
 
 \section{Codec invertibility and the limits of losslessness}\label{sec:losslessness}
 
