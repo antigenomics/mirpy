@@ -384,6 +384,54 @@ sense the alignment-to-reference geometry is the canonical unsupervised coordina
 only structure is an antigen-blind generative model, and prototypes are its minimal, assumption-free
 realisation.
 
+\paragraph{Specificity is host-conditioned and, in the limit, coverage-complete} Proposition~\ref{prop:nofreelunch}
+concerns unlabelled objectives; one might hope to inject the missing antigen signal from a labelled
+database. Three facts make even that route converge back to $\Pgen$.
+
+\emph{(1) The label is not a function of the receptor.} What one observes as antigen-specific expansion in a
+donor is not a map $X\mapsto$ antigen but the host-restricted shadow $A_h(X)=B(X)\cap(\mathrm{HLA}_h\times
+\mathrm{Exposure}_h)$, where $B(X)$ is the large, cross-reactive set of pMHC that $X$ can engage: which
+peptides are presented is set by the {\scshape HLA} haplotype, which are encountered by pathogen history.
+Both are host latent variables, and donors with identical infections hold sparse, \emph{largely disjoint}
+receptor sets that nonetheless cover the same antigens \cite{Mayer2015}. Specificity is thus not a stable,
+sequence-intrinsic function: the same $X$ carries different labels in different hosts, so the map is
+non-identifiable from sequence across a population.
+
+\emph{(2) Labels cover a vanishing slice.} Databases such as {\scshape VDJdb} \cite{Goncharov2022} annotate
+a measure-zero corner of the antigen$\,\times\,$receptor space ($\gtrsim 20^{9}$ peptides per {\scshape MHC}
+class, thousands of alleles, $>10^{15}$ possible receptors), so a supervised model saturates at database
+coverage and collapses on unseen epitopes --- it learns the covered epitopes, not specificity.
+
+\emph{(3) The completeness limit is $\Pgen$.} Pursuing full coverage does not escape the loop, because the
+recombination model is itself the immune system's coverage code: the repertoire is (near-)optimally tuned to
+the pathogen distribution, exploiting cross-reactivity so that essentially every antigen has cognate
+precursors \cite{Mayer2015,Murugan2012}.
+
+\begin{proposition}[Coverage fixed point]\label{prop:coverage}
+Assume coverage-completeness: there is $p_0>0$ such that for almost every antigen $a$,
+$\Pr_{x\sim\Pgen}[x\ \text{binds}\ a]\ge p_0$. Then the binding relation is a dense, many-to-many graph
+whose antigen-marginal is bounded away from $0$ and $1$ uniformly; averaging the specificity map over the
+whole antigen space carries no receptor-discriminative information beyond generation propensity, so as the
+labelled antigen set expands to the full space the population optimum of any supervised specificity
+representation converges to the antigen-blind $\Pgen$-sufficient statistic of Prop.~\ref{prop:nofreelunch}.
+\end{proposition}
+\begin{proof}[Sketch]
+Coverage-completeness with cross-reactivity makes each receptor bind $\Theta(\lvert\mathcal A\rvert)$
+antigens and each antigen be bound by a $\ge p_0$ fraction of the repertoire, so the antigen-marginal of the
+binding indicator is uniformly bounded inside $(0,1)$; its mutual information with $X$, integrated over
+$\mathcal A$, is therefore governed by the clone-frequency structure $\Pgen$ imposes rather than by any
+low-dimensional antigen axis, and the complete-coverage limit of the supervised objective coincides with the
+generation-sufficient representation. \qed
+\end{proof}
+
+The circle closes: an unsupervised model recovers $\Pgen$ and cannot separate antigens
+(Prop.~\ref{prop:nofreelunch}); a supervised model learns only its labelled slice (fact 2) of a
+host-conditioned, non-identifiable label (fact 1); and the ideal of learning \emph{all} specificity returns
+to $\Pgen$ (Prop.~\ref{prop:coverage}), because $\Pgen$ \emph{is} the coverage code. Sampling prototypes from
+$\Pgen$ is therefore not an arbitrary reference choice --- it discretises the very coverage design that
+antigen breadth is built on, so distance-to-prototypes coordinates a receptor by its position in that
+coverage geometry, the maximal host-independent, specificity-relevant structure a sequence can carry.
+
 \section{{\normalfont\scshape TCR}s, three-component embeddings, and paired chains}\label{sec:tcr}
 
 \paragraph{The product metric} {\scshape TCREMP} emits three distances per prototype --- a V-germline, a
