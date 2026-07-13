@@ -17,6 +17,8 @@ import os
 
 __version__ = "3.0.0"
 
+__all__ = ["__version__", "get_resource_path", "TCREmp", "PairedTCREmp"]
+
 
 def get_resource_path(name: str | None = None):
     """Return the absolute path to a bundled resource under ``mir/resources``.
@@ -39,3 +41,12 @@ def get_resource_path(name: str | None = None):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing resource: {name!r}")
     return path
+
+
+def __getattr__(name: str):
+    # Lazy top-level re-exports so ``import mir`` stays light.
+    if name in ("TCREmp", "PairedTCREmp"):
+        from mir.embedding.tcremp import PairedTCREmp, TCREmp
+
+        return {"TCREmp": TCREmp, "PairedTCREmp": PairedTCREmp}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
