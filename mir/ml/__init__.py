@@ -19,9 +19,13 @@ __all__ = [
     "ForwardEncoder",
     "InverseDecoder",
     "PgenRegressor",
+    "UnifiedCodec",
+    "CodecBundle",
+    "prototype_hash",
     "train_forward_encoder",
     "train_inverse_decoder",
     "train_pgen_regressor",
+    "train_unified_codec",
 ]
 
 _TRAIN = {"ForwardEncoder", "InverseDecoder", "PgenRegressor",
@@ -37,6 +41,14 @@ def __getattr__(name: str):
         from mir.ml.decoder import SequenceDecoder
 
         return SequenceDecoder
+    if name in ("UnifiedCodec", "train_unified_codec"):
+        from mir.ml import codec
+
+        return getattr(codec, name)
+    if name in ("CodecBundle", "prototype_hash"):
+        from mir.ml import bundle
+
+        return getattr(bundle, name)
     if name in _TRAIN:
         from mir.ml import train
 
