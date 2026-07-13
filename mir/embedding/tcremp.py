@@ -37,11 +37,10 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-import seqtree
-from seqtree.gapblock import positions_prior, score_matrix
 
 from mir.aliases import normalize_locus_alias, normalize_species_alias
 from mir.distances.germline import GermlineDistances, load_germline_distances
+from mir.distances.junction import junction_distance_matrix
 from mir.embedding.prototypes import N_PROTOTYPES, load_prototypes
 
 MODES = ("vjcdr3", "cdr123")
@@ -85,8 +84,7 @@ class TCREmp:
         self._proto_j = prototypes["j_call"].to_list()
         self._proto_junction = prototypes["junction_aa"].to_list()
         self.n_prototypes = len(self._proto_junction)
-        self._matrix = seqtree.SubstitutionMatrix.blosum62()
-        self._gap_prior = positions_prior(gap_positions)
+        self._gap_positions = gap_positions
         # fail fast if the locus lacks a component this mode needs
         for comp, _, _ in _MODE_SPEC[mode]:
             if not germline.has(comp):
@@ -136,16 +134,10 @@ class TCREmp:
         return 3 * self.n_prototypes
 
     def _junction_distances(self, junctions: list[str]) -> np.ndarray:
-        sm = score_matrix(
-            junctions,
-            self._proto_junction,
-            matrix=self._matrix,
-            gap_open=2 * self._matrix.scale(),
-            gap_extend=1,
-            gap_prior=self._gap_prior,
-            threads=self.threads,
+        return junction_distance_matrix(
+            junctions, self._proto_junction,
+            gap_positions=self._gap_positions, threads=self.threads,
         )
-        return np.asarray(sm).astype(np.float32)
 
     def embed(self, clonotypes: pl.DataFrame) -> np.ndarray:
         """Embed a clonotype frame into ``(n_clonotypes, 3 * n_prototypes)`` float32.
