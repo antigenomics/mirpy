@@ -8,7 +8,7 @@ sys.path.insert(0, ROOT)
 project = "mirpy"
 copyright = "2026, Immunosequencing Algorithms Laboratory (ISALGO lab)"
 author = "Immunosequencing Algorithms Laboratory (ISALGO lab)"
-release = "1.0.0"
+release = "1.3.1"
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -35,17 +35,11 @@ html_baseurl = "https://docs.isalgo.dev/mirpy/"
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = "mirpy documentation"
-html_logo = "_static/mirpy_logo.png"
 html_css_files = ["custom.css"]
 html_sidebars = {
     "index": [],
 }
 html_theme_options = {
-    "logo": {
-        "image_light": "mirpy_logo.png",
-        "image_dark": "mirpy_logo_dark.png",
-        "text": "mirpy documentation",
-    },
     "navbar_align": "content",
     "show_prev_next": False,
     "secondary_sidebar_items": ["page-toc"],
