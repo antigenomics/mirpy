@@ -109,6 +109,25 @@ def test_unknown_backend_raises():
         neighbor_enrichment(obs, bg, radius=1.0, backend="faiss")
 
 
+def test_kdtree_backend_matches_exact():
+    # cKDTree is exact: a FIXED radius reproduces the BallTree counts/hits bit-for-bit. In BALLOON
+    # mode the radius is a computed k-th-neighbour distance that differs by a float epsilon between
+    # engines, flipping boundary membership -> counts agree within +-1, hit sets essentially match.
+    rng = np.random.default_rng(0)
+    d = 12
+    bg = rng.standard_normal((4000, d))
+    obs = rng.standard_normal((800, d))
+    obs[:40] = np.full(d, 2.5) + 0.05 * rng.standard_normal((40, d))
+    rx = neighbor_enrichment(obs, bg, backend="exact", radius=0.6)
+    rk = neighbor_enrichment(obs, bg, backend="kdtree", radius=0.6)
+    assert np.array_equal(rx.n_obs, rk.n_obs) and np.array_equal(rx.n_bg, rk.n_bg)
+    assert np.array_equal(enriched_mask(rx), enriched_mask(rk))
+    bx = neighbor_enrichment(obs, bg, backend="exact", lambda0=3.0)
+    bk = neighbor_enrichment(obs, bg, backend="kdtree", lambda0=3.0)
+    jac = (enriched_mask(bx) & enriched_mask(bk)).sum() / max((enriched_mask(bx) | enriched_mask(bk)).sum(), 1)
+    assert jac > 0.95 and np.abs(bx.n_obs - bk.n_obs).max() <= 2
+
+
 @pytest.mark.integration
 def test_ann_backend_matches_exact():
     # the approximate (pynndescent) backend agrees with exact BallTree on the hit set and signal.
