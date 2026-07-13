@@ -131,6 +131,45 @@ def fit_distributions(
     }
 
 
+_AA = "ACDEFGHIKLMNPQRSTVWY"
+
+
+def _mutate(seq: str, k: int, rng) -> str:
+    """Apply *k* random interior amino-acid substitutions (an SHM proxy)."""
+    s = list(seq)
+    interior = list(range(1, len(s) - 1))  # keep the conserved C…[FW] ends
+    if not interior:
+        return seq
+    for p in rng.choice(interior, min(k, len(interior)), replace=False):
+        s[p] = _AA[int(rng.integers(20))]
+    return "".join(s)
+
+
+def shm_embedding_drift(
+    cdr3s, prototypes, max_mut: int = 8, n_rep: int = 3, seed: int = 0, threads: int = 0
+) -> dict[int, tuple[float, float]]:
+    """Embedding drift vs mutation load (Theory T5, the IGH/SHM case).
+
+    Applies ``k`` random interior substitutions (a somatic-hypermutation proxy) to each
+    CDR3 and measures the junction-embedding Euclidean distance to the original,
+    ``D_k = ‖φ(mutated) − φ(original)‖``. Returns ``k -> (mean D_k, std)``. The claim: the
+    drift is *bounded by the mutation load* — ``D_k`` grows ~linearly in ``k`` — so heavily
+    hypermutated IGH sequences sit controllably far from germline in embedding space.
+    """
+    rng = np.random.default_rng(seed)
+    seqs = list(cdr3s)
+    base = junction_distance_matrix(seqs, prototypes, threads=threads).astype(np.float64)
+    out: dict[int, tuple[float, float]] = {0: (0.0, 0.0)}
+    for k in range(1, max_mut + 1):
+        drift: list[float] = []
+        for _ in range(n_rep):
+            emb = junction_distance_matrix([_mutate(s, k, rng) for s in seqs],
+                                           prototypes, threads=threads).astype(np.float64)
+            drift.extend(np.linalg.norm(emb - base, axis=1).tolist())
+        out[k] = (float(np.mean(drift)), float(np.std(drift)))
+    return out
+
+
 def prototype_source_correlation(
     query_cdr3s, real_prototypes, model_prototypes, threads: int = 0
 ) -> dict:

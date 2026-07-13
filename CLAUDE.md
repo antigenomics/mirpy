@@ -71,7 +71,12 @@ to their owners instead.
     rotation match.** `CodecBundle` serializes the PCA transform + a prototype hash + weights;
     `load` refuses a prototype-hash mismatch so incomparable embeddings can't be mixed. Any
     trained codec MUST be shipped as a bundle, never bare weights.
-  - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py`.
-  - **TODO**: continuous-density TCRNET (T6); IGH/SHM (T5, the hard chain); epitope/MHC;
-    scale on HF `airr_benchmark`.
+  - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py` (forward cos 0.997–0.999
+    universal; inverse chain-dependent — short κ/λ/γ/mouse easy, IGH/TRD hard).
+  - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `experiments/benchmark_igh_shm.py`):
+    SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH lowest slope — robust
+    to SHM). IGH's hard reconstruction is **over-compaction, not the frame**: 95% code (68 PCs)
+    → exact 0.009, 99% (371 PCs) → 0.152 (≈ irrm-codec 0.16). ⇒ variance retention should be
+    **chain-adaptive** (compact chains 95%, diverse IGH/TRD 99%); the bundle already ships per-codec.
+  - **TODO**: continuous-density TCRNET (T6); epitope/MHC; scale on HF `airr_benchmark`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

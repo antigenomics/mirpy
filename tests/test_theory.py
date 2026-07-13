@@ -39,3 +39,16 @@ def test_s3_prototype_source_robustness():
     protos = load_prototypes("human", "TRB", n=2000)["junction_aa"].to_list()
     r = prototype_source_correlation(query, protos[:1000], protos[1000:])
     assert r["pearson"] > 0.8
+
+
+def test_shm_drift_monotone_and_bounded():
+    # T5: embedding drift increases with mutation load, D_0 == 0
+    from mir.bench.theory import shm_embedding_drift
+
+    protos = load_prototypes("human", "TRB", n=400)["junction_aa"].to_list()
+    seqs = _CDR3[:120]
+    d = shm_embedding_drift(seqs, protos, max_mut=5, n_rep=2, seed=0)
+    means = [d[k][0] for k in sorted(d)]
+    assert means[0] == 0.0
+    assert all(b >= a for a, b in zip(means, means[1:]))   # non-decreasing in k
+    assert means[-1] > means[1]                             # real drift accumulates
