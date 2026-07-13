@@ -94,6 +94,20 @@ Design notes (all traced to a theorem — see appendix Table `tab:sample`):
   within-batch/paired designs; else residualize `Φ` on batch indicators / stratify MMD by batch (as for
   HLA); or normalize each sample by its `P_gen` pushforward. Always compare **contrasts, not raw
   positions**. Record `batch`/platform per sample in the metadata and expose a `batch=`/`covariates=` arg.
+- **RNA-seq normalization (§T.7.9 `sec:samp-norm`, Table `tab:norm`):** the count factorizes
+  `a_σ ≈ g(σ)·R·θ·c·p_σ`; **σ-independent scalars (depth `R`, infiltration `θ`, per-cell expr. `c`) cancel
+  under frequency weighting** (`prop:freqquotient`), the **σ-dependent kit gain `g(σ)` is the only surviving
+  multiplicative nuisance**. Concrete build items for the heterogeneous-cohort / tissue case:
+  - **Infiltration channel (`prop:infiltration`):** in tissue, `N = R·θ·c` conflates depth and T-cell content;
+    estimate `θ` from the **TCR read fraction** `N_TCR/N_total ∝ θ` (or a deconvolution signature, Newman 2015)
+    and **append it as an explicit scalar channel — never down-sample to a common depth** (that erases the
+    prognostic TIL signal). `Φ` on frequencies is already orthogonal to `θ`. Expose `infiltration=`/
+    `read_fraction=` per-sample and concat to the embedding; flag joint-low-`R`/low-`θ` samples (coverage-limited).
+  - **Read-length / kit (`prop:lengthcensor`):** short reads drop long CDR3s (MNAR length-censoring). Either
+    restrict to the common recoverable length range across kits, or inverse-recovery-reweight `1/r_L(ℓ)`.
+    Chemistry bias + confounded-batch residual live in the V/J-usage+length subspace → **anchored subspace
+    projection** (technical replicate / reference sample = ComBat/Harmony; `P_gen`-predicted V/J usage = RUV
+    negative-controls), sparing the CDR3-motif directions. Expose `read_length=`/kit per sample.
 
 ## 3. Two co-equal tracks (the learned head is `mir.ml`, torch, `[ml]` extra)
 
