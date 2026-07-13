@@ -53,7 +53,7 @@ def main() -> None:
     print("\n=== S3: real vs model prototypes  (paper 0.96) ===")
     from vdjtools.model import generate, load_bundled
 
-    model = generate.generate(load_bundled("TRB", source="olga"), 6000, seed=42,
+    model = generate.generate(load_bundled("TRB", source="learned"), 6000, seed=42,
                               productive_only=True)["junction_aa"] \
         .unique(maintain_order=True).to_list()[:N]
     query = load_prototypes("human", "TRB", n=6000)["junction_aa"].to_list()[N:N + 800]

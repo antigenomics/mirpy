@@ -24,7 +24,7 @@ def main(n: int = 8000, k: int = 1000, epochs: int = 30) -> None:
     from vdjtools.model import generate, load_bundled
 
     protos = load_prototypes("human", "TRB", n=k)["junction_aa"].to_list()
-    gen = generate.generate(load_bundled("TRB", source="olga"), 5 * n, seed=1,
+    gen = generate.generate(load_bundled("TRB", source="learned"), 5 * n, seed=1,
                             productive_only=True)
     seqs = [s for s in gen["junction_aa"].unique(maintain_order=True).to_list()
             if 6 <= len(s) <= 40][:n]

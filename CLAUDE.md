@@ -30,8 +30,12 @@ to their owners instead.
   `from_defaults(n_prototypes=None)` uses them. Compact chains (IGK/IGL/TRG) 1000 protos / ~20
   PCs; diverse chains (IGH/TR*) 2000 / ~65 PCs (95%), ~220–300 PCs (99%, for codec reconstruction).
 - `bench/` — `vdjdb.py` (loader), `metrics.py` (DBSCAN+kneedle, F1/retention), `theory.py`
-  (S1–S3 experiments). Needs `[bench]`.
-- `ml/` — Part 2 (torch), empty stub.
+  (S1–S3 + T5 + T6 `tcrnet_convergence`). Needs `[bench]`.
+- `density.py` — continuous-density TCRNET/ALICE (T6): `fit_density_space` (one shared PCA basis),
+  `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration),
+  `enriched_mask`, `denoise_and_cluster`, `generate_background` (vdjtools P_gen, lazy). Torch-free
+  (scipy/sklearn). Prefer a **biological control** as background (differential) over P_gen.
+- `ml/` — Part 2 (torch), neural codecs.
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
   `germline_dist/` (baked `.npz`, from `build_germline_dist.py`).
 
@@ -81,5 +85,13 @@ to their owners instead.
     to SHM). IGH's hard reconstruction is **over-compaction, not the frame**: 95% code (68 PCs)
     → exact 0.009, 99% (371 PCs) → 0.152 (≈ irrm-codec 0.16). ⇒ variance retention should be
     **chain-adaptive** (compact chains 95%, diverse IGH/TRD 99%); the bundle already ships per-codec.
-  - **TODO**: continuous-density TCRNET (T6); epitope/MHC; scale on HF `airr_benchmark`.
+  - **DONE T6 (continuous-density TCRNET/ALICE)** (`mir/density.py`): graph-free balloon
+    enrichment `E(z)=f_obs/f_gen` in embedding space; Poisson (ALICE, P_gen bg) or binomial
+    (TCRNET, control bg) + BH q; water-level calibration for the naive regime. Theory
+    `tcrnet_convergence` confirms the r→0 graph limit (ρ 0.37→−0.05 as radius grows). Benchmarks
+    `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py` on HF `isalgo/airr_{yfv19,ankspond,benchmark}`.
+    **Key lesson**: real repertoires are pervasively convergent, so a P_gen background flags ~40% of
+    clones — use a *biological control* (differential: day15-vs-day0, B27±, CMV-vs-control) for
+    specificity, and process the **full repertoire** (subsampling dilutes the sparse antigen clusters).
+  - **TODO**: epitope/MHC; scale codec on HF `airr_benchmark` (10–100M).
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

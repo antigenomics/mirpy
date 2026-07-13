@@ -52,3 +52,21 @@ def test_shm_drift_monotone_and_bounded():
     assert means[0] == 0.0
     assert all(b >= a for a, b in zip(means, means[1:]))   # non-decreasing in k
     assert means[-1] > means[1]                             # real drift accumulates
+
+
+def test_t6_tcrnet_convergence_decays_with_radius():
+    # T6: continuous enrichment matches discrete Hamming-1 at the one-substitution scale
+    # and decouples as the radius grows (the r->0 graph-enrichment limit).
+    from mir.bench.theory import _mutate, tcrnet_convergence
+
+    protos = load_prototypes("human", "TRB", n=1400)["junction_aa"].to_list()
+    rng = np.random.default_rng(0)
+    # inject a convergent 1-substitution family so a discrete Hamming-1 signal exists
+    family = [_mutate(protos[0], 1, rng) for _ in range(20)]
+    obs = protos[1:381] + [protos[0], *family]
+    bg, ref = protos[400:800], protos[800:1400]
+    out = tcrnet_convergence(obs, bg, ref, n_components=20, seed=0)
+    assert out["radius_1sub"] > 0 and out["hamming1_mean"] > 0
+    corr = out["spearman_by_scale"]
+    assert np.isfinite(out["spearman_at_1sub"])
+    assert corr[0.5] >= corr[3.0]          # correlation fades as radius grows

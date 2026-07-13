@@ -88,7 +88,34 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 | `mir.embedding.pca` | PCA denoising of embeddings |
 | `mir.distances` | junction distance (`seqtree.gapblock`) + baked germline distances |
 | `mir.bench` | VDJdb loader, DBSCAN clustering + F1/retention, theory experiments |
-| `mir.ml` | neural codecs + density methods (Part 2, planned) |
+| `mir.density` | continuous-density TCRNET/ALICE — enrichment + noise-filtering (Theory T6) |
+| `mir.ml` | neural codecs (Part 2, planned) |
+
+## Background subtraction & clustering (`mir.density`)
+
+TCRNET/ALICE find antigen-driven convergent clusters by *neighbour enrichment*. `mir.density`
+does the same test with neighbour-counting in the **embedding space** instead of on a sequence
+graph (Theory T6): the enrichment `E(z) = f_obs(z)/f_gen(z)` is estimated by an adaptive-bandwidth
+**balloon** estimator with a per-clonotype Poisson/binomial significance test and BH q-values —
+no graph, and it scales to whole repertoires.
+
+```python
+from mir.density import fit_density_space, neighbor_enrichment, enriched_mask, denoise_and_cluster
+from mir.embedding.tcremp import TCREmp
+
+model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
+# background = a control repertoire (TCRNET) or generate_background(...) (ALICE, P_gen)
+space, obs_emb, bg_emb = fit_density_space(model, obs_df, control_df, n_components=20, space="full")
+res  = neighbor_enrichment(obs_emb, bg_emb, test="binomial")   # balloon + water-level calibration
+hits = obs_df.filter(enriched_mask(res, alpha=0.05))            # background-subtracted clones
+labels, mask = denoise_and_cluster(obs_emb, res)               # noise-filter + DBSCAN the hits
+```
+
+Use a **biological control** as the background when you have one (e.g. pre- vs post-vaccination,
+patient vs healthy) — differential enrichment cancels generic public convergence and isolates the
+antigen-specific response. With no control, `generate_background(locus, n)` samples the vdjtools
+P_gen model (the ALICE regime); the "water level" of a naive repertoire is handled by the
+empirical-null calibration. See `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py`.
 
 ## Reproduce the paper
 

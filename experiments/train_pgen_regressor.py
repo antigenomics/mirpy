@@ -22,7 +22,7 @@ def main(n: int = 20000, epochs: int = 40) -> None:
     from vdjtools.model import load_bundled, native
     from vdjtools.model.generate import generate
 
-    model = load_bundled("TRB", source="olga")
+    model = load_bundled("TRB", source="learned")
     gen = generate(model, 3 * n, seed=1, productive_only=True).unique(
         subset=["junction_aa", "v_call", "j_call"], maintain_order=True)
     gen = gen.filter(
