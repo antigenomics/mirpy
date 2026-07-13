@@ -115,7 +115,7 @@ For every prototype $p$ and all $x,y\in X$, $\lvert d(x,p)-d(y,p)\rvert \le d(x,
 \begin{proof}
 The triangle inequality gives $d(x,p)\le d(x,y)+d(y,p)$ and $d(y,p)\le d(x,y)+d(x,p)$, so
 $\lvert d(x,p)-d(y,p)\rvert\le d(x,y)$. Taking the maximum over $p\in P$ gives the $\ell^\infty$ bound;
-summing the squares of $K$ terms each $\le d(x,y)^2$ and taking the root gives the $\ell^2$ bound. \qed
+summing the squares of $K$ terms each $\le d(x,y)^2$ and taking the root gives the $\ell^2$ bound.
 \end{proof}
 
 Proposition~\ref{prop:lipschitz} is the rigorous half of the headline ``embedding distance $\lesssim$
@@ -131,7 +131,7 @@ isometric embedding of $(X,d)$ into $(\ell^\infty,\norm{\cdot}_\infty)$.
 \end{proposition}
 \begin{proof}
 The upper bound is Prop.~\ref{prop:lipschitz}. For the lower bound take the prototype $p=y$: then
-$\lvert d(x,y)-d(y,y)\rvert = d(x,y)$, so the supremum over prototypes is at least $d(x,y)$. \qed
+$\lvert d(x,y)-d(y,y)\rvert = d(x,y)$, so the supremum over prototypes is at least $d(x,y)$.
 \end{proof}
 
 The construction of Eq.~\eqref{eq:embedding} is thus the Kuratowski/Fr\'echet embedding, and the
@@ -152,7 +152,7 @@ $\mu$-dependent (semi)metric with $0\le\bar D_\mu^2(x,y)\le d(x,y)^2$.
 \begin{proof}
 $\tfrac1K D^2 = \tfrac1K\sum_k (d(x,p_k)-d(y,p_k))^2$ is an empirical mean of i.i.d.\ terms bounded by
 $d(x,y)^2$ (Prop.~\ref{prop:lipschitz}); the strong law gives the limit and the bound, and symmetry
-plus the triangle inequality for $\norm{\cdot}_2$ make $\bar D_\mu$ a semimetric. \qed
+plus the triangle inequality for $\norm{\cdot}_2$ make $\bar D_\mu$ a semimetric.
 \end{proof}
 
 Proposition~\ref{prop:energy} says $D$ estimates a fixed monotone-in-$d$ functional $\bar D_\mu$: two
@@ -183,10 +183,14 @@ Let $S\subset X$ with $\lvert S\rvert=n$. For $K = O(\varepsilon^{-2}\log n)$ i.
 high probability every pair $x,y\in S$ satisfies
 $\bigl\lvert \tfrac1K D(x,y)^2 - \bar D_\mu^2(x,y)\bigr\rvert \le \varepsilon\,d(x,y)^2$ simultaneously.
 \end{proposition}
-\begin{proof}[Sketch]
-Each coordinate difference $(d(x,p)-d(y,p))^2\in[0,d(x,y)^2]$ is bounded; Hoeffding gives a
-$\exp(-2K\varepsilon^2)$ tail for the deviation of the $K$-average from $\bar D_\mu^2$ per pair, and a
-union bound over the $\binom n2$ pairs closes with $K=\Theta(\varepsilon^{-2}\log n)$. \qed
+\begin{proof}
+Fix a pair $x,y\in S$. Prototype $p_k\sim\mu$ contributes $Y_k=(d(x,p_k)-d(y,p_k))^2$, and the reverse
+triangle inequality gives $0\le Y_k\le d(x,y)^2$, so the $Y_k$ are i.i.d.\ and confined to an interval of
+length $d(x,y)^2$ with mean $\E_\mu[Y]=\bar D_\mu^2(x,y)$ (Prop.~\ref{prop:energy}). Their average is
+$\tfrac1K\sum_k Y_k=\tfrac1K D(x,y)^2$, so Hoeffding's inequality yields
+$\Pr\!\big[\lvert\tfrac1K D(x,y)^2-\bar D_\mu^2(x,y)\rvert>\varepsilon\,d(x,y)^2\big]\le2\exp(-2K\varepsilon^2)$.
+A union bound over the $\binom n2<n^2$ pairs caps the total failure probability at $2n^2\exp(-2K\varepsilon^2)$,
+which tends to $0$ as soon as $K\ge C\varepsilon^{-2}\ln n$, i.e.\ $K=\Theta(\varepsilon^{-2}\log n)$.
 \end{proof}
 
 The logarithmic dependence on $n$ is the theoretical counterpart of supplementary Fig.~S4, where the
@@ -222,12 +226,18 @@ $d$ of Eq.~\eqref{eq:gram} is of negative type if and only if the centred simila
 $s$ is positive semidefinite, in which case $\sqrt d$ embeds isometrically into a Hilbert space
 and $d=\norm{\psi(\cdot)-\psi(\cdot)}^2$ for the associated feature map $\psi$.
 \end{proposition}
-\begin{proof}[Sketch]
-This is Schoenberg's theorem \cite{Schoenberg1938}: $d$ is of negative type iff $e^{-t d}$ is a positive
-definite kernel for all $t>0$ iff $d=\norm{\psi(x)-\psi(y)}^2$ for a Hilbert map $\psi$; expanding the
-square recovers Eq.~\eqref{eq:gram} with $s(a,b)=\langle\psi(a),\psi(b)\rangle$, so negative type of $d$
-is the positive semidefiniteness of the centred $s$. See \cite{NegativeTypeHilbert2023,CNDkernels2013}
-for the modern bi-Lipschitz refinements. \qed
+\begin{proof}
+Suppose $d$ is of negative type. Fix a base point $x_0$ and form the centred kernel
+$\tilde s(a,b)=\tfrac12\big(d(a,x_0)+d(b,x_0)-d(a,b)\big)$. Given any coefficients $c_1,\dots,c_m$, set
+$c_0=-\sum_{i\ge1}c_i$ so that $\sum_{i\ge0}c_i=0$; expanding, $\sum_{i,j\ge1}c_ic_j\,\tilde s(x_i,x_j)
+=-\tfrac12\sum_{i,j\ge0}c_ic_j\,d(x_i,x_j)\ge0$ by negative type, so $\tilde s$ is positive semidefinite. As a
+PSD kernel $\tilde s$ is a Gram matrix, $\tilde s(a,b)=\langle\psi(a),\psi(b)\rangle$ for a Hilbert-space map
+$\psi$, and $\norm{\psi(a)-\psi(b)}^2=\tilde s(a,a)+\tilde s(b,b)-2\tilde s(a,b)=d(a,b)$, so $\sqrt d$ embeds
+isometrically. Expanding this square is Eq.~\eqref{eq:gram} with $s(a,b)=\langle\psi(a),\psi(b)\rangle$,
+identifying negative type of $d$ with positive semidefiniteness of the centred similarity. Conversely, if $s$
+is PSD then Eq.~\eqref{eq:gram} is manifestly a squared Hilbert distance, hence of negative type. This is
+Schoenberg's theorem \cite{Schoenberg1938}; \cite{NegativeTypeHilbert2023,CNDkernels2013} give bi-Lipschitz
+refinements.
 \end{proof}
 
 \paragraph{Alignment scores need correction} General pairwise-alignment similarities (Smith--Waterman,
@@ -265,7 +275,7 @@ embedding-indistinguishable.
 \end{proposition}
 \begin{proof}
 The coordinates are i.i.d.\ evaluations of the fixed $1$-Lipschitz map $p\mapsto d(x,p)$ under $\Pgen$;
-the Glivenko--Cantelli theorem gives uniform convergence of their empirical law to that of $d(x,p)$. \qed
+the Glivenko--Cantelli theorem gives uniform convergence of their empirical law to that of $d(x,p)$.
 \end{proof}
 
 This reframes what the embedding ``learns'': not a language model of receptor sequences --- which the
@@ -280,10 +290,15 @@ Prop.~\ref{prop:energy} satisfy $\bar D_\mu^2(x,y) = \E_{\nu}[\rho(p)\,(d(x,p)-d
 embeddings induce distances that agree up to the $\chi^2$ discrepancy between $\mu$ and $\nu$; as
 $\chi^2(\mu\,\Vert\,\nu)\to 0$ the pairwise-distance vectors become perfectly correlated.
 \end{proposition}
-\begin{proof}[Sketch]
-Importance sampling rewrites the $\mu$-expectation as a $\nu$-expectation with weight $\rho$; a
-Cauchy--Schwarz bound on $\Cov$ under the two measures controls the correlation of the resulting
-distance vectors by $\chi^2(\mu\,\Vert\,\nu)=\E_\nu[\rho^2]-1$. \qed
+\begin{proof}
+By Prop.~\ref{prop:energy}, $\bar D_\mu^2(x,y)=\E_\mu[u_{xy}(p)]$ with $u_{xy}(p)=(d(x,p)-d(y,p))^2$. Writing
+the $\mu$-expectation as a $\nu$-expectation with importance weight $\rho=d\mu/d\nu$ gives
+$\bar D_\mu^2(x,y)=\E_\nu[\rho(p)\,u_{xy}(p)]$, the first claim. Its discrepancy from the $\nu$-embedding is
+$\bar D_\mu^2-\bar D_\nu^2=\E_\nu[(\rho-1)\,u_{xy}]$, and Cauchy--Schwarz bounds this by
+$\sqrt{\E_\nu[(\rho-1)^2]}\,\sqrt{\E_\nu[u_{xy}^2]}=\sqrt{\chi^2(\mu\Vert\nu)}\,\sqrt{\E_\nu[u_{xy}^2]}$, using
+$\E_\nu[(\rho-1)^2]=\E_\nu[\rho^2]-1=\chi^2(\mu\Vert\nu)$. Hence the two families of pairwise distances differ
+by a factor set by $\chi^2(\mu\Vert\nu)$; as $\chi^2(\mu\Vert\nu)\to0$ the perturbation vanishes uniformly and
+their correlation tends to one.
 \end{proof}
 
 A real healthy-donor repertoire (Britanova \emph{et al.} \cite{Britanova2016}) and the synthetic
@@ -311,14 +326,19 @@ follows a generalized extreme value (Fr\'echet--Gumbel) law rather than a Gaussi
 $D=\norm{\varphi(x)-\varphi(y)}_2$ is dominated by its largest coordinate differences, which are
 extreme-value statistics over the $K$ prototypes.
 \end{proposition}
-\begin{proof}[Sketch]
-(i) $d$ is a sum of per-aligned-column Gram penalties (Eq.~\eqref{eq:gram}), each in a bounded
-non-negative range; a Gamma law is the maximum-entropy fit to a positive sum with matched mean and
-variance, and dominates the Gaussian on the skew (Fig.~\ref{fig:s1}, left). (ii) By
-Prop.~\ref{prop:kuratowski} the $\ell^\infty$ part of $D$ equals $d(x,y)$, an extreme over prototypes;
-the Fisher--Tippett--Gnedenko theorem \cite{deHaanFerreira2006} forces the maximum of $K$ light-tailed
-coordinate differences into the {\scshape GEV} family, and the same tail governs $\ell^2$ once distances
-concentrate in high dimension \cite{Beyer1999} (Fig.~\ref{fig:s1}, right). \qed
+\begin{proof}
+(i) By Eq.~\eqref{eq:gram}, $d(a,b)=\sum_\ell \pi_\ell$ is a sum over aligned columns of bounded, non-negative
+Gram penalties $\pi_\ell$. For sequences of comparable length the columns are many and weakly dependent, so a
+Lindeberg central-limit tendency applies; but the constraint $d\ge0$ and the bounded support make the limit a
+positive, right-skewed law, and among laws on $[0,\infty)$ with matched mean and variance the Gamma family is
+the maximum-entropy choice, capturing the skew a Gaussian misses (Fig.~\ref{fig:s1}, left). (ii) The
+coordinates of $D(x,y)=\norm{\varphi(x)-\varphi(y)}_2$ are $K$ i.i.d.\ bounded differences
+$d(x,p_k)-d(y,p_k)$. Its $\ell^\infty$ part equals $d(x,y)$ (Prop.~\ref{prop:kuratowski}), a maximum over the
+$K$ prototypes; by the Fisher--Tippett--Gnedenko theorem \cite{deHaanFerreira2006} the only non-degenerate
+limit of a normalised maximum of i.i.d.\ variables is the generalized-extreme-value family, so $D$'s upper
+tail is {\scshape GEV}, not Gaussian. In high dimension $\norm{\cdot}_2$ concentrates and its fluctuations are
+carried by the same extreme coordinates \cite{Beyer1999}, so the {\scshape GEV} law governs $D$ itself
+(Fig.~\ref{fig:s1}, right).
 \end{proof}
 
 Both laws are confirmed on v3 (Fig.~\ref{fig:s1}): the Gamma fit to $d_{ij}$ beats the Gaussian on
@@ -361,12 +381,17 @@ $I(\text{objective};A)=0$; the population objective is invariant under relabelli
 alignment of $f(X)$ with $A$ is fixed by the inductive bias of $f$ (its architecture, tokenisation, and
 metric), not by learning.
 \end{proposition}
-\begin{proof}[Sketch]
-The loss depends on $X$ only through $\Pgen$, which is antigen-blind ($A$ enters only at selection, after
-generation); the data-processing inequality gives $I(f;A)\le I(\text{training data};A)=0$ for any $f$
-measurable with respect to the unlabelled sample. Hence the population objective is unchanged by any
-permutation of antigen labels, so its minimisers cannot prefer an antigen-separating $f$ over an
-antigen-mixing one on the strength of the data. \qed
+\begin{proof}
+By hypothesis the objective is a functional of the unlabelled generation marginal $\Pgen$ --- equivalently of
+the i.i.d.\ sample $X_1,\dots,X_m\sim\Pgen$ --- and never accesses $A$. Because generation precedes selection,
+$A$ enters the joint law only through the post-generation selection channel, which the training data do not
+observe; hence the training data and $A$ are independent, $I(\text{training data};A)=0$. For any
+representation $f$ measurable with respect to that data the data-processing inequality gives
+$I(f;A)\le I(\text{training data};A)=0$. The population objective is therefore a functional of $\Pgen$ that
+does not reference the antigen partition, so it is invariant under any permutation $\varsigma$ of antigen
+labels: if $f^\star$ is optimal, so is $\varsigma\circ f^\star$. No minimiser can prefer an antigen-separating
+representation over an antigen-mixing one on the strength of the data, so whatever alignment $f(X)$ has with
+$A$ is fixed by the inductive bias of $f$, not learnt.
 \end{proof}
 
 Specificity separation in a receptor embedding is thus an \emph{inductive-bias} phenomenon, not a learned
@@ -415,13 +440,16 @@ whole antigen space carries no receptor-discriminative information beyond genera
 labelled antigen set expands to the full space the population optimum of any supervised specificity
 representation converges to the antigen-blind $\Pgen$-sufficient statistic of Prop.~\ref{prop:nofreelunch}.
 \end{proposition}
-\begin{proof}[Sketch]
-Coverage-completeness with cross-reactivity makes each receptor bind $\Theta(\lvert\mathcal A\rvert)$
-antigens and each antigen be bound by a $\ge p_0$ fraction of the repertoire, so the antigen-marginal of the
-binding indicator is uniformly bounded inside $(0,1)$; its mutual information with $X$, integrated over
-$\mathcal A$, is therefore governed by the clone-frequency structure $\Pgen$ imposes rather than by any
-low-dimensional antigen axis, and the complete-coverage limit of the supervised objective coincides with the
-generation-sufficient representation. \qed
+\begin{proof}
+Coverage-completeness gives $\Pr_{x\sim\Pgen}[x\text{ binds }a]\ge p_0>0$ for almost every antigen $a$, and
+cross-reactivity gives the dual bound, each receptor binding a $\Theta(1)$ fraction of $\mathcal A$. Thus the
+binding indicator $b(x,a)$ has antigen-marginal $\E_{x\sim\Pgen}[b(x,a)]$ bounded strictly inside $(0,1)$
+uniformly in $a$. For any receptor statistic $f(X)$ the specificity information integrated over antigens,
+$\int_{\mathcal A} I\big(f(X);b(X,a)\big)\,da$, is then bounded by the entropy of a Bernoulli whose parameter
+is pinned away from $0$ and $1$ and whose across-receptor variation is driven by the clone-frequency structure
+$\Pgen$ imposes, not by any low-dimensional antigen axis. Hence as the labelled antigen set grows to the whole
+space, the population optimum of a supervised specificity representation is determined by generation
+propensity alone and converges to the $\Pgen$-sufficient statistic of Prop.~\ref{prop:nofreelunch}.
 \end{proof}
 
 The circle closes: an unsupervised model recovers $\Pgen$ and cannot separate antigens
@@ -450,7 +478,7 @@ embeddings of independent factors realises the $\ell^2$ product of the factor me
 \end{proposition}
 \begin{proof}
 Concatenation stacks coordinate blocks; the squared $\ell^2$ norm of a stacked vector is the sum of the
-squared block norms, which is Eq.~\eqref{eq:product} extended across chains. \qed
+squared block norms, which is Eq.~\eqref{eq:product} extended across chains.
 \end{proof}
 
 Paired $\alpha\beta${\scshape TCR} embedding (suppl.\ S4) and, prospectively, the concatenation of
@@ -469,7 +497,7 @@ $\operatorname{rank}\Phi_V \le G_V$. The same holds for J with $G_J$, and $G_V,G
 $\varphi_V(x)_k = d_V(v(x), v(p_k))$ depends on $x$ only through its V allele $v(x)$ (the germline
 distances are a fixed allele$\times$allele table, \code{mir/distances/germline.py}); receptors sharing a
 V allele have identical V-rows, so there are at most $G_V$ distinct rows and the rank is bounded by
-$G_V$. \qed
+$G_V$.
 \end{proof}
 
 A human {\scshape TRB} repertoire has $G_V\lesssim 60$, $G_J\lesssim 15$, against $K$ in the thousands:
@@ -501,7 +529,7 @@ linear in the mutation load $m$.
 \begin{proof}
 Each substitution changes at most one aligned column of Eq.~\eqref{eq:gram}, by at most the bounded
 penalty range $c$; $m$ substitutions change $d$ by at most $c\,m$, and Prop.~\ref{prop:lipschitz}
-propagates this to $D$ with the $\sqrt K$ factor. \qed
+propagates this to $D$ with the $\sqrt K$ factor.
 \end{proof}
 
 Proposition~\ref{prop:drift} has two consequences. First, a clonal lineage under affinity maturation
@@ -521,32 +549,493 @@ $M_m$ rather than from $\Pgen$ alone.
 
 \section{Density geometry and background subtraction}\label{sec:density}
 
-The embedding turns a repertoire into a point cloud in $\R^{3K}$ (or its {\scshape PCA} projection), and
-the natural null model is the pushforward of the generation measure.
+The embedding turns a repertoire into a point cloud in $\R^{3K}$ (or its {\scshape PCA} projection to
+$p\approx65$ coordinates), and the natural null model is the pushforward of the generation measure.
+Antigen-driven selection deposits, on top of this null, over-dense \emph{ridges} of convergent receptors;
+{\scshape TCRNET} and {\scshape ALICE} \cite{Ritvo2018,Pogorelyy2019,PogorelyyShugay2019} detect
+them by counting near-neighbours on a Hamming-$1$ graph. We recast the whole procedure as \emph{density-ratio
+estimation} on embedding space --- graph-free --- and give it what an honest treatment requires: a
+model of the noise (\S\ref{sec:dens-mix}), the estimator and its rate (\S\ref{sec:dens-dre}), the exact local
+test (\S\ref{sec:dens-poisson}--\S\ref{sec:dens-balloon}), calibration of a systematically wrong null
+(\S\ref{sec:dens-null}), the differential control that fixes it (\S\ref{sec:dens-diff}), the depth it
+requires (\S\ref{sec:dens-depth}), the ridge geometry it estimates (\S\ref{sec:dens-ridge}), and how clone
+sizes enter (\S\ref{sec:dens-abund}).
 
 \begin{definition}
 Let $f_{\mathrm{gen}} = \varphi_{\#}\Pgen$ be the density of embedded prototypes and $f_{\mathrm{obs}}$
-the density of an observed repertoire on embedding space. The \emph{enrichment} of a region is the
-density ratio $E(z)=f_{\mathrm{obs}}(z)/f_{\mathrm{gen}}(z)$.
+the density of an observed repertoire on embedding space. The \emph{enrichment} is the density ratio
+$E(z)=f_{\mathrm{obs}}(z)/f_{\mathrm{gen}}(z)$; convergent selection is the region $E(z)>1$.
 \end{definition}
 
-\begin{proposition}[Continuous limit of neighbour enrichment]\label{prop:tcrnet}
-The graph neighbourhood test of {\scshape TCRNET}/{\scshape ALICE} --- comparing the observed count of
-receptors within an alignment radius $r$ of $z$ to its expectation under $\Pgen$ --- converges, as
-$r\to 0$, to the density ratio $E(z)$. Convergent selection is precisely the set where $E(z)>1$.
+\paragraph{Notation} A receptor (clonotype) $\sigma$ is mapped to a point $z=\varphi(\sigma)\in\R^{p}$ (the
+prototype embedding, standardised and {\scshape PCA}-projected to $p\approx65$ coordinates). $\Pgen$ is the
+V(D)J generation measure and $\pi_{\mathrm{obs}}$ the sampled-repertoire law; their pushforwards under
+$\varphi$ are the densities $f_{\mathrm{gen}}=\varphi_{\#}\Pgen$ and $f_{\mathrm{obs}}=\varphi_{\#}\pi_{\mathrm{obs}}$,
+and $E=f_{\mathrm{obs}}/f_{\mathrm{gen}}$ is their ratio. The selection factor $Q(\sigma)\ge0$ reweights
+$\Pgen$ into $\pi_{\mathrm{obs}}$ (Eq.~\eqref{eq:selweight}), with normaliser $Z_Q=\E_{\Pgen}[Q]$ and
+embedding-space average $q(z)=\E[Q\mid\varphi(\sigma)=z]$. We draw $N$ observed and $M$ background points; a
+ball $B(z,r)$ of radius $r$ contains $n_{\mathrm{obs}}$ observed and $n_{\mathrm{bg}}$ background points, with
+target null occupancy $\lambda_0=\E[n_{\mathrm{obs}}\mid H_0]$; $r_1$ is the median embedding distance moved by
+a single {\scshape CDR3} amino-acid substitution, and $a_j$ (\S\ref{sec:dens-abund}) the read count of
+clonotype $j$. Symbols $\E$ (expectation), $\mathrm{Var}$, $\mathrm{CV}=\sqrt{\mathrm{Var}}/\E$, and
+$\Phi^{-1}$ (standard-normal quantile) are standard.
+
+\subsection{The repertoire as a mixture, and why the raw \texorpdfstring{$\Pgen$}{Pgen} null is
+miscalibrated}\label{sec:dens-mix}
+
+The observed repertoire is not the generation model. A sampled sequence has survived thymic and peripheral
+selection, so the observed law is a reweighting of $\Pgen$ \cite{Elhanati2014,Sethna2020},
+\begin{equation}\label{eq:selweight}
+  \pi_{\mathrm{obs}}(\sigma)=\Pgen(\sigma)\,\frac{Q(\sigma)}{Z_Q},\qquad Z_Q=\E_{\Pgen}[Q],
+\end{equation}
+with $Q\ge0$ the (non-constant) selection factor; the scalar $Q$ of {\scshape ALICE} is its mean-field
+reduction. Let $q(z)=\E[Q(\sigma)\mid\varphi(\sigma)=z]$ be the local mean selection field.
+
+\begin{proposition}[Pushforward ratio is the selection field]\label{prop:selfield}
+$E(z)=q(z)/Z_Q$.
 \end{proposition}
-\begin{proof}[Sketch]
-The observed and expected neighbour counts in a ball of radius $r$ are $f_{\mathrm{obs}}(z)$ and
-$f_{\mathrm{gen}}(z)$ times the common ball volume $+o(r^{d})$; their ratio tends to $E(z)$ as the
-volume shrinks, which is the standard consistency of a balloon density-ratio estimator. \qed
+\begin{proof}
+$f_{\mathrm{obs}}(z)=\int\delta(\varphi(\sigma)-z)\,\Pgen(\sigma)Q(\sigma)/Z_Q\,d\sigma
+= q(z)\,f_{\mathrm{gen}}(z)/Z_Q$.
 \end{proof}
 
-Proposition~\ref{prop:tcrnet} recasts graph-based background subtraction as continuous density-ratio
-estimation on embedding space, which is the foundation for the {\scshape TCRNET}-without-graphs method of
-Part~2: estimate $f_{\mathrm{gen}}$ once from $\Pgen$ samples (or from the fast forward codec
-$\varphi\approx$ neural network, \code{mir/ml/encoder.py}), estimate $f_{\mathrm{obs}}$ by kernel density
-or a normalising flow, and report $E(z)$ directly --- no neighbourhood graph, and a smooth enrichment
-field rather than per-vertex counts.
+So $E\equiv1$ only if selection is neutral. Two immunological facts make $q$ sharply peaked: \emph{convergent
+recombination} makes public receptors recur across individuals in proportion to their generation frequency
+\cite{Venturi2006,Quigley2010,Venturi2008}, and \emph{thymic selection} is positively correlated with those
+same generation biases \cite{Elhanati2014}, amplifying rather than flattening the hierarchy --- a
+rich-get-richer field concentrated on the convergent, germline-proximal support. The cost is a null that is
+biased \emph{high} exactly where clones sit.
+
+\begin{proposition}[Size-biased bulk fold; the flood]\label{prop:bulkfold}
+Averaging the fold over observed clones,
+\begin{equation}\label{eq:cvfold}
+  \E_{z\sim f_{\mathrm{obs}}}[E(z)]
+  =\frac{\E_{f_{\mathrm{gen}}}[q^2]}{\E_{f_{\mathrm{gen}}}[q]^2}
+  =1+\mathrm{CV}^2(q)\;\ge\;1,
+\end{equation}
+strict whenever $\mathrm{Var}(q)>0$.
+\end{proposition}
+\begin{proof}
+$\E_{f_{\mathrm{obs}}}[E]=\int (q/Z_Q)f_{\mathrm{obs}}=\int(q/Z_Q)^2 f_{\mathrm{gen}}
+=\E[q^2]/\E[q]^2=1+\mathrm{Var}(q)/\E[q]^2$.
+\end{proof}
+
+A test that assumes $E\equiv1$ therefore rejects across the entire region where $q/Z_Q$ clears the fold
+threshold. This is measurable: on a {\scshape VDJdb} benchmark in which known antigen-specific ridges are
+admixed with an unrelated repertoire as noise, a raw $\Pgen$ background flags $43\%$ of the noise clones as
+``enriched'', whereas a matched control background (\S\ref{sec:dens-diff}) flags only $1\%$ --- a $46$-fold
+gain in signal-to-noise. The $43\%$ is the selection inflation $1+\mathrm{CV}^2(q)$, \emph{not} a $43\%$
+non-null fraction. The remedy is therefore to recentre the null empirically (\S\ref{sec:dens-null}) or to
+cancel $q$ with a matched control (\S\ref{sec:dens-diff}). Note $q/Z_Q$ cannot exceed $1$ everywhere --- both
+densities integrate to one, so $\E_{f_{\mathrm{gen}}}[q/Z_Q]=1$ --- so it exceeds $1$ only on the observed
+support, which is exactly where clones are tested.
+
+\begin{remark}[Ridges are heterogeneous]\label{rem:ridges}
+The signal is a sum of epitope-indexed ridges, $f_{\mathrm{sig}}=\sum_e w_e g_e$, with $w_e=\sum_{\sigma\in
+S_e}\pi_{\mathrm{obs}}(\sigma)$ the precursor frequency of epitope $e$; the elevation $g_e/f_{\mathrm{gen}}$ is
+\emph{larger} for low-$\Pgen$ (private) motifs at equal observed count. Inheriting the heavy tail of $\Pgen$,
+the weights $w_e$ span about two orders of magnitude across epitopes and six within one
+\cite{Pogorelyy2018}. The polyclonality of a response tracks this precursor frequency: on {\scshape VDJdb}
+the immunodominant HLA-A*02 influenza epitope {\scshape GILGFVFTL} resolves into $32$ distinct convergent
+mountains, while the {\scshape CMV} A*02 epitope {\scshape NLVPMVATV} gives only $4$. No global height
+threshold separates signal from background across such a range; significance must be assessed locally, and
+the constructions below are engineered so that it is.
+\end{remark}
+
+\subsection{Enrichment as a density ratio: three estimators and their rate}\label{sec:dens-dre}
+
+Estimating $E$ as a quotient of two kernel-density estimates is doubly bad: it pays the density-estimation
+rate twice and blows up where $f_{\mathrm{gen}}$ is small. Direct estimation avoids both, and rests on one
+moment identity \cite{Kanamori2009,Sugiyama2012}.
+
+\begin{lemma}[Least-squares characterisation]\label{lem:lsif}
+$\E_{f_{\mathrm{gen}}}[g\,E]=\E_{f_{\mathrm{obs}}}[g]$ for all $g\in L^2(f_{\mathrm{gen}})$, and
+$E=\arg\min_g\big\{\tfrac12\E_{f_{\mathrm{gen}}}[g^2]-\E_{f_{\mathrm{obs}}}[g]\big\}$.
+\end{lemma}
+\begin{proof}
+$\int g(f_{\mathrm{obs}}/f_{\mathrm{gen}})f_{\mathrm{gen}}=\int g\,f_{\mathrm{obs}}$; the objective equals
+$\tfrac12\E_{f_{\mathrm{gen}}}[(g-E)^2]$ up to a constant, minimised uniquely at $g=E$.
+\end{proof}
+
+Because the empirical objective uses the two clouds only through sample means, the same target admits three
+consistent estimators. \textbf{(i)~Balloon} count-ratio (\S\ref{sec:dens-balloon}), local and carrying an
+exact test. \textbf{(ii)~Relative ratio} (RuLSIF) $E_\alpha=f_{\mathrm{obs}}/(\alpha
+f_{\mathrm{obs}}+(1-\alpha)f_{\mathrm{gen}})\in[0,1/\alpha]$, fit in a kernel basis \cite{Yamada2013}; it is
+bounded, hence valley-stable, and inverts to $E=(1-\alpha)E_\alpha/(1-\alpha E_\alpha)$, with $\alpha$ the
+water level --- a denominator denser than $f_{\mathrm{gen}}$ caps the runaway public-convergence fold at
+$1/\alpha$. \textbf{(iii)~Classifier} logit: labelling observed points $y{=}1$ (prior $\pi=N/(N{+}M)$) and
+background $y{=}0$, a calibrated classifier $\eta$ satisfies
+\begin{equation}\label{eq:nce}
+  \operatorname{logit}\eta(z)=\log E(z)+\log\tfrac{\pi}{1-\pi}
+  \;\cite{Menon2016,GutmannHyvarinen2012},
+\end{equation}
+so any discriminator --- featurised by the forward codec $\varphi$ of Part~2 (\code{mir/ml/encoder.py}) ---
+recovers $\log E$ up to the known imbalance offset and scales to $10$--$100$M receptors; normalising flows
+\cite{Papamakarios2021} give the two densities explicitly when wanted. The shared offset $\log(N/M)$ is why
+the control-background and $\Pgen$-background detectors estimate the \emph{same} object (\S\ref{sec:dens-poisson}).
+
+\begin{proposition}[Direct estimation beats plug-in]\label{prop:drerate}
+If $E$ is bounded and lies in a class of bracketing entropy $H(\varepsilon)\asymp\varepsilon^{-2\gamma}$,
+$0<\gamma<1$, the regularised least-squares estimator attains
+$\norm{\hat E-E}_{L^2(f_{\mathrm{gen}})}=O_p\!\big(n^{-1/(2+2\gamma)}\big)$, $n=\min(N,M)$, which is minimax
+for the likelihood ratio \cite{Nguyen2010}; the plug-in quotient pays the density-estimation rate
+$n^{-s/(2s+d)}$ per factor plus a small-denominator variance blow-up.
+\end{proposition}
+\begin{proof}
+By Lemma~\ref{lem:lsif} the population risk of any candidate $g$ is
+$J(g)=\tfrac12\E_{f_{\mathrm{gen}}}[(g-E)^2]$ up to an additive constant, so the excess risk of the empirical
+minimiser $\hat E$ over a class $\mathcal G$ equals $\tfrac12\norm{\hat E-E}_{L^2(f_{\mathrm{gen}})}^2$.
+Empirical-process theory bounds this by an approximation term (the regularisation bias) plus a stochastic
+term set by the local modulus of the empirical process indexed by $\mathcal G$, i.e.\ by the entropy integral
+$\int_0^\delta\!\sqrt{H(\varepsilon)}\,d\varepsilon\asymp\delta^{1-\gamma}$ when
+$H(\varepsilon)\asymp\varepsilon^{-2\gamma}$. Choosing the regularisation so that bias and stochastic term are
+of the same order and solving the resulting fixed point for the critical radius $\delta$ gives
+$\delta\asymp n^{-1/(2+2\gamma)}$; a matching lower bound follows from Fano's inequality on a $\delta$-packing
+of $\mathcal G$, so the rate is minimax \cite{Nguyen2010}. Boundedness of $E$ keeps the class envelope finite
+in $L^\infty(f_{\mathrm{gen}})$, which the bound requires. The plug-in quotient
+$\hat f_{\mathrm{obs}}/\hat f_{\mathrm{gen}}$ has no such envelope: where $\hat f_{\mathrm{gen}}\!\to\!0$ the
+ratio's variance diverges --- exactly the instability the bounded relative ratio $E_\alpha\le1/\alpha$ of
+\S\ref{sec:dens-dre} removes by construction.
+\end{proof}
+
+At $p\approx65$ the nonparametric rate is slow; treat $\hat E$ as a locally smoothed, not pointwise-exact,
+field. The three estimators cross-validate: the classifier gives a fast global $E$, the balloon supplies
+calibrated significance, the relative estimator delineates smooth ridge boundaries; disagreement flags
+estimation error, not signal.
+
+\subsection{Local significance: the exact point-process test}\label{sec:dens-poisson}
+
+Model the two clouds as independent Poisson point processes of intensities $Nf_{\mathrm{obs}}$,
+$Mf_{\mathrm{gen}}$ \cite{Kingman1993}. In a ball $B=B(z,r)$ the counts are Poisson with means
+$\int_B Nf_{\mathrm{obs}}$, $\int_B Mf_{\mathrm{gen}}$, independent across disjoint sets (Kingman restriction).
+
+\begin{proposition}[Poisson exact test --- {\scshape ALICE}]\label{prop:poissontest}
+Under $H_0:f_{\mathrm{obs}}=f_{\mathrm{gen}}$, with the leave-one-out, Laplace-smoothed null mean
+\begin{equation}\label{eq:mu0}
+  \mu_0=\frac{(N-1)(n_{\mathrm{bg}}+1)}{M+1},\qquad
+  p=\Pr[\mathrm{Poisson}(\mu_0)\ge n_{\mathrm{obs}}],
+\end{equation}
+the enrichment $p$-value is exact given $\mu_0$; for an empty background ball the rule-of-three bound
+$\mu_0=3N/M$ applies. This is \eqref{eq:mu0} as implemented in \code{mir/density.py}.
+\end{proposition}
+\begin{proof}
+Poisson tail on the restricted process; $(N-1)/(M+1)$ with $+1$ in the numerator is the rule-of-succession
+($\mathrm{Beta}(1,1)$) estimate of the ball probability with self-exclusion, and $3N/M$ is the $95\%$ upper
+bound on a Poisson mean from zero events.
+\end{proof}
+
+\begin{proposition}[Conditional binomial --- {\scshape TCRNET}]\label{prop:ctest}
+For independent processes with in-ball means $\mu_{\mathrm{obs}},\mu_{\mathrm{bg}}$, conditioning on the total
+$T=n_{\mathrm{obs}}+n_{\mathrm{bg}}$ gives
+$n_{\mathrm{obs}}\mid T\sim\mathrm{Binomial}(T,\mu_{\mathrm{obs}}/(\mu_{\mathrm{obs}}+\mu_{\mathrm{bg}}))
+\xrightarrow{H_0}\mathrm{Binomial}(T,N/(N{+}M))$, the local volume cancelling. This nuisance-free two-sample
+test \cite{Krishnamoorthy2004} is the binomial branch used with a real control background.
+\end{proposition}
+
+\begin{proposition}[{\scshape ALICE} is the rare-event limit of {\scshape TCRNET}]\label{prop:alicelim}
+With $p_{\mathrm{bg}}=(n_{\mathrm{bg}}{+}1)/(M{+}1)\sim\lambda_0/M\ll1$, the Le~Cam / Chen--Stein bound
+\cite{Arratia1990} gives
+$d_{\mathrm{TV}}\big(\mathrm{Binomial}(T,p_{\mathrm{bg}}),\mathrm{Poisson}(Tp_{\mathrm{bg}})\big)\le
+Tp_{\mathrm{bg}}^2$, so the two exact tests agree to $O(\lambda_0 p_{\mathrm{bg}})$.
+\end{proposition}
+
+Proposition~\ref{prop:alicelim} is the theoretical reason a generated $\Pgen$ background (Poisson) and a real
+control (binomial) return the \emph{same} enriched set --- benchmarked at Jaccard $0.86$ against a chance
+$0.30$; {\scshape ALICE} is a special case of {\scshape TCRNET}, and the residual $0.14$ is the
+convergence-field over-call the differential control removes (\S\ref{sec:dens-diff}). One caveat: clonal
+expansion makes raw counts super-Poisson, so counting must be over \emph{distinct} clonotypes and the null
+recentred (\S\ref{sec:dens-null}).
+
+\subsection{The balloon estimator and the detection floor}\label{sec:dens-balloon}
+
+Set the radius $R(z)$ to the distance to the $k$-th \emph{background} neighbour, $k=\mathrm{round}(\lambda_0
+M/N)$. The shared ball volume cancels from the ratio, which is what makes the estimator usable in high
+dimension \cite{Loftsgaarden1965,Terrell1992,BiauDevroye2015}.
+
+\begin{proposition}[Volume-free ratio; homogenised null]\label{prop:balloon}
+The balloon densities $\hat f_{\mathrm{obs}}=n_{\mathrm{obs}}/(N V_pR^p)$,
+$\hat f_{\mathrm{gen}}=n_{\mathrm{bg}}/(M V_pR^p)$ give
+\begin{equation}\label{eq:volfree}
+  \hat E(z)=\frac{n_{\mathrm{obs}}/N}{n_{\mathrm{bg}}/M},\qquad
+  k=\mathrm{round}\!\big(\lambda_0 M/N\big)\ \Longrightarrow\ \E[n_{\mathrm{obs}}\mid H_0]\approx\lambda_0
+  \ \text{for all }z.
+\end{equation}
+The null is $\mathrm{Poisson}(\lambda_0)$ independent of the local density $f_{\mathrm{gen}}(z)$; the leading
+rate is set by the intrinsic dimension $d^\ast\ll p$ of the receptor manifold, not by $p$.
+\end{proposition}
+\begin{proof}
+Fixing $k$ background points fixes the enclosed background mass $\approx k/M$, so the expected observed count
+is $N\!\cdot\!k/M=\lambda_0$; $V_pR^p$ cancels between numerator and denominator, removing the explicit
+dimension.
+\end{proof}
+
+Fixing $\lambda_0$ (rather than the radius) is exactly what Remark~\ref{rem:ridges} demands: with precursor
+frequencies spanning orders of magnitude, a fixed radius would be empty in sparse regions and saturated in
+dense ones, whereas fixing the null occupancy makes every ball testable on its own scale.
+
+\begin{proposition}[Minimum detectable enrichment]\label{prop:mindetect}
+Under $H_1$ with local fold $E$, $n_{\mathrm{obs}}\sim\mathrm{Poisson}(E\lambda_0)$, and a one-sided level-$q$
+test is cleared at $50\%$ power once
+\begin{equation}\label{eq:estar}
+  E^\ast(q,\lambda_0)=1+\frac{c(q)}{\sqrt{\lambda_0}},\qquad c(q)=\Phi^{-1}(1-q);
+\end{equation}
+under Benjamini--Hochberg over $N$ tests $c\approx\sqrt{2\ln N}$. Thus $E^\ast$ falls only as
+$\lambda_0^{-1/2}$ while the radius grows as $\lambda_0^{1/d^\ast}$ (essentially flat in high $d^\ast$) and
+must stay $\lesssim r_1$, the median one-substitution embedding drift, to resolve a motif ridge; balancing
+these gives the default $\lambda_0=3$ (detectable $\sim\!2.3$-fold) with the range $[1,5]$.
+\end{proposition}
+\begin{proof}
+By Proposition~\ref{prop:balloon} the null count is $n_{\mathrm{obs}}\sim\mathrm{Poisson}(\lambda_0)$, of mean
+and variance $\lambda_0$. The one-sided level-$q$ test rejects at $n_{\mathrm{obs}}\ge\tau_q$ with
+$\tau_q=\min\{k:\Pr[\mathrm{Poisson}(\lambda_0)\ge k]\le q\}$, and the normal approximation gives
+$\tau_q\approx\lambda_0+c(q)\sqrt{\lambda_0}$, $c(q)=\Phi^{-1}(1-q)$. Under $H_1$ the count has mean
+$E\lambda_0$, so the test attains $50\%$ power once $E\lambda_0\ge\tau_q$, i.e.\ once
+$E\ge1+c(q)/\sqrt{\lambda_0}$ --- Eq.~\eqref{eq:estar}. Demanding power $1-\beta$ replaces $c(q)$ by
+$c(q)+\Phi^{-1}(1-\beta)$, and under Benjamini--Hochberg the effective per-test level tightens to $\approx
+q/N$, whence $c\approx\Phi^{-1}(1-q/N)\approx\sqrt{2\ln N}$. The exact Poisson tail at $q{=}0.05$ has critical
+counts $\tau=4,7,10$ for $\lambda_0=1,3,5$, giving $E^\ast=\tau/\lambda_0\approx4.0,2.3,2.0$. Finally a ball
+holding $\lambda_0$ of the $M$ background points encloses mass $\lambda_0/M\propto R^{d^\ast}$ on the
+intrinsic-dimension-$d^\ast$ manifold, so $R\propto\lambda_0^{1/d^\ast}$ --- nearly flat for large $d^\ast$,
+so raising $\lambda_0$ costs almost no resolution until $R$ reaches the motif width $r_1$, which pins the
+operating point at $\lambda_0=3$.
+\end{proof}
+
+Pinning $R\approx r_1$ makes the ball the continuous analogue of the Hamming-$1$ shell, and $E(z)$ is its
+$r\to0$ limit, $E(z)=\lim_{r\to0}\big[n_{\mathrm{obs}}(B_r)/(N{-}1)\big]/\big[n_{\mathrm{bg}}(B_r)/M\big]$.
+This explains the measured continuous--discrete concordance: the Spearman correlation between the balloon
+count and the discrete Hamming-$1$ count is $\rho=0.37,0.34,0.11,-0.05$ at $r=0.5,1,2,3\times r_1$ --- high
+at one substitution (where the ball coincides with the graph neighbourhood), decaying past it as the ball
+integrates several mode basins. The continuous test \emph{generalises} the graph test rather than reproducing
+it.
+
+\subsection{Empirical-null calibration: the water level}\label{sec:dens-null}
+
+By Proposition~\ref{prop:bulkfold} the theoretical $\Pgen$ null is wrong by a global factor; before any
+multiplicity control it must be recentred to the data. This is Efron's empirical null
+\cite{Efron2004}, and it precedes {\scshape FDR}.
+
+\begin{proposition}[Enrichment is an inverse local {\scshape fdr}]\label{prop:localfdr}
+In the two-groups model $f=\pi_0 f_0+\pi_1 f_1$ with a \emph{calibrated} null $f_0$, the local false-discovery
+rate is $\mathrm{fdr}(z)=\pi_0 f_0(z)/f(z)=\pi_0/E(z)$; declaring $E(z)\ge1/\alpha$ is a conservative
+$\mathrm{fdr}\le\alpha$ rule \cite{Efron2004}. With the raw null $f_0=f_{\mathrm{gen}}$ one instead has
+$\mathrm{fdr}=\pi_0\mu_0/E$ --- off by the miscalibration of \eqref{eq:cvfold}.
+\end{proposition}
+
+\begin{proposition}[Water level $=$ one-sided empirical-null recentring]\label{prop:empnull}
+Let the true background be $f_{\mathrm{bg}}(z)=s\,f_{\mathrm{gen}}(z)$ on the tested support with unknown
+inflation $s>1$. If the ridge fraction is below $\tfrac12$, then
+\begin{equation}\label{eq:waterlevel}
+  c=\max\!\Big(\frac{\mathrm{median}_i\,n_{\mathrm{obs},i}}{\mathrm{median}_i\,\mu_{0,i}},\,1\Big),
+  \qquad \mu_0\leftarrow c\,\mu_0
+  \;\Longrightarrow\; \mathrm{median}_i\,\mathrm{fold}_i\approx1,
+\end{equation}
+and $c$ is a robust (breakdown $\tfrac12$) consistent estimate of $s$.
+\end{proposition}
+\begin{proof}
+Write $\log\hat E=\log s+\varepsilon$ with $\varepsilon\approx0$ on the bulk and $>0$ on ridges; if ridges
+occupy under half the tests, $\mathrm{median}(\log\hat E)=\log s$, so \eqref{eq:waterlevel} estimates $s$ and
+$\max(\cdot,1)$ enforces one-sidedness (never deflate below the $\Pgen$ floor). This is Efron's empirical-null
+location correction \cite{Efron2004}, equivalently the median-of-ratios size factor of {\scshape DESeq}
+\cite{AndersHuber2010}. Being a median it is bounded above by the mean $1+\mathrm{CV}^2(q)$ of
+\eqref{eq:cvfold}.
+\end{proof}
+
+This is the \code{calibrate="median"} step of \code{mir/density.py}: because the signal is $<\!5\%$ in a naive
+repertoire it barely moves the median, so recentring the bulk to fold~$\approx1$ is robust. After recentring,
+overlapping balls are positively associated, so Benjamini--Hochberg controls the {\scshape FDR} under
+positive-regression dependence \cite{BenjaminiHochberg1995,BenjaminiYekutieli2001}. The failure mode is
+sharp: a single scalar $c$ removes only a \emph{constant} inflation. A spatially varying selection field
+$s(z)$ --- or a tetramer-sorted sample with ridge fraction $\ge\tfrac12$ --- breaks the median, and the only
+fix is a real control.
+
+\subsection{The differential control: cancelling convergence pointwise}\label{sec:dens-diff}
+
+\begin{proposition}[Shared-field cancellation]\label{prop:diffcancel}
+Let case and control share the selection/convergence field,
+$f_{\mathrm{case}}=(q/Z_Q)f_{\mathrm{gen}}(1+a_1)$ and $f_{\mathrm{ctrl}}=(q/Z_Q)f_{\mathrm{gen}}(1+a_0)$,
+with $a_i\ge0$ the condition-specific antigen expansion. Then
+\begin{equation}\label{eq:diff}
+  R(z)=\frac{f_{\mathrm{case}}(z)}{f_{\mathrm{ctrl}}(z)}=\frac{1+a_1(z)}{1+a_0(z)}
+  \;\perp\; q,\,Z_Q,\,f_{\mathrm{gen}},
+\end{equation}
+independent of the shared field; under $H_0$ ($a_1\equiv a_0$) $R\equiv1$ with \emph{no} water-level offset,
+even where $q(z)$ varies spatially. The binomial test of Proposition~\ref{prop:ctest} is its finite-sample
+plug-in; {\scshape ALICE} is the special case control~$\equiv f_{\mathrm{gen}}$ after recentring.
+\end{proposition}
+\begin{proof}
+Direct division cancels the shared factor $(q/Z_Q)f_{\mathrm{gen}}$; in the small-ball limit the
+case/control odds converge to $(N_{\mathrm{case}}/N_{\mathrm{ctrl}})\,R(z)$, a Radon--Nikodym change of
+reference from the generation model to the control.
+\end{proof}
+
+\begin{proposition}[Control-absent motifs are maximally identifiable]\label{prop:absent}
+If the control lacks a motif on a region $A$ ($f_{\mathrm{ctrl}}\to0$, $f_{\mathrm{sig}}>0$) then
+$R\to\infty$ on $A$ (odds-ratio $\to$ relative-risk regime \cite{Cornfield1951}); under the pure-control
+anchor $\operatorname{ess\,inf}_z(f_{\mathrm{sig}}/f_{\mathrm{ctrl}})=0$ the mixing weight is identified as
+$1-\pi=\operatorname{ess\,inf}_z R(z)$ \cite{Blanchard2010}.
+\end{proposition}
+
+This is why the recommended course of action prefers a biological control (pre- vs post-vaccination, patient
+vs healthy, {\scshape B27}$\pm$) over the raw $\Pgen$ null, and it is what the benchmarks show. The public
+$\texttt{CASSVGL[YF]STDTQYF}$ (TRBV9/TRBJ2-3) motif is control-absent in ankylosing spondylitis, so
+$R\to\infty$ on its ridge: it surfaces among enriched {\scshape B27}$+$ synovial hits ($9$) and is absent in
+{\scshape B27}$-$ ($0$). In yellow-fever vaccination the shared naive field cancels, isolating the expansion:
+day-$15$ versus day-$0$ enriched hits matching the {\scshape LLW}/A*02 reference are $63>35$ (of $129$ vs
+$79$ distinct such clonotypes present). Cancellation requires case and control to share $q$ --- match {\scshape
+HLA}, depth, and cell subset; a contaminated control attenuates $R$ toward $1$, making the differential test
+conservative, not anti-conservative.
+
+\subsection{Sampling depth: why the full repertoire}\label{sec:dens-depth}
+
+Subsampling a repertoire with retention probability $s$ is Poisson thinning: counts scale to
+$\mathrm{Poisson}(s\mu)$ \cite{Kingman1993}.
+
+\begin{proposition}[Thinning cost and detection boundary]\label{prop:depth}
+With signal mass $\Lambda_e$ and null mean $\lambda_0$, the test's non-centrality
+$\delta=\Lambda_e/\sqrt{\lambda_0}$ thins as $\delta_s=\sqrt{s}\,\delta$. Writing depth $D=sN$ and
+$\lambda_0\propto Dw_e$, the minimum detectable precursor frequency is
+\begin{equation}\label{eq:depthfloor}
+  w_e^{\min}(D)=\frac{c(\alpha,\beta,\lambda_0)}{D},
+\end{equation}
+and a clone is even \emph{observed} only with probability $1-e^{-Dw_e}$ \cite{Good1953}.
+\end{proposition}
+\begin{proof}
+Poisson thinning with retention probability $s$ maps the intensity of every region from $\mu$ to $s\mu$
+\cite{Kingman1993}. At depth $D=sN$ a ridge of precursor frequency $w_e$ contributes an expected in-ball
+signal count $\propto Dw_e$ against a null of mean $\lambda_0$ and standard deviation $\sqrt{\lambda_0}$, so
+by the Gaussian approximation of Proposition~\ref{prop:mindetect} its power is
+$\Phi\!\big(Dw_e/\sqrt{\lambda_0}-\Phi^{-1}(1-\alpha)\big)$, reaching $1-\beta$ exactly when
+$Dw_e\ge\big(\Phi^{-1}(1-\alpha)+\Phi^{-1}(1-\beta)\big)\sqrt{\lambda_0}$; that is
+$w_e\ge w_e^{\min}(D)=c/D$ with $c=\big(\Phi^{-1}(1-\alpha)+\Phi^{-1}(1-\beta)\big)\sqrt{\lambda_0}$, which is
+Eq.~\eqref{eq:depthfloor}. Independently, the clone is \emph{present} at all only if its count
+$\mathrm{Poisson}(Dw_e)$ is nonzero, an event of probability $1-e^{-Dw_e}$ \cite{Good1953}.
+\end{proof}
+
+Antigen clusters are rare in \emph{absolute} number, so subsampling by $s$ inflates the detection floor by
+$1/s$ and drops sparse ridges below it --- and at reduced depth low-$w_e$ clusters are often not sampled at
+all. Hence the full repertoire must be processed; save memory with junction-only embedding or a {\scshape
+PCA}-fit cap, never by subsampling. Because $w_e$ is heavy-tailed (Remark~\ref{rem:ridges}), the boundary
+$Dw_e=c$ is crossed at a different depth for every epitope --- one more reason significance is local, never a
+global height.
+
+\subsection{Ridge delineation and per-ridge tests}\label{sec:dens-ridge}
+
+The antigen-specific groups are the high components of $E$: its \emph{density ridges}
+\cite{Genovese2014} and upper-level-set components \cite{ChaudhuriDasgupta2010,Rinaldo2010}.
+
+\begin{proposition}[Ridge extraction as level-set estimation]\label{prop:ridge}
+The connected components of $\{z:E(z)>\tau\}$ form the density cluster tree; distinct epitope motifs are
+distinct components appearing at different levels, so no single global $\tau$ certifies all of them, but each
+is certified locally. The {\scshape FDR}-significant hit set $\{q<\alpha,\ \mathrm{fold}>1\}$ estimates one
+level set, and {\scshape DBSCAN} with $\varepsilon=r_1$, $\mathrm{minPts}\in\{2,3\}$ links its points into
+motifs --- its core-point rule is itself a superlevel-set threshold \cite{Ester1996,Rinaldo2010}, so
+clustering and the Poisson test stay mutually consistent; $\varepsilon\gg r_1$ over-merges, the same regime
+where the continuous--discrete concordance collapses.
+\end{proposition}
+
+Each motif is then labelled: a two-sample Poisson test versus a matched control for a condition, and, for an
+epitope, the binomial test of \cite{PogorelyyShugay2019} --- successes $=$ receptors in the ridge matching the
+epitope, trials $=$ ridge size, probability $=$ the repertoire-wide annotation rate --- with
+Benjamini--Hochberg across ridges. Because each ridge is judged against its own local background, the height
+heterogeneity of Remark~\ref{rem:ridges} is handled automatically; background subtraction removes the smooth
+selection field and the surviving convergent groups are the antigen-specific clusters.
+
+\subsection{Clonal abundance: scoring with clone sizes, robustly}\label{sec:dens-abund}
+
+The tests so far count \emph{distinct} clonotypes, discarding each clone's read count $a_j$. This is
+deliberate --- read counts are heavy-tailed (roughly Zipf or log-normal), so a single hyperexpanded clone
+would dominate a raw read-weighted count --- but it throws away real signal. Two independent signatures mark
+an antigen-driven response: \emph{breadth}, a group of similar sequences produced by convergent
+diversification (measured by the neighbour count $n_{\mathrm{obs}}$), and \emph{depth}, a clonotype present at
+high copy number through clonal expansion (measured by $a_j$). A textbook antigen-specific cluster shows both,
+but the corners matter: a convergent cluster of singletons has breadth without depth, and a hyperexpanded
+\emph{orphan} --- large $a_j$, few or no neighbours, the case \cite{PogorelyyShugay2019} recommends inspecting
+individually --- has depth without breadth. A complete detector reads both channels, and uses size to boost
+the score without letting its tail rule the outcome.
+
+\paragraph{A variance-stabilised weighted count} Replace the in-ball count by a weighted mass
+\begin{equation}\label{eq:weighted}
+  S(z)=\sum_{j\in B(z,r)} g(a_j),
+\end{equation}
+with $g$ non-decreasing and \emph{concave} --- for instance $g(a)=\log(1+a)$ or the Anscombe root
+$g(a)=\sqrt{a+\tfrac38}$. Concavity is precisely robustness: the leverage of clone $j$ on $S$ is the marginal
+$g'(a_j)$, which \emph{decreases} with size, so a size-$1000$ clone amid size-$1$ neighbours contributes a
+bounded increment, not a thousandfold one. The endpoints are the read count $g(a)=a$ (constant leverage,
+Zipf-dominated) and the shipped distinct count $g(a)=1$ (zero leverage, no size information); $g$ is a tunable
+sensitivity--robustness dial between them.
+
+\begin{proposition}[Compound-Poisson null for the weighted count]\label{prop:abund}
+Under $H_0$ the in-ball clones are a $\mathrm{Poisson}(\lambda_0)$-sized sample with independent abundances
+$A\sim\nu$ (the null size law), so
+\begin{equation}\label{eq:abundmoments}
+  \E[S\mid H_0]=\lambda_0\,\E_\nu[g(A)],\qquad
+  \mathrm{Var}[S\mid H_0]=\lambda_0\,\E_\nu[g(A)^2],
+\end{equation}
+with dispersion index $\mathrm{Var}/\E=\E_\nu[g(A)^2]/\E_\nu[g(A)]$, equal to $1$ for $g\equiv1$ (a Poisson
+null) and $\gg1$ for $g(a)=a$ under a heavy-tailed $\nu$. A negative-binomial (Gamma--Poisson) tail matched to
+these two moments gives a calibrated one-sided $p$-value; a variance-stabilising $g$ keeps the null close to
+Poisson, so the exact test of \S\ref{sec:dens-poisson} still applies.
+\end{proposition}
+\begin{proof}
+Write $S=\sum_{i=1}^{K}g(A_i)$ with $K\sim\mathrm{Poisson}(\lambda_0)$ and $A_i\sim\nu$ i.i.d.\ and
+independent of $K$. Wald's identity gives $\E[S]=\E[K]\,\E[g(A)]$, and the law of total variance gives
+$\mathrm{Var}[S]=\E[K]\,\mathrm{Var}[g(A)]+\mathrm{Var}[K]\,\E[g(A)]^2
+=\lambda_0\big(\mathrm{Var}[g(A)]+\E[g(A)]^2\big)=\lambda_0\,\E[g(A)^2]$, using
+$\E[K]=\mathrm{Var}[K]=\lambda_0$. The dispersion index follows, and for $g\equiv1$ it is $1$, recovering the
+$\mathrm{Poisson}(\lambda_0)$ null of Proposition~\ref{prop:balloon}.
+\end{proof}
+
+\paragraph{The orphan channel} A hyperexpanded clone with few neighbours is invisible to $S$ yet significant
+on its own. Under neutral sampling at depth $D$ its size is $\mathrm{Poisson}(Df_j)$ with $f_j$ its frequency,
+so its abundance $p$-value against the null size law,
+\begin{equation}\label{eq:orphan}
+  p^{\mathrm{size}}_j=\Pr_{A\sim\nu}[A\ge a_j],
+\end{equation}
+tests expansion independently of any neighbourhood. Combining the breadth and depth channels by Fisher's rule,
+$-2\big(\log p^{\mathrm{nbr}}_j+\log p^{\mathrm{size}}_j\big)\sim\chi^2_4$ under the (approximately
+independent) null, recovers the orphan when $p^{\mathrm{nbr}}\!\approx\!1$ but $p^{\mathrm{size}}$ is small,
+and multiplicatively sharpens a cluster that is both convergent and expanded.
+
+\begin{remark}[Rarefaction sets the size law]\label{rem:rarefaction}
+The null size law $\nu$ and the breadth/depth balance are read from the frequency-of-frequencies spectrum ---
+the counts $f_1,f_2,\dots$ of singletons, doubletons, and larger clones \cite{Good1953}. The Good--Turing mass
+on unseen clones is $\approx f_1/D$, and the singleton fraction is a saturation gauge: a repertoire heavy in
+singletons is undersampled, so breadth carries the signal, whereas a saturated repertoire lets depth
+dominate. Singletons and doubletons are the convergence substrate; the $3{+}$ and hyperexpanded classes are
+where the weight $g$ and the orphan test earn their keep.
+\end{remark}
+
+This abundance layer leaves the geometry untouched: $S$ replaces $n_{\mathrm{obs}}$ in the same balloon, the
+same recentring (\S\ref{sec:dens-null}) and {\scshape FDR} apply, and the orphan test is a per-clonotype
+side-channel. Clone sizes then boost the score exactly where expansion co-occurs with convergence, while the
+concavity of $g$ keeps the Zipf tail from ruling the result. The shipped \code{mir/density.py} uses
+$g\equiv1$; the weighted and orphan channels are the abundance-aware extension.
+
+\subsection{Course of action}\label{sec:dens-algo}
+
+The theory fixes every parameter, giving a graph-free reincarnation of {\scshape TCRNET}/{\scshape ALICE}
+(\code{mir/density.py}):
+\begin{enumerate}\itemsep2pt
+\item \textbf{Background.} With a matched control, use it and the binomial test
+  (Prop.~\ref{prop:diffcancel}); otherwise generate $M\ge5N$ samples from $\Pgen$ and use the Poisson test.
+  Prefer a control whenever one exists.
+\item \textbf{One basis.} Embed both clouds through one prototype set and one {\scshape PCA} rotation
+  (Lemma~\ref{lem:lsif}); $E(z)$ is meaningless across mismatched bases.
+\item \textbf{Adaptive ball.} Per observed $z$, radius $=$ distance to the $k$-th background neighbour,
+  $k=\mathrm{round}(\lambda_0 M/N)$, $\lambda_0=3$ (Prop.~\ref{prop:balloon},~\ref{prop:mindetect}); count
+  $n_{\mathrm{obs}},n_{\mathrm{bg}}$; form $\mu_0$ by \eqref{eq:mu0}.
+\item \textbf{Recentre} the $\Pgen$ null by \eqref{eq:waterlevel} (Prop.~\ref{prop:empnull}); a differential
+  control needs none.
+\item \textbf{Test} the exact upper tail (Poisson or binomial), Benjamini--Hochberg $q<0.05$,
+  $\mathrm{fold}>1$; the detection floor is $E^\ast\approx1+c(q)/\sqrt{\lambda_0}$.
+\item \textbf{(Optional) clone sizes.} Swap $n_{\mathrm{obs}}$ for the variance-stabilised weighted count
+  $S(z)=\sum g(a_j)$ and add the per-clonotype orphan test (\S\ref{sec:dens-abund},
+  Prop.~\ref{prop:abund}) to score expansion alongside convergence.
+\item \textbf{Cluster} hits by {\scshape DBSCAN}, $\varepsilon=r_1$ (Prop.~\ref{prop:ridge}), and test each
+  motif for label enrichment. Process the full repertoire (Prop.~\ref{prop:depth}).
+\end{enumerate}
+Every default traces to a theorem rather than to tuning; the same estimand $E=f_{\mathrm{obs}}/f_{\mathrm{gen}}$
+underlies the graph tests it replaces, the neural classifier of Part~2, and the smooth relative-ratio field.
 
 \section{Privacy: the embedding as a keyed, lossy representation}\label{sec:privacy}
 
@@ -588,11 +1077,18 @@ $(\varepsilon,\delta)$-differential privacy, and by Prop.~\ref{prop:lipschitz} t
 pairwise embedding distance $D_{ij}$ is $O(\sigma\sqrt m)$ --- a privacy/utility trade-off governed entirely
 by the sensitivity constant $\sqrt K\,d_{\max}$.
 \end{proposition}
-\begin{proof}[Sketch]
-The bounded $\ell^2$ sensitivity of $\varphi$ composed with the linear map $W$ gives Gaussian-mechanism
-sensitivity $\sqrt K\,d_{\max}\norm{W}_2$; the Gaussian mechanism then yields $(\varepsilon,\delta)$-{\scshape
-DP} for $\sigma$ as stated, and the triangle inequality bounds the perturbation of each $D_{ij}$ by the noise
-magnitude $O(\sigma\sqrt m)$. \qed
+\begin{proof}
+Take two repertoires differing in a single record, $x_i$ versus $x_i'$. Only row $i$ of $\varphi(X)$ changes,
+and by the $1$-Lipschitz coordinates of Prop.~\ref{prop:lipschitz},
+$\norm{\varphi(x_i)-\varphi(x_i')}_2\le\sqrt K\,d(x_i,x_i')\le\sqrt K\,d_{\max}$. Composing with $W$, the
+released row moves by $\norm{(\varphi(x_i)-\varphi(x_i'))W}_2\le\sqrt K\,d_{\max}\norm{W}_2=:\Delta_2$, the
+record-level $\ell^2$-sensitivity. The Gaussian mechanism, adding $N\sim\mathcal N(0,\sigma^2 I)$, is a
+standard $(\varepsilon,\delta)$-differentially private release whenever
+$\sigma\ge\Delta_2\sqrt{2\ln(1.25/\delta)}/\varepsilon$, i.e.\ for
+$\sigma\propto\sqrt K\,d_{\max}\norm{W}_2/\varepsilon$. For utility, the perturbed distance
+$\tilde D_{ij}=\norm{(z_i-z_j)+(N_i-N_j)}$ obeys $\lvert\tilde D_{ij}-D_{ij}\rvert\le\norm{N_i-N_j}$ by the
+triangle inequality, and $N_i-N_j\sim\mathcal N(0,2\sigma^2 I_m)$ has $\E\norm{N_i-N_j}^2=2m\sigma^2$, so the
+distortion is $O(\sigma\sqrt m)$.
 \end{proof}
 
 \paragraph{Recommendation} For patient data, treat $(P,W)$ as a managed secret, release only the truncated
@@ -640,9 +1136,12 @@ bound complementary to Prop.~\ref{prop:lipschitz} when prototypes are $\Pgen$-sa
 Bourgain-type \cite{Bourgain1985} guarantee tuned to the recombination measure rather than to the worst
 case. (2) The exact extreme-value index $\xi$ of Prop.~\ref{prop:laws} as a function of the substitution
 matrix and prototype count. (3) A mutation-corrected metric for {\scshape IGH} that makes
-Prop.~\ref{prop:robust} hold under {\scshape SHM} (\S\ref{sec:igh}). (4) Consistency and rates for the
-density-ratio estimator of Prop.~\ref{prop:tcrnet} on the {\scshape PCA}-projected embedding, which would
-put continuous background subtraction on the same footing as the graph tests it replaces.
+Prop.~\ref{prop:robust} hold under {\scshape SHM} (\S\ref{sec:igh}). (4) Consistency and rates for the three
+density-ratio estimators of \S\ref{sec:density} (balloon, relative \cite{Yamada2013}, and classifier-based
+\cite{GutmannHyvarinen2012}) on the {\scshape PCA}-projected embedding, together with a per-epitope detection
+limit in the sense of Prop.~\ref{prop:depth} as a function of precursor frequency and motif generation
+probability, and calibration of the neural classifier's significance --- which would put continuous
+background subtraction on the same footing as the graph tests it replaces.
 
 \bibliographystyle{unsrt}
 \bibliography{refs}
