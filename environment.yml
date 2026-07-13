@@ -1,27 +1,15 @@
-# Conda environment for mirpy development.
+# Conda environment for mirpy v3 development.
 #
-# Lean by design: Python, a C++ toolchain (to build the bundled extensions), and
-# pip. All runtime dependencies are pulled by the editable pip install from
-# pyproject.toml. The region-annotation tooling (arda + mmseqs2) is the optional
-# `[arda]` extra and is NOT installed here — plain embedding/similarity never
-# need it.
+# Minimal: Python + pip only (v3 is a pure-Python package — no C build). All
+# dependencies come from the editable pip install; `setup.sh` also editable-installs
+# the co-developed siblings (../seqtree, ../vdjtools) when present.
 #
 #   conda env create -f environment.yml
 #   conda activate mirpy
-#   pip install -e .                 # or: bash setup.sh
-#
-# Optional extras (run inside the env):
-#   pip install -e ".[sc]"           # scanpy/scirpy/umap for example notebooks
-#   pip install -e ".[arda]"         # region-annotation regeneration (pulls arda)
+#   bash setup.sh              # or: pip install -e ".[dev,bench]"
 name: mirpy
 channels:
   - conda-forge
 dependencies:
   - python=3.12
-  - cxx-compiler
-  - cmake
-  - ninja
   - pip
-  - pip:
-      - scikit-build-core>=0.10
-      - pybind11>=2.12

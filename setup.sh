@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# mirpy bootstrap — source of truth for a reproducible install (conda-based).
+# mirpy v3 bootstrap — reproducible install (conda-based, pure Python, no C build).
 #
 # Steps:
 #   1. Create/update the `mirpy` conda environment from environment.yml.
-#   2. pip install -e . (builds the bundled C++ extensions).
+#   2. pip install -e ../seqtree ../vdjtools (if present) then -e .
 #   3. Optionally install docs deps / run tests.
 #
 # Flags:
 #   --no-conda      Use the already-active environment instead of creating `mirpy`.
-#   --docs          Install docs deps and sync notebook symlinks.
-#   --test          Run the fast test suite (excludes benchmark/integration).
-#   --test-all      Fast + benchmark + integration (excludes very_slow_benchmark).
+#   --docs          Install docs deps.
+#   --test          Install [dev,bench] and run the test suite.
+#   --test-all      Same as --test (no separate benchmark tier in v3 yet).
 #
 # Usage:
 #   bash setup.sh [--no-conda] [--docs] [--test] [--test-all]
@@ -55,16 +55,21 @@ else
   RUN=""
 fi
 
-# --- 2. editable install (builds the C++ extensions) -----------------------
-log "pip install -e . (builds extensions)"
-# CMAKE_POLICY_VERSION_MINIMUM silences CMake 3.27+ policy warnings.
-CMAKE_POLICY_VERSION_MINIMUM=3.5 $RUN python -m pip install -e "$ROOT"
+# --- 2. editable install (pure Python — no C build) ------------------------
+# Co-developed siblings first if present, else PyPI resolves them.
+for parent in seqtree vdjtools; do
+  if [[ -d "$ROOT/../$parent" ]]; then
+    log "pip install -e ../$parent"
+    $RUN python -m pip install -e "$ROOT/../$parent"
+  fi
+done
+log "pip install -e ."
+$RUN python -m pip install -e "$ROOT"
 
 # --- 3. optional docs ------------------------------------------------------
 if [[ "$INSTALL_DOCS" -eq 1 ]]; then
-  log "installing docs deps + syncing notebook symlinks"
+  log "installing docs deps"
   $RUN python -m pip install -e ".[docs]"
-  $RUN python "$ROOT/docs/sync_notebooks.py"
 fi
 
 # --- 4. verification -------------------------------------------------------
@@ -73,17 +78,10 @@ $RUN python -c "import mir; from mir.embedding.tcremp import TCREmp; print('mir 
 
 # --- 5. optional tests -----------------------------------------------------
 if [[ "$RUN_TESTS" -eq 1 ]]; then
-  log "installing test tooling"
-  $RUN python -m pip install "pytest>=8" "huggingface_hub" "psutil>=5"
-  log "preparing test data (Hugging Face)"
-  $RUN python "$ROOT/tests/prepare_airr_benchmark_data.py" || true
-  log "running fast test suite"
-  $RUN python -m pytest "$ROOT/tests" -m "not benchmark and not integration" -q
-  if [[ "$RUN_HEAVY" -eq 1 ]]; then
-    log "running benchmark + integration (excludes very_slow_benchmark)"
-    RUN_BENCHMARKS=1 RUN_INTEGRATION=1 \
-      $RUN python -m pytest "$ROOT/tests" -m "(benchmark or integration) and not very_slow_benchmark" -q
-  fi
+  log "installing test + bench tooling"
+  $RUN python -m pip install -e ".[dev,bench]"
+  log "running test suite"
+  $RUN python -m pytest "$ROOT/tests" -q
 fi
 
 log "done."
