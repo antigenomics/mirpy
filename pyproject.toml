@@ -1,24 +1,18 @@
 [build-system]
-requires = [
-  "setuptools>=68",
-  "scikit-build-core",
-  "pybind11",
-  "numpy",
-  "ninja"
-]
-build-backend = "scikit_build_core.build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "mirpy-lib"
-version = "1.3.1"
+version = "3.0.0"
 authors = [
   { name="ISALGO lab", email="mikhail.shugay@gmail.com"}
 ]
-description = "A library for managing and analyzing immunosequencing data"
+description = "ML-oriented embeddings for immune receptor repertoires (TCR/BCR)"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
-  "Development Status :: 5 - Production/Stable",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Programming Language :: Python :: 3",
@@ -27,51 +21,29 @@ classifiers = [
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent",
 ]
-keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "repertoire", "single-cell", "VDJdb"]
+keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "embedding", "prototypes", "VDJdb"]
 dependencies = [
-  "biopython",
-  "kneed",
-  "matplotlib",
   "numpy",
-  "olga",
-  "pandas",
-  "pyarrow",
   "polars",
-  "python_igraph",
-  "scipy",
-  "seaborn",
   "scikit-learn",
-  "statsmodels",
-  "seqtree>=0.0.3",
+  "seqtree>=0.3.0",
   "tqdm",
-  "adjustText",
 ]
 license = {text = "GPL-3.0 license"}
 
 [project.optional-dependencies]
-sc = [
-  "scanpy",
-  "scirpy",
-  "sc-dandelion",
-  "umap-learn",
-]
-# Build-time only: regenerate region_annotations.txt or annotate a custom gene
-# library. Also requires the `mmseqs2` binary (conda install -c bioconda mmseqs2).
-# Plain embedding/similarity never import arda.
-arda = [
-  "arda>=2.0.2",
-]
-dev = [
-  "pytest>=8",
-  "pytest-cov",
-  "pylint",
-  "huggingface_hub",
-  "psutil>=5",
-  "scanpy",
-  "scirpy",
-  "sc-dandelion",
-  "umap-learn",
-]
+# Runtime Pgen + synthetic sampling (VDJ rearrangement model).
+rearrangement = ["vdjtools"]
+# VDJdb annotation / E-values for the benchmark harness.
+annotate = ["vdjmatch"]
+# Build-time only: regenerate region_annotations.txt / germline distance
+# matrices from a gene library. Dist name is `arda-mapper`, imports as `arda`.
+build = ["arda-mapper>=2.5"]
+# Part 2: neural codecs and density methods.
+ml = ["torch"]
+# Benchmark harness: DBSCAN eps selection + plotting.
+bench = ["kneed", "matplotlib", "seaborn"]
+dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
 docs = [
   "sphinx>=7.2,<9",
   "pydata-sphinx-theme>=0.15,<1",
@@ -85,26 +57,21 @@ Homepage      = "https://github.com/antigenomics/mirpy"
 Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
 
-[project.scripts]
-mirpy = "mir._cli:main"
-mirpy-control-setup = "mir.common.control:control_setup_cli"
+[tool.hatch.build.targets.wheel]
+packages = ["mir"]
 
-[tool.scikit-build]
-wheel.packages = ["mir"]
-sdist.exclude = [
+[tool.hatch.build.targets.sdist]
+exclude = [
   ".github/**",
   ".idea/**",
-  ".tmp/**",
   ".vscode/**",
   "docs/_build/**",
-  "mir/docs/_build/**",
   "notebooks/**",
-  "public/**",
-  "test/**",
+  "benchmarks/**",
   "tests/**",
-  "wheeltest/**",
+  "tmp/**",
+  "*.log",
 ]
-logging.level = "INFO"
 
 [tool.pytest.ini_options]
 markers = [
@@ -123,8 +90,6 @@ omit = [
   "mir/resources/gene_library/build_gene_library.py",
   "mir/resources/gene_library/build_region_annotations.py",
   "mir/resources/prototypes/generate_prototypes.py",
-  # build-time only: needs the optional `arda` extra + the mmseqs2 binary
-  "mir/common/region_annotation.py",
   "*/__init__.py",
 ]
 
