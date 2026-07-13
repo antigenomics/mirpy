@@ -99,7 +99,7 @@ def _(fit_distributions, np, plt, res, stats):
 @app.cell
 def _(cdr3, generate, load_bundled, load_prototypes, mo, prototype_source_correlation):
     _N = len(cdr3)
-    _model_p = generate.generate(load_bundled("TRB", source="olga"), 2 * _N, seed=42,
+    _model_p = generate.generate(load_bundled("TRB", source="learned"), 2 * _N, seed=42,
                                  productive_only=True)["junction_aa"] \
         .unique(maintain_order=True).to_list()[:_N]
     _query = load_prototypes("human", "TRB", n=_N + 800)["junction_aa"].to_list()[_N:_N + 600]
@@ -107,7 +107,7 @@ def _(cdr3, generate, load_bundled, load_prototypes, mo, prototype_source_correl
     mo.md(
         f"""
         ### S3 — prototype source robustness
-        Embedding distances from **real** (Britanova-like) vs **model** (OLGA/Murugan) prototypes
+        Embedding distances from **real** (Britanova-like) vs **model** (vdjtools P_gen) prototypes
         over {len(_query)} query TCRs:
 
         **Pearson$(D_{{real}}, D_{{model}})$ = {_s3['pearson']:.3f}**  (paper 0.96) —

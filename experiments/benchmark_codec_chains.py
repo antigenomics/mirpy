@@ -26,7 +26,7 @@ def _pgen_r(species, locus, seqs, v, j, epochs):
         return None
     try:
         from vdjtools.model import load_bundled, native
-        model = load_bundled(locus, source="olga")
+        model = load_bundled(locus, source="learned")
         pgen = np.asarray(native.pgen_aa_batch(model, seqs, v=v, j=j, mismatches=1, threads=0))
         ok = pgen > 0
         if ok.sum() < 500:

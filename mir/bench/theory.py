@@ -182,3 +182,80 @@ def prototype_source_correlation(
     Xm = junction_distance_matrix(query_cdr3s, model_prototypes, threads=threads).astype(np.float64)
     Dr, Dm = pdist(Xr), pdist(Xm)
     return {"pearson": float(np.corrcoef(Dr, Dm)[0, 1]), "n_pairs": Dr.size}
+
+
+def _hamming1_counts(seqs) -> np.ndarray:
+    """Discrete Hamming-1 neighbour count per sequence (equal-length, exactly one mismatch)."""
+    seqs = list(seqs)
+    out = np.zeros(len(seqs), dtype=np.int64)
+    for i, a in enumerate(seqs):
+        la, c = len(a), 0
+        for j, b in enumerate(seqs):
+            if i == j or len(b) != la:
+                continue
+            m = 0
+            for x, y in zip(a, b):
+                if x != y:
+                    m += 1
+                    if m > 1:
+                        break
+            if m == 1:
+                c += 1
+        out[i] = c
+    return out
+
+
+def tcrnet_convergence(
+    obs_cdr3s, bg_cdr3s, prototypes, *, n_components: int = 25,
+    scales=(0.5, 1.0, 1.5, 2.0, 3.0), seed: int = 0, threads: int = 0
+) -> dict:
+    """T6: continuous embedding enrichment converges to discrete Hamming-1 enrichment.
+
+    Embeds observed and background CDR3s against the prototype set (junction only), reduces
+    with one shared ``StandardScaler → PCA``, and at radius ``scale × r₁`` (``r₁`` = the
+    median one-substitution embedding drift) counts each observed clonotype's neighbours in
+    embedding space. Returns the Spearman correlation between those continuous counts and the
+    discrete Hamming-1 neighbour counts. The correlation is high at small radii and fades as
+    the radius grows past one substitution — numerically confirming that graph
+    neighbour-enrichment (TCRNET/ALICE) is the ``r→0`` limit of the density ratio ``E(z)``.
+
+    Args:
+        obs_cdr3s: Observed junction sequences.
+        bg_cdr3s: Background junction sequences (P_gen sample / control).
+        prototypes: Prototype junctions defining the embedding.
+        n_components: PCA dimensionality of the shared coordinate system.
+        scales: Radius multiples of the one-substitution scale ``r₁`` to evaluate.
+        seed: RNG seed for the calibration mutations and PCA solver.
+
+    Returns:
+        ``{radius_1sub, hamming1_mean, spearman_by_scale, spearman_at_1sub}``.
+    """
+    from sklearn.decomposition import PCA
+    from sklearn.neighbors import BallTree
+    from sklearn.preprocessing import StandardScaler
+
+    obs = junction_distance_matrix(obs_cdr3s, prototypes, threads=threads).astype(np.float64)
+    bg = junction_distance_matrix(bg_cdr3s, prototypes, threads=threads).astype(np.float64)
+    scaler = StandardScaler().fit(np.vstack([obs, bg]))
+    k = min(n_components, obs.shape[0] + bg.shape[0], obs.shape[1])
+    pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(np.vstack([obs, bg])))
+    obs_emb = pca.transform(scaler.transform(obs))
+
+    rng = np.random.default_rng(seed)
+    mut = [_mutate(s, 1, rng) for s in obs_cdr3s]
+    mut_emb = pca.transform(scaler.transform(
+        junction_distance_matrix(mut, prototypes, threads=threads).astype(np.float64)))
+    r1 = float(np.median(np.linalg.norm(obs_emb - mut_emb, axis=1)))
+
+    discrete = _hamming1_counts(obs_cdr3s)
+    tree = BallTree(obs_emb)
+    corr = {}
+    for f in scales:
+        n_obs = tree.query_radius(obs_emb, r1 * f, count_only=True) - 1
+        corr[round(float(f), 2)] = float(stats.spearmanr(n_obs, discrete).statistic)
+    return {
+        "radius_1sub": r1,
+        "hamming1_mean": float(discrete.mean()),
+        "spearman_by_scale": corr,
+        "spearman_at_1sub": corr[1.0],
+    }

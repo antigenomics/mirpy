@@ -22,7 +22,7 @@ def main(locus: str = "TRB", n: int = 10000, epochs: int = 25) -> None:
     from vdjtools.model import load_bundled, native
     from vdjtools.model.generate import generate
 
-    model = load_bundled(locus, source="olga")
+    model = load_bundled(locus, source="learned")
     gen = generate(model, 3 * n, seed=1, productive_only=True).unique(
         subset=["junction_aa", "v_call", "j_call"], maintain_order=True)
     gen = gen.filter((gen["junction_aa"].str.len_chars() >= 6)

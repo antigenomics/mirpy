@@ -26,6 +26,7 @@ dependencies = [
   "numpy",
   "polars",
   "scikit-learn",
+  "scipy",          # density-ratio enrichment tests (mir.density) + theory fits
   "seqtree>=0.3.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
@@ -42,8 +43,8 @@ annotate = ["vdjmatch"]
 build = ["arda-mapper>=2.5", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
-# Benchmark harness: DBSCAN eps selection + plotting.
-bench = ["kneed", "matplotlib", "seaborn"]
+# Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch.
+bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
