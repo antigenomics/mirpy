@@ -15,7 +15,10 @@ for K prototypes; the output matrix is ``(n_clonotypes, 3*K)`` ``float32``.
 
 Junction (CDR3) distances are computed with :func:`seqtree.gapblock.score_matrix`
 (best of contiguous gap-block placements at ``(3, 4, -4, -3)``, BLOSUM62 Gram
-penalty — a genuine metric, ``d(a,a)=0``). V/J and CDR1/CDR2 distances are looked up
+penalty). The result ``d`` is a *negative-type semimetric* — a squared Hilbert
+distance ``d = ‖ψ(a)−ψ(b)‖²`` (symmetric, ``d(a,a)=0``, non-negative) — not itself a
+metric; the induced genuine metric is ``ρ = √d`` (see ``mir/distances/junction.py``).
+V/J and CDR1/CDR2 distances are looked up
 from baked matrices (:class:`mir.distances.germline.GermlineDistances`). Input is a
 polars DataFrame with the ``vdjtools.io.schema`` columns ``v_call``, ``j_call``,
 ``junction_aa``.

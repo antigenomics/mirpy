@@ -62,8 +62,9 @@
 distances to a fixed set of \emph{prototype} receptors sampled from the V(D)J recombination model
 \cite{Murugan2012,Sethna2019}. This appendix gives the mathematics behind that construction. We first
 develop the general theory of \emph{prototype} (landmark) embeddings of a metric space --- their
-Lipschitz and isometry properties, the negative-type condition under which the alignment dissimilarity
-is an honest squared Hilbert distance \cite{Schoenberg1938}, the energy functional that makes
+H\"older/Lipschitz-continuity and isometry properties, the negative-type condition that makes the
+alignment dissimilarity an honest squared Hilbert distance \cite{Schoenberg1938} with metric $\rho=\sqrt d$,
+the energy functional that makes
 embedding-space Euclidean distance track pairwise alignment distance, and a landmark sample-complexity
 bound (\S\ref{sec:foundations}--\S\ref{sec:metric}). We then specialise to immune receptors: taking the
 prototype measure to be the generation distribution $\Pgen$ turns each coordinate into a Monte-Carlo
@@ -79,9 +80,13 @@ reproduced in-repo (\S\ref{sec:insights}, Table~\ref{tab:reproduced}) by \code{m
 
 \section{Foundations of prototype embeddings}\label{sec:foundations}
 
-\paragraph{Setup} Let $(X,d)$ be a (semi)metric space of receptor sequences: $d$ is symmetric,
-$d(x,x)=0$, and --- as we verify for the alignment dissimilarity in \S\ref{sec:metric} ---
-non-negative. Fix an ordered set of \emph{prototypes} $P=\{p_1,\dots,p_K\}\subset X$. The
+\paragraph{Setup} Let $X$ be a space of receptor sequences carrying a symmetric dissimilarity $d$ with
+$d(x,x)=0$ and $d\ge0$ (verified for the alignment dissimilarity in \S\ref{sec:metric}). Crucially $d$ is
+a \emph{negative-type semimetric}: it is the squared distance $d=\norm{\psi(\cdot)-\psi(\cdot)}^2$ of a
+Hilbert feature map $\psi$ (\S\ref{sec:metric}), so it does \emph{not} obey the triangle inequality and is
+\emph{not} a metric. The induced genuine metric is $\rho\coloneqq\sqrt d$ (Schoenberg,
+Prop.~\ref{prop:schoenberg}); write $\mathrm{diam}\coloneqq\sup_{a,b\in X}\rho(a,b)=\sup_{a,b}\sqrt{d(a,b)}$
+for its (finite) diameter. Fix an ordered set of \emph{prototypes} $P=\{p_1,\dots,p_K\}\subset X$. The
 \textbf{prototype embedding} is the landmark map
 \begin{equation}\label{eq:embedding}
   \varphi : X \to \R^{K}, \qquad \varphi(x) = \bigl(d(x,p_1),\,d(x,p_2),\,\dots,\,d(x,p_K)\bigr),
@@ -101,44 +106,63 @@ foundational results below hold for any $(X,d,P)$.
   \label{fig:schematic}
 \end{figure}
 
-\paragraph{Non-expansiveness} The single structural fact from which everything else follows is that each
-coordinate of $\varphi$ is $1$-Lipschitz.
+\paragraph{Continuity of the coordinates} The single structural fact from which everything else follows is
+a modulus of continuity for each coordinate of $\varphi$. Because the shipped coordinates
+$\varphi(x)_k=d(x,p_k)$ are \emph{squared} distances, they are not $1$-Lipschitz in $d$; they are
+H\"older-$\tfrac12$ in $d$ --- equivalently Lipschitz in the induced metric $\rho=\sqrt d$.
 
-\begin{proposition}[Lipschitz coordinates and the upper bound]\label{prop:lipschitz}
-For every prototype $p$ and all $x,y\in X$, $\lvert d(x,p)-d(y,p)\rvert \le d(x,y)$. Consequently
+\begin{proposition}[H\"older coordinates and the upper bound]\label{prop:lipschitz}
+For every prototype $p$ and all $x,y\in X$,
+\begin{equation}\label{eq:holder}
+  \lvert d(x,p)-d(y,p)\rvert \;\le\; 2\,\mathrm{diam}\,\sqrt{d(x,y)},
+\end{equation}
+i.e.\ the coordinates are H\"older-$\tfrac12$ in $d$ with constant $2\,\mathrm{diam}$ --- equivalently
+$1$-Lipschitz in the induced metric $\rho=\sqrt d$, $\lvert\rho(x,p)-\rho(y,p)\rvert\le\rho(x,y)$.
+Consequently
 \begin{equation}\label{eq:upper}
-  \norm{\varphi(x)-\varphi(y)}_\infty \;\le\; d(x,y)
+  \norm{\varphi(x)-\varphi(y)}_\infty \;\le\; 2\,\mathrm{diam}\,\sqrt{d(x,y)}
   \qquad\text{and}\qquad
-  D(x,y)=\norm{\varphi(x)-\varphi(y)}_2 \;\le\; \sqrt{K}\,d(x,y).
+  D(x,y)=\norm{\varphi(x)-\varphi(y)}_2 \;\le\; 2\,\mathrm{diam}\,\sqrt{K\,d(x,y)}
+  = 2\,\mathrm{diam}\,\sqrt{K}\,\rho(x,y).
 \end{equation}
 \end{proposition}
 \begin{proof}
-The triangle inequality gives $d(x,p)\le d(x,y)+d(y,p)$ and $d(y,p)\le d(x,y)+d(x,p)$, so
-$\lvert d(x,p)-d(y,p)\rvert\le d(x,y)$. Taking the maximum over $p\in P$ gives the $\ell^\infty$ bound;
-summing the squares of $K$ terms each $\le d(x,y)^2$ and taking the root gives the $\ell^2$ bound.
+Because $\rho=\sqrt d$ is a genuine metric (Prop.~\ref{prop:schoenberg}), the reverse triangle inequality
+gives $\lvert\rho(x,p)-\rho(y,p)\rvert\le\rho(x,y)$. Factoring the difference of squares,
+$\lvert d(x,p)-d(y,p)\rvert=\lvert\rho(x,p)-\rho(y,p)\rvert\,\bigl(\rho(x,p)+\rho(y,p)\bigr)
+\le\rho(x,y)\cdot 2\,\mathrm{diam}=2\,\mathrm{diam}\sqrt{d(x,y)}$, since $\rho(x,p),\rho(y,p)\le\mathrm{diam}$.
+Taking the maximum over $p\in P$ gives the $\ell^\infty$ bound; summing $K$ squares each
+$\le(2\,\mathrm{diam})^2 d(x,y)$ and taking the root gives the $\ell^2$ bound.
 \end{proof}
 
 Proposition~\ref{prop:lipschitz} is the rigorous half of the headline ``embedding distance $\lesssim$
-alignment distance'' claim: no pair is ever \emph{farther} apart in embedding space (up to $\sqrt K$)
-than its alignment distance. The reverse --- that close-in-embedding implies close-in-alignment --- is
-not automatic and is where the prototypes must do work.
+alignment distance'' claim: no pair is ever \emph{farther} apart in embedding space than
+$2\,\mathrm{diam}\sqrt K$ times the metric $\rho(x,y)=\sqrt{d(x,y)}$ --- the coordinate map is Lipschitz
+in $\rho$, H\"older-$\tfrac12$ in $d$. The reverse --- that close-in-embedding implies close-in-alignment
+--- is not automatic and is where the prototypes must do work.
 
 \paragraph{Exactness in the limit} With enough prototypes the $\ell^\infty$ bound is tight.
 
 \begin{proposition}[Kuratowski isometry]\label{prop:kuratowski}
-If $P=X$ then $\norm{\varphi(x)-\varphi(y)}_\infty = d(x,y)$ for all $x,y$; that is, $\varphi$ is an
-isometric embedding of $(X,d)$ into $(\ell^\infty,\norm{\cdot}_\infty)$.
+Take $P=X$. The \emph{metric} coordinates $x\mapsto(\rho(x,p))_{p}$ embed $(X,\rho)$ isometrically into
+$(\ell^\infty,\norm{\cdot}_\infty)$: $\sup_p\lvert\rho(x,p)-\rho(y,p)\rvert=\rho(x,y)$. For the shipped
+\emph{squared} coordinates $\varphi(x)=(d(x,p))_p$ this is not an isometry, but the pairwise dissimilarity
+is still recovered exactly --- at $p\in\{x,y\}$, $\lvert d(x,p)-d(y,p)\rvert=d(x,y)$ --- so
+$d(x,y)\le\norm{\varphi(x)-\varphi(y)}_\infty\le 2\,\mathrm{diam}\sqrt{d(x,y)}$.
 \end{proposition}
 \begin{proof}
-The upper bound is Prop.~\ref{prop:lipschitz}. For the lower bound take the prototype $p=y$: then
-$\lvert d(x,y)-d(y,y)\rvert = d(x,y)$, so the supremum over prototypes is at least $d(x,y)$.
+For the metric coordinates, the upper bound $\sup_p\lvert\rho(x,p)-\rho(y,p)\rvert\le\rho(x,y)$ is the
+reverse triangle inequality (Prop.~\ref{prop:lipschitz}), and $p=y$ attains it: $\lvert\rho(x,y)-0\rvert
+=\rho(x,y)$. For the squared coordinates, $p=y$ gives $\lvert d(x,y)-d(y,y)\rvert=d(x,y)$ (lower bound) and
+the upper bound is Prop.~\ref{prop:lipschitz}.
 \end{proof}
 
-The construction of Eq.~\eqref{eq:embedding} is thus the Kuratowski/Fr\'echet embedding, and the
-supplementary experiments that use the sequences themselves as prototypes (\S S1--S2 of
-\cite{Kremlyakova2025}) are exactly this isometric regime, read out in $\ell^2$ rather than $\ell^\infty$.
-Passing from $\ell^\infty$ to $\ell^2$ costs the $\sqrt K$ factor of Eq.~\eqref{eq:upper} but makes the
-coordinates amenable to {\scshape PCA} and Euclidean clustering.
+The construction of Eq.~\eqref{eq:embedding} is thus a Kuratowski/Fr\'echet embedding --- isometric in the
+induced metric $\rho$. The supplementary experiments that use the sequences themselves as prototypes
+(\S S1--S2 of \cite{Kremlyakova2025}) are exactly this regime: each pairwise $d(x,y)$ appears verbatim as
+the $x$- and $y$-prototype coordinates, read out in $\ell^2$ rather than $\ell^\infty$. Passing from
+$\ell^\infty$ to $\ell^2$ costs the $\sqrt K$ factor of Eq.~\eqref{eq:upper} but makes the coordinates
+amenable to {\scshape PCA} and Euclidean clustering.
 
 \paragraph{Why $\ell^2$ distance tracks alignment distance} Fix a prototype-sampling measure $\mu$ on
 $X$ (in {\scshape TCREMP}, $\mu=\Pgen$) and draw $p_1,\dots,p_K$ i.i.d.\ from $\mu$.
@@ -146,20 +170,21 @@ $X$ (in {\scshape TCREMP}, $\mu=\Pgen$) and draw $p_1,\dots,p_K$ i.i.d.\ from $\
 \begin{proposition}[Energy functional]\label{prop:energy}
 Define the $\mu$-energy dissimilarity
 $\bar D_\mu^2(x,y) \coloneqq \E_{p\sim\mu}\!\bigl[(d(x,p)-d(y,p))^2\bigr]$. Then
-$\tfrac1K D(x,y)^2 \to \bar D_\mu^2(x,y)$ almost surely as $K\to\infty$, and $\bar D_\mu^2$ is a
-$\mu$-dependent (semi)metric with $0\le\bar D_\mu^2(x,y)\le d(x,y)^2$.
+$\tfrac1K D(x,y)^2 \to \bar D_\mu^2(x,y)$ almost surely as $K\to\infty$, and $\bar D_\mu$ is a
+$\mu$-dependent semimetric with $0\le\bar D_\mu^2(x,y)\le (2\,\mathrm{diam})^2 d(x,y)=4\,\mathrm{diam}^2 d(x,y)$.
 \end{proposition}
 \begin{proof}
 $\tfrac1K D^2 = \tfrac1K\sum_k (d(x,p_k)-d(y,p_k))^2$ is an empirical mean of i.i.d.\ terms bounded by
-$d(x,y)^2$ (Prop.~\ref{prop:lipschitz}); the strong law gives the limit and the bound, and symmetry
-plus the triangle inequality for $\norm{\cdot}_2$ make $\bar D_\mu$ a semimetric.
+$(2\,\mathrm{diam})^2 d(x,y)$ (Prop.~\ref{prop:lipschitz}); the strong law gives the limit and the bound,
+and symmetry plus the triangle inequality for $\norm{\cdot}_2$ make $\bar D_\mu$ a semimetric. The limit
+$\bar D_\mu^2$ is unchanged from the na\"ive normalisation; only the constant in the range differs.
 \end{proof}
 
 Proposition~\ref{prop:energy} says $D$ estimates a fixed monotone-in-$d$ functional $\bar D_\mu$: two
 receptors that are close under $d$ have similar distance profiles to the whole of $\mu$ and hence small
 $\bar D_\mu$, while dissimilar receptors have systematically different profiles. This is the mechanism
 behind supplementary Fig.~S2 --- the empirical Pearson correlation between $D_{ij}$ and $d_{ij}$
-(Fig.~\ref{fig:s2}, $R=0.64$ under Smith--Waterman, $0.49$ under the \code{gapblock} metric of
+(Fig.~\ref{fig:s2}, $R=0.64$ under Smith--Waterman, $0.49$ under the \code{gapblock} dissimilarity of
 \S\ref{sec:metric}) --- and behind S2c/d, where $D_{ik}$ concordates with means of $d_{ik}$ over the
 prototype set: those means are Monte-Carlo estimates of $\bar D_\mu$.
 
@@ -168,7 +193,7 @@ prototype set: those means are Monte-Carlo estimates of $\bar D_\mu$.
   \includegraphics[width=\linewidth]{fig_s2_correlation.pdf}
   \caption{Embedding-space Euclidean distance $D_{ij}$ against pairwise dissimilarity $d_{ij}$ for
   $n=2500$ CDR3$\beta$ used as their own prototypes (Prop.~\ref{prop:energy}; reproduces suppl.\ S2).
-  Left: Smith--Waterman $d$; right: the \code{gapblock} metric shipped in v3. Generated by
+  Left: Smith--Waterman $d$; right: the \code{gapblock} dissimilarity shipped in v3. Generated by
   \code{mir/bench/theory.py::s2\_dissimilarity\_distance\_correlation}.}
   \label{fig:s2}
 \end{figure}
@@ -181,19 +206,23 @@ $O(K^{-1/2})$ by Prop.~\ref{prop:energy}, so a Johnson--Lindenstrauss-style argu
 \begin{proposition}[Landmark sample complexity]\label{prop:samplecomplexity}
 Let $S\subset X$ with $\lvert S\rvert=n$. For $K = O(\varepsilon^{-2}\log n)$ i.i.d.\ prototypes, with
 high probability every pair $x,y\in S$ satisfies
-$\bigl\lvert \tfrac1K D(x,y)^2 - \bar D_\mu^2(x,y)\bigr\rvert \le \varepsilon\,d(x,y)^2$ simultaneously.
+$\bigl\lvert \tfrac1K D(x,y)^2 - \bar D_\mu^2(x,y)\bigr\rvert \le \varepsilon\,(2\,\mathrm{diam})^2 d(x,y)$
+simultaneously.
 \end{proposition}
 \begin{proof}
-Fix a pair $x,y\in S$. Prototype $p_k\sim\mu$ contributes $Y_k=(d(x,p_k)-d(y,p_k))^2$, and the reverse
-triangle inequality gives $0\le Y_k\le d(x,y)^2$, so the $Y_k$ are i.i.d.\ and confined to an interval of
-length $d(x,y)^2$ with mean $\E_\mu[Y]=\bar D_\mu^2(x,y)$ (Prop.~\ref{prop:energy}). Their average is
-$\tfrac1K\sum_k Y_k=\tfrac1K D(x,y)^2$, so Hoeffding's inequality yields
-$\Pr\!\big[\lvert\tfrac1K D(x,y)^2-\bar D_\mu^2(x,y)\rvert>\varepsilon\,d(x,y)^2\big]\le2\exp(-2K\varepsilon^2)$.
+Fix a pair $x,y\in S$. Prototype $p_k\sim\mu$ contributes $Y_k=(d(x,p_k)-d(y,p_k))^2$, and the H\"older
+bound of Prop.~\ref{prop:lipschitz} gives $0\le Y_k\le(2\,\mathrm{diam})^2 d(x,y)$, so the $Y_k$ are i.i.d.\
+and confined to an interval of length $R\coloneqq(2\,\mathrm{diam})^2 d(x,y)$ with mean
+$\E_\mu[Y]=\bar D_\mu^2(x,y)$ (Prop.~\ref{prop:energy}). Their average is $\tfrac1K\sum_k Y_k=\tfrac1K D(x,y)^2$,
+so Hoeffding's inequality yields
+$\Pr\!\big[\lvert\tfrac1K D(x,y)^2-\bar D_\mu^2(x,y)\rvert>\varepsilon R\big]\le2\exp(-2K\varepsilon^2)$.
 A union bound over the $\binom n2<n^2$ pairs caps the total failure probability at $2n^2\exp(-2K\varepsilon^2)$,
-which tends to $0$ as soon as $K\ge C\varepsilon^{-2}\ln n$, i.e.\ $K=\Theta(\varepsilon^{-2}\log n)$.
+which tends to $0$ as soon as $K\ge C\varepsilon^{-2}\ln n$, i.e.\ $K=\Theta(\varepsilon^{-2}\log n)$: the
+H\"older constant enters only the error scale $R$, not the rate.
 \end{proof}
 
-The logarithmic dependence on $n$ is the theoretical counterpart of supplementary Fig.~S4, where the
+The logarithmic dependence on $n$ is the theoretical counterpart of Fig.~S4 of the published supplement
+\cite{Kremlyakova2025}, where the
 {\scshape UMAP} of an antigen-specific set stabilises once $K\gtrsim 100$ prototypes are used: the
 embedding geometry saturates at a prototype count that grows only logarithmically with the data.
 Prototype embeddings are the $\emph{empirical}$ / Nystr\"om feature map of the alignment kernel, and
@@ -201,7 +230,7 @@ Landmark {\scshape MDS} \cite{deSilvaTenenbaum2004,FaloutsosLin1995} and the dis
 \cite{PekalskaDuin2005} are the classical instances; the {\scshape PCA} step of \S\ref{sec:tcr} is
 Landmark {\scshape MDS} on $\varphi$.
 
-\section{The alignment dissimilarity as a metric}\label{sec:metric}
+\section{The alignment dissimilarity: a negative-type semimetric}\label{sec:metric}
 
 \paragraph{The Gram construction} {\scshape TCREMP} scores two sequences by an alignment similarity $s$
 and converts it to a dissimilarity by
@@ -211,9 +240,10 @@ and converts it to a dissimilarity by
 This is exactly the squared distance $\norm{\psi(a)-\psi(b)}^2$ induced by a feature map $\psi$ whenever
 $s$ is an inner product, $s(a,b)=\langle\psi(a),\psi(b)\rangle$. The v3 implementation
 (\code{mir/distances/junction.py}) reads $d$ off directly: \code{seqtree}'s \code{blosum62()} is already
-the Gram transform of Eq.~\eqref{eq:gram}, and \code{gapblock.score\_matrix} returns $d$ as a genuine
-metric (zero diagonal, symmetric, non-negative), selecting the best of contiguous gap-block placements
-at offsets $(3,4,-4,-3)$.
+the Gram transform of Eq.~\eqref{eq:gram}, and \code{gapblock.score\_matrix} returns $d$ (zero diagonal,
+symmetric, non-negative) --- a squared Hilbert distance, hence a \emph{negative-type semimetric} rather
+than a metric; the induced genuine metric is $\rho=\sqrt d$. It selects the best of contiguous gap-block
+placements at offsets $(3,4,-4,-3)$.
 
 \begin{definition}
 A symmetric $d$ with zero diagonal is of \emph{negative type} (equivalently, $-d$ is conditionally
@@ -240,16 +270,28 @@ Schoenberg's theorem \cite{Schoenberg1938}; \cite{NegativeTypeHilbert2023,CNDker
 refinements.
 \end{proof}
 
+\begin{remark}[Which coordinates ship]\label{rem:whichcoords}
+{\scshape TCREMP} embeds with the \emph{squared} dissimilarity, $\varphi(x)_k=d(x,p_k)$, not with the
+metric $\rho(x,p_k)=\sqrt{d(x,p_k)}$. The two induce different geometries; a $\rho$-coordinate variant is
+available (\code{metric="sqrt"} in \code{mir/distances/junction.py}) and was benchmarked, but the squared
+coordinates cluster at least as well on the {\scshape VDJdb} retention/F1 metrics, so v3 ships $d$. The
+price is only theoretical bookkeeping: the coordinate map is then H\"older-$\tfrac12$ in $d$ rather than
+$1$-Lipschitz (Prop.~\ref{prop:lipschitz}), which propagates a constant $2\,\mathrm{diam}$ (the $\rho$-diameter)
+through the geometry results but changes none of their limits or rates.
+\end{remark}
+
 \paragraph{Alignment scores need correction} General pairwise-alignment similarities (Smith--Waterman,
-BLAST) are \emph{not} positive semidefinite, so Eq.~\eqref{eq:gram} can violate $d\ge 0$ or the triangle
-inequality; canonicalising an alignment score into a metric requires an explicit correction
+BLAST) are \emph{not} positive semidefinite, so the centred similarity of Eq.~\eqref{eq:gram} can fail to
+be {\scshape PSD} and $d$ can violate $d\ge 0$ or negative type; canonicalising an alignment score into a
+negative-type dissimilarity (so that $\rho=\sqrt d$ is a genuine metric) requires an explicit correction
 \cite{BlastMetric2025}. In v3 this correction is the non-negativity clamp inside \code{seqtree}'s Gram
 transform --- a projection of the score onto the nearest conditionally-negative-definite cone --- which
-guarantees the metric axioms Prop.~\ref{prop:lipschitz}--\ref{prop:kuratowski} rely on. The choice of
+restores the negative type that Prop.~\ref{prop:schoenberg}, and through it
+Prop.~\ref{prop:lipschitz}--\ref{prop:kuratowski}, rely on. The choice of
 $s$ (BLOSUM62 here; \textsc{tcrBLOSUM} or a {\scshape VDJ}-specific matrix are alternatives) selects
-\emph{which} metric; all are admissible provided the clamp restores negative type.
+\emph{which} metric $\rho$; all are admissible provided the clamp restores negative type.
 
-\paragraph{Gap-block versus Smith--Waterman} The v3 junction metric replaces a full Smith--Waterman
+\paragraph{Gap-block versus Smith--Waterman} The v3 junction dissimilarity replaces a full Smith--Waterman
 optimisation by the best of four predetermined contiguous gap-block placements. When the optimal CDR3
 alignment inserts a single contiguous gap inside the hypervariable core --- the generic case once the
 conserved Cys/Phe anchors are fixed --- the gap-block score equals the Smith--Waterman optimum; the two
@@ -274,7 +316,7 @@ d(x,p)$, and two receptors with the same distance-profile-to-$\Pgen$ are asympto
 embedding-indistinguishable.
 \end{proposition}
 \begin{proof}
-The coordinates are i.i.d.\ evaluations of the fixed $1$-Lipschitz map $p\mapsto d(x,p)$ under $\Pgen$;
+The coordinates are i.i.d.\ evaluations of the fixed measurable map $p\mapsto d(x,p)$ under $\Pgen$;
 the Glivenko--Cantelli theorem gives uniform convergence of their empirical law to that of $d(x,p)$.
 \end{proof}
 
@@ -319,19 +361,24 @@ $R=0.96$ --- reproduced here at $R=0.97$ (Fig.~\ref{fig:s3}).
 dominate any embedding analysis.
 
 \begin{proposition}[Dissimilarity and distance laws]\label{prop:laws}
-Under mild mixing of per-position alignment contributions: (i) the pairwise dissimilarity $d_{ij}$ is
-asymptotically Gamma-distributed --- a sum of many non-negative, bounded per-column penalties, so the
-central-limit tendency is tempered by positivity and right-skew; (ii) the embedding distance $D_{ij}$
-follows a generalized extreme value (Fr\'echet--Gumbel) law rather than a Gaussian, because
-$D=\norm{\varphi(x)-\varphi(y)}_2$ is dominated by its largest coordinate differences, which are
-extreme-value statistics over the $K$ prototypes.
+Under mild mixing of per-position alignment contributions: (i) the pairwise dissimilarity $d_{ij}$ ---
+a sum of many non-negative, bounded per-column penalties --- is asymptotically \emph{Gaussian} by a
+central-limit tendency, with the positivity constraint favouring its max-entropy positive counterpart,
+the Gamma; the two laws coincide as the number of aligned columns grows and are empirically
+indistinguishable on v3 coordinates. (ii) The embedding distance $D_{ij}$ follows a generalized extreme
+value (Fr\'echet--Gumbel) law rather than a Gaussian, because $D=\norm{\varphi(x)-\varphi(y)}_2$ is
+dominated by its largest coordinate differences, which are extreme-value statistics over the $K$
+prototypes. Part (ii) is the sharp, discriminating claim; part (i) is a shape statement only.
 \end{proposition}
 \begin{proof}
 (i) By Eq.~\eqref{eq:gram}, $d(a,b)=\sum_\ell \pi_\ell$ is a sum over aligned columns of bounded, non-negative
 Gram penalties $\pi_\ell$. For sequences of comparable length the columns are many and weakly dependent, so a
-Lindeberg central-limit tendency applies; but the constraint $d\ge0$ and the bounded support make the limit a
-positive, right-skewed law, and among laws on $[0,\infty)$ with matched mean and variance the Gamma family is
-the maximum-entropy choice, capturing the skew a Gaussian misses (Fig.~\ref{fig:s1}, left). (ii) The
+Lindeberg central-limit tendency drives $d$ toward a Gaussian; the constraint $d\ge0$ and bounded support
+add only a mild right-skew, for which the max-entropy positive law with matched mean and variance is the
+Gamma. As the number of aligned columns grows the shape parameter diverges and the Gamma converges to the
+Gaussian, so on real-repertoire (v3) coordinates the two fits are empirically indistinguishable
+(Fig.~\ref{fig:s1}, left); part~(i) is therefore a statement about \emph{shape}, not a model-selection
+claim. (ii) The
 coordinates of $D(x,y)=\norm{\varphi(x)-\varphi(y)}_2$ are $K$ i.i.d.\ bounded differences
 $d(x,p_k)-d(y,p_k)$. Its $\ell^\infty$ part equals $d(x,y)$ (Prop.~\ref{prop:kuratowski}), a maximum over the
 $K$ prototypes; by the Fisher--Tippett--Gnedenko theorem \cite{deHaanFerreira2006} the only non-degenerate
@@ -341,18 +388,24 @@ carried by the same extreme coordinates \cite{Beyer1999}, so the {\scshape GEV} 
 (Fig.~\ref{fig:s1}, right).
 \end{proof}
 
-Both laws are confirmed on v3 (Fig.~\ref{fig:s1}): the Gamma fit to $d_{ij}$ beats the Gaussian on
-\textsc{aic}, and the {\scshape GEV} fit to $D_{ij}$ beats the Gaussian decisively
-(Kolmogorov--Smirnov $0.021$ versus $0.078$). The fitted shape $\xi\approx 0$ places v3 at the
+The v3 numbers bear this out (Fig.~\ref{fig:s1}): the Gamma and Gaussian fits to $d_{ij}$ are
+statistically indistinguishable (Kolmogorov--Smirnov $0.014$ versus $0.013$; $\Delta\textsc{aic}\approx10$
+over ${\sim}n^2/2$ pairs, well inside the noise), so $d_{ij}$ is simply a unimodal, weakly right-skewed
+bulk. The discriminating result is the tail law of $D_{ij}$: the {\scshape GEV} fit beats the Gaussian
+decisively (Kolmogorov--Smirnov $0.021$ versus $0.078$). The fitted shape $\xi\approx 0$ places v3 at the
 Gumbel--Fr\'echet boundary, marginally lighter-tailed than the $\xi=+0.11$ of the published
-Smith--Waterman construction --- a metric-dependent detail, not a qualitative difference.
+Smith--Waterman construction --- a metric-dependent detail, not a qualitative difference. (The paper's
+supplement reports Gamma\,$>$\,Normal for $d_{ij}$; on the tighter real-repertoire junction-length
+distribution of the arda-native prototypes the skew shrinks and the two collapse together.)
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{fig_s1_distributions.pdf}
-  \caption{Distribution laws (Prop.~\ref{prop:laws}; suppl.\ S1). Left: $d_{ij}$ is Gamma, not Gaussian.
-  Right: $D_{ij}$ follows a {\scshape GEV}/Fr\'echet law (\textsc{ks} $0.021$) that the Gaussian
-  ($0.078$) misses on the heavy right tail. \code{mir/bench/theory.py::fit\_distributions}.}
+  \caption{Distribution laws (Prop.~\ref{prop:laws}; reproduces the published suppl.\ S1
+  \cite{Kremlyakova2025}). Left: $d_{ij}$ is a unimodal, only weakly skewed bulk --- Gamma and Gaussian
+  fit near-identically (\textsc{ks} $0.014$ vs.\ $0.013$; the curves overlie the histogram and each other).
+  Right: the discriminating law --- $D_{ij}$ follows a {\scshape GEV}/Fr\'echet law (\textsc{ks} $0.021$)
+  that the Gaussian ($0.078$) misses on the heavy right tail. \code{mir/bench/theory.py::fit\_distributions}.}
   \label{fig:s1}
 \end{figure}
 
@@ -396,7 +449,8 @@ $A$ is fixed by the inductive bias of $f$, not learnt.
 
 Specificity separation in a receptor embedding is thus an \emph{inductive-bias} phenomenon, not a learned
 one: it is present exactly insofar as the chosen geometry matches the biophysics of recognition. The
-prototype embedding builds in precisely the right bias --- the alignment metric that supplementary Fig.~S5
+prototype embedding builds in precisely the right bias --- the alignment metric that Fig.~S5 of the
+published supplement \cite{Kremlyakova2025}
 shows tracks structural (C$\alpha$ {\scshape RMSD}) similarity --- with no training and no antigen labels. A
 learned network has only three options: (i) recover $\Pgen$, which does not separate antigens
 (Prop.~\ref{prop:nofreelunch}); (ii) be supervised by scarce antigen labels, abandoning the unsupervised
@@ -481,7 +535,7 @@ Concatenation stacks coordinate blocks; the squared $\ell^2$ norm of a stacked v
 squared block norms, which is Eq.~\eqref{eq:product} extended across chains.
 \end{proof}
 
-Paired $\alpha\beta${\scshape TCR} embedding (suppl.\ S4) and, prospectively, the concatenation of
+Paired $\alpha\beta${\scshape TCR} embedding (validated in \cite{Kremlyakova2025}) and, prospectively, the concatenation of
 epitope- and {\scshape MHC}-groove coordinates into a single {\scshape TCR}--pMHC vector are therefore
 principled: each modality contributes an orthogonal block and distances add in quadrature.
 
@@ -508,9 +562,9 @@ usage recovers the germline axes, while the junction block carries the residual 
 specificity signal.
 
 \paragraph{Structural grounding} That the metric is biologically meaningful, not merely combinatorial, is
-shown by supplementary Fig.~S5: embedding distances between {\scshape TCR}:pMHC complexes correlate with
+shown by Fig.~S5 of the published supplement \cite{Kremlyakova2025}: embedding distances between {\scshape TCR}:pMHC complexes correlate with
 the C$\alpha$ {\scshape RMSD} of their crystal structures. Formally this asserts a Lipschitz map from the
-sequence metric $(X,d)$ into the structural metric, so that specificity groups \cite{Glanville2017} ---
+sequence metric $(X,\rho)$ into the structural metric, so that specificity groups \cite{Glanville2017} ---
 receptors binding one epitope --- occupy small-diameter regions of embedding space, and clustering recovers
 them (Table~S1;
 \code{mir/bench/metrics.py}).
@@ -522,19 +576,24 @@ somatic hypermutation ({\scshape SHM}), a context-dependent point-mutation proce
 Write $M_m$ for an operator applying $m$ substitutions to a germline-rearranged sequence.
 
 \begin{proposition}[Bounded embedding drift]\label{prop:drift}
-There is a constant $c$ (the maximal per-substitution Gram penalty) such that $d(x,M_m x)\le c\,m$, and
-therefore $D(\varphi(x),\varphi(M_m x)) \le \sqrt{K}\,c\,m$. Embedding drift under {\scshape SHM} is
-linear in the mutation load $m$.
+There is a constant $c$ (the maximal per-substitution Gram penalty) such that the \emph{dissimilarity}
+drifts linearly, $d(x,M_m x)\le c\,m$. The \emph{embedding distance} then drifts \emph{sub}linearly,
+$D(\varphi(x),\varphi(M_m x)) \le 2\,\mathrm{diam}\,\sqrt{K\,d(x,M_m x)} \le 2\,\mathrm{diam}\,\sqrt{K\,c\,m}
+= O(\sqrt m)$, and is in every case bounded.
 \end{proposition}
 \begin{proof}
 Each substitution changes at most one aligned column of Eq.~\eqref{eq:gram}, by at most the bounded
-penalty range $c$; $m$ substitutions change $d$ by at most $c\,m$, and Prop.~\ref{prop:lipschitz}
-propagates this to $D$ with the $\sqrt K$ factor.
+penalty range $c$; $m$ substitutions change the squared dissimilarity by at most $d(x,M_m x)\le c\,m$. The
+H\"older-$\tfrac12$ coordinates of Prop.~\ref{prop:lipschitz} propagate this to
+$D\le 2\,\mathrm{diam}\sqrt{K\,d(x,M_m x)}$, giving the $\sqrt m$ growth. (Summing single-substitution steps
+through the embedding-space triangle inequality gives the coarser linear envelope $D\le
+2\,\mathrm{diam}\sqrt{Kc}\,m$; the $\sqrt m$ bound is tighter for large $m$.)
 \end{proof}
 
 Proposition~\ref{prop:drift} has two consequences. First, a clonal lineage under affinity maturation
-traces a path in embedding space whose step size is set by the per-generation mutation load, so the
-embedding preserves lineage proximity --- the substrate for density and trajectory analysis
+traces a bounded path in embedding space --- sublinear in the accumulated mutation load, and
+well-approximated by a line over the biological {\scshape SHM} range (T5, linear $R^2\approx0.97$--$0.99$)
+--- so the embedding preserves lineage proximity --- the substrate for density and trajectory analysis
 (\S\ref{sec:density}). Second, it explains why {\scshape IGH} is the hardest chain for the neural codec
 of Part~2 (forward cosine $0.79$, exact reconstruction $0.16$, against $\ge0.93$/$0.50$ for {\scshape
 TCR}): (i) {\scshape IGH} CDR3s are long, so the fixed-length-40 gap-block tokenisation
@@ -1065,23 +1124,25 @@ trained decoder: the Part~2 inverse codec (\code{mir/ml/decoder.py}) demonstrate
 approximately invertible \emph{given the key}. Distance preservation is thus double-edged --- the source of
 the embedding's analytic value and of its linkage risk. Keyed pseudonymisation is not anonymisation.
 
-\paragraph{A differential-privacy mechanism the geometry hands us} The Lipschitz property of
+\paragraph{A differential-privacy mechanism the geometry hands us} The H\"older-$\tfrac12$ property of
 Prop.~\ref{prop:lipschitz} turns the embedding into a clean substrate for a formal guarantee. Replacing one
-receptor moves its coordinate by $\norm{\varphi(x)-\varphi(x')}_2\le\sqrt K\,d(x,x')\le\sqrt K\,d_{\max}$,
-so $X\mapsto\varphi(X)$ has bounded $\ell^2$ sensitivity.
+receptor moves its coordinate by $\norm{\varphi(x)-\varphi(x')}_2\le 2\,\mathrm{diam}\sqrt{K\,d(x,x')}
+\le 2\sqrt K\,d_{\max}$ (using $\mathrm{diam}=\sqrt{d_{\max}}$), so $X\mapsto\varphi(X)$ has bounded
+$\ell^2$ sensitivity.
 
 \begin{proposition}[Private release of the embedding]\label{prop:dp}
 Releasing $\tilde Z=(\varphi(X)-\mu)W+N$ with $N$ Gaussian of scale
 $\sigma\propto \sqrt K\,d_{\max}\,\norm{W}_2/\varepsilon$ satisfies record-level
 $(\varepsilon,\delta)$-differential privacy, and by Prop.~\ref{prop:lipschitz} the induced distortion of any
 pairwise embedding distance $D_{ij}$ is $O(\sigma\sqrt m)$ --- a privacy/utility trade-off governed entirely
-by the sensitivity constant $\sqrt K\,d_{\max}$.
+by the sensitivity constant $2\sqrt K\,d_{\max}$.
 \end{proposition}
 \begin{proof}
 Take two repertoires differing in a single record, $x_i$ versus $x_i'$. Only row $i$ of $\varphi(X)$ changes,
-and by the $1$-Lipschitz coordinates of Prop.~\ref{prop:lipschitz},
-$\norm{\varphi(x_i)-\varphi(x_i')}_2\le\sqrt K\,d(x_i,x_i')\le\sqrt K\,d_{\max}$. Composing with $W$, the
-released row moves by $\norm{(\varphi(x_i)-\varphi(x_i'))W}_2\le\sqrt K\,d_{\max}\norm{W}_2=:\Delta_2$, the
+and by the H\"older-$\tfrac12$ coordinates of Prop.~\ref{prop:lipschitz},
+$\norm{\varphi(x_i)-\varphi(x_i')}_2\le 2\,\mathrm{diam}\sqrt{K\,d(x_i,x_i')}\le 2\sqrt K\,d_{\max}$.
+Composing with $W$, the
+released row moves by $\norm{(\varphi(x_i)-\varphi(x_i'))W}_2\le 2\sqrt K\,d_{\max}\norm{W}_2=:\Delta_2$, the
 record-level $\ell^2$-sensitivity. The Gaussian mechanism, adding $N\sim\mathcal N(0,\sigma^2 I)$, is a
 standard $(\varepsilon,\delta)$-differentially private release whenever
 $\sigma\ge\Delta_2\sqrt{2\ln(1.25/\delta)}/\varepsilon$, i.e.\ for
@@ -1124,7 +1185,7 @@ the data/figure scripts in this directory (\code{gen\_theory\_data.py}, the \cod
     Claim & Paper & mirpy (Smith--Waterman) & mirpy (\code{gapblock} v3)\\
     \midrule
     S2 / Prop.~\ref{prop:energy}: $\mathrm{corr}(D_{ij},d_{ij})$ & $0.56$ & $0.64$ & $0.49$ \\
-    S1 / Prop.~\ref{prop:laws}: law of $d_{ij}$ & Gamma $>$ Normal & Gamma $>$ Normal & Gamma $>$ Normal \\
+    S1 / Prop.~\ref{prop:laws}: law of $d_{ij}$ & Gamma $>$ Normal & Gamma $\approx$ Normal & Gamma $\approx$ Normal \\
     S1 / Prop.~\ref{prop:laws}: law of $D_{ij}$ & GEV, $\xi{=}{+}0.11$ & GEV $\gg$ Normal, $\xi{\approx}0$ & GEV $\gg$ Normal, $\xi{\approx}0$ \\
     S3 / Prop.~\ref{prop:robust}: real vs.\ model prototypes & $0.96$ & --- & $0.97$ \\
     \bottomrule
