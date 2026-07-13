@@ -50,6 +50,36 @@ labels = cluster(pca_denoise(X, n_components=50))
 Paired chains concatenate per-chain embeddings via `PairedTCREmp`. Input/output are AIRR polars
 frames keyed by `vdjtools.io.schema` column names.
 
+## Recommended presets
+
+`TCREmp.from_defaults(species, locus)` uses the per-chain preset when `n_prototypes` is
+omitted. Values are data-driven from the bundled prototypes (prototype geometry saturates by
+these counts; PC columns are the PCA dims retaining ~95% / ~99% variance):
+
+| chain | n_prototypes | PCs (95%, clustering) | PCs (99%, reconstruction) |
+|---|--:|--:|--:|
+| human TRA | 2000 | 65 | 220 |
+| human TRB | 2000 | 65 | 260 |
+| human TRG | 1000 | 25 | 100 |
+| human TRD | 2000 | 65 | 280 |
+| human IGH | 2000 | 65 | 300 |
+| human IGK | 1000 | 20 | 65 |
+| human IGL | 1000 | 20 | 65 |
+| mouse TRA | 2000 | 50 | 150 |
+| mouse TRB | 2000 | 55 | 225 |
+
+Use **95%** PCs for clustering/visualization (the paper's regime); use **99%** PCs when
+*reconstructing* sequences with the neural inverse codec (diverse chains like IGH/TRD/TRA lose
+too much sequence detail at 95%). Programmatically: `from mir.embedding import get_preset`.
+
+```python
+from mir.embedding import get_preset
+from mir.embedding.pca import pca_denoise
+p = get_preset("human", "IGH")
+Xc = pca_denoise(X, n_components=p.n_components)          # clustering
+Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
+```
+
 ## What's inside
 
 | Module | Purpose |
