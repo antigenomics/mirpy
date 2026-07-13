@@ -37,9 +37,9 @@ license = {text = "GPL-3.0 license"}
 [project.optional-dependencies]
 # VDJdb annotation / E-values for the benchmark harness.
 annotate = ["vdjmatch"]
-# Build-time only: regenerate region_annotations.txt / germline distance
-# matrices from a gene library. Dist name is `arda-mapper`, imports as `arda`.
-build = ["arda-mapper>=2.5"]
+# Build-time only: regenerate region_annotations.txt (arda) and the baked
+# germline distance matrices (BioPython). Runtime needs neither.
+build = ["arda-mapper>=2.5", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting.
