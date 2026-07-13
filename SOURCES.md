@@ -22,6 +22,17 @@ Every dataset used by mirpy v3, its origin, and how to regenerate it.
 Bundled model / Pgen data used at runtime lives in **vdjtools** (`vdjtools.model` bundled
 parquet marginals for 7 loci × {olga, learned}) — see the vdjtools `SOURCES.md`.
 
+## Sample-level (repertoire) embedding cohorts (HF `isalgo/*`, not shipped)
+
+Phenotype-labelled repertoire cohorts for the §T.7 sample-level embedding benchmarks
+(`experiments/benchmark_repertoire_*.py`; see `REPERTOIRE_EMBEDDING.md`). All **experimental**.
+
+| Dataset | Origin | Metadata / labels | Fetch |
+|---|---|---|---|
+| `aging` (full depth) | HF `isalgo/airr_benchmark`, Britanova et al. *J Immunol* 2016/2014 | per-sample `file_name, sample_id, sex, age` (`metadata_aging.txt`); 41 samples, ages 6–90; TCRβ | `hf_hub_download(repo_id="isalgo/airr_benchmark", filename="<full-aging path>", repo_type="dataset")` — ⚠ use the **full** aging cohort, NOT `vdjtools_lite/` (that is the *downsampled* set, kept only as a depth-robustness control) |
+| `airr_hip` | HF `isalgo/airr_hip` = **Emerson et al. 2017** (*Nat Genet*, PMID 28369038, doi:10.1038/ng.3822) | 786 subjects (666 discovery + 120 validation); TCRβ + **CMV serostatus** + **HLA-A/HLA-B typing** (+ age/sex in the immuneACCESS metadata) | `hf_hub_download(repo_id="isalgo/airr_hip", filename=..., repo_type="dataset")`; confirm exact metadata columns from the dataset card at build time |
+| SRA shallow RNA-seq | HF `isalgo/airr_benchmark/sra/` (`meta.tsv`, `samples.tar.gz`) | `PMID Run BioProject Sample`; 2993 rows; all PMID 30830871, BioProject PRJNA511467 | low-coverage bulk-RNA-seq stress set (the `10²–10⁴` clonotype/chain regime); accession manifest only |
+
 ## Theory appendix (`appendix/`)
 
 | Dataset / asset | Path | What / provenance | Regenerate |

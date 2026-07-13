@@ -260,3 +260,93 @@ def tcrnet_convergence(
         "spearman_by_scale": corr,
         "spearman_at_1sub": corr[1.0],
     }
+
+
+# ---------------------------------------------------------------------------
+# Codec losslessness (appendix draft codec_losslessness.tex): the three-level hierarchy
+# ---------------------------------------------------------------------------
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Levenshtein edit distance (iterative two-row DP)."""
+    if a == b:
+        return 0
+    if not a or not b:
+        return len(a) or len(b)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
+    """Measurable losslessness of a codec, split into decoder-independent vs -dependent parts.
+
+    **Informational ceiling** (decoder-independent, from ``codes`` alone). The compact code is
+    injective iff distinct sequences map to distinct codes; two distinct sequences whose codes
+    coincide can never *both* be recovered, so ``exact_ceiling = 1 − collision_rate`` upper-bounds
+    any decoder's exact-match — the information the code retains, separate from how well a decoder
+    reads it. Encoding is deterministic (identical sequences ⇒ identical codes), so duplicate
+    sequences are collapsed first and a *collision* is a near-coincident code pair between
+    **distinct** sequences (nearest-code distance < ``eps``). ``nn_dist_{median,min}`` report the
+    code-resolution scale so ``eps`` can be read in context.
+
+    **Reconstructive loss** (needs ``recon``, the decoded strings row-aligned to ``seqs``):
+    ``exact_match``, mean **edit distance** (a *graded* distortion, unlike binary exact-match), and
+    **per-position** token accuracy over the length-40 frame — localizing *where* loss falls
+    (conserved C…[FW] anchors vs the specificity-bearing variable middle). Per-position accuracy
+    re-encodes ``recon`` into the canonical frame, so it measures positional token agreement.
+
+    Args:
+        codes: ``(n, m)`` compact codes, one per sequence (e.g. whitened-PCA junction code).
+        seqs: the ``n`` true junction strings.
+        recon: optional ``n`` decoded strings (e.g. ``InverseDecoder.decode(codes)``). When
+            ``None``, only the decoder-independent ceiling is returned.
+        eps: code-distance below which two distinct sequences count as colliding.
+
+    Returns:
+        Always ``{n, n_unique, collision_rate, exact_ceiling, nn_dist_median, nn_dist_min}``; and
+        when ``recon`` is given, additionally ``{exact_match, mean_edit, token_acc, anchor_acc,
+        middle_acc, pos_acc}`` (``pos_acc`` a length-40 array).
+    """
+    from sklearn.neighbors import BallTree
+
+    seqs = list(seqs)
+    codes = np.asarray(codes, dtype=np.float64)
+    n = len(seqs)
+
+    # informational ceiling: dedup sequences, then nearest *distinct*-code distance
+    uniq = list({s: i for i, s in enumerate(seqs)}.values())
+    C = codes[uniq]
+    n_unique = len(uniq)
+    if n_unique >= 2:
+        nn = BallTree(C).query(C, k=2)[0][:, 1]  # distance to nearest distinct code
+        collision_rate = float((nn < eps).mean())
+        nn_median, nn_min = float(np.median(nn)), float(nn.min())
+    else:
+        collision_rate, nn_median, nn_min = 0.0, float("nan"), float("nan")
+    out = {
+        "n": n, "n_unique": n_unique, "collision_rate": collision_rate,
+        "exact_ceiling": 1.0 - collision_rate,
+        "nn_dist_median": nn_median, "nn_dist_min": nn_min,
+    }
+    if recon is None:
+        return out
+
+    from mir.ml.tokenize import FIXED_LEN, _LEFT_ANCHOR, _RIGHT_ANCHOR, encode_indices
+
+    recon = list(recon)
+    exact = float(np.mean([r == s for r, s in zip(recon, seqs)]))
+    mean_edit = float(np.mean([_levenshtein(r, s) for r, s in zip(recon, seqs)]))
+    pos_acc = (encode_indices(seqs) == encode_indices(recon)).mean(axis=0)  # (40,)
+    anchor = np.zeros(FIXED_LEN, dtype=bool)
+    anchor[:_LEFT_ANCHOR] = anchor[FIXED_LEN - _RIGHT_ANCHOR:] = True
+    out.update({
+        "exact_match": exact, "mean_edit": mean_edit, "token_acc": float(pos_acc.mean()),
+        "anchor_acc": float(pos_acc[anchor].mean()), "middle_acc": float(pos_acc[~anchor].mean()),
+        "pos_acc": pos_acc,
+    })
+    return out

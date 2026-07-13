@@ -107,6 +107,23 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     trained codec MUST be shipped as a bundle, never bare weights.
   - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py` (forward cos 0.997–0.999
     universal; inverse chain-dependent — short κ/λ/γ/mouse easy, IGH/TRD hard).
+  - **DONE lossless-recon depth/K/data sweep** (`experiments/benchmark_lossless_{depth,kpc}.py`,
+    real held-out TRB from `isalgo/airr_control` vs arda landmarks): exact-match is **training-data-
+    limited, not architecture-limited** — the old "~0.40 ceiling" was n≈8k starvation. Same one-shot
+    decoder: n=20k→50k→100k drives exact **0.885→0.941→0.958** (token 0.996→0.998) at K=2000/PC=400,
+    crossing 95% at n≈100k, peak RSS 11 GB. **Optimal (K,PC)=(2000, 300–500)**: K saturates ~2000–5000
+    (K=10000 *regresses* 89.4→88.8 and doubles cost); PC is the stronger lever below ~300 (PC 50→300
+    ⇒ exact 0.67→0.89). Cost: K linear (matrix N·K·4 B, ~5 µs/query @K=2000; K=10000 = 32 µs/query,
+    0.8 GB @n=20k), PC cheap. Levers to 95%+ exact, in order: **more data (free)** > PC→~99% var >
+    K→~2000 > (last %) autoregressive decoder + widen `FIXED_LEN` for the ~0.1% long real-IGH tail.
+    Frame is lossless iff `len(junction)≤40` (100% on bundled protos; ~99.9% on real IGH). The
+    distance-to-prototypes code is an **expansion** (10 kbit code vs ~63 bit seq) — for archival
+    losslessness *store the string*; the codec inverse is for ML/generation. Fine (1-residue) diffs
+    survive 99%-var compaction (0/500 collisions, 99.6% variants nearest-to-parent).
+  - **C gene / isotype**: absent from the embedding (prototypes are v/j/junction only; germline_dist
+    is V/J/CDR1/CDR2). Isotype is a low-cardinality categorical (~9 IGH classes ≈ 3 bits) *independent*
+    of V/J/CDR3 ⇒ not reconstructable ⇒ **carry `c_call` as an exact stored column, never embed it**
+    (same as v_call/j_call metadata). No codec change.
   - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `experiments/benchmark_igh_shm.py`):
     SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH 104/mut < TRB 128/mut
     — IGH lowest slope, robust to SHM). IGH's hard reconstruction is **over-compaction, not the
@@ -128,4 +145,14 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     vs 1% under a control bg (46× signal:noise lift), and it counts mountains/epitope (GILGFVFTL 32,
     NLVPMVATV 4 — polyclonality tracks precursor freq, Pogorelyy 2018).
   - **TODO**: epitope/MHC; scale codec on HF `airr_benchmark` (10–100M).
+- **Sample-level (repertoire) embedding (v3.x)** — `Φ(S)` for a whole repertoire (order-invariant multiset
+  of clonotypes+counts). **Theory DONE** (appendix §T.7 `sec:sample`): a sample is the weighted empirical
+  measure `ρ_S=Σ w_σ δ_{φ(σ)}`; `Φ` = RFF **kernel mean embedding** (depth-robust `n_eff^{-1/2}`,
+  codebook-free — no K) + coverage-standardized **Hill profile** (depth↔diversity reconciled by coverage
+  standardization; `n_eff=^qD`) + **second-moment** Fisher / learned Set-Transformer/DeepRC (HLA-linked
+  interactions, co-equal tracks); distance = MMD, HLA-stratified for CMV. Central target: low-coverage bulk
+  RNA-seq (`10²–10⁴` clonotypes/chain). **Module + benchmarks NOT built** — spec in
+  **`REPERTOIRE_EMBEDDING.md`** (reuse `TCREmp.embed`, `density._WEIGHTS`, `vdjtools.stats.inext`,
+  `preprocess.downsample`). Datasets: `aging` full-depth (age, NOT `aging_lite`), `airr_hip` (Emerson 2017
+  CMV/HLA), SRA shallow (SOURCES.md). Citations verified + in `appendix/refs.bib`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
