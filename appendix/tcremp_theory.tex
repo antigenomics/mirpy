@@ -6,6 +6,14 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{dsfont}  % \mathds{1} indicator
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric,decorations.pathmorphing}
+% Dark2 (ColorBrewer, colourblind-safe) — matches the gnuplot Dark2 palette used by the S1--S3 figures
+\definecolor{cTeal}{HTML}{1B9E77}
+\definecolor{cOrange}{HTML}{D95F02}
+\definecolor{cPurple}{HTML}{7570B3}
+\definecolor{cPink}{HTML}{E7298A}
+\definecolor{cGray}{HTML}{666666}
 % Old-style journal look (matches ../../vdjtools/appendix): OldStandard text + matching OpenType
 % math, small-caps headings, run-in paragraphs. Requires lualatex (pinned in .latexmkrc).
 \usepackage{OldStandard}
@@ -1095,6 +1103,584 @@ The theory fixes every parameter, giving a graph-free reincarnation of {\scshape
 \end{enumerate}
 Every default traces to a theorem rather than to tuning; the same estimand $E=f_{\mathrm{obs}}/f_{\mathrm{gen}}$
 underlies the graph tests it replaces, the neural classifier of Part~2, and the smooth relative-ratio field.
+
+\section{Sample-level (repertoire) embedding}\label{sec:sample}
+
+A single receptor is a point $z=\varphi(\sigma)$; a whole \emph{repertoire} is a cloud of such points, weighted
+by clone size. Section~\ref{sec:density} asked where that cloud is locally over-dense; here we build the
+complementary object --- one fixed vector $\Phi(S)$ summarising the entire cloud, so repertoires can be compared,
+regressed against phenotype, and clustered. Four requirements pull against one another: $\Phi$ must be
+\textbf{(a)} invariant to clonotype order, \textbf{(b)} robust to sequencing depth, \textbf{(c)} faithful to
+diversity (richness, Shannon, unobserved species), and \textbf{(d)} able to carry the rare clonotype
+\emph{interactions} that are {\scshape HLA}-linked. The weight on (b) is set by the intended data: low-coverage
+bulk {\scshape RNA}-seq, which recovers all chains but only $10^2$--$10^4$ clonotypes per chain, yet exists for
+hundreds of thousands of clinically annotated samples. That ${\sim}10^3$ receptors already fingerprint an
+individual and separate identical twins \cite{Zvyagin2014,Dupic2021}, that repertoire diversity falls with age
+\cite{Britanova2014,Alpert2019}, and that the {\scshape CMV} response is {\scshape HLA}-restricted
+\cite{Emerson2017} are the empirical anchors the theory must reproduce. We represent a sample by its empirical
+\emph{measure} on embedding space (\S\ref{sec:samp-measure}), whose kernel mean is the depth-robust backbone
+(\S\ref{sec:samp-kme}); we show why depth-robustness and diversity are antagonistic and how coverage
+standardisation reconciles them (\S\ref{sec:samp-div}), that similarity-aware diversity is the squared norm of
+that same mean (\S\ref{sec:samp-simdiv}), that interactions live in its second moment
+(\S\ref{sec:samp-interact}), how {\scshape HLA} conditioning enters (\S\ref{sec:samp-hla}), that the whole
+construction is the codebook-free limit of the graph--cluster--histogram heuristic (\S\ref{sec:samp-codebook}),
+and how the two technical nuisances --- sequencing \emph{depth} and \emph{batch} --- are decoupled from
+biological signal (\S\ref{sec:samp-decouple}).
+
+\begin{definition}[The sample measure]\label{def:sampmeasure}
+A sample (repertoire) is a multiset $S=\{(\sigma,a_\sigma)\}$ of clonotypes $\sigma$ with read counts
+$a_\sigma\ge1$, depth $N=\sum_\sigma a_\sigma$ and frequencies $f_\sigma=a_\sigma/N$. With the clonotype map
+$z_\sigma=\varphi(\sigma)\in\R^{p}$ of \S\ref{sec:foundations} it induces the weighted empirical measure
+\begin{equation}\label{eq:sampmeasure}
+  \rho_S=\sum_{\sigma\in S} w_\sigma\,\delta_{z_\sigma},\qquad
+  w_\sigma=\frac{g(a_\sigma)}{\sum_{\tau} g(a_\tau)},
+\end{equation}
+with $g$ the non-decreasing concave weight of \S\ref{sec:dens-abund} (Eq.~\eqref{eq:weighted};
+$g(a)=\log(1+a)$, the Anscombe root \cite{Anscombe1948}, $g\equiv1$ = presence, or $g(a)=a$ = reads);
+concavity tames the heavy-tailed (Zipf / power-law) clone-size distribution \cite{Desponds2016,Koch2018} so a
+single hyperexpanded clone cannot dominate $\Phi$. A \emph{sample-level embedding} is any fixed vector
+$\Phi(S)$ that is a functional of $\rho_S$ alone; sample dissimilarity is the maximum mean discrepancy
+({\scshape MMD}) between two such measures.
+\end{definition}
+
+\paragraph{Notation} $S$ is a sample, $\sigma$ a clonotype, $a_\sigma$ its read count, $f_\sigma$ its frequency,
+$N$ the depth, $z_\sigma=\varphi(\sigma)$ its embedding point (\S\ref{sec:foundations}), and $\rho_S$ the sample
+measure of Eq.~\eqref{eq:sampmeasure} with weights $w_\sigma$ (summing to $1$). $k$ is a bounded normalised
+characteristic kernel on $\R^{p}$ ($k(z,z)=1$; Gaussian unless stated), $\psi:\R^{p}\to\R^{D}$ its
+random-Fourier feature map (Eq.~\eqref{eq:rff}), and $\mu_\rho=\int\psi\,d\rho=\sum_\sigma w_\sigma\psi(z_\sigma)$
+the kernel mean embedding. $\;^qD=(\sum_\sigma f_\sigma^{\,q})^{1/(1-q)}$ is the Hill number of order $q$ (with
+$\;^1D=\exp(-\sum_\sigma f_\sigma\ln f_\sigma)$), $S_{\mathrm{obs}}={}^0D$ the observed richness, $f_1,f_2$ the
+singleton/doubleton counts, $\hat C$ the Good--Turing sample coverage, and $n_{\mathrm{eff}}$ the effective
+sample size (Eq.~\eqref{eq:neff}). $P$ is the individual's true receptor law, of which $S$ is a depth-$N$
+sample; $\varphi,\Pgen,r_1$ are as in \S\ref{sec:density}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2.2mm]}]
+  % ---- Stage 1: variable-length multisets (two samples, different cardinality) ----
+  \node at (0.45,2.05) {\scshape variable length};
+  \foreach \i/\h in {0/0.55,1/0.85,2/0.30,3/0.70,4/0.45,5/0.90}
+    \fill[cTeal,draw=cGray] (\i*0.13,1.05) rectangle ++(0.09,\h*0.6);
+  \node[anchor=west] at (0.85,1.35) {$S$};
+  \foreach \i/\h in {0/0.90,1/0.40,2/0.65}
+    \fill[cOrange,draw=cGray] (\i*0.13,0.10) rectangle ++(0.09,\h*0.6);
+  \node[anchor=west] at (0.50,0.42) {$S'$};
+  \node[align=center] at (0.45,-0.55) {$|S|{=}6,\ |S'|{=}3$\\ (\ldots up to ${\sim}10^6$)};
+
+  \draw[->,thick] (1.35,0.85) -- node[above,align=center,font=\scriptsize]{embed $\varphi$,\\ weight $g(a)$} (2.75,0.85);
+
+  % ---- Stage 2: weighted point cloud (the measure) ----
+  \node[draw=cGray,thick,rounded corners,minimum width=2.7cm,minimum height=2.5cm,fill=cGray!4] (cloud) at (4.2,0.75) {};
+  \node[align=center,anchor=south,font=\scriptsize] at (cloud.north) {measure $\rho_S$\\ on $\R^{p}$};
+  \foreach \x/\y/\r in {3.45/0.35/1.5, 3.75/1.35/1, 4.75/1.45/2.6, 4.95/1.20/2, 4.60/1.10/1.5, 3.55/1.05/1, 4.30/0.25/3, 5.00/0.55/1.5, 3.95/0.75/1, 4.55/1.55/1.5, 3.60/0.55/1}
+     \fill[cTeal!70,draw=cGray] (\x,\y) circle (\r pt);
+
+  \draw[->,thick] (5.65,0.75) -- node[above,align=center,font=\scriptsize]{$\mu,\ \{{}^qD\},\ \Sigma$} (7.05,0.75);
+
+  % ---- Stage 3: fixed-width vector ----
+  \node[align=center,anchor=south,font=\scriptsize] at (8.55,1.75) {$\Phi(S)\in\R^{D}$\\ \emph{fixed} width};
+  \fill[cTeal]  (7.2,1.05) rectangle ++(1.05,0.42); \node[white] at (7.72,1.26) {$\mu$};
+  \fill[cPurple](8.25,1.05) rectangle ++(0.72,0.42); \node[white,font=\tiny] at (8.61,1.26) {${}^qD$};
+  \fill[cOrange](8.97,1.05) rectangle ++(0.82,0.42); \node[white] at (9.38,1.26) {$\Sigma$};
+  \fill[cTeal!55]  (7.2,0.35) rectangle ++(1.05,0.42);
+  \fill[cPurple!55](8.25,0.35) rectangle ++(0.72,0.42);
+  \fill[cOrange!55](8.97,0.35) rectangle ++(0.82,0.42);
+  \node[anchor=west,font=\scriptsize] at (9.85,1.26) {$S$};
+  \node[anchor=west,font=\scriptsize] at (9.85,0.56) {$S'$};
+\end{tikzpicture}
+\caption{The sample-level embedding turns a \emph{variable-length} repertoire into a \emph{fixed-width}
+vector. Two repertoires of different clonotype counts ($|S|{=}6$, $|S'|{=}3$; real values span
+$10^2$--$10^6$) become the same object --- a size-weighted measure $\rho_S$ on embedding space --- and are
+then summarised by the three blocks (mean $\mu$, diversity profile $\{{}^qD\}$, second moment $\Sigma$) into
+vectors of identical dimension $D$. The list length is never a coordinate; it survives only as the richness
+$\;^0D$ inside the diversity block.}
+\label{fig:samppipe}
+\end{figure}
+
+\subsection{The repertoire as a measure}\label{sec:samp-measure}
+
+\begin{proposition}[Order-invariance and sufficiency of the measure]\label{prop:sampinv}
+A statistic $\Phi(S)$ is invariant to every reordering of the clonotype list if and only if it factors through
+the measure $\rho_S$; moreover every continuous permutation-invariant $\Phi$ admits the sum-decomposition
+$\Phi(S)=\varrho\!\big(\sum_\sigma w_\sigma\,h(z_\sigma)\big)$ for some maps $h,\varrho$.
+\end{proposition}
+\begin{proof}
+$\rho_S$ is symmetric in the list order by construction, so any $\Phi=\Psi(\rho_S)$ is invariant. Conversely
+$\rho_S$ records exactly the distinct points and their weights, so it is a sufficient statistic for the unordered
+multiset and an order-invariant $\Phi$ can depend on $S$ only through it. The sum-decomposition is the Deep Sets
+representation of permutation-invariant functions \cite{Zaheer2017}: pooling a per-element map by a weighted sum
+is universal, and Eq.~\eqref{eq:sampmeasure} is exactly such a pool. \end{proof}
+
+This fixes the shape of every candidate embedding --- a per-clonotype feature $h(z_\sigma)$, size-weighted-summed,
+then read out. The only design choice is $h$; the next result gives the canonical one.
+
+\paragraph{Why variable length is not a problem} Repertoires have wildly different sizes --- from ${\sim}10^2$
+clonotypes in a shallow {\scshape RNA}-seq sample to ${\sim}10^6$ in deep amplicon sequencing --- so the raw
+inputs live in $\bigsqcup_{n\ge1}(\R^p)^n/\mathfrak S_n$, lists of \emph{any} length $n$ taken up to
+reordering, on which no fixed-dimensional map is even defined. Passing to the measure $\rho_S$
+(Fig.~\ref{fig:samppipe}) is exactly the quotient that removes \emph{both} order (Prop.~\ref{prop:sampinv})
+and length: $\rho_S$ is one point of the fixed space $\mathcal P(\R^p)$ of probability measures whatever $n$
+is, and $\mu_{\rho_S}\in\R^D$ inherits that fixed dimension. Cardinality is not thrown away --- it re-enters,
+cleanly, as the richness $\;^0D=S_{\mathrm{obs}}$ inside the diversity block, so the embedding \emph{sees} how
+many clonotypes there are without letting that count set its dimension. Two repertoires differing only in depth
+(one a subsample of the other) land at nearby vectors (Prop.~\ref{prop:kme}); two differing in biology land far
+apart.
+
+\subsection{The kernel mean embedding is the depth-robust backbone}\label{sec:samp-kme}
+
+Take $h=\psi$, the random-Fourier map of $k$: with $\omega_j$ drawn from the spectral density of $k$ and
+$b_j\sim\mathrm{Unif}[0,2\pi]$,
+\begin{equation}\label{eq:rff}
+  \psi(z)=\sqrt{2/D}\,\big(\cos(\omega_1^\top z+b_1),\dots,\cos(\omega_D^\top z+b_D)\big),\qquad
+  \E\big[\psi(z)^\top\psi(z')\big]=k(z,z')\quad\text{\cite{RahimiRecht2007}}.
+\end{equation}
+The backbone is the size-weighted mean feature --- the (random-feature) kernel mean embedding of $\rho_S$
+\cite{Smola2007,Muandet2017},
+\begin{equation}\label{eq:kme}
+  \Phi_1(S)=\sum_\sigma w_\sigma\,\psi(z_\sigma)=\mu_{\rho_S},\qquad
+  \norm{\Phi_1(S)-\Phi_1(S')}\approx\mathrm{MMD}_k(\rho_S,\rho_{S'}).
+\end{equation}
+
+\begin{proposition}[Consistency and depth-robustness]\label{prop:kme}
+Let $S$ be a depth-$N$ sample from a population law $P$ with mean embedding
+$\mu_P=\E_{\sigma\sim P}\psi(z_\sigma)$. Then $\Phi_1(S)$ is a consistent estimator of $\mu_P$, and
+\begin{equation}\label{eq:neff}
+  \E\,\norm{\Phi_1(S)-\mu_P}\;\le\;\frac{1}{\sqrt{n_{\mathrm{eff}}}},\qquad
+  n_{\mathrm{eff}}=\Big(\sum_\sigma w_\sigma^2\Big)^{-1},
+\end{equation}
+with high-probability deviations of the same order. Because the weights are frequencies, $\Phi_1$ is invariant to
+the sequencing scale $N$ up to this $O(n_{\mathrm{eff}}^{-1/2})$ fluctuation.
+\end{proposition}
+\begin{proof}
+The canonical feature $k(z,\cdot)$ has unit norm, $\norm{k(z,\cdot)}_{\mathcal H}=\sqrt{k(z,z)}=1$ (normalised
+kernel), and $\Phi_1=\sum_\sigma w_\sigma\psi(z_\sigma)$ is a convex combination, so $\E\Phi_1\to\mu_P$ as the
+sampled clonotypes fill $P$ (Glivenko--Cantelli for the mean map, as in Prop.~\ref{prop:profile}). Viewing
+$\Phi_1$ as a weighted average of independent unit-norm vectors and applying the bounded-difference (McDiarmid)
+inequality to $\norm{\Phi_1-\mu_P}$, replacing one clonotype moves $\Phi_1$ by at most $2w_\sigma$, so
+$\E\norm{\Phi_1-\mu_P}^2\le\sum_\sigma w_\sigma^2=1/n_{\mathrm{eff}}$; Jensen gives the root bound and McDiarmid
+the concentration. $n_{\mathrm{eff}}=(\sum_\sigma w_\sigma^2)^{-1}$ is Kish's effective sample size, and the
+{\scshape MMD} reading of the distance is \cite{Gretton2012}; {\scshape RFF} realises it in $D$ fixed coordinates
+(Eq.~\eqref{eq:rff}). \end{proof}
+
+Equation~\eqref{eq:neff} is the formal content of ``depth-robustness'': the backbone converges at rate
+$n_{\mathrm{eff}}^{-1/2}$, and $n_{\mathrm{eff}}$ is set not by the raw depth $N$ but by how evenly the sample's
+mass is spread --- a diversity number (next subsection). Reading a phenotype (age, {\scshape CMV}) off $\Phi_1$ is
+a \emph{distribution regression}, consistent at a rate governed by $n_{\mathrm{eff}}$ and the kernel
+\cite{Szabo2016,Muandet2017}.
+
+\subsection{Depth and diversity are antagonistic; coverage standardisation reconciles them}\label{sec:samp-div}
+
+The mean $\Phi_1$ buys depth-robustness by averaging, which erases the rare tail --- exactly where diversity
+lives. The tension is a theorem, not an accident.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize]
+  % sorted (Zipf) clone-size bars: a few tall + a long thin tail
+  \foreach \i/\h in {0/2.0,1/1.25,2/0.9,3/0.68} \fill[cTeal,draw=cGray] (\i*0.34,0) rectangle ++(0.28,\h);
+  \foreach \i/\h in {4/0.5,5/0.4,6/0.32,7/0.26,8/0.20,9/0.16,10/0.13,11/0.12,12/0.11,13/0.11,14/0.10,15/0.10,16/0.10,17/0.10,18/0.10,19/0.10,20/0.10,21/0.10}
+    \fill[cOrange,draw=cGray] (\i*0.34,0) rectangle ++(0.28,\h);
+  \draw[->,cGray] (-0.15,0) -- (7.7,0) node[right,font=\scriptsize]{clonotypes, ranked by size};
+  \draw[->,cGray] (-0.15,0) -- (-0.15,2.25) node[above,font=\scriptsize]{$a_\sigma$};
+  % head annotation
+  \draw[cTeal!60!black,thick] (0,2.2) -- (1.3,2.2);
+  \node[cTeal!60!black,anchor=south west,align=left,font=\scriptsize] at (0,2.25)
+    {\textbf{head} --- abundant clones\\ dominate the mean $\Phi_1$ (\emph{depth-robust})};
+  % tail annotation
+  \draw[cOrange!80!black,thick] (1.4,0.62) -- (7.5,0.62);
+  \node[cOrange!80!black,anchor=north,align=center,font=\scriptsize] at (4.4,0.55)
+    {\textbf{tail} --- singletons/doubletons $f_1,f_2$ carry richness $\;^0D$ and set coverage $\hat C$
+     (\emph{depth-sensitive})};
+\end{tikzpicture}
+\caption{The depth$\leftrightarrow$diversity antagonism, on the (Zipf/power-law \cite{Desponds2016}) clone-size
+curve. The frequency-weighted mean $\Phi_1$ is governed by the abundant \emph{head} and barely moves under
+subsampling (depth-robust, Prop.~\ref{prop:kme}); diversity lives in the long \emph{tail} of rare clones, whose
+singleton count $f_1$ is the most depth-sensitive quantity in the sample. Coverage standardisation
+(Prop.~\ref{prop:antag}) compares samples at equal completeness $\hat C$ rather than equal depth, letting the
+tail be read without the depth confound.}
+\label{fig:sampzipf}
+\end{figure}
+
+\begin{proposition}[The antagonism and its resolution]\label{prop:antag}
+\emph{(i)} The effective sample size of the backbone is a Hill diversity number: under read weighting
+$n_{\mathrm{eff}}={}^2D$ (inverse Simpson), under presence weighting $n_{\mathrm{eff}}={}^0D$ (richness), with a
+concave $g$ interpolating, so $n_{\mathrm{eff}}\in[{}^2D,{}^0D]$. \emph{(ii)} Richness is the most depth-sensitive
+functional of $S$: a depth-$N$ sample undercounts asymptotic richness by the Good--Turing missing mass,
+$\E[S_{\mathrm{obs}}]={}^0D_\infty-\Theta(f_1/N)$ \cite{Good1953,Chao1984,Kaplinsky2016}, so it moves under
+subsampling precisely where $\Phi_1$ is stable. \emph{(iii)} Comparing Hill numbers at a common \emph{coverage}
+$\hat C$ rather than a common depth $N$ removes the confound: the coverage-standardised profile
+$\{^0D,{}^1D,{}^2D\}|_{\hat C^\ast}$ is depth-comparable across samples \cite{Hill1973,Jost2006,ChaoJost2012,Hsieh2016}.
+\end{proposition}
+\begin{proof}
+(i) With $w_\sigma=f_\sigma$, $\sum_\sigma w_\sigma^2=\sum_\sigma f_\sigma^2=1/{}^2D$, so $n_{\mathrm{eff}}={}^2D$;
+with $w_\sigma\equiv1/S_{\mathrm{obs}}$ (presence), $\sum_\sigma w_\sigma^2=1/S_{\mathrm{obs}}$ and
+$n_{\mathrm{eff}}=S_{\mathrm{obs}}={}^0D$. A concave $g$ yields weights between these, hence
+$n_{\mathrm{eff}}\in[{}^2D,{}^0D]$. (ii) The expected number of species seen at depth $N$ falls short of the
+asymptotic richness by the mass on unseen species, which Good--Turing estimates as $\approx f_1/N$: $\Theta(1/N)$,
+carried by singletons, the noisiest counts, whereas the frequency-weighted mean is $O(f_1)$-insensitive. (iii)
+Sample coverage $\hat C=1-(f_1/N)\,(N-1)f_1/[(N-1)f_1+2f_2]$ estimates the observed population mass; rarefying or
+extrapolating every sample to a common $\hat C^\ast$ equalises completeness, and Hill numbers evaluated there are
+independent of the raw depths \cite{ChaoJost2012}. \end{proof}
+
+The diversity block is therefore $\Phi_2(S)=\{^0D,{}^1D,{}^2D\}$ at a shared coverage, with $\;^1D$ tracking the
+age-related decline \cite{Britanova2014}. It imports ecology's \emph{solved} depth-robustness for exactly the
+information the mean discards.
+
+\subsection{Similarity-aware diversity is the squared norm of the mean map}\label{sec:samp-simdiv}
+
+Blocks 1 and 2 are not independent: up to the kernel, the diversity block already sits inside the backbone.
+
+\begin{proposition}[The mean-map norm is an order-2 similarity diversity]\label{prop:simdiv}
+$\norm{\mu_{\rho_S}}^2=\sum_{\sigma,\tau}w_\sigma w_\tau\,k(z_\sigma,z_\tau)$ is the Rao quadratic entropy of
+$\rho_S$ under similarity $k$ --- the order-2 similarity-sensitive diversity of Leinster and Cobbold
+\cite{LeinsterCobbold2012}. As the bandwidth $\to0$ ($k\to\delta$) it tends to $\sum_\sigma w_\sigma^2
+=1/n_{\mathrm{eff}}$, recovering plain inverse Simpson; at finite bandwidth it discounts clonotypes close in
+$\varphi$-space, so convergent near-duplicate receptors are not double-counted.
+\end{proposition}
+\begin{proof}
+By Eq.~\eqref{eq:rff}, $\norm{\mu_\rho}^2=\langle\sum_\sigma w_\sigma\psi(z_\sigma),\sum_\tau
+w_\tau\psi(z_\tau)\rangle=\sum_{\sigma,\tau}w_\sigma w_\tau\,k(z_\sigma,z_\tau)$, Rao's quadratic entropy with
+similarity matrix $Z_{\sigma\tau}=k(z_\sigma,z_\tau)$, whose order-2 Hill form is the Leinster--Cobbold
+diversity. With $k\to\delta$, $Z\to I$ and the sum collapses to $\sum_\sigma w_\sigma^2=1/n_{\mathrm{eff}}$;
+under read weighting that is $1/{}^2D$. A finite bandwidth makes near-duplicates $\sigma\approx\tau$ contribute
+$k\approx1$ off-diagonal, damping their joint weight. \end{proof}
+
+This is the unification: the depth-robust backbone $\Phi_1$ and a $\varphi$-aware diversity are the first moment
+and the squared length of the \emph{same} mean embedding. Diversity that respects sequence similarity costs
+nothing beyond the backbone.
+
+\subsection{Interactions live in the second moment}\label{sec:samp-interact}
+
+Any functional of the marginal measure $\rho_S$ is blind to \emph{which} clonotypes co-occur --- yet
+co-occurrence is the signature of shared selection.
+
+\begin{proposition}[Second-order structure and its necessity]\label{prop:interact}
+No functional of the first moment $\mu_{\rho_S}$ distinguishes two repertoires with the same marginal clonotype
+measure but different joint co-occurrence; the compressed second moment $\Sigma_S=\sum_\sigma w_\sigma\,
+\psi(z_\sigma)\psi(z_\sigma)^\top$ (a codebook-free Fisher vector \cite{Perronnin2007,Jegou2010}) does. Public,
+{\scshape HLA}-restricted clusters \cite{Emerson2017,DeWitt2018,Glanville2017} are exactly such second-order
+structure.
+\end{proposition}
+\begin{proof}
+$\mu_{\rho_S}$ depends on $\rho_S$ only through its first moment $\int\psi\,d\rho$, so two samples with equal
+marginals but different pairwise co-occurrence share it and no function of it separates them. The second moment
+$\Sigma_S=\int\psi\psi^\top d\rho_S$ is the uncentred covariance of the feature cloud --- the Gaussian
+Fisher-vector / second-order pooling statistic, codebook-free here because $\psi$ is a fixed random basis rather
+than a learned {\scshape GMM}. Convergent {\scshape HLA}-restricted responses deposit correlated mass in specific
+$\varphi$-regions, which $\Sigma_S$ (and not $\mu_{\rho_S}$) records. \end{proof}
+
+Two routes exploit this and mirpy treats them as co-equal. The unsupervised route ships $\Sigma_S$ (or its
+leading spectrum) as a third block. The supervised route replaces the fixed pool by a learned
+permutation-invariant set network --- Set Transformer inducing points or {\scshape DeepRC} attention
+\cite{Lee2019,Widrich2020} --- whose heads learn the public-cluster detectors directly.
+
+\subsection{{\normalfont\scshape HLA} conditioning}\label{sec:samp-hla}
+
+\begin{proposition}[{\scshape HLA}-restricted overlap]\label{prop:hla}
+Let an antigen response occupy an embedding ridge $R$ presented only by {\scshape HLA} type $h$. Its contribution
+to $\langle\mu_{\rho_S},\mu_{\rho_{S'}}\rangle$ is proportional to
+$\mathds{1}[h\in\mathrm{HLA}(S)]\,\mathds{1}[h\in\mathrm{HLA}(S')]$: two samples share the ridge's mass only when
+both carry $h$. Hence {\scshape CMV}$^{+}$ repertoires are close on the {\scshape CMV} ridge only within an
+{\scshape HLA}-matched stratum, and the appropriate distance is an {\scshape HLA}-stratified {\scshape MMD} (or
+plain {\scshape MMD} with {\scshape HLA} appended as a covariate).
+\end{proposition}
+\begin{proof}
+A response-specific receptor enters $\rho_S$ only if its clone was selected, which requires the presenting allele
+$h$; so the ridge-$R$ mass of $\mu_{\rho_S}$ vanishes unless $h\in\mathrm{HLA}(S)$. The ridge term of
+$\langle\mu_{\rho_S},\mu_{\rho_{S'}}\rangle=\sum_{\sigma,\tau}w_\sigma w'_\tau k(z_\sigma,z_\tau)$ is a product of
+the two ridge masses, hence carries the indicator product. Stratifying the {\scshape MMD} by {\scshape HLA} match
+restores specificity --- the mechanism behind the {\scshape CMV}/{\scshape HLA} signal of \cite{Emerson2017}. \end{proof}
+
+\subsection{The codebook-free limit of the graph--cluster--histogram heuristic}\label{sec:samp-codebook}
+
+A common recipe builds a global clonotype graph, clusters it into $K$ classes, and represents a sample as its
+histogram over classes; its weakness is the arbitrary $K$ and clustering rule. The kernel mean embedding is the
+principled limit of exactly this recipe.
+
+\begin{proposition}[Soft assignment removes $K$]\label{prop:codebook}
+A hard-assignment bag-of-clusters ({\scshape VLAD}/Fisher) histogram over $K$ codewords converges, as
+$K\to\infty$ with soft ({\scshape RBF}) assignment, to the kernel mean embedding $\mu_{\rho_S}$ of
+Eq.~\eqref{eq:kme}; the random-Fourier map $\psi$ realises this limit in $D$ fixed coordinates with no clustering
+step.
+\end{proposition}
+\begin{proof}
+Soft assignment bins mass by $c_k(z)=k(z,\mu_k)/\sum_l k(z,\mu_l)$ over codewords $\{\mu_k\}$; as the codebook
+densifies, $\sum_\sigma w_\sigma c_k(z_\sigma)$ is a Nadaraya--Watson estimate of $\rho_S$ against the kernel,
+whose infinite-codebook limit is $\int k(\cdot,z)\,d\rho_S=\mu_{\rho_S}$. {\scshape RFF} approximates $k$ by
+$\psi^\top\psi$ (Eq.~\eqref{eq:rff}), so $\mu_{\rho_S}$ is the $D$-vector $\Phi_1$, computed without choosing $K$
+or clustering. {\scshape VLAD}/Fisher vectors are the finite-$K$, first/second-order truncations of this limit
+\cite{Jegou2010,Perronnin2007}. \end{proof}
+
+The answer to ``which $K$, which clustering'' is therefore: none. The soft infinite-codebook limit is a closed
+form (the {\scshape RFF} mean embedding), and the graph--cluster--histogram methods are its truncations.
+
+\begin{remark}[Optimal transport as the geometry-faithful alternative]\label{rem:samplot}
+The mean embedding compares repertoires by their first moment; when the geometry of the rare tail matters more
+than depth-robustness, \emph{linear optimal transport} \cite{Wang2013,Kolouri2021} gives the natural competitor
+--- a fixed Euclidean vector (the barycentric transport map from a fixed reference measure to $\rho_S$) whose
+distance approximates the Wasserstein metric on embedding space. It is more tail-faithful but pays an
+$n^{-1/d}$ empirical-convergence price, so it trades the depth-robustness of Prop.~\ref{prop:kme} for geometry;
+mirpy keeps it as an add-on, not the backbone.
+\end{remark}
+
+\subsection{Decoupling depth and batch from biological signal}\label{sec:samp-decouple}
+
+A phenotype signal --- age, {\scshape CMV} status --- rides on two technical nuisances that also move $\Phi$
+but are not biology: \emph{depth} (how deeply the sample was sequenced) and \emph{batch} (which platform,
+primer set, and pipeline produced it). The measure view separates all three. Model the observed sample as the
+true repertoire measure passed through depth thinning and then a batch distortion,
+\begin{equation}\label{eq:nuisance}
+  \rho^{\mathrm{obs}}_S \;=\; \mathcal B_{\mathrm{batch}}\!\big(\mathrm{Thin}_N(\rho^{\mathrm{true}}_S)\big),
+\end{equation}
+where $\mathrm{Thin}_N$ is Poisson/hypergeometric subsampling to depth $N$ (\S\ref{sec:dens-depth},
+Prop.~\ref{prop:depth}) and $\mathcal B_{\mathrm{batch}}$ reweights the measure by a bounded, batch-specific
+field $b(z)>0$ (primer efficiency, {\scshape GC}/length amplification bias) shared by every sample run in that
+batch.
+
+\paragraph{Depth is estimation variance, not bias} Thinning does not change the target $\mu_P$; it only lowers
+the effective sample size, so by Prop.~\ref{prop:kme} it contributes a fluctuation of size
+$O(n_{\mathrm{eff}}^{-1/2})$ and nothing systematic. Reporting diversity at a common coverage rather than a
+common depth (Prop.~\ref{prop:antag}) removes the residual depth dependence of the diversity block. Depth is
+therefore a bounded, standardisable \emph{variance}.
+
+\paragraph{Batch is a shared shift that cancels in contrasts} Batch is a genuine bias, but a structured one.
+
+\begin{proposition}[Within-batch contrasts are batch-free]\label{prop:batch}
+Under Eq.~\eqref{eq:nuisance} with batch field $b$ shared by all samples in a batch: \emph{(i)} the raw mean
+embedding is confounded, $\mu^{\mathrm{obs}}_S=\int\psi\,b\,d\rho^{\mathrm{true}}_S\big/\!\int
+b\,d\rho^{\mathrm{true}}_S$; but \emph{(ii)} any \emph{within-batch contrast} is invariant to $b$: the density
+ratio of two same-batch samples has $b$ cancel,
+$\rho^{\mathrm{obs}}_A/\rho^{\mathrm{obs}}_B=\rho^{\mathrm{true}}_A/\rho^{\mathrm{true}}_B$, and to first order
+the mean difference $\mu^{\mathrm{obs}}_A-\mu^{\mathrm{obs}}_B$ removes the shared shift.
+\end{proposition}
+\begin{proof}
+(i) is the pushforward of $\rho^{\mathrm{true}}_S$ under the reweighting $b$. (ii) In the ratio
+$\rho^{\mathrm{obs}}_A/\rho^{\mathrm{obs}}_B$ the common factor $b$ occurs in numerator and denominator and
+cancels pointwise. Writing the multiplicative bias in the feature mean as an additive log-scale shift,
+$\mu^{\mathrm{obs}}_S=\mu^{\mathrm{true}}_S+\delta_{\mathrm{batch}}+o(\norm{b-1})$ with $\delta_{\mathrm{batch}}$
+identical for every sample in the batch, so the within-batch difference cancels $\delta_{\mathrm{batch}}$. This
+is the shared-field cancellation of Prop.~\ref{prop:diffcancel} with the selection field $q$ there replaced by
+the batch field $b$. \end{proof}
+
+Proposition~\ref{prop:batch} dictates the design (Fig.~\ref{fig:sampbatch}). \emph{Prefer a within-batch or
+paired design} --- run case and control in the same batch --- so the biological contrast is batch-free by
+construction. Where that is impossible, two fallbacks apply: \emph{covariate adjustment}, residualising $\Phi$
+on batch indicators or stratifying the {\scshape MMD} by batch exactly as it is stratified by {\scshape HLA}
+in Prop.~\ref{prop:hla}; and \emph{reference normalisation}, dividing each sample's density by the shared
+$\Pgen$ pushforward $f_{\mathrm{gen}}$ (\S\ref{sec:density}), which removes the multiplicative bias common to
+the generation background. In every case the operative object is a \emph{contrast}, never a raw position.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2mm]}]
+  \def\vx{1.5}\def\vy{0.55}
+  \coordinate (a1) at (0,0.15);
+  \coordinate (b1) at (\vx,0.15+\vy);
+  \coordinate (a2) at (0.75,1.95);
+  \coordinate (b2) at (0.75+\vx,1.95+\vy);
+  \draw[->,dashed,cGray,thick] (a1) -- (a2)
+    node[midway,left,cGray,font=\scriptsize] {$\delta_{\mathrm{batch}}$};
+  \draw[->,cTeal,very thick] (a1) -- (b1)
+    node[midway,below right=-1pt,cTeal!55!black,font=\scriptsize] {$v$};
+  \draw[->,cOrange,very thick] (a2) -- (b2)
+    node[midway,above left=-1pt,cOrange!70!black,font=\scriptsize] {$v$};
+  \fill[cTeal] (a1) circle(2.6pt);   \draw[cTeal,thick,fill=white]   (b1) circle(2.6pt);
+  \fill[cOrange] (a2) circle(2.6pt); \draw[cOrange,thick,fill=white] (b2) circle(2.6pt);
+  \node[anchor=west,align=left,font=\scriptsize] at (3.3,1.55)
+    {\textbullet\ filled $=$ case, \ $\circ$ open $=$ control\\[2pt]
+     batch 1 (\textcolor{cTeal!55!black}{teal}), batch 2 (\textcolor{cOrange!70!black}{orange})\\[2pt]
+     absolute positions differ by the batch\\ shift $\delta_{\mathrm{batch}}$, but the biological\\
+     contrast $v=$ case$\to$control is identical};
+  \draw[->,cGray] (-0.4,-0.35) -- (2.6,-0.35) node[right,font=\scriptsize]{embedding coordinate 1};
+\end{tikzpicture}
+\caption{Batch effects cancel in a within-batch contrast (Prop.~\ref{prop:batch}). Two batches sit at different
+absolute positions in embedding space --- the batch shift $\delta_{\mathrm{batch}}$ moves a whole batch
+together --- so raw sample positions are confounded. But the case$\to$control vector $v$ (the biological effect)
+is the \emph{same} in both batches, so a within-batch (paired) contrast recovers it free of $\delta$. This is
+the sample-level image of the differential control of \S\ref{sec:dens-diff}.}
+\label{fig:sampbatch}
+\end{figure}
+
+\paragraph{The decomposition} Depth and batch together give
+\begin{equation}\label{eq:decomp}
+  \Phi_{\mathrm{obs}}(S)\;=\;\underbrace{\Phi_{\mathrm{bio}}(S)}_{\text{signal}}
+  \;+\;\underbrace{\varepsilon_{\mathrm{depth}}}_{O(n_{\mathrm{eff}}^{-1/2}),\ \text{Prop.~\ref{prop:kme}}}
+  \;+\;\underbrace{\delta_{\mathrm{batch}}}_{\text{batch-shared, Prop.~\ref{prop:batch}}},
+\end{equation}
+so a phenotype is read by a within-batch (or batch-adjusted) contrast, standardised to a common coverage, and
+tested against a label-permutation null --- depth entering only as the variance the permutation test already
+accounts for, and batch removed by the contrast.
+
+\paragraph{Course of action} The default $\Phi(S)$ concatenates three blocks, each owning one requirement:
+the {\scshape RFF} kernel mean $\Phi_1$ (backbone; (a),(b)), the coverage-standardised Hill profile $\Phi_2$
+((c)), and the second moment $\Sigma_S$ ((d)), with a learned set network as the co-equal alternative to
+$\Sigma_S$. Sample distance is {\scshape MMD}, {\scshape HLA}-stratified when antigen specificity is the target.
+Every default is derived (Table~\ref{tab:sample}): frequencies not counts for scale-freeness
+(Prop.~\ref{prop:kme}), a concave $g$ for outlier-robust weighting (\S\ref{sec:dens-abund}), bandwidth from the
+one-substitution scale $r_1$ (\S\ref{sec:density}), and coverage- not depth-standardised diversity
+(Prop.~\ref{prop:antag}). The propositions' empirical counterparts --- the $n_{\mathrm{eff}}^{-1/2}$
+depth-robustness curve (Prop.~\ref{prop:kme}), the $n_{\mathrm{eff}}\!=\!{}^qD$ identity (Prop.~\ref{prop:antag}),
+{\scshape HLA}-stratified {\scshape CMV} separation (Prop.~\ref{prop:hla}), and batch cancellation under a
+within-batch contrast (Prop.~\ref{prop:batch}) --- are validated by the forthcoming \code{mir/repertoire.py}
+and its depth-robustness, aging, and {\scshape CMV}/{\scshape HLA} benchmarks.
+
+\begin{table}[h]
+  \centering
+  \caption{Sample-level embedding $\Phi(S)$: each choice traces to a proposition rather than to tuning.}
+  \label{tab:sample}
+  \begin{tabular}{lll}
+    \toprule
+    Step & Choice & Justification \\
+    \midrule
+    weight $g(a)$ & $\log(1{+}a)$ / Anscombe (concave) & outlier/Zipf robustness (\S\ref{sec:dens-abund}) \\
+    pooling & frequency-weighted sum & order-invariant + scale-free (Prop.~\ref{prop:sampinv},~\ref{prop:kme}) \\
+    backbone $\Phi_1$ & {\scshape RFF} kernel mean, $D\!\approx\!1$--$4$k & depth-robust $O(n_{\mathrm{eff}}^{-1/2})$; codebook-free (Prop.~\ref{prop:kme},~\ref{prop:codebook}) \\
+    bandwidth & $r_1$ (one-substitution scale) & matches the sequence metric (\S\ref{sec:density}) \\
+    diversity $\Phi_2$ & $\{^0D,{}^1D,{}^2D\}$ at common $\hat C^\ast$ & depth$\leftrightarrow$diversity resolved (Prop.~\ref{prop:antag}) \\
+    interaction & $\Sigma_S$ or Set-Transformer/{\scshape DeepRC} & co-occurrence (Prop.~\ref{prop:interact}) \\
+    distance & {\scshape MMD}, {\scshape HLA}-stratified & metric on measures; {\scshape HLA} restriction (Prop.~\ref{prop:hla}) \\
+    $n_{\mathrm{eff}}$ & $(\sum_\sigma w_\sigma^2)^{-1}$, a Hill number & ties depth to diversity (Prop.~\ref{prop:antag}) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Codec invertibility and the limits of losslessness}\label{sec:losslessness}
+
+The forward and inverse codecs of Part~2 (\code{mir/ml/encoder.py}, \code{mir/ml/decoder.py})
+turn the embedding into a learned, approximately invertible map $x\mapsto Z\mapsto \hat x$,
+raising a sharp question: \emph{how much of the receptor does the compact code actually keep?}
+The answer separates cleanly into three notions of losslessness --- geometric, informational,
+and reconstructive --- that are measured independently by \code{mir/bench/theory.py} and answer
+different halves of the question. The punchline is that on real data the code is
+\emph{informationally} lossless (injective) while remaining only partly \emph{reconstructively}
+lossless, so every missing exact match is a limitation of the decoder and its training data, not
+of the code.
+
+\begin{definition}[Three losslessness levels]\label{def:loss}
+Fix an encoder $Z\colon\mathcal X\to\R^m$ (a receptor mapped to its compact code) and a data set
+$S\subset\mathcal X$.
+\emph{(i) Geometric} --- $Z$ preserves pairwise distance:
+$\mathrm{corr}\bigl(\norm{Z(x)-Z(y)},\,d(x,y)\bigr)\to 1$ (the T1 claim,
+\S\ref{sec:foundations}, validated by S2).
+\emph{(ii) Informational} --- $Z$ is injective on $S$: distinct receptors get distinct codes, so
+$x$ is \emph{determined} by $Z(x)$. Quantify by the collision rate at resolution $\varepsilon$,
+$\gamma(\varepsilon)=\lvert\{x\in S:\exists\,y\in S,\,y\neq x,\ \norm{Z(x)-Z(y)}<\varepsilon\}\rvert/\lvert S\rvert$.
+\emph{(iii) Reconstructive} --- a decoder $g$ recovers the sequence:
+exact-match $\mathrm{EM}(g)=\lvert\{x:g(Z(x))=x\}\rvert/\lvert S\rvert$.
+\end{definition}
+
+\paragraph{The ceiling} No decoder can beat informational losslessness: if two distinct
+receptors share a code (within the decoder's resolution $\varepsilon$), any $g$ maps both to one
+string and loses at least one, so
+\begin{equation}
+  \mathrm{EM}(g)\ \le\ 1-\gamma(\varepsilon)\ =:\ \mathrm{EM}^\star ,
+  \label{eq:ceiling}
+\end{equation}
+the \emph{information ceiling}. The gap $\mathrm{EM}^\star-\mathrm{EM}(g)$ is decoder-limited;
+$1-\mathrm{EM}^\star$ is information-limited. Measuring both localizes the loss.
+
+\subsection{Distance preservation forces injectivity}\label{sec:loss-inject}
+
+The geometric and informational levels are not independent: the lower half of the bi-Lipschitz
+bound behind T1 already \emph{implies} injectivity.
+
+\begin{proposition}[Geometric $\Rightarrow$ informational losslessness]\label{prop:inject}
+Suppose the embedding obeys a lower bound $\norm{Z(x)-Z(y)}\ge c\,\rho(x,y)$ for some $c>0$ and
+the negative-type metric $\rho=\sqrt d$ (Prop.~\ref{prop:lipschitz} and \S\ref{sec:metric}), where
+$\rho(x,y)>0$ whenever $x\neq y$. Then $Z$ is injective and $\gamma(0)=0$, so $\mathrm{EM}^\star=1$:
+the code loses no sequence information. Truncating to $m<3K$ principal components replaces $Z$ by
+$\Pi Z$ and can violate the lower bound only along the discarded $(3K-m)$-dimensional subspace ---
+the same subspace that makes reconstruction a hard inverse problem in \S\ref{sec:privacy} --- so a
+collision requires two receptors to differ \emph{only} within it.
+\end{proposition}
+\begin{proof}
+If $x\neq y$ then $\rho(x,y)>0$, so $\norm{Z(x)-Z(y)}\ge c\,\rho(x,y)>0$ and $Z(x)\neq Z(y)$;
+injectivity gives $\gamma(0)=0$. Under truncation $\norm{\Pi Z(x)-\Pi Z(y)}^2=\norm{Z(x)-Z(y)}^2-
+\norm{(I-\Pi)(Z(x)-Z(y))}^2$, which is positive unless $Z(x)-Z(y)$ lies in the range of $I-\Pi$.
+\end{proof}
+
+\paragraph{Empirically the code is injective} At the recommended operating point
+($K=2000$ prototypes, $m=300$ PCs, $98.7\%$ retained variance) \code{codec\_losslessness} finds
+\textbf{zero} collisions over held-out real {\scshape TCR}$\beta$ (collision rate $0$, so
+$\mathrm{EM}^\star=100\%$), against a median nearest-code distance of $15.4$ --- distinct receptors
+are separated by a wide margin, not sitting on the collision threshold. The truncated code is thus
+injective in practice, and by \eqref{eq:ceiling} \emph{all} of the reconstruction shortfall below
+is decoder-and-data-limited, none of it information-limited. This is the precise, measurable sense
+in which the embedding ``keeps the fine differences'' that determine specificity: single-residue
+variants never collapse to a shared code (consistent with the bounded one-substitution drift of
+\S\ref{sec:igh}).
+
+\subsection{Rate and distortion: depth saturates, data does not}\label{sec:loss-rd}
+
+Reconstructive losslessness is a rate--distortion problem \cite{Shannon1948,CoverThomas2006}: trade
+code rate (bits) against reconstruction distortion. Two floors bound it --- the fixed length-$40$
+tokenisation frame (\S\ref{sec:igh}: a receptor with $>40$ junction residues cannot round-trip, so
+$\mathrm{EM}\le$ the in-frame fraction, $100\%$ for {\scshape TCR}, $\approx99.9\%$ for real
+{\scshape IGH}) and the collision floor $\mathrm{EM}^\star$ of \eqref{eq:ceiling}.
+
+\begin{proposition}[Rate--distortion of the inverse codec]\label{prop:rd}
+Let $\delta(r)$ be the optimal expected reconstruction distortion (mean edit distance, or
+$1-\mathrm{EM}$) at code rate $r$. Then $\delta$ is non-increasing in $r$ down to the frame/collision
+floor, and increasing $r$ past the point where the retained variance already resolves the sequences
+yields no further gain. The binding rate is instead the \emph{training} rate $n$: the decoder
+estimates a map $\R^m\to\mathcal X$ from $n$ examples, and its excess risk decays in $n$.
+\end{proposition}
+\begin{proof}[Sketch]
+Monotonicity in $r$ is the data-processing bound: a higher-rate code refines the $\sigma$-algebra
+the decoder conditions on, so the Bayes-optimal reconstruction weakly improves. Saturation follows
+from Prop.~\ref{prop:inject}: once the code is injective the target is a deterministic function of
+$Z$, and added components carry no new information about $x$ (only noise the finite-sample decoder
+must fit). The $n$-dependence is the standard excess-risk decay of the learned $g$.
+\end{proof}
+
+The autoencoder viewpoint \cite{HintonSalakhutdinov2006} makes the same point: the inverse codec is
+the decoder half of an autoencoder whose \emph{encoder} is fixed to the interpretable prototype map,
+so its ceiling is set by that encoder's injectivity (Prop.~\ref{prop:inject}), and its realised
+distortion by decoder capacity and data. Table~\ref{tab:rd} shows both: distortion falls with code
+rate but plateaus near $m=300$, while the ceiling stays pinned at $100\%$.
+
+\begin{table}[t]\centering\small
+\caption{Codec losslessness on real held-out {\scshape TCR}$\beta$ ($K=2000$ prototypes,
+$n=20{,}000$). Ceiling $\mathrm{EM}^\star=1-\gamma$ is flat at $100\%$ (injective code); exact-match
+rises with code rate then saturates; edit distance is the graded distortion. Reproduced by
+\code{experiments/benchmark\_codec\_losslessness.py}.}
+\label{tab:rd}
+\begin{tabular}{rrrrrr}
+\toprule
+PCs $m$ & code bits & retained var. & ceiling $\mathrm{EM}^\star$ & exact-match & mean edit \\
+\midrule
+ 50 & 1{,}600  & 94.0\% & 100\% & 67.4\% & 0.565 \\
+100 & 3{,}200  & 96.6\% & 100\% & 78.2\% & 0.328 \\
+200 & 6{,}400  & 98.2\% & 100\% & 85.0\% & 0.206 \\
+300 & 9{,}600  & 98.7\% & 100\% & \textbf{88.9\%} & 0.155 \\
+500 & 16{,}000 & 99.3\% & 100\% & 89.5\% & 0.143 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Data is the lever} Holding the code fixed at $(K=2000,\,m\!\approx\!300)$ and growing the
+\emph{training} corpus, exact-match climbs $88.5\%\to94.1\%\to95.8\%$ at $n=20\text{k}\to50\text{k}
+\to100\text{k}$ (\code{benchmark\_lossless\_kpc.py}) --- crossing $95\%$ purely on data, with the same
+one-shot decoder and no extra bits. Prototype count $K$ saturates near $2000$ ($K=10{,}000$ regresses
+and costs an order more memory and query time), and the per-position breakdown is uniform on
+{\scshape TCR}$\beta$ (conserved anchors $99.5\%$ vs.\ variable middle $99.6\%$) because its junctions
+are short; the middle-concentrated loss appears only for long {\scshape IGH} junctions near the frame
+limit (\S\ref{sec:igh}).
+
+\paragraph{Losslessness is not compression} The code is an \emph{expansion}: $300$ float PCs is
+$\sim\!10^4$ bits against a $\sim\!63$-bit junction ($\approx15$ residues $\times\log_2 20$). The
+prototype embedding exists to \emph{linearise similarity}, not to compress; for archival exact
+recovery one simply stores the string (and the exact categorical $V$/$J$/$C$ calls). The inverse
+codec earns its keep where a differentiable, samplable sequence space is needed --- generation,
+interpolation, density modelling --- not as a lossless coder.
+
+\begin{remark}[Losslessness is privacy's mirror]\label{rem:loss-privacy}
+Prop.~\ref{prop:inject} is exactly the linkage hazard of \S\ref{sec:privacy}: the injectivity that
+lets a key-holder invert or re-identify a code is the same property that makes the code retain the
+sequence. Reconstructive losslessness (a useful codec) and re-identifiability (a privacy risk) are
+one phenomenon seen from two sides; the differential-privacy noise of Prop.~\ref{prop:dp} degrades
+both together, by design.
+\end{remark}
 
 \section{Privacy: the embedding as a keyed, lossy representation}\label{sec:privacy}
 

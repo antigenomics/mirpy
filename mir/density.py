@@ -255,6 +255,53 @@ def calibrate_radius(
     return float(np.quantile(drift, quantile))
 
 
+def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: int = 0):
+    """Approximate neighbour queries (pynndescent) for whole-repertoire scale.
+
+    Returns ``(rad, radius_out, n_bg, count_obs, lists_obs)`` matching the exact BallTree path:
+    per-obs radius ``rad``, background occupancy ``n_bg``, and two closures giving the
+    self-excluded observed-neighbour count and index lists within ``rad``. Neighbours come from a
+    kNN graph (k=``k_max``) thresholded by radius — *approximate*: recall < 1 undercounts, biasing
+    enrichment **down** (conservative). A saturated ball (all ``k_max`` neighbours inside ``rad``)
+    is undercounted and warned. For large N where exact trees are slow; use ``backend='exact'`` for
+    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[bench]`` extra).
+    """
+    from pynndescent import NNDescent
+
+    obs = np.ascontiguousarray(obs, dtype=np.float32)  # pynndescent prefers float32
+    bg = np.ascontiguousarray(bg, dtype=np.float32)
+    n_obs_total, n_bg_total = len(obs), len(bg)
+    bg_index = NNDescent(bg, metric="euclidean",
+                         n_neighbors=min(max(k_max, 16), n_bg_total - 1), random_state=seed)
+    obs_index = NNDescent(obs, metric="euclidean",
+                          n_neighbors=min(k_max, n_obs_total - 1), random_state=seed)
+    if radius is None:  # balloon: radius = k-th bg-neighbour distance, occupancy == k
+        k = min(max(int(round(lambda0 * n_bg_total / n_ref)), 1), n_bg_total)
+        rad = bg_index.query(obs, k=k)[1][:, -1].astype(np.float64)
+        n_bg = np.full(n_obs_total, k, dtype=np.int64)
+        radius_out = float(np.median(rad))
+    else:  # fixed global radius
+        rad = np.full(n_obs_total, float(radius), dtype=np.float64)
+        bd = bg_index.query(obs, k=min(k_max, n_bg_total))[1]
+        n_bg = (bd <= float(radius)).sum(1).astype(np.int64)
+        radius_out = float(radius)
+    oi, od = obs_index.query(obs, k=min(k_max, n_obs_total))  # self included (dist ~0)
+    within = od <= rad[:, None]
+    if bool(within.all(axis=1).any()):
+        import warnings
+
+        warnings.warn(f"ANN neighbour ball saturated at k_max={k_max} for some clonotypes; their "
+                      "counts are undercounted — raise k_max or use backend='exact'.", stacklevel=2)
+
+    def _count_obs():
+        return (within.sum(1) - 1).astype(np.int64)
+
+    def _lists_obs():
+        return [oi[i][within[i]] for i in range(n_obs_total)]
+
+    return rad, radius_out, n_bg, _count_obs, _lists_obs
+
+
 def neighbor_enrichment(
     obs_emb: np.ndarray,
     bg_emb: np.ndarray,
@@ -267,6 +314,7 @@ def neighbor_enrichment(
     abundance: np.ndarray | None = None,
     weight: str = "log1p",
     orphan: bool = True,
+    backend: str = "exact",
 ) -> EnrichmentResult:
     """Continuous neighbour-enrichment test in one embedding coordinate system.
 
@@ -314,6 +362,9 @@ def neighbor_enrichment(
         weight: Concave size transform ``g`` — ``"log1p"`` (default), ``"anscombe"``, or
             ``"distinct"`` (``g≡1``, ignore sizes even if ``abundance`` is given).
         orphan: When abundance-aware, combine the size p-value with the breadth p-value by Fisher.
+        backend: ``"exact"`` (default, BallTree — exact and reproducible) or ``"ann"`` (approximate
+            pynndescent kNN for whole-repertoire scale; recall < 1 undercounts, biasing enrichment
+            conservatively — see :func:`_ann_neighbors`).
 
     Returns:
         An :class:`EnrichmentResult`; ``fold`` is the (calibrated) density ratio ``E(z)``. In
@@ -324,24 +375,36 @@ def neighbor_enrichment(
     bg = np.ascontiguousarray(bg_emb, dtype=np.float64)
     n_obs_total, n_bg_total = obs.shape[0], bg.shape[0]
     n_ref = max(n_obs_total - 1, 1)
-    obs_tree, bg_tree = BallTree(obs), BallTree(bg)
 
-    if radius is None:  # balloon: fix expected background occupancy at lambda0
-        k = int(round(lambda0 * n_bg_total / n_ref))
-        k = min(max(k, 1), n_bg_total)
-        rad = bg_tree.query(obs, k=k)[0][:, -1]  # per-point radius = k-th bg-neighbour distance
-        radius_out = float(np.median(rad))
-    else:  # fixed global radius
-        rad = radius
-        radius_out = float(radius)
-    # count the *actual* background occupancy in the ball (>= k under ties), not a hardcoded k.
-    n_bg = bg_tree.query_radius(obs, rad, count_only=True).astype(np.int64)
+    if backend == "exact":
+        obs_tree, bg_tree = BallTree(obs), BallTree(bg)
+        if radius is None:  # balloon: fix expected background occupancy at lambda0
+            k = int(round(lambda0 * n_bg_total / n_ref))
+            k = min(max(k, 1), n_bg_total)
+            rad = bg_tree.query(obs, k=k)[0][:, -1]  # per-point radius = k-th bg-neighbour distance
+            radius_out = float(np.median(rad))
+        else:  # fixed global radius
+            rad = radius
+            radius_out = float(radius)
+        # count the *actual* background occupancy in the ball (>= k under ties), not a hardcoded k.
+        n_bg = bg_tree.query_radius(obs, rad, count_only=True).astype(np.int64)
+
+        def _count_obs():
+            return (obs_tree.query_radius(obs, rad, count_only=True) - 1).astype(np.int64)
+
+        def _lists_obs():
+            return obs_tree.query_radius(obs, rad, return_distance=False)
+    elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
+        rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
+            obs, bg, radius, lambda0, n_ref)
+    else:
+        raise ValueError(f"backend must be 'exact' or 'ann', got {backend!r}")
     p_bg = (n_bg + pseudocount) / (n_bg_total + pseudocount)
     expected = n_ref * p_bg
 
     weighted = abundance is not None and weight != "distinct"
     if not weighted:
-        n_obs = (obs_tree.query_radius(obs, rad, count_only=True) - 1).astype(np.int64)
+        n_obs = _count_obs()
         if calibrate == "median":
             pos = expected > 0
             c = np.median(n_obs[pos]) / np.median(expected[pos]) if pos.any() else 1.0
@@ -368,7 +431,7 @@ def neighbor_enrichment(
     if a.shape[0] != n_obs_total:
         raise ValueError(f"abundance length {a.shape[0]} != N_obs {n_obs_total}")
     g = _WEIGHTS[weight](a)
-    idx = obs_tree.query_radius(obs, rad, return_distance=False)  # neighbour index lists
+    idx = _lists_obs()  # neighbour index lists (exact BallTree or approximate ANN)
     # vectorised weighted mass: flatten the ragged neighbour lists and one bincount, instead of a
     # Python sum per point (the whole-repertoire hot path — ~400k points).
     counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=n_obs_total)

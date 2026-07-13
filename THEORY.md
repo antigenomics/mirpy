@@ -76,6 +76,52 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   `c(q)=Φ⁻¹(1−q)`); `M ≥ 5N`; PCA per-chain preset (~95% var); radius `= r₁` (median one-substitution drift);
   FDR `q* = 0.05`; Efron median recenter for P_gen, none for a differential control.
 
+- **Codec losslessness / invertibility** (Part 2, `mir.bench.theory.codec_losslessness`; appendix
+  §T.8 `sec:losslessness`). Three measurable levels — *geometric* (T1 distance preservation),
+  *informational* (`exact_ceiling = 1 − collision_rate`, decoder-independent), *reconstructive*
+  (decoder exact-match). On real held-out TRB the code is **injective** (collision_rate 0 ⇒ ceiling
+  100% at every K/PC), so every missing exact match is decoder/data-limited, none information-limited.
+  Exact-match is a rate–distortion curve that saturates by ~99% var (m≈300 PCs / K≈2000; deeper is a
+  wash, K=10000 regresses) and is driven by *training data* — n 20k→50k→100k ⇒ 0.885→0.941→0.958,
+  crossing 95% on data alone, same one-shot decoder. The code is a ~10 kbit *expansion* of a ~63-bit
+  junction, so it is not a compressor — store the string (+ exact V/J/C) for archival recovery; the
+  codec earns its keep for ML/generation. Injectivity is also the linkage hazard of the privacy
+  section (same property, opposite sign). `experiments/benchmark_lossless_{depth,kpc,codec_losslessness}.py`.
+
+- **T7 — sample-level (repertoire) embedding** (v3.x, `mir.repertoire` forthcoming; theory
+  **appendix §T.7** `sec:sample`). A whole repertoire is the weighted empirical measure
+  `ρ_S = Σ_σ w_σ δ_{φ(σ)}` on embedding space (weights `w_σ ∝ g(a_σ)`, the concave VST of T6.9). Its
+  fixed-vector embedding `Φ(S)` is a sketch of that measure = "the first two moments of `ψ(φ)` plus a
+  coverage-standardized diversity profile", three blocks each owning one requirement:
+  - *(a) order-invariance + (b) depth-robustness* — the **RFF kernel mean embedding**
+    `Φ₁ = Σ_σ w_σ ψ(φ(σ)) = μ_{ρ_S}`; converges to the population mean map at rate `n_eff^{-1/2}` with
+    `n_eff = (Σ w²)⁻¹`, so depth-robustness is set by the sample's spread, not its raw depth. Distance =
+    **MMD**. **Codebook-free** — the `K→∞` soft-assignment limit of the global-graph→cluster→histogram
+    recipe (VLAD/Fisher are its finite-K truncations), so there is no `K` and no clustering rule to choose.
+  - *(c) diversity* — coverage-standardized **Hill profile** `{⁰D,¹D,²D}` at common coverage `Ĉ*` (via
+    `vdjtools.stats.inext`). Depth-robustness and diversity are **mathematically antagonistic** (diversity
+    lives in the depth-sensitive rare tail); coverage standardization is the ecology result that reconciles
+    them, and `n_eff = ^qD` is itself a Hill number — one relation ties (b) to (c). `¹D` tracks the
+    age-related decline. Bonus: `‖μ_{ρ_S}‖²` is already an order-2 *similarity-sensitive* diversity
+    (Rao/Leinster–Cobbold), so a φ-aware diversity is the squared norm of the same backbone.
+  - *(d) HLA-linked interactions* — the compressed **second moment** `Σ_σ w_σ ψψᵀ` (codebook-free Fisher
+    vector), co-equal with a learned Set-Transformer/DeepRC attention head (`mir.ml`, torch). CMV clusters
+    are HLA-restricted, so CMV⁺ samples are close only within an **HLA-matched stratum** ⇒ use
+    HLA-stratified MMD.
+  - *(e) decoupling nuisances* — `Φ_obs = Φ_bio + ε_depth + δ_batch`: **depth** is estimation variance
+    `O(n_eff^{-1/2})` (handled by frequencies + coverage standardization); **batch** is a shared shift that
+    **cancels in a within-batch contrast** (the sample-level image of the T6 differential control) — else
+    residualize on batch / stratify MMD / normalize by the P_gen pushforward. Always compare *contrasts*,
+    not raw positions. (Variable sample length is a non-issue: the measure `ρ_S` is fixed-dimensional whatever
+    `|S|` is; cardinality re-enters only as richness `⁰D`.)
+  *Way of action (all derived — appendix Table `tab:sample`):* frequencies not counts (scale-free); concave
+  `g=log1p`/Anscombe (Zipf-robust); RFF length-scale `= r₁` (one-substitution); coverage- not
+  depth-standardized diversity; MMD, HLA-stratified for antigen specificity. *Central use case:* low-coverage
+  bulk RNA-seq (all chains, `10²–10⁴` clonotypes/chain, 100–200k clinically-annotated samples). Benchmarks
+  (`REPERTOIRE_EMBEDDING.md`): age regression (`aging` full-depth, not `aging_lite`), CMV/HLA-stratified
+  (`airr_hip` = Emerson 2017), depth-robustness (`downsample` + `aging_lite`). **Build spec:**
+  `REPERTOIRE_EMBEDDING.md`.
+
 ## Reproduced numbers (v3 pipeline)
 
 Run `python experiments/reproduce_supplementary.py` (S1–S3) and

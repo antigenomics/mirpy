@@ -103,6 +103,34 @@ def test_unknown_test_raises():
         neighbor_enrichment(obs, bg, radius=1.0, test="chi2")
 
 
+def test_unknown_backend_raises():
+    obs, bg = np.zeros((3, 2)), np.ones((3, 2))
+    with pytest.raises(ValueError, match="backend must be"):
+        neighbor_enrichment(obs, bg, radius=1.0, backend="faiss")
+
+
+@pytest.mark.integration
+def test_ann_backend_matches_exact():
+    # the approximate (pynndescent) backend agrees with exact BallTree on the hit set and signal.
+    pytest.importorskip("pynndescent")
+    import warnings
+
+    rng = np.random.default_rng(0)
+    d = 20
+    bg = rng.standard_normal((6000, d))
+    obs = rng.standard_normal((1500, d))
+    obs[:120] = np.full(d, 4.0) + 0.05 * rng.standard_normal((120, d))  # injected convergent family
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rx = neighbor_enrichment(obs, bg, backend="exact")
+        ra = neighbor_enrichment(obs, bg, backend="ann")
+    mx, ma = enriched_mask(rx), enriched_mask(ra)
+    jac = (mx & ma).sum() / max((mx | ma).sum(), 1)
+    assert jac > 0.9                                    # ann hit set ~ exact hit set
+    assert ma[:120].mean() > 0.8 and ma[120:].mean() < 0.05  # recovers injected signal
+    assert np.corrcoef(rx.n_obs, ra.n_obs)[0, 1] > 0.95
+
+
 def test_enriched_mask_criteria():
     res = EnrichmentResult(
         n_obs=np.array([5, 5, 0, 5]),
