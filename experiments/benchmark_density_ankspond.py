@@ -7,11 +7,13 @@ and is absent (or far weaker) in the B27- pool — the antigen-driven convergent
 background subtraction against a vdjtools P_gen model is meant to surface.
 
 Data: isalgo/airr_ankspond (new/ CD8 repertoires). Downloaded + cached (needs [bench]).
-Run:  python experiments/benchmark_density_ankspond.py
+Run:  python experiments/benchmark_density_ankspond.py [weight]   # weight: distinct|log1p|anscombe
+      (weight!=distinct folds in clone sizes — the abundance-aware channel, §T.6 sec:dens-abund)
 """
 
 from __future__ import annotations
 
+import sys
 import time
 
 import polars as pl
@@ -49,25 +51,26 @@ def _motif(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _enriched(model, obs: pl.DataFrame) -> pl.DataFrame:
+def _enriched(model, obs: pl.DataFrame, weight: str = "distinct") -> pl.DataFrame:
     bg = generate_background("TRB", min(max(5 * obs.height, 5000), BG_CAP), seed=0)
     space, obs_emb, bg_emb = fit_density_space(
         model, obs, bg, n_components=N_COMPONENTS, space="full", pca_fit_cap=40000)
-    res = neighbor_enrichment(obs_emb, bg_emb, lambda0=5.0)
+    abund = obs["duplicate_count"].to_numpy() if weight != "distinct" else None
+    res = neighbor_enrichment(obs_emb, bg_emb, lambda0=5.0, abundance=abund, weight=weight)
     return obs.with_columns(
         pl.Series("fold", res.fold), pl.Series("qvalue", res.qvalue)
     ).filter(enriched_mask(res))
 
 
-def main() -> None:
+def main(weight: str = "distinct") -> None:
     t0 = time.perf_counter()
     model = TCREmp.from_defaults("human", "TRB", n_prototypes=N_PROTO)
     result = {}
-    print(f"{'group':<8}{'clones':>8}{'motif_in':>10}{'hits':>7}{'motif_hits':>12}{'top_rank':>9}")
+    print(f"weight={weight}\n{'group':<8}{'clones':>8}{'motif_in':>10}{'hits':>7}{'motif_hits':>12}{'top_rank':>9}")
     for group, files in (("B27+", B27_POS), ("B27-", B27_NEG)):
         obs = _pool(files)
         motif_in = _motif(obs).height
-        hits = _enriched(model, obs)
+        hits = _enriched(model, obs, weight=weight)
         mhits = _motif(hits)
         # rank of the best motif hit among all hits by fold enrichment (1 = most enriched)
         ranked = hits.sort("fold", descending=True).with_row_index("rank")
@@ -82,4 +85,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else "distinct")
