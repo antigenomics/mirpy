@@ -164,12 +164,17 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `vdjtools.stats.inext`, `preprocess.downsample`, `ml.bundle` hashing. Tests
   `tests/test_{repertoire,set_encoder}.py`; benchmarks `experiments/benchmark_repertoire_{aging,depth,cmvhla,hla}.py`
   (shared `_cohort.py`; `airr_benchmark` aging 79, `airr_hip` Emerson 2017 786). **Key empirical lesson**
-  (`THEORY.md` T7): depth-robustness holds (`prop:kme`, log-log slope −0.55); but **age & CMV are clone-size
-  (diversity) phenomena** — a Hill/coverage summary dominates (CMV AUC 0.94 vs Φ ≤0.58), and for CMV it is
-  *real memory-inflation clonality*, not an age confound (age-matched: age-only 0.39, diversity 0.94). The
-  clonotype-identity payoff shows on **HLA-A\*02** (diversity 0.47 = chance, **second-moment 0.64**) and via
-  `class_witness` (surfaces A\*02 public `CASS…EQYF` motifs) — the embedding earns its keep in the second
-  moment / learned attention / supervised witness, NOT the first moment. Spec: `REPERTOIRE_EMBEDDING.md`.
-  **TODO**: full-cohort runs (all 79 aging / 786 HIP at depth) for headline numbers; HLA-allele panel;
-  epitope/MHC; scale.
+  (`THEORY.md` T7; **all adversarially verified — two over-claims caught & corrected**): depth-robustness holds
+  (`prop:kme`, slope −0.55) but is a **generic KME/MMD Monte-Carlo rate**, not embedding-specific. **Age & CMV
+  are clone-size (diversity) phenomena** — a Hill/coverage summary dominates (CMV AUC **0.83±0.05** 50-fold CV
+  n=240 vs Φ blocks 0.59–0.63), real memory-inflation clonality not an age confound (age-matched age-only 0.45);
+  Φ₁ discards clone size *by design* so this isn't an embedding defeat. **HLA-A\*02**: diversity 0.45=chance,
+  clonotype blocks modestly higher (second-moment **0.535±0.08**) — *direction* favors clonotype-identity but
+  **CIs overlap, not decisively separated** (the earlier single-split 0.64 was noise). **Spike-in** (VDJdb
+  NLVPMVATV into shallow P_gen): **~50% recall at RNA-seq depth, FPR ~1.2%**, cross-metric (Hamming-select /
+  embedding-detect; an earlier same-embedding version was circular, 72%→50%). `class_witness` surfaces coherent
+  `CASS…EQYF` motifs; YF real-data witness marginal (0.57). Net: CI-backed value = **depth-robustness + fixed
+  modality**; clonotype-identity payoff real-but-weak, in the 2nd moment / witness / density not the first moment.
+  Verification workflow: `wf_06465c6e`. Spec: `REPERTOIRE_EMBEDDING.md`. **TODO**: larger HIP cohort/depth to
+  establish the weak HLA signal; biological-control FPR for spike-in; HLA-allele panel; epitope/MHC; scale.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
