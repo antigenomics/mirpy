@@ -1,0 +1,10 @@
+,count,freq,cdr3nt,cdr3aa,v,d,j,VEnd,DStart,DEnd,JStart
+0,40,0.3,xx,CRFMA,TRBV2,.,TRBJ1-1,-1,-1,-1,-1
+0,20,0.1,xy,CRFMA,TRBV2,.,TRBJ1-1,-1,-1,-1,-1
+1,50,0.25,xx,CTFFA,TRBV2,.,TRBJ1-1,-1,-1,-1,-1
+2,30,0.10,xx,CGGGF,TRBV11,.,TRBJ2-1,-1,-1,-1,-1
+2,10,0.05,xy,CGGGF,TRBV11,.,TRBJ2-1,-1,-1,-1,-1
+3,30,0.15,xx,CLKMA,TRBV2,.,TRBJ2-1,-1,-1,-1,-1
+3,20,0.10,xy,CGGRF,TRBV2,.,TRBJ2-1,-1,-1,-1,-1
+4,10,0.05,xx,CKMLA,TRBV28,.,TRBJ2-7,-1,-1,-1,-1
+4,10,0.05,xx,CGGGG,TRBV28,.,TRBJ2-7,-1,-1,-1,-1
