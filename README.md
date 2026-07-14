@@ -122,6 +122,42 @@ At whole-repertoire scale, pass `neighbor_enrichment(..., backend="kdtree")` (ex
 5–9× faster than the default BallTree) or `backend="ann"` (approximate pynndescent, ~30× faster
 past ~10⁵ clones, trading a small conservative undercount); see `experiments/benchmark_ann.py`.
 
+## Sample-level (repertoire) embedding (`mir.repertoire`)
+
+One fixed vector `Φ(S)` per **repertoire** — an order-invariant multiset of clonotypes with clone
+sizes — depth-robust into the low-coverage bulk-RNA-seq regime (Theory §T.7). `Φ(S)` sketches the
+empirical measure `ρ_S = Σ_σ w_σ δ_{φ(σ)}` (concave frequency weights, so one hyperexpanded clone
+can't dominate) in three blocks: an RFF **kernel mean** (depth-robust, codebook-free — no `K`, no
+clustering), a coverage-standardized **Hill diversity** profile, and a **second-moment** Fisher
+vector carrying clonotype co-occurrence (HLA-linked public structure). Repertoire distance is the
+**MMD** `‖Φ₁(S) − Φ₁(S')‖`.
+
+```python
+from mir.repertoire import fit_repertoire_space, sample_embedding, mmd_matrix, class_witness
+from mir.embedding.tcremp import TCREmp
+import polars as pl
+
+model  = TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
+space  = fit_repertoire_space(model, pl.concat(samples))   # ONE basis for the whole cohort
+embs   = [sample_embedding(space, s) for s in samples]     # Φ(S): mean ‖ diversity ‖ second moment
+D      = mmd_matrix(embs, unbiased=True)                    # pairwise repertoire distance (unbiased MMD²)
+motifs = class_witness(space, pos_samples, neg_samples, candidates)   # public clones separating two groups
+```
+
+**Comparability invariant** (as with the codecs / density): every sample in a cohort must be
+embedded through *one* prototype set and *one* PCA+RFF basis, or the measures are incomparable —
+`fit_repertoire_space` fits that basis once and `RepertoireSpace` refuses a prototype-hash mismatch.
+
+Use the **unbiased** MMD (`unbiased=True`) whenever samples differ in depth/diversity — the biased
+V-statistic's `1/n_eff` self-term otherwise inflates low-diversity samples and fakes a signal. When a
+nuisance batch is present, compare *within-batch* contrasts (residualize `Φ` on the batch indicator):
+a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g. HLA) survives. The
+empirical rule of thumb — **diversity for how-even, the embedding for which-clones**: clone-size
+phenotypes (age, CMV) are a diversity summary's turf, while clonotype identity (HLA — strongest in
+TRA and class II) lives in the second moment / witness. A learned co-equal set encoder
+(Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). See
+`experiments/benchmark_repertoire_*.py`, `BENCHMARKS.md`, and `THEORY.md` T7.
+
 ## Reproduce the paper
 
 ```bash
