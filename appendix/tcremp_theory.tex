@@ -25,6 +25,7 @@
 
 \linespread{1.15}
 \setlength{\parindent}{2em}
+\setlength{\emergencystretch}{3em}  % absorb long \texttt filenames / tight lines without margin overflow
 \titleformat{\section}{\normalfont\large\scshape\bfseries}{\thesection.}{0.6em}{}
 \titleformat{\subsection}{\normalfont\scshape\bfseries}{\thesubsection.}{0.5em}{}
 \titleformat{\paragraph}[runin]{\bfseries\scshape}{}{0pt}{}[.]
@@ -46,6 +47,20 @@
 \newcommand{\code}[1]{\texttt{#1}}
 \DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
 \DeclareMathOperator{\Cov}{Cov}
+
+% Part dividers grouping the sections (single receptor / populations / inversion),
+% in the small-caps house style. #1 numeral, #2 title, #3 one-line tagline.
+\newcommand{\apppart}[3]{%
+  \par\addvspace{2.4em}%
+  {\centering
+    {\color{cGray}\rule{0.45\linewidth}{0.4pt}}\par\vspace{0.7em}%
+    {\scshape\large Part~#1}\par\vspace{0.25em}%
+    {\scshape\LARGE #2}\par\vspace{0.5em}%
+    {\itshape\small\parbox{0.78\linewidth}{\centering #3}\par}\vspace{0.65em}%
+    {\color{cGray}\rule{0.45\linewidth}{0.4pt}}\par
+  }%
+  \addvspace{1.8em}\par\nobreak
+}
 
 \title{Prototype embeddings for immune receptors:\\
   geometry, statistics, and the {\normalfont\scshape TCREMP} coordinate system}
@@ -85,6 +100,10 @@ the hardest chain (\S\ref{sec:igh}); and the pushforward of $\Pgen$ onto embeddi
 model for density-based background subtraction (\S\ref{sec:density}). Every quantitative claim is
 reproduced in-repo (\S\ref{sec:insights}, Table~\ref{tab:reproduced}) by \code{mir/bench/theory.py}.
 \end{abstract}
+
+\apppart{I}{The single-receptor embedding}{Mapping one receptor to a point: the geometry of
+distance-to-prototype coordinates, the metric behind the alignment dissimilarity, and the immune-receptor
+biology those coordinates encode.}
 
 \section{Foundations of prototype embeddings}\label{sec:foundations}
 
@@ -128,10 +147,11 @@ i.e.\ the coordinates are H\"older-$\tfrac12$ in $d$ with constant $2\,\mathrm{d
 $1$-Lipschitz in the induced metric $\rho=\sqrt d$, $\lvert\rho(x,p)-\rho(y,p)\rvert\le\rho(x,y)$.
 Consequently
 \begin{equation}\label{eq:upper}
-  \norm{\varphi(x)-\varphi(y)}_\infty \;\le\; 2\,\mathrm{diam}\,\sqrt{d(x,y)}
-  \qquad\text{and}\qquad
-  D(x,y)=\norm{\varphi(x)-\varphi(y)}_2 \;\le\; 2\,\mathrm{diam}\,\sqrt{K\,d(x,y)}
+\begin{aligned}
+  \norm{\varphi(x)-\varphi(y)}_\infty &\;\le\; 2\,\mathrm{diam}\,\sqrt{d(x,y)},\\
+  D(x,y)=\norm{\varphi(x)-\varphi(y)}_2 &\;\le\; 2\,\mathrm{diam}\,\sqrt{K\,d(x,y)}
   = 2\,\mathrm{diam}\,\sqrt{K}\,\rho(x,y).
+\end{aligned}
 \end{equation}
 \end{proposition}
 \begin{proof}
@@ -463,7 +483,7 @@ shows tracks structural (C$\alpha$ {\scshape RMSD}) similarity --- with no train
 learned network has only three options: (i) recover $\Pgen$, which does not separate antigens
 (Prop.~\ref{prop:nofreelunch}); (ii) be supervised by scarce antigen labels, abandoning the unsupervised
 premise and the unlimited $\Pgen$-sampling that makes the approach attractive; or (iii) regress onto the
-alignment geometry itself --- which is exactly the Part~2 forward codec (\code{mir/ml/encoder.py}), a network
+alignment geometry itself --- which is exactly the neural forward codec (\code{mir/ml/encoder.py}), a network
 trained to reproduce $\varphi$. Option (iii) is not a competitor to the prototype embedding but an
 accelerator of it: the network learns to \emph{compute} the distance functional quickly, not to discover a
 better coordinate, and its embeddings are only as good as the $\varphi$ it approximates. In this precise
@@ -603,7 +623,7 @@ traces a bounded path in embedding space --- sublinear in the accumulated mutati
 well-approximated by a line over the biological {\scshape SHM} range (T5, linear $R^2\approx0.97$--$0.99$)
 --- so the embedding preserves lineage proximity --- the substrate for density and trajectory analysis
 (\S\ref{sec:density}). Second, it explains why {\scshape IGH} is the hardest chain for the neural codec
-of Part~2 (forward cosine $0.79$, exact reconstruction $0.16$, against $\ge0.93$/$0.50$ for {\scshape
+(forward cosine $0.79$, exact reconstruction $0.16$, against $\ge0.93$/$0.50$ for {\scshape
 TCR}): (i) {\scshape IGH} CDR3s are long, so the fixed-length-40 gap-block tokenisation
 (\code{mir/ml/tokenize.py}) truncates an appreciable fraction of the variable middle, discarding
 information; (ii) {\scshape SHM} inflates the junction distance by $\Theta(m)$, so germline-rearrangement
@@ -613,6 +633,10 @@ per-receptor entropy is higher. The remedy the theory suggests is to separate th
 germline distance (V/J, Prop.~\ref{prop:rank}) from the mutation-inflated junction distance and to
 augment the prototype set with a mutation model, i.e.\ to sample prototypes from $\Pgen$ pushed through
 $M_m$ rather than from $\Pgen$ alone.
+
+\apppart{II}{From receptors to repertoires}{Analysing many receptors at once: the density of the receptor
+cloud in embedding space, the embedding of a whole repertoire as a single vector, and its form as a
+neural-network modality.}
 
 \section{Density geometry and background subtraction}\label{sec:density}
 
@@ -736,7 +760,7 @@ background $y{=}0$, a calibrated classifier $\eta$ satisfies
   \operatorname{logit}\eta(z)=\log E(z)+\log\tfrac{\pi}{1-\pi}
   \;\cite{Menon2016,GutmannHyvarinen2012},
 \end{equation}
-so any discriminator --- featurised by the forward codec $\varphi$ of Part~2 (\code{mir/ml/encoder.py}) ---
+so any discriminator --- featurised by the neural forward codec $\varphi$ (\code{mir/ml/encoder.py}) ---
 recovers $\log E$ up to the known imbalance offset and scales to $10$--$100$M receptors; normalising flows
 \cite{Papamakarios2021} give the two densities explicitly when wanted. The shared offset $\log(N/M)$ is why
 the control-background and $\Pgen$-background detectors estimate the \emph{same} object (\S\ref{sec:dens-poisson}).
@@ -1102,7 +1126,7 @@ The theory fixes every parameter, giving a graph-free reincarnation of {\scshape
   motif for label enrichment. Process the full repertoire (Prop.~\ref{prop:depth}).
 \end{enumerate}
 Every default traces to a theorem rather than to tuning; the same estimand $E=f_{\mathrm{obs}}/f_{\mathrm{gen}}$
-underlies the graph tests it replaces, the neural classifier of Part~2, and the smooth relative-ratio field.
+underlies the graph tests it replaces, the neural classifier, and the smooth relative-ratio field.
 
 \section{Sample-level (repertoire) embedding}\label{sec:sample}
 
@@ -1944,6 +1968,7 @@ the embedding for which clones} --- holds only when read through contrasts.
   \centering
   \caption{Sample-level embedding $\Phi(S)$: each choice traces to a proposition rather than to tuning.}
   \label{tab:sample}
+  {\small
   \begin{tabular}{lll}
     \toprule
     Step & Choice & Justification \\
@@ -1957,7 +1982,7 @@ the embedding for which clones} --- holds only when read through contrasts.
     distance & {\scshape MMD}, {\scshape HLA}-stratified & metric on measures; {\scshape HLA} restriction (Prop.~\ref{prop:hla}) \\
     $n_{\mathrm{eff}}$ & $(\sum_\sigma w_\sigma^2)^{-1}$, a Hill number & ties depth to diversity (Prop.~\ref{prop:antag}) \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
 \end{table}
 
 \section{Sample embeddings as a neural-network modality}\label{sec:samp-nn}
@@ -2043,9 +2068,12 @@ then feeds an {\scshape mlp} head (age / {\scshape cmv} / {\scshape hla}) or fus
 \label{fig:sampnn}
 \end{figure}
 
+\apppart{III}{Inverting the embedding, and its limits}{Turning the map around: recovering sequences from the
+embedding, the privacy that reconstruction implies, and the theoretical frontier that remains open.}
+
 \section{Codec invertibility and the limits of losslessness}\label{sec:losslessness}
 
-The forward and inverse codecs of Part~2 (\code{mir/ml/encoder.py}, \code{mir/ml/decoder.py})
+The forward and inverse neural codecs (\code{mir/ml/encoder.py}, \code{mir/ml/decoder.py})
 turn the embedding into a learned, approximately invertible map $x\mapsto Z\mapsto \hat x$,
 raising a sharp question: \emph{how much of the receptor does the compact code actually keep?}
 The answer separates cleanly into three notions of losslessness --- geometric, informational,
@@ -2205,7 +2233,7 @@ reconstruction reduces to a hard inverse problem stacked on an irreversible comp
 key-holder --- or anyone able to embed a reference sequence under the same $(P,W)$ --- can (a) test
 membership by embedding a candidate and matching it against $Z$ (re-identification / membership inference),
 (b) link the same patient across releases through preserved distances, and (c) invert approximately with a
-trained decoder: the Part~2 inverse codec (\code{mir/ml/decoder.py}) demonstrates that $\varphi$ is
+trained decoder: the neural inverse codec (\code{mir/ml/decoder.py}) demonstrates that $\varphi$ is
 approximately invertible \emph{given the key}. Distance preservation is thus double-edged --- the source of
 the embedding's analytic value and of its linkage risk. Keyed pseudonymisation is not anonymisation.
 
@@ -2265,6 +2293,7 @@ the data/figure scripts in this directory (\code{gen\_theory\_data.py}, the \cod
   \caption{Theory predictions and their v3 reproduction (\code{mir/bench/theory.py}; $n=2500$
   CDR3$\beta$). Paper values from \cite{Kremlyakova2025}, suppl.\ S1--S3.}
   \label{tab:reproduced}
+  {\footnotesize
   \begin{tabular}{lccc}
     \toprule
     Claim & Paper & mirpy (Smith--Waterman) & mirpy (\code{gapblock} v3)\\
@@ -2274,7 +2303,7 @@ the data/figure scripts in this directory (\code{gen\_theory\_data.py}, the \cod
     S1 / Prop.~\ref{prop:laws}: law of $D_{ij}$ & GEV, $\xi{=}{+}0.11$ & GEV $\gg$ Normal, $\xi{\approx}0$ & GEV $\gg$ Normal, $\xi{\approx}0$ \\
     S3 / Prop.~\ref{prop:robust}: real vs.\ model prototypes & $0.96$ & --- & $0.97$ \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
 \end{table}
 
 \paragraph{Open problems} Four questions are left open. (1) Sharp distortion constants for the lower
