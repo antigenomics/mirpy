@@ -3,19 +3,18 @@ tmp/
 
 ## Data
 airr_benchmark/
-tests/assets/
+# Big test fixtures stay out of git (CI-guarded tests skip when absent); small
+# deterministic fixtures ARE committed so the default suite runs in CI.
+tests/assets/vdjdb_full.txt.gz
+tests/assets/vdjdb.slim.txt.gz
+tests/assets/real_repertoires/
+tests/assets/srx_repertoires/
 *.airr.tsv
 notebooks/assets/
 
 ## VSCode
 
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/*.code-snippets
-!.vscode/.env
+.vscode/
 
 # Local History for Visual Studio Code
 .history/
@@ -148,7 +147,6 @@ celerybeat.pid
 
 # Environments
 .env
-!.vscode/.env
 .venv
 env/
 venv/
@@ -190,3 +188,9 @@ mir/docs
 .idea
 public
 notebooks/assets/derived/
+
+# ML run artifacts (checkpoints/metrics) — never committed
+experiments/runs/
+
+# obsidian-memory-sync marker (machine-local absolute paths)
+.claude/obsidian-sync.json
