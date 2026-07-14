@@ -70,7 +70,7 @@
   \small
   \textsuperscript{1}Institute of Translational Medicine, Russian National Medical State University, Moscow, Russia\\
   \textsuperscript{2}Department of Genomics of Adaptive Immunity, Shemyakin--Ovchinnikov Institute of Bioorganic Chemistry RAS, Moscow, Russia\\
-  \textsuperscript{3}Institute of Molecular Biology NAS RA, Erevan, Armenia\\[6pt]
+  \textsuperscript{3}Institute of Molecular Biology NAS RA, Yerevan, Armenia\\[6pt]
   \normalsize\textit{Appendix T --- {\normalfont\scshape TCREMP} embedding geometry}%
 }
 
@@ -359,18 +359,18 @@ to how the prototypes are obtained, provided they cover the same support.
 
 \begin{proposition}[Prototype-source robustness]\label{prop:robust}
 Let $\mu,\nu$ be two prototype measures that are mutually absolutely continuous with bounded density
-ratio $\rho = d\mu/d\nu$ on the support of the repertoire. Then the energy dissimilarities of
-Prop.~\ref{prop:energy} satisfy $\bar D_\mu^2(x,y) = \E_{\nu}[\rho(p)\,(d(x,p)-d(y,p))^2]$, so the two
+ratio $r_{\mu\nu} = d\mu/d\nu$ on the support of the repertoire. Then the energy dissimilarities of
+Prop.~\ref{prop:energy} satisfy $\bar D_\mu^2(x,y) = \E_{\nu}[r_{\mu\nu}(p)\,(d(x,p)-d(y,p))^2]$, so the two
 embeddings induce distances that agree up to the $\chi^2$ discrepancy between $\mu$ and $\nu$; as
 $\chi^2(\mu\,\Vert\,\nu)\to 0$ the pairwise-distance vectors become perfectly correlated.
 \end{proposition}
 \begin{proof}
 By Prop.~\ref{prop:energy}, $\bar D_\mu^2(x,y)=\E_\mu[u_{xy}(p)]$ with $u_{xy}(p)=(d(x,p)-d(y,p))^2$. Writing
-the $\mu$-expectation as a $\nu$-expectation with importance weight $\rho=d\mu/d\nu$ gives
-$\bar D_\mu^2(x,y)=\E_\nu[\rho(p)\,u_{xy}(p)]$, the first claim. Its discrepancy from the $\nu$-embedding is
-$\bar D_\mu^2-\bar D_\nu^2=\E_\nu[(\rho-1)\,u_{xy}]$, and Cauchy--Schwarz bounds this by
-$\sqrt{\E_\nu[(\rho-1)^2]}\,\sqrt{\E_\nu[u_{xy}^2]}=\sqrt{\chi^2(\mu\Vert\nu)}\,\sqrt{\E_\nu[u_{xy}^2]}$, using
-$\E_\nu[(\rho-1)^2]=\E_\nu[\rho^2]-1=\chi^2(\mu\Vert\nu)$. Hence the two families of pairwise distances differ
+the $\mu$-expectation as a $\nu$-expectation with importance weight $r_{\mu\nu}=d\mu/d\nu$ gives
+$\bar D_\mu^2(x,y)=\E_\nu[r_{\mu\nu}(p)\,u_{xy}(p)]$, the first claim. Its discrepancy from the $\nu$-embedding is
+$\bar D_\mu^2-\bar D_\nu^2=\E_\nu[(r_{\mu\nu}-1)\,u_{xy}]$, and Cauchy--Schwarz bounds this by
+$\sqrt{\E_\nu[(r_{\mu\nu}-1)^2]}\,\sqrt{\E_\nu[u_{xy}^2]}=\sqrt{\chi^2(\mu\Vert\nu)}\,\sqrt{\E_\nu[u_{xy}^2]}$, using
+$\E_\nu[(r_{\mu\nu}-1)^2]=\E_\nu[r_{\mu\nu}^2]-1=\chi^2(\mu\Vert\nu)$. Hence the two families of pairwise distances differ
 by a factor set by $\chi^2(\mu\Vert\nu)$; as $\chi^2(\mu\Vert\nu)\to0$ the perturbation vanishes uniformly and
 their correlation tends to one.
 \end{proof}
@@ -631,7 +631,7 @@ well-approximated by a line over the biological {\scshape SHM} range (T5, linear
 TCR}): (i) {\scshape IGH} CDR3s are long, so the fixed-length-40 gap-block tokenisation
 (\code{mir/ml/tokenize.py}) truncates an appreciable fraction of the variable middle, discarding
 information; (ii) {\scshape SHM} inflates the junction distance by $\Theta(m)$, so germline-rearrangement
-prototypes sampled from $\Pgen$ systematically under-cover the mutated support (the density ratio $\rho$
+prototypes sampled from $\Pgen$ systematically under-cover the mutated support (the density ratio $r_{\mu\nu}$
 of Prop.~\ref{prop:robust} becomes large and the robustness guarantee degrades); and (iii) the
 per-receptor entropy is higher. The remedy the theory suggests is to separate the {\scshape SHM}-robust
 germline distance (V/J, Prop.~\ref{prop:rank}) from the mutation-inflated junction distance and to
@@ -913,7 +913,7 @@ multiplicity control it must be recentred to the data. This is Efron's empirical
 In the two-groups model $f=\pi_0 f_0+\pi_1 f_1$ with a \emph{calibrated} null $f_0$, the local false-discovery
 rate is $\mathrm{fdr}(z)=\pi_0 f_0(z)/f(z)=\pi_0/E(z)$; declaring $E(z)\ge1/\alpha$ is a conservative
 $\mathrm{fdr}\le\alpha$ rule \cite{Efron2004}. With the raw null $f_0=f_{\mathrm{gen}}$ one instead has
-$\mathrm{fdr}=\pi_0\mu_0/E$ --- off by the miscalibration of \eqref{eq:cvfold}.
+$\mathrm{fdr}=\pi_0 s/E$ --- off by the selection inflation $s=1+\mathrm{CV}^2(q)$ of \eqref{eq:cvfold}.
 \end{proposition}
 
 \begin{proposition}[Water level $=$ one-sided empirical-null recentring]\label{prop:empnull}
@@ -982,12 +982,12 @@ conservative, not anti-conservative.
 
 \subsection{Sampling depth: why the full repertoire}\label{sec:dens-depth}
 
-Subsampling a repertoire with retention probability $s$ is Poisson thinning: counts scale to
-$\mathrm{Poisson}(s\mu)$ \cite{Kingman1993}.
+Subsampling a repertoire with retention probability $t$ is Poisson thinning: counts scale to
+$\mathrm{Poisson}(t\mu)$ \cite{Kingman1993}.
 
 \begin{proposition}[Thinning cost and detection boundary]\label{prop:depth}
 With signal mass $\Lambda_e$ and null mean $\lambda_0$, the test's non-centrality
-$\delta=\Lambda_e/\sqrt{\lambda_0}$ thins as $\delta_s=\sqrt{s}\,\delta$. Writing depth $D=sN$ and
+$\delta=\Lambda_e/\sqrt{\lambda_0}$ thins as $\delta_t=\sqrt{t}\,\delta$. Writing depth $D=tN$ and
 $\lambda_0\propto Dw_e$, the minimum detectable precursor frequency is
 \begin{equation}\label{eq:depthfloor}
   w_e^{\min}(D)=\frac{c(\alpha,\beta,\lambda_0)}{D},
@@ -995,8 +995,8 @@ $\lambda_0\propto Dw_e$, the minimum detectable precursor frequency is
 and a clone is even \emph{observed} only with probability $1-e^{-Dw_e}$ \cite{Good1953}.
 \end{proposition}
 \begin{proof}
-Poisson thinning with retention probability $s$ maps the intensity of every region from $\mu$ to $s\mu$
-\cite{Kingman1993}. At depth $D=sN$ a ridge of precursor frequency $w_e$ contributes an expected in-ball
+Poisson thinning with retention probability $t$ maps the intensity of every region from $\mu$ to $t\mu$
+\cite{Kingman1993}. At depth $D=tN$ a ridge of precursor frequency $w_e$ contributes an expected in-ball
 signal count $\propto Dw_e$ against a null of mean $\lambda_0$ and standard deviation $\sqrt{\lambda_0}$, so
 by the Gaussian approximation of Proposition~\ref{prop:mindetect} its power is
 $\Phi\!\big(Dw_e/\sqrt{\lambda_0}-\Phi^{-1}(1-\alpha)\big)$, reaching $1-\beta$ exactly when
@@ -1536,7 +1536,7 @@ The mean embedding compares repertoires by their first moment; when the geometry
 than depth-robustness, \emph{linear optimal transport} \cite{Wang2013,Kolouri2021} gives the natural competitor
 --- a fixed Euclidean vector (the barycentric transport map from a fixed reference measure to $\rho_S$) whose
 distance approximates the Wasserstein metric on embedding space. It is more tail-faithful but pays an
-$n^{-1/d}$ empirical-convergence price, so it trades the depth-robustness of Prop.~\ref{prop:kme} for geometry;
+$n^{-1/p}$ empirical-convergence price (the ambient embedding dimension $p$), so it trades the depth-robustness of Prop.~\ref{prop:kme} for geometry;
 mirpy keeps it as an add-on, not the backbone.
 \end{remark}
 
@@ -1834,7 +1834,7 @@ A deep repertoire lists $10^5$--$10^6$ clonotypes, but its \emph{information} is
 near-neutral background that the recombination model already predicts, and only a sparse signal --- the
 antigen-driven, convergent \emph{metaclonotypes} --- is genuinely new. This invites a two-part
 (description-length) code \cite{CoverThomas2006}, and the mixture of \S\ref{sec:dens-mix} makes it precise:
-$f_{\mathrm{obs}}=(1-\pi)\,f_{\mathrm{sig}}+\pi\,f_{\mathrm{bg}}$ with background
+$f_{\mathrm{obs}}=\pi\,f_{\mathrm{sig}}+(1-\pi)\,f_{\mathrm{bg}}$ with background
 $f_{\mathrm{bg}}\approx\varphi_{\#}(\Pgen\!\cdot\!Q/Z_Q)$, the pushforward of the selection-reweighted
 generation law.
 
@@ -1854,8 +1854,8 @@ noise. \end{proof}
 
 The code is therefore
 \begin{equation}\label{eq:twopart}
-  \Phi(S)\ \approx\ \underbrace{\pi\,\mu_{\mathrm{bg}}(\Pgen,Q)}_{\text{model: }O(1)\text{ description}}
-  \;+\;(1-\pi)\!\!\underbrace{\sum_{\sigma\in\mathrm{signal}}\!\!w_\sigma\,\psi(z_\sigma)}_{\text{explicit metaclonotypes}} :
+  \Phi(S)\ \approx\ \underbrace{(1-\pi)\,\mu_{\mathrm{bg}}(\Pgen,Q)}_{\text{model: }O(1)\text{ description}}
+  \;+\;\pi\!\!\underbrace{\sum_{\sigma\in\mathrm{signal}}\!\!w_\sigma\,\psi(z_\sigma)}_{\text{explicit metaclonotypes}} :
 \end{equation}
 store \emph{(i)} the shared model plus the per-sample scalars $(N,\pi,{}^qD)$ --- a constant-size summary of the
 naive bulk --- and \emph{(ii)} the sparse list of enriched metaclonotypes above the density water-level
@@ -2193,7 +2193,8 @@ PCs $m$ & code bits & retained var. & ceiling $\mathrm{EM}^\star$ & exact-match 
 
 \paragraph{Data is the lever} Holding the code fixed at $(K=2000,\,m\!\approx\!300)$ and growing the
 \emph{training} corpus, exact-match climbs $88.5\%\to94.1\%\to95.8\%$ at $n=20\text{k}\to50\text{k}
-\to100\text{k}$ (\code{benchmark\_lossless\_kpc.py}) --- crossing $95\%$ purely on data, with the same
+\to100\text{k}$ (\code{benchmark\_lossless\_kpc.py}; the $88.9\%$ at $n{=}20$k in Table~\ref{tab:rd} is the same
+configuration under a different split) --- crossing $95\%$ purely on data, with the same
 one-shot decoder and no extra bits. Prototype count $K$ saturates near $2000$ ($K=10{,}000$ regresses
 and costs an order more memory and query time), and the per-position breakdown is uniform on
 {\scshape TCR}$\beta$ (conserved anchors $99.5\%$ vs.\ variable middle $99.6\%$) because its junctions
