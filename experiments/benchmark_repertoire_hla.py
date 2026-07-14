@@ -21,9 +21,8 @@ import time
 
 import numpy as np
 import polars as pl
-from sklearn.model_selection import train_test_split
 
-from _cohort import held_out_auc, kmer_matrix, load_cohort, pooled_clonotypes
+from _cohort import cv_auc, kmer_matrix, load_cohort, pooled_clonotypes
 
 from mir.embedding.tcremp import TCREmp
 from mir.repertoire import class_witness, fit_repertoire_space, sample_embedding
@@ -76,34 +75,34 @@ def main(n_per_class: int = 50, downsample_to: int = 10_000) -> None:
     second = np.stack([e.second for e in embs])
     km = kmer_matrix(samples)
 
-    idx = np.arange(len(samples))
-    tr, te = train_test_split(idx, test_size=0.3, stratify=has, random_state=0)
     y = has.astype(int)
-    auc = {
-        "diversity (4)": held_out_auc(div[tr], y[tr], div[te], y[te]),
-        "kmer_profile": held_out_auc(km[tr], y[tr], km[te], y[te], pca_cols=10**9),
-        "kernel-mean Φ₁": held_out_auc(mean[tr], y[tr], mean[te], y[te], pca_cols=mean.shape[1]),
-        "second-moment": held_out_auc(second[tr], y[tr], second[te], y[te], pca_cols=second.shape[1]),
+    auc = {                                       # repeated 5-fold × 10 CV -> (mean, std), not one split
+        "diversity (4)": cv_auc(div, y),
+        "kmer_profile": cv_auc(km, y, pca_cols=10**9),
+        "kernel-mean Φ₁": cv_auc(mean, y, pca_cols=mean.shape[1]),
+        "second-moment": cv_auc(second, y, pca_cols=second.shape[1]),
     }
 
-    # find motifs: witness on A*02+ vs A*02-, then check publicness
+    # find motifs: witness on A*02+ vs A*02- (publicness cross-checked on the SAME donors — see caveat)
     cand = pooled_clonotypes([(None, frames[i]) for i in np.where(has)[0]], per_sample=3000)
     motifs = class_witness(space, [frames[i] for i in np.where(has)[0]],
                            [frames[i] for i in np.where(~has)[0]], cand, top=30)
     pub = _publicness(frames, has, motifs)
 
-    print(f"\n{'method':<18}{'A*02 AUC (held-out)':>20}")
-    for k, v in auc.items():
-        print(f"{k:<18}{v:>20.3f}")
-    print(f"\nTop witness motifs (A*02-associated public clones):")
+    print(f"\n{'method':<18}{'A*02 AUC (mean ± std, 50-fold CV)':>34}")
+    for k, (m, s) in auc.items():
+        print(f"{k:<18}{m:>22.3f} ± {s:.3f}")
+    print(f"\nTop witness motifs (A*02-associated; publicness is in-sample, indicative only):")
     for r in motifs.head(6).iter_rows(named=True):
         print(f"  {r['v_call']:<12} {r['junction_aa']:<20} score={r['witness_score']:.3f}")
     print(f"mean motif publicness (Δ frac donors, A*02⁺ − A*02⁻) = {pub:+.3f}")
 
-    best_clono = max(auc["kernel-mean Φ₁"], auc["second-moment"], auc["kmer_profile"])
-    verdict = "PASS" if best_clono > auc["diversity (4)"] and pub > 0 else "PARTIAL"
-    print(f"\n[{verdict}] clonotype-identity AUC {best_clono:.3f} > diversity {auc['diversity (4)']:.3f}; "
-          f"witness motifs enriched in A*02⁺ (Δ={pub:+.3f})")
+    dm, ds = auc["second-moment"]
+    vm, vs = auc["diversity (4)"]
+    separated = dm - ds > vm + vs                  # intervals must actually separate
+    verdict = "PASS" if separated and dm > 0.55 else "PARTIAL" if dm > vm else "FAIL"
+    print(f"\n[{verdict}] second-moment {dm:.3f}±{ds:.3f} vs diversity {vm:.3f}±{vs:.3f}; "
+          f"intervals separate = {separated} (clonotype identity > diversity for HLA only if True)")
     print(f"Total {time.perf_counter() - t0:.0f}s")
 
 
