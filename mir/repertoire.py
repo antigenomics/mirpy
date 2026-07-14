@@ -157,6 +157,7 @@ def fit_repertoire_space(
     *,
     n_rff: int = 2048,
     n_rff_second: int = 128,
+    n_eigs: int | None = None,
     length_scale: float | None = None,
     n_components: int | None = None,
     space: str = "full",
@@ -171,7 +172,11 @@ def fit_repertoire_space(
             counts are ignored here — only the geometry of the cloud sets the basis.
         n_rff: Mean-block RFF dimension ``D`` (~1–4k; §T.7 ``tab:sample``).
         n_rff_second: Second-moment-block RFF dimension ``D₂`` (kept small — the block stores
-            ``D₂(D₂+1)/2`` upper-triangle entries).
+            ``D₂(D₂+1)/2`` upper-triangle entries, or its top-``n_eigs`` eigenvalues).
+        n_eigs: If set, the second-moment block keeps the **top-``n_eigs`` eigenvalues** of the
+            weighted covariance ``Σ_σ w_σ ψ₂ψ₂ᵀ`` (a compact, rotation-invariant spectral signature)
+            instead of its full ``D₂(D₂+1)/2`` upper triangle. ``None`` (default) keeps the upper
+            triangle — unchanged behaviour. Must satisfy ``0 < n_eigs ≤ n_rff_second``.
         length_scale: Gaussian-kernel bandwidth ``ℓ``. ``None`` → :func:`mir.density.calibrate_radius`
             (the one-substitution scale ``r₁``), so the kernel resolves ~one CDR3 mutation.
         n_components: PCA dimensionality; ``None`` → ``get_preset(species, locus).n_components``.
@@ -186,6 +191,9 @@ def fit_repertoire_space(
     from mir.ml.bundle import prototype_hash
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
+
+    if n_eigs is not None and not (0 < n_eigs <= n_rff_second):
+        raise ValueError(f"n_eigs must be in (0, n_rff_second={n_rff_second}], got {n_eigs}")
 
     if n_components is None:
         n_components = get_preset(model.species, model.locus).n_components
@@ -211,7 +219,7 @@ def fit_repertoire_space(
         "mode": model.mode, "metric": model.metric, "gap_positions": list(model._gap_positions),
         "prototype_hash": prototype_hash(model.species, model.locus, model.n_prototypes),
         "space": space, "n_components": k, "n_rff": n_rff, "n_rff_second": n_rff_second,
-        "length_scale": float(length_scale), "seed": seed,
+        "n_eigs": n_eigs, "length_scale": float(length_scale), "seed": seed,
     }
     return RepertoireSpace(clono, rff, rff2, meta)
 
@@ -225,7 +233,7 @@ class SampleEmbedding:
 
     mean: np.ndarray                    # Φ₁, the kernel mean (n_rff,)
     diversity: np.ndarray | None        # Φ₂, [log ⁰D, log ¹D, log ²D, Ĉ]
-    second: np.ndarray | None           # upper-tri of Σ_S (n_rff_second·(n_rff_second+1)/2,)
+    second: np.ndarray | None           # Σ_S: upper-tri (D₂·(D₂+1)/2,) or top-n_eigs eigvals (n_eigs,)
     n_eff: float                        # (Σ w²)⁻¹ — a Hill number in [²D, ⁰D]
 
     @property
@@ -301,9 +309,16 @@ def sample_embedding(
         div = _diversity_block(a, coverage)
     if "second" in blocks and space.rff2 is not None:
         psi2 = space.rff2.transform(Z)                     # (n, D₂)
-        sigma = (psi2 * w[:, None]).T @ psi2               # Σ w ψ₂ψ₂ᵀ  (D₂, D₂)
-        iu = np.triu_indices(sigma.shape[0])
-        sec = sigma[iu]
+        sigma = (psi2 * w[:, None]).T @ psi2               # Σ w ψ₂ψ₂ᵀ  (D₂, D₂), symmetric PSD
+        n_eigs = space.meta.get("n_eigs")
+        if n_eigs:
+            # top-r eigenvalues (energy spectrum) — compact, rotation-invariant.
+            # eigvalsh not eigh: we need the spectrum, not the eigenvectors.
+            ev = np.linalg.eigvalsh(sigma)                 # ascending, D₂ values
+            sec = ev[::-1][:n_eigs].copy()                 # top-r, descending
+        else:
+            iu = np.triu_indices(sigma.shape[0])
+            sec = sigma[iu]
     return SampleEmbedding(mean=mean, diversity=div, second=sec, n_eff=n_eff)
 
 
@@ -439,8 +454,16 @@ def _demo() -> None:
         d2 = np.exp(emb.diversity[2])
         assert d2 - 1e-6 <= emb.n_eff <= d0 + 1e-6, f"n_eff {emb.n_eff} not in [{d2}, {d0}]"
 
+    # opt-in spectral (top-r eigval) interaction block: exactly r values, non-negative, descending
+    space_eig = fit_repertoire_space(model, protos, n_rff=1024, n_rff_second=64,
+                                     n_eigs=8, n_components=20, seed=0)
+    sec = sample_embedding(space_eig, base.sample(120, seed=1)).second
+    assert sec.shape == (8,), f"top-r block shape {sec.shape} != (8,)"
+    assert np.all(sec >= -1e-9) and np.all(np.diff(sec) <= 1e-9), "eigvals not non-neg descending"
+
     print(f"[ok] RFF kernel approx {approx:.3f}≈{exact:.3f}; "
-          f"cohort MMD between={between:.3f} > within={within:.3f}; n_eff∈[²D,⁰D] holds")
+          f"cohort MMD between={between:.3f} > within={within:.3f}; n_eff∈[²D,⁰D] holds; "
+          f"top-8 eigval block {sec.shape}")
 
 
 if __name__ == "__main__":

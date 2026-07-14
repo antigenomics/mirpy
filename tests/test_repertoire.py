@@ -85,6 +85,21 @@ def test_sample_embedding_blocks_and_vector(space):
     assert np.isfinite(emb.vector).all()
 
 
+def test_spectral_second_block_top_r_eigvals():
+    # opt-in n_eigs -> second block is the top-r eigenvalues (non-neg, descending), r-dim
+    model = TCREmp.from_defaults("human", "TRB", n_prototypes=300)
+    sp = fit_repertoire_space(model, _clonotypes(600), n_rff=512, n_rff_second=64,
+                              n_eigs=8, n_components=20, seed=0)
+    df = _sample(_clonotypes(80, offset=100), lambda n: np.arange(1, n + 1))
+    emb = sample_embedding(sp, df)
+    assert emb.second.shape == (8,)
+    assert np.all(emb.second >= -1e-9)
+    assert np.all(np.diff(emb.second) <= 1e-9)             # descending
+    assert np.isfinite(emb.vector).all()
+    with pytest.raises(ValueError, match="n_eigs"):
+        fit_repertoire_space(model, _clonotypes(600), n_rff_second=64, n_eigs=200)
+
+
 @pytest.mark.parametrize("weight", ["distinct", "log1p", "anscombe"])
 def test_weights_run_and_neff_in_hill_interval(space, weight):
     df = _sample(_clonotypes(120, offset=0), lambda n: np.geomspace(1, 1000, n))
