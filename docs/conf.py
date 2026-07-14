@@ -1,4 +1,4 @@
-"""Sphinx configuration for mirpy (mirpy-lib, import ``mir``)."""
+"""Sphinx configuration for the mirpy documentation."""
 
 import os
 import sys
@@ -8,34 +8,24 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 sys.path.insert(0, os.path.abspath(".."))
 
 project = "mirpy"
-author = "ISALGO lab"
-copyright = "2026, ISALGO lab"
-
+author = "ISALGO laboratory"
+copyright = "2026, ISALGO laboratory"
 try:
-    release = _pkg_version("mirpy-lib")
+    version = release = _pkg_version("mirpy-lib")
 except PackageNotFoundError:
-    release = "3.1.0"
-version = ".".join(release.split(".")[:2])
+    version = release = "3.1.0"
 
 extensions = [
     "sphinx.ext.autodoc",
-    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "nbsphinx",
 ]
 
-# Stub RST files are maintained by hand (docs/mir*.rst); do not auto-generate.
-autosummary_generate = False
-autodoc_member_order = "bysource"
-autodoc_typehints = "description"
-napoleon_google_docstring = True
-napoleon_numpy_docstring = False
-nbsphinx_execute = "never"
-
-# Heavy / optional dependencies not needed to read docstrings — mock so autodoc imports every module
-# on a docs-only environment (core deps numpy/polars/scipy/scikit-learn/seqtree/vdjtools are real).
+# mir is pure Python; core deps (numpy/polars/scipy/scikit-learn/seqtree/vdjtools) import in the docs
+# build env. The heavy optional deps (only imported by mir.ml / build-time / bench viz) are mocked.
 autodoc_mock_imports = [
     "torch",
     "Bio",
@@ -49,16 +39,24 @@ autodoc_mock_imports = [
     "marimo",
     "huggingface_hub",
 ]
+autodoc_typehints = "description"
+autodoc_member_order = "bysource"
+
+# Render napoleon ``Attributes:`` sections as :ivar: fields so a dataclass's Attributes docstring
+# does not duplicate its autodoc'd fields.
+napoleon_use_ivar = True
+
+intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "**.ipynb_checkpoints"]
 
 html_theme = "pydata_sphinx_theme"
-html_static_path = ["_static"]
-html_css_files = ["custom.css"]
-html_title = "mirpy"
+html_title = f"mirpy {release}"
 html_theme_options = {
+    # Version shown in the navbar brand on every page (no image logo → text brand).
+    "logo": {"text": f"mirpy {release}"},
     "github_url": "https://github.com/antigenomics/mirpy",
-    "show_prev_next": False,
-    "navigation_with_keys": False,
+    "navigation_with_keys": True,
 }
+nbsphinx_execute = "never"
