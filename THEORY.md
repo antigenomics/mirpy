@@ -162,6 +162,18 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   - **Finding motifs (`prop:witness`).** `class_witness` (supervised MMD witness `w=μ_A−μ_B`, score
     `s(σ)=⟨w,ψ(φ(σ))⟩`) surfaces A\*02-associated **public** `CASS…EQYF` clones (TRBV12/TRBV3), enriched in
     A\*02⁺ donors — the supervised route to the antigen/HLA motifs the bulk kernel mean is too swamped to show.
+  - **Yellow-fever response** (`benchmark_repertoire_yfv.py`, `isalgo/airr_yfv19`, day-15 vs day-0):
+    `class_witness` ranks the **LLWNGPMAV/A\*02** NS4b clones above chance (mean AUC **0.57**, beating a naive
+    day15/day0 fold-change 0.53) — but the first-moment differential is weak because LLW is a minority of the
+    day-15 change; the **density-ratio** (`benchmark_density_yfv.py`) recovers the convergent cluster far better.
+  - **Spike-in recovery from RNA-seq depth** (`benchmark_repertoire_spikein.py`; VDJdb ground truth): plant the
+    **convergent core** of a VDJdb epitope (NLVPMVATV/A\*02 CMV, K=50, clonally expanded) into naive P_gen
+    backgrounds of depth `N` and recover it with `mir.density`. **Recall 70–72% at RNA-seq depth (N≤3k), FPR
+    <2%**; breadth-only detection *dilutes* at bulk depth (0% at N≥10k — a fixed response is a larger fraction of
+    a *shallow* repertoire), but the **abundance/clonal-depth channel rescues it to 44–60% at bulk depth, FPR
+    ≤0.2%** (antigen clones are clonally expanded). Two lessons: antigen specificity ≠ sequence convergence (a
+    diffuse epitope sample is undetectable — spike the *public convergent* core), and shallow depth is *favorable*
+    for a fixed convergent response.
   *Lesson:* the unsupervised backbone's value is **depth-robustness + a fixed fusion modality**; the
   clonotype-identity payoff lives in the **second moment / learned attention / supervised witness**, not the
   first moment — and clone-size phenotypes (age, CMV) are diversity's turf.
