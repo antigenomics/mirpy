@@ -190,3 +190,6 @@ mir/docs
 .idea
 public
 notebooks/assets/derived/
+
+# ML run artifacts (checkpoints/metrics) — never committed
+experiments/runs/

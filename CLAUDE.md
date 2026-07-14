@@ -59,7 +59,12 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   to swap the distinct in-ball count for the variance-stabilised mass `S=Σg(a_j)` (compound-Poisson
   Gamma tail, dispersion `φ=E[g²]/E[g]`) plus a per-clonotype orphan/depth channel `P(A≥a_j)` Fisher-
   combined with breadth. Default `abundance=None` = distinct count (unchanged, `g≡1`).
-- `ml/` — Part 2 (torch), neural codecs.
+- `repertoire.py` — sample-level (repertoire) embedding (T.7): `fit_repertoire_space` (one shared
+  clonotype-cloud PCA + RFF basis, prototype-hash-verified `RepertoireSpace`), `sample_embedding`
+  (`Φ(S)` = RFF kernel mean ‖ coverage-standardized Hill ‖ second-moment Fisher; `n_eff=(Σw²)⁻¹`),
+  `mmd_distance`/`mmd_matrix`/`hla_stratified_mmd`, `class_witness` (supervised MMD motif finder). Torch-free.
+- `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
+  attention pooling + `SetEncoderBundle`).
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
   `germline_dist/` (baked `.npz`, from `build_germline_dist.py`).
 
@@ -151,14 +156,20 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     vs 1% under a control bg (46× signal:noise lift), and it counts mountains/epitope (GILGFVFTL 32,
     NLVPMVATV 4 — polyclonality tracks precursor freq, Pogorelyy 2018).
   - **TODO**: epitope/MHC; scale codec on HF `airr_benchmark` (10–100M).
-- **Sample-level (repertoire) embedding (v3.x)** — `Φ(S)` for a whole repertoire (order-invariant multiset
-  of clonotypes+counts). **Theory DONE** (appendix §T.7 `sec:sample`): a sample is the weighted empirical
-  measure `ρ_S=Σ w_σ δ_{φ(σ)}`; `Φ` = RFF **kernel mean embedding** (depth-robust `n_eff^{-1/2}`,
-  codebook-free — no K) + coverage-standardized **Hill profile** (depth↔diversity reconciled by coverage
-  standardization; `n_eff=^qD`) + **second-moment** Fisher / learned Set-Transformer/DeepRC (HLA-linked
-  interactions, co-equal tracks); distance = MMD, HLA-stratified for CMV. Central target: low-coverage bulk
-  RNA-seq (`10²–10⁴` clonotypes/chain). **Module + benchmarks NOT built** — spec in
-  **`REPERTOIRE_EMBEDDING.md`** (reuse `TCREmp.embed`, `density._WEIGHTS`, `vdjtools.stats.inext`,
-  `preprocess.downsample`). Datasets: `aging` full-depth (age, NOT `aging_lite`), `airr_hip` (Emerson 2017
-  CMV/HLA), SRA shallow (SOURCES.md). Citations verified + in `appendix/refs.bib`.
+- **Sample-level (repertoire) embedding (v3.x) — DONE** (`mir/repertoire.py` + `mir/ml/set_encoder.py`,
+  appendix §T.7 `sec:sample`, `THEORY.md` T7). `Φ(S)` = RFF **kernel mean** (depth-robust `n_eff^{-1/2}`,
+  codebook-free) ‖ coverage-standardized **Hill profile** ‖ **second-moment** Fisher; distance = MMD /
+  HLA-stratified; `class_witness` = supervised MMD motif finder; learned co-equal Set-Transformer/DeepRC in
+  `mir.ml.set_encoder`. Reuse: `TCREmp.embed`, `density.{_WEIGHTS,fit_density_space,calibrate_radius}`,
+  `vdjtools.stats.inext`, `preprocess.downsample`, `ml.bundle` hashing. Tests
+  `tests/test_{repertoire,set_encoder}.py`; benchmarks `experiments/benchmark_repertoire_{aging,depth,cmvhla,hla}.py`
+  (shared `_cohort.py`; `airr_benchmark` aging 79, `airr_hip` Emerson 2017 786). **Key empirical lesson**
+  (`THEORY.md` T7): depth-robustness holds (`prop:kme`, log-log slope −0.55); but **age & CMV are clone-size
+  (diversity) phenomena** — a Hill/coverage summary dominates (CMV AUC 0.94 vs Φ ≤0.58), and for CMV it is
+  *real memory-inflation clonality*, not an age confound (age-matched: age-only 0.39, diversity 0.94). The
+  clonotype-identity payoff shows on **HLA-A\*02** (diversity 0.47 = chance, **second-moment 0.64**) and via
+  `class_witness` (surfaces A\*02 public `CASS…EQYF` motifs) — the embedding earns its keep in the second
+  moment / learned attention / supervised witness, NOT the first moment. Spec: `REPERTOIRE_EMBEDDING.md`.
+  **TODO**: full-cohort runs (all 79 aging / 786 HIP at depth) for headline numbers; HLA-allele panel;
+  epitope/MHC; scale.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

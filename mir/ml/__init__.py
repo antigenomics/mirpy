@@ -22,6 +22,10 @@ __all__ = [
     "UnifiedCodec",
     "CodecBundle",
     "prototype_hash",
+    "SetEncoder",
+    "SetEncoderModel",
+    "SetEncoderBundle",
+    "train_set_encoder",
     "train_forward_encoder",
     "train_inverse_decoder",
     "train_pgen_regressor",
@@ -49,6 +53,10 @@ def __getattr__(name: str):
         from mir.ml import bundle
 
         return getattr(bundle, name)
+    if name in ("SetEncoder", "SetEncoderModel", "SetEncoderBundle", "train_set_encoder"):
+        from mir.ml import set_encoder
+
+        return getattr(set_encoder, name)
     if name in _TRAIN:
         from mir.ml import train
 
