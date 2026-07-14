@@ -128,8 +128,8 @@ Reuse the `experiments/_hf.py` fetch pattern. Fit ONE `RepertoireSpace` per coho
 train a simple head (ridge / logistic / kNN) with a fixed CV split + seed; report vs baselines.
 
 1. **`benchmark_repertoire_aging.py` — age regression.** Use the **full-depth `aging`** cohort, NOT
-   `aging_lite` (see §5). Metadata `metadata_aging.txt` (`file_name, sample_id, sex, age`, 41 samples,
-   ages 6–90; Britanova 2014/2016). Also `airr_hip` age. **Gate:** Spearman(age, prediction) beats the
+   `aging_lite` (see §5). Metadata `metadata_aging.txt` (`file_name, sample_id, sex, age`, 79 samples,
+   ages ~0–103; Britanova 2014/2016). Also `airr_hip` age. **Gate:** Spearman(age, prediction) beats the
    `kmer_profile` / `physchem_profile` / diversity-only baselines; `¹D` alone is a strong baseline
    (age↓diversity) so `Φ` must add over it. **Batch check (Prop. `prop:batch`, §T.7.8):** the aging cohort
    has sequencing batches (sample IDs `A2/A3/A4-*`) — verify age prediction survives batch-adjustment

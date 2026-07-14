@@ -89,7 +89,8 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 | `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
 | `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`) |
 | `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
-| `mir.ml` | neural codecs — forward/inverse/Pgen/unified (Part 2, experimental; `[ml]` extra) |
+| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness (Theory §T.7) |
+| `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) — Part 2, experimental; `[ml]` extra |
 
 ## Background subtraction & clustering (`mir.density`)
 

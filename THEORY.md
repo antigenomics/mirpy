@@ -88,7 +88,7 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   codec earns its keep for ML/generation. Injectivity is also the linkage hazard of the privacy
   section (same property, opposite sign). `experiments/benchmark_lossless_{depth,kpc,codec_losslessness}.py`.
 
-- **T7 — sample-level (repertoire) embedding** (v3.x, `mir.repertoire` forthcoming; theory
+- **T7 — sample-level (repertoire) embedding** (v3.x, `mir.repertoire` + `mir.ml.set_encoder`; theory
   **appendix §T.7** `sec:sample`). A whole repertoire is the weighted empirical measure
   `ρ_S = Σ_σ w_σ δ_{φ(σ)}` on embedding space (weights `w_σ ∝ g(a_σ)`, the concave VST of T6.9). Its
   fixed-vector embedding `Φ(S)` is a sketch of that measure = "the first two moments of `ψ(φ)` plus a
@@ -144,6 +144,27 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   (`REPERTOIRE_EMBEDDING.md`): age regression (`aging` full-depth, not `aging_lite`), CMV/HLA-stratified
   (`airr_hip` = Emerson 2017), depth-robustness (`downsample` + `aging_lite`). **Build spec:**
   `REPERTOIRE_EMBEDDING.md`.
+  *Reproduced (2026-07-14; `mir.repertoire`, `mir.ml.set_encoder`, `experiments/benchmark_repertoire_*.py`;
+  TRB, per-sample downsampled to the RNA-seq regime; held-out CV):*
+  - **Depth-robustness (`prop:kme`) — confirmed.** `‖Φ₁(sub)−Φ₁(full)‖` vs `n_eff`, log–log slope **−0.55**
+    (theory −0.5); `err·√n_eff` ≈ const (1.00→0.80 over `N∈{100…10⁴}`) — `n_eff^{-1/2}` convergence holds.
+  - **Age & CMV are clone-size (diversity) phenomena, not clonotype-identity ones.** A coverage/Hill diversity
+    summary dominates: age |Spearman| **0.76** (diversity) vs 0.58 (kernel mean) vs 0.28 (k-mer); CMV AUC
+    **0.94** (diversity) vs ≤0.58 (Φ blocks / learned). For CMV this is **not an age confound** — under
+    age-matching, age-only AUC collapses to 0.39 while diversity *rises* to 0.94: **CMV memory inflation
+    reshapes the clone-size distribution** (fewer, larger clones), the signal a diversity profile is built to
+    read — and which Φ₁'s depth-robust concave weighting deliberately down-weights. Diversity is the sufficient
+    statistic here; `Φ` *contains* it (its diversity block) but the kernel-mean machinery adds nothing.
+  - **HLA-A\*02 is where clonotype identity beats diversity (`prop:interact`).** A pure identity signal (shared
+    public A\*02-restricted clones; HLA leaves overall diversity unchanged): diversity AUC **0.47 (chance)**,
+    k-mer 0.43, kernel-mean Φ₁ 0.51, but the **second-moment (co-occurrence) block 0.64** — the embedding adds
+    value exactly where the clone-size distribution cannot.
+  - **Finding motifs (`prop:witness`).** `class_witness` (supervised MMD witness `w=μ_A−μ_B`, score
+    `s(σ)=⟨w,ψ(φ(σ))⟩`) surfaces A\*02-associated **public** `CASS…EQYF` clones (TRBV12/TRBV3), enriched in
+    A\*02⁺ donors — the supervised route to the antigen/HLA motifs the bulk kernel mean is too swamped to show.
+  *Lesson:* the unsupervised backbone's value is **depth-robustness + a fixed fusion modality**; the
+  clonotype-identity payoff lives in the **second moment / learned attention / supervised witness**, not the
+  first moment — and clone-size phenotypes (age, CMV) are diversity's turf.
 
 ## Reproduced numbers (v3 pipeline)
 
