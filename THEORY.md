@@ -161,13 +161,16 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
     depth-robust concave weighting down-weights *by design*. So "the embedding adds nothing over diversity here"
     is partly **by construction** (Φ₁ discards clone size) — diversity is the natural sufficient statistic for a
     clone-size phenotype, not a defeat of the embedding.
-  - **HLA-A\*02 — clonotype identity, weak signal (corrected).** A pure identity signal (public A\*02-restricted
-    clones; HLA leaves diversity unchanged): diversity AUC **0.45±0.07 (chance, as predicted)**, while the
-    clonotype blocks sit modestly higher (k-mer 0.52, kernel-mean 0.53, **second-moment 0.535±0.08**). ⚠ *An
-    earlier single 70/30 split reported 0.64 — that was noise* (n_test≈30, AUC SD≈0.1); under repeated CV the
-    **second-moment interval does NOT separate from diversity**. Honest verdict: the *direction* supports
-    "clonotype identity carries HLA signal diversity cannot" (all identity blocks > diversity, which is at
-    chance), but the effect is **weak and not decisively established** at n=240 — it needs more donors/depth.
+  - **HLA-A\*02 — clonotype identity beats diversity, established at scale (`prop:interact`).** A pure identity
+    signal (public A\*02-restricted clones; HLA leaves diversity unchanged): diversity is at **chance
+    (0.46±0.05, as predicted)**, while the **second-moment co-occurrence block separates** at **0.623±0.048**
+    (n=500 donors, 25k reads, `n_rff_second=256`, repeated 50-fold CV — the intervals clear each other). ⚠
+    *Scale + depth + resolution were required*: an early single 70/30 split reported an inflated 0.64 (noise,
+    n_test≈30), the n=240 CV gave a borderline 0.535±0.08 (overlapping), and only at n=500/25k does the
+    second-moment CI separate cleanly from chance. The kernel-mean Φ₁ (0.58) and k-mer (0.54) also rise above
+    diversity, but the second moment is strongest — the HLA signal lives in clonotype **co-occurrence**, exactly
+    where the clone-size distribution is blind. Grounded in DeWitt et al. 2018 (*eLife* 7:e38358: TCR occurrence
+    patterns encode HLA on this same Emerson HIP cohort).
   - **Finding motifs (`prop:witness`).** `class_witness` (`w=μ_A−μ_B`, score `s(σ)=⟨w,ψ(φ(σ))⟩`) surfaces
     coherent A\*02-associated `CASS…EQYF` clones (TRBV4/6/7); the injected-motif unit test recovers a planted
     public clone. On real YF data (`benchmark_repertoire_yfv.py`, day-15 vs day-0) it ranks LLWNGPMAV/A\*02 clones
@@ -184,10 +187,13 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
     repertoire has its own convergent clusters, so a **biological differential control** (T6) is the honest
     false-positive test. Two robust lessons: antigen specificity ≠ sequence convergence (spike a real motif
     family, not a diffuse epitope sample → 0% recall), and shallow depth is *favorable* for a fixed response.
-  *Lesson (verified):* the CI-backed value is **depth-robustness (a generic KME property) + a fixed fusion
-  modality**; clone-size phenotypes (age, CMV) are diversity's turf (the embedding discards clone size by
-  design); the clonotype-identity payoff (HLA, motifs) is **real in direction but weak in magnitude** at these
-  cohort sizes and lives in the second moment / supervised witness / density, not the first-moment kernel mean.
+  *Lesson (verified):* two complementary regimes. **Clone-size phenotypes (age, CMV)** are diversity's turf —
+  the embedding discards clone size by design, so a Hill/coverage summary wins (and CMV's clonality is real
+  biology, not an age confound). **Clonotype-identity phenotypes (HLA)** are the embedding's turf — diversity is
+  at chance while the **second-moment co-occurrence block separates at scale (A\*02: 0.62 vs 0.46, n=500)**, and
+  the supervised witness / density recover the underlying public motifs. The first-moment kernel mean's own
+  CI-backed value is depth-robustness (a generic KME property) + being a fixed fusion modality. Net: *diversity
+  for how-even, the embedding for which-clones.*
 
 ## Reproduced numbers (v3 pipeline)
 
