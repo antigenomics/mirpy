@@ -187,13 +187,59 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
     repertoire has its own convergent clusters, so a **biological differential control** (T6) is the honest
     false-positive test. Two robust lessons: antigen specificity ≠ sequence convergence (spike a real motif
     family, not a diffuse epitope sample → 0% recall), and shallow depth is *favorable* for a fixed response.
+  - **Aging = clonality, not an independent divergence axis (unbiased MMD).** Repertoires *do* grow more
+    dissimilar with age at depth (exact-overlap `−logF` divergence vs age ρ **0.70** at 500k, vs 0.24 at 250k —
+    the signal lives in deep private expansions, invisible at the old 40k), but it is a **re-expression of the
+    clonality/diversity decline**, not a directional axis the embedding adds. ⚠ *The raw pairwise KME-MMD used
+    the biased V-statistic, whose `1/n_eff` self-term inflates distances for low-diversity (old) samples — an
+    artifact masquerading as signal. `mmd_matrix(unbiased=True)` removes it (diagonal-removed MMD², Gretton
+    2012); the diversity↔divergence coupling drops from biased −0.15 to unbiased −0.05.* Metric-family sign
+    check: unbiased KME ≈0 (diverse≈naive≈shared P_gen baseline), frequency-weighted overlap **−0.68** (old
+    private expansions destroy F-overlap — the "more diverse ⇒ less overlap" intuition holds only for exact
+    overlap, and even then abundance-weighting flips its age-sign via clonal expansion). The age-divergence
+    *independent of scalar diversity* is n.s. across 40k/250k/500k (partial ρ(age, divergence|¹D) ≈ **0.07**,
+    p≈0.6). Net: deeper depth *reveals* the divergence, its content *is* the diversity decline.
+    (`benchmark_repertoire_agediverge.py`, `aging` full cohort at native/500k depth.)
+  - **Batch effects & correction (`prop:batch`) — clean validation on 9 real batches.** On `airr_covid19`
+    (Vlasova 2026; 9 FMBA sequencing runs), Φ strongly encodes batch (one-vs-rest AUC **0.78**) and
+    **residualizing Φ on the batch indicator cancels it** (→ **0.03**, chance). Natural experiment: **HLA ⟂
+    batch** (donor genetics) so its signal **survives** (A\*02 0.60→0.61), while **COVID status ⟂̸ batch** (some
+    runs are ~all-healthy) so its naive AUC **collapses to the honest within-batch value** (0.66→0.41
+    residualized, 0.54 within-mixed-batch) — the naive number rode the batch confound. MMD decomposition:
+    same-status-cross-batch (offset) ≈ cross-status-within-batch (biology), ratio **1.05**. **Cookbook:**
+    *detect* (batch OvR AUC) → *quantify* (MMD offset:biology ratio) → *correct* (residualize / within-batch
+    stratify) → *verify* (batch→chance, batch-⟂ signal preserved). (`benchmark_repertoire_covidbatch.py`.)
+  - **HLA imprint across loci and both MHC classes; TRA > TRB (`prop:interact`, DeWitt 2018).** On the
+    4-digit-typed `airr_covid19`, second-moment beats diversity in direction for **15/17** class-I+II alleles,
+    **class II present in 8/9** (a new extension beyond class-I-only airr_hip) — **DRB1\*07:01 0.758** (Δ+0.20)
+    strongest. Using the **paired** cohort (α+β, 1258/1258), **TRA carries the stronger HLA imprint** (α vs β:
+    A\*02 0.64/0.54, B\*07 0.70/0.65, **DRB1\*15 0.81/0.75**) — TRA's lower junctional diversity makes
+    HLA-restricted public α clones more shared; α+β concat sits *between* the chains (noisier β dilutes), so
+    **use α, not paired, for HLA**. (`benchmark_repertoire_covidhla.py`, `benchmark_repertoire_covidpaired.py`.)
+  - **COVID-exposure biomarker — honest negative at RNA-seq depth.** A convalescent (long-past) SARS-CoV-2
+    exposure leaves **no batch-robust bulk clonotype-identity signal**: COVID⁺-vs-healthy classification is naive
+    0.67–0.70 but **chance after batch correction** (0.49–0.52 across β/α/paired), and the from-scratch MMD
+    witness does **not** rediscover the paper's COVID-associated clones (AUC **0.45 α / 0.37 β**, below chance) —
+    the ground truth is **87% α** (4393 vs 567), so a β-only test is doubly wrong. Paired α+β lifts the *naive*
+    AUC (0.67→0.70) but not the corrected one. *Reading:* the paper's biomarkers need the supervised clone panel
+    as a targeted burden (or deeper/larger cohorts), not an unsupervised bulk contrast — memory-phase antigen
+    clones are too rare in 20k-read bulk to surface without a differential control.
+    (`benchmark_repertoire_covidstatus.py`, `benchmark_repertoire_covidpaired.py`.)
   *Lesson (verified):* two complementary regimes. **Clone-size phenotypes (age, CMV)** are diversity's turf —
   the embedding discards clone size by design, so a Hill/coverage summary wins (and CMV's clonality is real
   biology, not an age confound). **Clonotype-identity phenotypes (HLA)** are the embedding's turf — diversity is
   at chance while the **second-moment co-occurrence block separates at scale (A\*02: 0.62 vs 0.46, n=500)**, and
-  the supervised witness / density recover the underlying public motifs. The first-moment kernel mean's own
+  the supervised witness / density recover the underlying public motifs (strongest in **TRA** and **class II** —
+  DRB1\*07:01 0.76, DRB1\*15 α 0.81 — a novel extension beyond class-I β work). The first-moment kernel mean's own
   CI-backed value is depth-robustness (a generic KME property) + being a fixed fusion modality. Net: *diversity
-  for how-even, the embedding for which-clones.*
+  for how-even, the embedding for which-clones.* Two cross-cutting cautions, both from `airr_covid19`: **(1)
+  batch is a first-order nuisance** — it can be as large as the biology (MMD ratio 1.05) and *inflates any
+  batch-confounded contrast* (naive COVID 0.66→0.41 corrected), so always detect it (OvR AUC) and compare
+  *within-batch / residualized* contrasts (`prop:batch`); **(2) honest negatives** — a long-past (convalescent)
+  antigen exposure leaves no batch-robust bulk biomarker at RNA-seq depth (COVID status = chance after
+  correction; the paper's clones need a supervised targeted burden, not an unsupervised bulk witness). Also:
+  pairwise repertoire MMD must use the **unbiased** estimator (`mmd_matrix(unbiased=True)`) when samples differ
+  in depth/diversity — the biased V-statistic's `1/n_eff` self-term otherwise fakes a divergence signal.
 
 ## Reproduced numbers (v3 pipeline)
 
