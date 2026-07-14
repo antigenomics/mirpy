@@ -18,7 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
   "Operating System :: OS Independent",
 ]
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "embedding", "prototypes", "VDJdb"]
@@ -33,7 +33,7 @@ dependencies = [
   "vdjtools",
   "tqdm",
 ]
-license = {text = "GPL-3.0 license"}
+license = { text = "GPL-3.0-or-later" }
 
 [project.optional-dependencies]
 # VDJdb annotation / E-values for the benchmark harness.
@@ -58,6 +58,7 @@ docs = [
 
 [project.urls]
 Homepage      = "https://github.com/antigenomics/mirpy"
+Repository    = "https://github.com/antigenomics/mirpy"
 Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
 
