@@ -1311,6 +1311,32 @@ characteristic function (\S\ref{sec:samp-simdiv}, Prop.~\ref{prop:simdiv}). The 
 Prop.~\ref{prop:kme} is then just the convergence rate of an empirical characteristic function.
 \end{remark}
 
+\begin{remark}[Compare contrasts with the unbiased {\normalfont\scshape MMD}]\label{rem:unbiasedmmd}
+The plug-in squared distance $\norm{\Phi_1(S)-\Phi_1(S')}^2$ is the \emph{biased} {\scshape MMD} $V$-statistic:
+it carries a self-term $\sum_\sigma w_\sigma^2\,k(z_\sigma,z_\sigma)=\sum_\sigma w_\sigma^2=1/n_{\mathrm{eff}}$
+(the kernel diagonal, $k(z,z)=1$). This term is not a constant offset --- it \emph{varies} with the sample's
+effective size, and in a cohort where diversity tracks the phenotype (older donors have lower $n_{\mathrm{eff}}$)
+it \emph{correlates with the label}, manufacturing a spurious divergence. The remedy is the diagonal-removed
+\emph{unbiased} estimator \cite{Gretton2012}, $\langle\mu,\mu\rangle_{\mathrm u}=(\norm{\mu}^2-\sum_\sigma
+w_\sigma^2)/(1-\sum_\sigma w_\sigma^2)$; the biased form is admissible only when $n_{\mathrm{eff}}$ is matched
+across samples (a fixed downsample). The artefact is real: the diversity--divergence coupling in the aging
+cohort drops from $-0.15$ (biased) to $-0.05$ (unbiased) once the diagonal is removed
+(\code{benchmark\_repertoire\_agediverge.py}).
+\end{remark}
+
+\begin{remark}[Aging divergence is a re-expression of the clonality decline, not a new axis]\label{rem:agingaxis}
+Repertoires \emph{do} grow more mutually dissimilar with age: an exact-overlap divergence $-\log F$ against age
+has $\rho\approx0.70$ at $500$k reads (invisible at $40$k, so it is a \emph{deep}-repertoire signal living in
+private clonal expansions). But the part independent of scalar diversity is null --- partial
+$\rho(\text{age},\text{divergence}\mid{}^1D)\approx0.07$ (n.s.) across $40$k/$250$k/$500$k --- so the embedding
+adds no directional aging axis beyond the Hill profile of \S\ref{sec:samp-div}, consistent with the thesis
+\emph{diversity for how-even}. This also cautions against reading a single overlap number: the sign of the
+diversity--divergence relation is metric-dependent, $\approx0$ for the unbiased kernel mean (a diverse repertoire
+sits near the shared $\Pgen$ baseline) but $-0.68$ for frequency-weighted overlap (clonal expansion destroys
+$F$-overlap). ``More diverse $\Rightarrow$ less overlap'' holds only for unweighted-richness overlap; abundance
+weighting flips its age-sign (\code{benchmark\_repertoire\_agediverge.py}).
+\end{remark}
+
 \subsection{Depth and diversity are antagonistic; coverage standardisation reconciles them}\label{sec:samp-div}
 
 The mean $\Phi_1$ buys depth-robustness by averaging, which erases the rare tail --- exactly where diversity
@@ -1439,6 +1465,19 @@ $h$; so the ridge-$R$ mass of $\mu_{\rho_S}$ vanishes unless $h\in\mathrm{HLA}(S
 $\langle\mu_{\rho_S},\mu_{\rho_{S'}}\rangle=\sum_{\sigma,\tau}w_\sigma w'_\tau k(z_\sigma,z_\tau)$ is a product of
 the two ridge masses, hence carries the indicator product. Stratifying the {\scshape MMD} by {\scshape HLA} match
 restores specificity --- the mechanism behind the {\scshape CMV}/{\scshape HLA} signal of \cite{Emerson2017}. \end{proof}
+
+\begin{remark}[The imprint spans {\normalfont\scshape MHC} class II, and is strongest in {\normalfont\scshape TRA}]\label{rem:hlaclass}
+On four-digit-typed data the second-moment / co-occurrence block (Prop.~\ref{prop:interact}) detects {\scshape
+HLA} carriage across loci and \emph{both} {\scshape MHC} classes --- $15/17$ alleles directional, class II
+$8/9$, top {\scshape DRB1}$^*$07:01 at {\scshape AUC} $0.758$ --- extending the class-I, $\beta$-chain result of
+\cite{DeWitt2018} to class II. On a paired cohort the \emph{$\alpha$ chain carries the stronger imprint}
+({\scshape DRB1}$^*$15: $\alpha\,0.81$ vs $\beta\,0.75$; A$^*$02 $0.64/0.54$; B$^*$07 $0.70/0.65$): {\scshape
+TRA}'s lower junctional diversity makes {\scshape HLA}-restricted public $\alpha$ clones more shared, hence more
+detectable. Naive $\alpha{+}\beta$ concatenation sits \emph{between} the chains --- the noisier $\beta$ dilutes
+--- so {\scshape HLA} inference should use $\alpha$ (or an $\alpha$-weighted distance), not an unweighted concat.
+The chain asymmetry is a testable prediction of the junctional-diversity argument
+(\code{benchmark\_repertoire\_covidhla.py}, \code{\_covidpaired.py}).
+\end{remark}
 
 \subsection{The codebook-free limit of the graph--cluster--histogram heuristic}\label{sec:samp-codebook}
 
@@ -1582,6 +1621,21 @@ mainly in the $V$/$J$-usage and depth subspace, adjustable without unmixing the 
 so a phenotype is read by a within-batch (or batch-adjusted) contrast, standardised to a common coverage, and
 tested against a label-permutation null --- depth entering only as the variance the permutation test already
 accounts for, and batch removed by the contrast.
+
+\begin{remark}[Batch is real, first-order, and cancellable: a validated recipe]\label{rem:batchvalidated}
+Proposition~\ref{prop:batch} is borne out on nine real sequencing runs of a paired-chain cohort. The embedding
+$\Phi$ encodes the batch strongly --- a one-vs-rest batch classifier reaches {\scshape AUC} $0.78$ --- and
+\emph{residualising $\Phi$ on the batch indicator collapses it to chance} ($0.03$). The two regimes of
+Rem.~\ref{rem:batchconfound} then separate cleanly: a batch-\emph{orthogonal} biological signal ({\scshape HLA})
+is \emph{preserved} through the correction ($0.60\to0.61$), while a batch-\emph{confounded} one ({\scshape COVID}
+status, with some runs all-healthy) collapses to its honest within-batch value ($0.66\to0.41$) --- the naive
+number was riding the confound. This dictates a four-step cookbook, to run before any biological reading:
+\emph{(1) detect} --- a batch one-vs-rest {\scshape AUC} $\gg$ chance; \emph{(2) quantify} --- the {\scshape MMD}
+ratio (same-phenotype-across-batch : cross-phenotype-within-batch), $\approx1.05$ here, i.e.\ batch as large as
+biology; \emph{(3) correct} --- residualise $\Phi$ on the batch indicator, or contrast within-batch / stratify
+the {\scshape MMD} by batch (Prop.~\ref{prop:batch}); \emph{(4) verify} --- the batch {\scshape AUC} falls to
+chance while a known batch-orthogonal signal survives (\code{benchmark\_repertoire\_covidbatch.py}).
+\end{remark}
 
 \subsection{Normalising heterogeneous {\normalfont\scshape RNA}-seq: depth, kit, read length, and the tissue
 infiltration confound}\label{sec:samp-norm}
@@ -1821,6 +1875,20 @@ expand a motif family) --- not recovering observed ones, which are on hand. The 
 noise and lossless on the signal: exactly where immunological traceability demands it, the exact
 $(V,\text{{\scshape CDR3}})$ receptor survives, ready for a tetramer, a diagnostic, or a therapeutic.
 
+\begin{remark}[The bulk noise floor: a long-past exposure need not be readable]\label{rem:bulklimit}
+The embedding reads \emph{distributional} structure --- diversity and public-clone co-occurrence --- so a
+phenotype carried by rare \emph{private} memory clones can sit below the bulk noise floor. A convalescent
+(long-resolved) {\scshape SARS-CoV-2} exposure is a clean example: at {\scshape RNA}-seq depth it is \emph{not}
+recoverable from the bulk repertoire after batch correction --- classification is chance ($0.49$--$0.52$ across
+$\beta$/$\alpha$/paired), and a from-scratch {\scshape MMD} witness (Prop.~\ref{prop:witness}) does not
+rediscover the known response clones ($0.37\,\beta$/$0.45\,\alpha$); the apparent $0.66$--$0.72$ was the batch
+confound of Rem.~\ref{rem:batchvalidated}. Reading such rare memory-phase clones needs a \emph{supervised}
+targeted burden over a known clone panel, or a differential control in the density machinery of
+\S\ref{sec:density} --- not an unsupervised bulk contrast. This is the honest boundary of the modality:
+\emph{diversity for how-even, the embedding for which public clones}, but not for a handful of private ones lost
+in the naive background (\code{benchmark\_repertoire\_covidstatus.py}).
+\end{remark}
+
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[font=\footnotesize,>={Stealth[length=2mm]}]
@@ -1859,11 +1927,18 @@ $\Sigma_S$. Sample distance is {\scshape MMD}, {\scshape HLA}-stratified when an
 Every default is derived (Table~\ref{tab:sample}): frequencies not counts for scale-freeness
 (Prop.~\ref{prop:kme}), a concave $g$ for outlier-robust weighting (\S\ref{sec:dens-abund}), bandwidth from the
 one-substitution scale $r_1$ (\S\ref{sec:density}), and coverage- not depth-standardised diversity
-(Prop.~\ref{prop:antag}). The propositions' empirical counterparts --- the $n_{\mathrm{eff}}^{-1/2}$
-depth-robustness curve (Prop.~\ref{prop:kme}), the $n_{\mathrm{eff}}\!=\!{}^qD$ identity (Prop.~\ref{prop:antag}),
-{\scshape HLA}-stratified {\scshape CMV} separation (Prop.~\ref{prop:hla}), and batch cancellation under a
-within-batch contrast (Prop.~\ref{prop:batch}) --- are validated by the forthcoming \code{mir/repertoire.py}
-and its depth-robustness, aging, and {\scshape CMV}/{\scshape HLA} benchmarks.
+(Prop.~\ref{prop:antag}). The propositions' empirical counterparts are borne out by \code{mir/repertoire.py} and
+its benchmarks: the $n_{\mathrm{eff}}^{-1/2}$ depth-robustness curve (Prop.~\ref{prop:kme}), the
+$n_{\mathrm{eff}}\!=\!{}^qD$ identity (Prop.~\ref{prop:antag}), {\scshape HLA}-stratified separation across both
+{\scshape MHC} classes (Prop.~\ref{prop:hla}, Rem.~\ref{rem:hlaclass}), and batch cancellation under
+residualisation (Prop.~\ref{prop:batch}, Rem.~\ref{rem:batchvalidated}). Three lessons temper the reading and are
+the operative guidance. \emph{(i) Compare contrasts, not raw distances}: the unbiased {\scshape MMD} and a
+within-batch (or batch-residualised) design (Rem.~\ref{rem:unbiasedmmd},~\ref{rem:batchvalidated}), since both
+the {\scshape MMD} self-term and an unbalanced batch otherwise manufacture signal. \emph{(ii) The imprint is
+richest in {\scshape TRA} and {\scshape MHC} class II} (Rem.~\ref{rem:hlaclass}). \emph{(iii) Honest negatives}:
+aging divergence is scalar diversity in disguise (Rem.~\ref{rem:agingaxis}), and a long-past exposure leaves no
+batch-robust bulk biomarker (Rem.~\ref{rem:bulklimit}). The one-line thesis --- \emph{diversity for how-even,
+the embedding for which clones} --- holds only when read through contrasts.
 
 \begin{table}[h]
   \centering
