@@ -8,6 +8,7 @@ forward metric).
 
 from __future__ import annotations
 
+import os
 import random
 
 import numpy as np
@@ -20,9 +21,16 @@ from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
 
 
 def pick_device(device: str | None = None) -> torch.device:
-    """``mps`` on Apple silicon, else ``cpu`` (or an explicit override)."""
+    """Best available accelerator: explicit ``device`` override, else CUDA, else Apple ``mps``, else ``cpu``.
+
+    Set ``MIR_DEVICE`` (e.g. ``cuda:1``) to override without threading ``device=`` through every call.
+    """
+    if device is None:
+        device = os.environ.get("MIR_DEVICE")
     if device is not None:
         return torch.device(device)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
@@ -32,6 +40,8 @@ def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     if torch.backends.mps.is_available():
         torch.mps.manual_seed(seed)
 

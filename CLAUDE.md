@@ -85,6 +85,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   scorer) — any model trained on v2 embeddings must be retrained.
 - Baked `germline_dist/*.npz` are versioned artifacts; regenerate whenever the gene library /
   `region_annotations.txt` changes (`build_germline_dist.py`, needs `[build]` BioPython).
+- **Parallelism / hardware** (see README "Performance & parallelism"): embedding is all-core by
+  default (`TCREmp(threads=0)`, C++ gapblock, GIL-released); density `backend="kdtree"` = exact
+  multicore (`workers=-1`), `"ann"` = pynndescent auto-all-core (default `"exact"` BallTree is
+  1-core); `cluster(n_jobs=-1)` forwards to sklearn; PCA/RFF ride BLAS (cap via `OMP_NUM_THREADS`).
+  GPU only in `mir.ml`: `pick_device()` = **CUDA → MPS → CPU** auto, override `device=`/`MIR_DEVICE`.
 
 ## Open loops / next steps
 - **v3.0 remaining**: 10X paired benchmark; docs (Sphinx theory section + notebooks); CI; publish
@@ -177,4 +182,19 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   modality**; clonotype-identity payoff real-but-weak, in the 2nd moment / witness / density not the first moment.
   Verification workflow: `wf_06465c6e`. Spec: `REPERTOIRE_EMBEDDING.md`. **TODO**: larger HIP cohort/depth to
   establish the weak HLA signal; biological-control FPR for spike-in; HLA-allele panel; epitope/MHC; scale.
+- **Sample-level — 2026-07-14 additions** (`airr_covid19` = Vlasova 2026, paired TRB+TRA, 9 real batches,
+  4-digit HLA class I+II; `_covid.py` local loader + `benchmark_repertoire_{covidbatch,covidhla,covidstatus,
+  covidpaired}.py`; `THEORY.md` T7):
+  - **Unbiased MMD** (`mir/repertoire.py` `mmd_distance/mmd_matrix(unbiased=True)`): biased V-stat's `1/n_eff`
+    self-term inflates low-diversity samples → fakes divergence. **Age-divergence** re-tested deep (500k, not
+    the misleading 40k): real & strong (overlap ρ0.70) but **diversity-coupled, not an independent axis**
+    (partial ρ(age,div|¹D)≈0.07 n.s.); overlap-F sign is −0.68 (clonal expansion, not richness).
+  - **Batch cookbook (`prop:batch`) — PASS**: batch OvR AUC 0.78 → **0.03** after residualization; HLA (⟂batch)
+    survives, COVID status (⟂̸batch) collapses 0.66→0.41 (naive rode the confound). detect→quantify→correct→verify.
+  - **HLA imprint**: 15/17 alleles class I+II, class II 8/9 (DRB1\*07:01 0.76 top). **TRA > TRB** for HLA
+    (DRB1\*15 α 0.81 vs β 0.75); paired concat dilutes (noisier β) → use α for HLA.
+  - **COVID biomarker = honest negative**: chance after batch correction (0.49–0.52); witness doesn't rediscover
+    the paper's clones (0.37β/0.45α, GT is 87% α). Long-past exposure has no batch-robust bulk signal at RNA-seq depth.
+  - **Parallelism/GPU documented** (README "Performance & parallelism"): `TCREmp(threads=0)` all-core; density
+    `backend="kdtree"` multicore exact; `pick_device` **CUDA→MPS→CPU** (was MPS-only) + `MIR_DEVICE`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

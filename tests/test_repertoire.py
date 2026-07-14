@@ -125,6 +125,19 @@ def test_mmd_matrix_symmetric_zero_diag(space):
     assert np.allclose(np.diag(D), 0.0, atol=1e-6)
 
 
+def test_unbiased_mmd_removes_self_bias(space):
+    """Two independent subsamples of the SAME clonotypes: unbiased MMD² < biased (the 1/n_eff self-bias)."""
+    base = _clonotypes(400, offset=0)
+    a = sample_embedding(space, _sample(base.sample(200, seed=1)), blocks=("mean",))
+    b = sample_embedding(space, _sample(base.sample(200, seed=2)), blocks=("mean",))
+    biased = mmd_distance(a, b)
+    unbiased = mmd_distance(a, b, unbiased=True)
+    assert unbiased < biased                       # diagonal removal shrinks the same-distribution distance
+    assert unbiased >= 0.0                          # clamped
+    Du = mmd_matrix([a, b], unbiased=True)
+    assert np.allclose(Du, Du.T) and np.allclose(np.diag(Du), 0.0)
+
+
 def test_hla_stratified_masks_mismatched_pairs(space):
     embs = [sample_embedding(space, _sample(_clonotypes(50, offset=o)), blocks=("mean",))
             for o in (0, 100, 200)]
