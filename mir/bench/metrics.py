@@ -32,17 +32,40 @@ def estimate_dbscan_eps(X: np.ndarray, k: int = 4) -> float:
 
 
 def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
-            k: int = 4, eps_factor: float = 0.4) -> np.ndarray:
-    """DBSCAN labels (noise = -1).
+            k: int = 4, eps_factor: float = 0.4, method: str = "dbscan", **kwargs) -> np.ndarray:
+    """Density-cluster an embedding; noise = ``-1`` for every method.
 
-    When ``eps`` is ``None`` it is ``kneedle_knee × eps_factor`` — the paper's
-    ``eps := (distance at knee) × (dataset-specific factor)`` (Fig 1). The raw knee
-    over-merges in the PCA embedding; a factor of ~0.3–0.4 recovers tight,
-    high-purity antigen clusters (see the benchmark sweep).
+    Args:
+        method: ``"dbscan"`` (default), ``"hdbscan"``, or ``"optics"``. All three are density
+            estimators that emit ``-1`` noise, so :func:`cluster_metrics` and
+            :func:`mir.density.denoise_and_cluster` work unchanged across them. ``"dbscan"`` is
+            the default for reproducibility of the published Table-S1 numbers.
+        eps / eps_factor / k: DBSCAN only. When ``eps is None`` it is ``kneedle_knee × eps_factor``
+            — the paper's ``eps := (distance at knee) × (dataset-specific factor)`` (Fig 1); the
+            raw knee over-merges in the PCA embedding, so ~0.3–0.4 recovers tight antigen clusters.
+        min_samples: core-point / density threshold, shared by all three methods.
+        **kwargs: passed to the underlying estimator (e.g. ``min_cluster_size`` for HDBSCAN,
+            ``cluster_method`` / ``xi`` for OPTICS).
+
+    HDBSCAN is a variable-density estimator — the persistent cluster tree (Hartigan level sets)
+    rather than DBSCAN's single global ``eps`` slice — so it is the natural choice when local
+    density spans orders of magnitude across antigen ridges (appendix ``sec:dens-depth``).
     """
-    if eps is None:
-        eps = estimate_dbscan_eps(X, k=k) * eps_factor
-    return DBSCAN(eps=eps, min_samples=min_samples).fit_predict(X)
+    if method == "dbscan":
+        if eps is None:
+            eps = estimate_dbscan_eps(X, k=k) * eps_factor
+        return DBSCAN(eps=eps, min_samples=min_samples, **kwargs).fit_predict(X)
+    if method == "hdbscan":
+        from sklearn.cluster import HDBSCAN
+
+        kwargs.setdefault("min_cluster_size", max(min_samples, 2))
+        kwargs.setdefault("copy", True)  # don't mutate the caller's array (silences FutureWarning)
+        return HDBSCAN(min_samples=min_samples, **kwargs).fit_predict(X)
+    if method == "optics":
+        from sklearn.cluster import OPTICS
+
+        return OPTICS(min_samples=min_samples, **kwargs).fit_predict(X)
+    raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
 
 
 @dataclass

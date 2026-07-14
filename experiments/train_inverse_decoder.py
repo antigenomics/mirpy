@@ -1,8 +1,14 @@
 """Train the inverse codec: compact junction embedding -> CDR3 sequence (Part 2).
 
-Reconstructs the CDR3 from the 95%-variance PCA-compacted junction embedding —
+Reconstructs the CDR3 from the 99%-variance PCA-compacted junction embedding —
 the hard half of the codec (irrm-codec exact-match ~0.50 on TRB, ~0.16 on IGH).
 Reports test exact-match + token accuracy.
+
+Retention is 99%, not 95%: the arda-real prototype set is lower-rank than the old mixed
+set, so 95% of TRB variance is only ~51 PCs — over-compacted, exact-match 0.08. 99% (~284
+PCs) restores exact-match ~0.40 (the T5 chain-adaptive-retention lesson, which the compact
+arda prototypes now trigger for TRB, not just IGH/TRD). Distances/geometry stay fine at 95%
+(forward cosine 0.998); only reconstruction is compaction-sensitive.
 
 Run (needs [ml] + [bench]):
     python experiments/train_inverse_decoder.py [N] [K] [epochs]
@@ -32,8 +38,8 @@ def main(n: int = 20000, k: int = 1000, epochs: int = 60) -> None:
 
     t0 = time.perf_counter()
     junc = junction_distance_matrix(seqs, protos)             # (N, K)
-    codes = PCA(n_components=0.95, whiten=True, random_state=0).fit_transform(junc)
-    print(f"codes {codes.shape} (95% var of {k}-D junction) in {time.perf_counter() - t0:.1f}s")
+    codes = PCA(n_components=0.99, whiten=True, random_state=0).fit_transform(junc)
+    print(f"codes {codes.shape} (99% var of {k}-D junction) in {time.perf_counter() - t0:.1f}s")
 
     dec, m = train_inverse_decoder(codes, seqs, epochs=epochs)
     print(f"\nRESULT: exact-match {m['exact_match']:.3f}  token-acc {m['token_acc']:.3f}  "

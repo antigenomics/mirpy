@@ -70,10 +70,84 @@ def test_balloon_mode_detects_injected_cluster():
     assert res.radius > 0
 
 
+def test_abundance_weighted_channels_and_robustness():
+    # breadth = a convergent singleton cluster; depth = one hyperexpanded clone. The weighted test
+    # keeps the cluster (breadth), the depth channel flags the big clone, and concavity keeps the
+    # Zipf tail from dominating. (A lone orphan is BH-conservative among N clones — a side-channel.)
+    rng = np.random.default_rng(3)
+    bg = rng.standard_normal((5000, 8))
+    obs = rng.standard_normal((800, 8))
+    obs[:40] = np.full(8, 2.5) + 0.05 * rng.standard_normal((40, 8))  # convergent family (breadth)
+    a = np.ones(800)
+    a[400] = 5000.0                                     # a hyperexpanded clone (depth signal)
+    res = neighbor_enrichment(obs, bg, lambda0=3.0, abundance=a, weight="log1p")
+    assert res.score is not None and res.pvalue_size is not None and res.pvalue_breadth is not None
+    assert enriched_mask(res)[:40].mean() > 0.8         # breadth keeps the convergent family
+    assert (res.pvalue_breadth[:40] < 0.05).mean() > 0.8
+    assert res.pvalue_size[400] == res.pvalue_size.min() < 0.01  # depth flags the hyperexpanded clone
+    assert res.score.max() < 100                        # concavity: weighted mass is O(log), not O(size)
+
+
+def test_abundance_distinct_weight_ignores_sizes():
+    rng = np.random.default_rng(4)
+    obs, bg = rng.standard_normal((300, 6)), rng.standard_normal((700, 6))
+    a = rng.integers(1, 50, size=300).astype(float)
+    base = neighbor_enrichment(obs, bg, radius=0.8)
+    same = neighbor_enrichment(obs, bg, radius=0.8, abundance=a, weight="distinct")
+    assert np.array_equal(base.n_obs, same.n_obs) and same.score is None  # g≡1 endpoint
+
+
 def test_unknown_test_raises():
     obs, bg = np.zeros((3, 2)), np.ones((3, 2))
     with pytest.raises(ValueError):
         neighbor_enrichment(obs, bg, radius=1.0, test="chi2")
+
+
+def test_unknown_backend_raises():
+    obs, bg = np.zeros((3, 2)), np.ones((3, 2))
+    with pytest.raises(ValueError, match="backend must be"):
+        neighbor_enrichment(obs, bg, radius=1.0, backend="faiss")
+
+
+def test_kdtree_backend_matches_exact():
+    # cKDTree is exact: a FIXED radius reproduces the BallTree counts/hits bit-for-bit. In BALLOON
+    # mode the radius is a computed k-th-neighbour distance that differs by a float epsilon between
+    # engines, flipping boundary membership -> counts agree within +-1, hit sets essentially match.
+    rng = np.random.default_rng(0)
+    d = 12
+    bg = rng.standard_normal((4000, d))
+    obs = rng.standard_normal((800, d))
+    obs[:40] = np.full(d, 2.5) + 0.05 * rng.standard_normal((40, d))
+    rx = neighbor_enrichment(obs, bg, backend="exact", radius=0.6)
+    rk = neighbor_enrichment(obs, bg, backend="kdtree", radius=0.6)
+    assert np.array_equal(rx.n_obs, rk.n_obs) and np.array_equal(rx.n_bg, rk.n_bg)
+    assert np.array_equal(enriched_mask(rx), enriched_mask(rk))
+    bx = neighbor_enrichment(obs, bg, backend="exact", lambda0=3.0)
+    bk = neighbor_enrichment(obs, bg, backend="kdtree", lambda0=3.0)
+    jac = (enriched_mask(bx) & enriched_mask(bk)).sum() / max((enriched_mask(bx) | enriched_mask(bk)).sum(), 1)
+    assert jac > 0.95 and np.abs(bx.n_obs - bk.n_obs).max() <= 2
+
+
+@pytest.mark.integration
+def test_ann_backend_matches_exact():
+    # the approximate (pynndescent) backend agrees with exact BallTree on the hit set and signal.
+    pytest.importorskip("pynndescent")
+    import warnings
+
+    rng = np.random.default_rng(0)
+    d = 20
+    bg = rng.standard_normal((6000, d))
+    obs = rng.standard_normal((1500, d))
+    obs[:120] = np.full(d, 4.0) + 0.05 * rng.standard_normal((120, d))  # injected convergent family
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rx = neighbor_enrichment(obs, bg, backend="exact")
+        ra = neighbor_enrichment(obs, bg, backend="ann")
+    mx, ma = enriched_mask(rx), enriched_mask(ra)
+    jac = (mx & ma).sum() / max((mx | ma).sum(), 1)
+    assert jac > 0.9                                    # ann hit set ~ exact hit set
+    assert ma[:120].mean() > 0.8 and ma[120:].mean() < 0.05  # recovers injected signal
+    assert np.corrcoef(rx.n_obs, ra.n_obs)[0, 1] > 0.95
 
 
 def test_enriched_mask_criteria():

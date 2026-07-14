@@ -27,6 +27,13 @@ density ratio ``E(z)`` itself. The background is either **generated** from the v
 P_gen model (:func:`generate_background`, the ALICE analog) or **any supplied control
 repertoire** (the TCRNET analog) — both just become ``bg_df``.
 
+Passing ``abundance=`` (clone sizes) to :func:`neighbor_enrichment` adds the **clonal-depth**
+channel (appendix §T.6 ``sec:dens-abund``): the distinct in-ball count becomes a
+variance-stabilised weighted mass ``S=Σ g(a_j)`` with concave ``g`` (default ``log(1+a)``) so a
+hyperexpanded clone can't dominate, tested against a compound-Poisson Gamma tail, plus an orphan
+size-test ``P(A≥a_j)`` combined with breadth by Fisher. Default (``abundance=None``) counts each
+clonotype once — the shipped ``g≡1`` behaviour.
+
 Observed and background embeddings are comparable *only* in one coordinate system (same
 prototypes **and** same PCA rotation). :func:`fit_density_space` enforces that: it embeds
 both through one :class:`~mir.embedding.tcremp.TCREmp` and fits one PCA on the pooled
@@ -85,6 +92,9 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
         return junction_distance_matrix(
             df["junction_aa"].to_list(), model._proto_junction,
             gap_positions=model._gap_positions, threads=model.threads,
+            metric=getattr(model, "metric", "squared"),      # match the model's coordinate options
+            matrix=getattr(model, "_matrix", None),
+            alignment=getattr(model, "_alignment", "gapblock"),
         ).astype(np.float32)  # float32 halves the whole-repertoire memory footprint
     return _slice(model.embed(df), space).astype(np.float32, copy=False)
 
@@ -115,11 +125,28 @@ class EnrichmentResult:
 
     n_obs: np.ndarray    # observed neighbours within radius (self excluded)
     n_bg: np.ndarray     # background neighbours within radius
-    expected: np.ndarray # expected observed neighbours under the background null
-    fold: np.ndarray     # n_obs / expected == the density ratio E(z)
-    pvalue: np.ndarray   # one-sided enrichment p-value
+    expected: np.ndarray # expected observed count/mass under the background null
+    fold: np.ndarray     # observed / expected == the density ratio E(z)
+    pvalue: np.ndarray   # one-sided enrichment p-value (combined breadth×depth if abundance-aware)
     qvalue: np.ndarray   # Benjamini-Hochberg adjusted p-value
     radius: float
+    # abundance-aware channels (None unless `abundance` was supplied); appendix §T.6 sec:dens-abund
+    score: np.ndarray | None = None           # weighted in-ball mass S(z) = Σ g(a_j), self excluded
+    pvalue_breadth: np.ndarray | None = None  # breadth channel: S vs the compound-Poisson null
+    pvalue_size: np.ndarray | None = None      # depth/orphan channel: P(A ≥ a_j) under the size law
+
+
+_WEIGHTS = {
+    "distinct": lambda a: np.ones(a.shape, dtype=np.float64),  # g≡1: the shipped distinct count
+    "log1p": lambda a: np.log1p(a),                            # concave, robust to the Zipf tail
+    "anscombe": lambda a: np.sqrt(a + 0.375),                  # variance-stabilising root
+}
+
+
+def _emp_survival(a: np.ndarray) -> np.ndarray:
+    """Empirical size-law survival ``P(A ≥ a_j)`` (the null clone-size law ν, read off the data)."""
+    s = np.sort(a)
+    return (a.size - np.searchsorted(s, a, side="left")) / a.size
 
 
 def fit_density_space(
@@ -228,6 +255,53 @@ def calibrate_radius(
     return float(np.quantile(drift, quantile))
 
 
+def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: int = 0):
+    """Approximate neighbour queries (pynndescent) for whole-repertoire scale.
+
+    Returns ``(rad, radius_out, n_bg, count_obs, lists_obs)`` matching the exact BallTree path:
+    per-obs radius ``rad``, background occupancy ``n_bg``, and two closures giving the
+    self-excluded observed-neighbour count and index lists within ``rad``. Neighbours come from a
+    kNN graph (k=``k_max``) thresholded by radius — *approximate*: recall < 1 undercounts, biasing
+    enrichment **down** (conservative). A saturated ball (all ``k_max`` neighbours inside ``rad``)
+    is undercounted and warned. For large N where exact trees are slow; use ``backend='exact'`` for
+    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[bench]`` extra).
+    """
+    from pynndescent import NNDescent
+
+    obs = np.ascontiguousarray(obs, dtype=np.float32)  # pynndescent prefers float32
+    bg = np.ascontiguousarray(bg, dtype=np.float32)
+    n_obs_total, n_bg_total = len(obs), len(bg)
+    bg_index = NNDescent(bg, metric="euclidean",
+                         n_neighbors=min(max(k_max, 16), n_bg_total - 1), random_state=seed)
+    obs_index = NNDescent(obs, metric="euclidean",
+                          n_neighbors=min(k_max, n_obs_total - 1), random_state=seed)
+    if radius is None:  # balloon: radius = k-th bg-neighbour distance, occupancy == k
+        k = min(max(int(round(lambda0 * n_bg_total / n_ref)), 1), n_bg_total)
+        rad = bg_index.query(obs, k=k)[1][:, -1].astype(np.float64)
+        n_bg = np.full(n_obs_total, k, dtype=np.int64)
+        radius_out = float(np.median(rad))
+    else:  # fixed global radius
+        rad = np.full(n_obs_total, float(radius), dtype=np.float64)
+        bd = bg_index.query(obs, k=min(k_max, n_bg_total))[1]
+        n_bg = (bd <= float(radius)).sum(1).astype(np.int64)
+        radius_out = float(radius)
+    oi, od = obs_index.query(obs, k=min(k_max, n_obs_total))  # self included (dist ~0)
+    within = od <= rad[:, None]
+    if bool(within.all(axis=1).any()):
+        import warnings
+
+        warnings.warn(f"ANN neighbour ball saturated at k_max={k_max} for some clonotypes; their "
+                      "counts are undercounted — raise k_max or use backend='exact'.", stacklevel=2)
+
+    def _count_obs():
+        return (within.sum(1) - 1).astype(np.int64)
+
+    def _lists_obs():
+        return [oi[i][within[i]] for i in range(n_obs_total)]
+
+    return rad, radius_out, n_bg, _count_obs, _lists_obs
+
+
 def neighbor_enrichment(
     obs_emb: np.ndarray,
     bg_emb: np.ndarray,
@@ -237,6 +311,10 @@ def neighbor_enrichment(
     test: str = "poisson",
     pseudocount: float = 1.0,
     calibrate: str | None = "median",
+    abundance: np.ndarray | None = None,
+    weight: str = "log1p",
+    orphan: bool = True,
+    backend: str = "exact",
 ) -> EnrichmentResult:
     """Continuous neighbour-enrichment test in one embedding coordinate system.
 
@@ -257,63 +335,162 @@ def neighbor_enrichment(
     (< 5 % in naive repertoires) barely moves the median, so this is robust; pass
     ``calibrate=None`` to test against the raw P_gen null instead.
 
+    **Clonal abundance** (appendix §T.6 ``sec:dens-abund``). By default each clonotype counts once
+    (``abundance=None``), scoring only convergence *breadth*. Supplying per-clonotype clone sizes
+    ``abundance`` adds the *depth* channel: the in-ball count is replaced by a variance-stabilised
+    weighted mass ``S(z) = Σ g(a_j)`` over neighbours, with ``g`` non-decreasing and **concave**
+    (``weight="log1p"`` ``g=log(1+a)`` or ``"anscombe"`` ``g=√(a+3/8)``) so a hyperexpanded clone
+    contributes a bounded increment, not a thousand-fold one. Under H0 the mass is compound-Poisson
+    with dispersion index ``φ=E[g²]/E[g]`` (Prop. *abund*), so ``S`` is tested against a
+    moment-matched ``Gamma(μ_S/φ, φ)`` upper tail (which collapses to the Poisson count test when
+    ``g≡1``). With ``orphan=True`` each clone additionally gets a size p-value
+    ``P(A≥a_j)`` and the breadth/depth channels are combined by Fisher (``χ²₄``), recovering a
+    hyperexpanded *orphan* (depth, no breadth) that the count test alone misses.
+
     Args:
         obs_emb: ``(N_obs, d)`` observed embedding.
         bg_emb: ``(N_bg, d)`` background embedding, **same basis** as ``obs_emb``
             (produce both with :func:`fit_density_space`). Use ``M ≥ 5N`` for a stable ratio.
         radius: Fixed neighbourhood radius; ``None`` selects the balloon estimator.
         lambda0: Target expected background occupancy for the balloon estimator (``[1, 5]``).
-        test: ``"poisson"`` (ALICE analog) or ``"binomial"`` (TCRNET control analog).
+        test: ``"poisson"`` (ALICE analog) or ``"binomial"`` (TCRNET control analog). Applies to
+            the distinct-count path; the abundance-weighted path always uses the Gamma tail.
         pseudocount: Added to the background count to stabilize ``p_bg``.
         calibrate: ``"median"`` empirical-null water-level calibration (default), or ``None``.
+        abundance: Optional ``(N_obs,)`` clone sizes (e.g. ``duplicate_count``), row-aligned to
+            ``obs_emb``; enables the weighted/orphan channels.
+        weight: Concave size transform ``g`` — ``"log1p"`` (default), ``"anscombe"``, or
+            ``"distinct"`` (``g≡1``, ignore sizes even if ``abundance`` is given).
+        orphan: When abundance-aware, combine the size p-value with the breadth p-value by Fisher.
+        backend: neighbour engine. ``"exact"`` (default, BallTree — exact, reproducible),
+            ``"kdtree"`` (scipy cKDTree — **also exact**, multithreaded, 5–9× faster; the
+            recommended speedup), or ``"ann"`` (approximate pynndescent kNN for whole-repertoire
+            scale — ~30× faster than BallTree at ≥40k but recall < 1 undercounts, biasing enrichment
+            conservatively; see :func:`_ann_neighbors`). ``"kdtree"`` is bit-identical to
+            ``"exact"`` at a *fixed* ``radius``; in balloon mode counts differ by at most ±1 at the
+            ball boundary (a float-epsilon difference in the computed k-th-neighbour distance),
+            which is negligible — prefer ``"kdtree"`` unless reproducing the BallTree baseline exactly.
 
     Returns:
         An :class:`EnrichmentResult`; ``fold`` is the (calibrated) density ratio ``E(z)``. In
-        balloon mode ``radius`` is the median adaptive radius used.
+        balloon mode ``radius`` is the median adaptive radius used. When abundance-aware, ``score``
+        holds the weighted mass ``S`` and ``pvalue`` is the combined breadth×depth test.
     """
     obs = np.ascontiguousarray(obs_emb, dtype=np.float64)
     bg = np.ascontiguousarray(bg_emb, dtype=np.float64)
     n_obs_total, n_bg_total = obs.shape[0], bg.shape[0]
     n_ref = max(n_obs_total - 1, 1)
-    obs_tree, bg_tree = BallTree(obs), BallTree(bg)
 
-    if radius is None:  # balloon: fix expected background occupancy at lambda0
-        k = int(round(lambda0 * n_bg_total / n_ref))
-        k = min(max(k, 1), n_bg_total)
-        rad = bg_tree.query(obs, k=k)[0][:, -1]  # per-point radius = k-th bg-neighbour distance
-        # count the *actual* background occupancy in that ball (>= k under ties/duplicate
-        # embeddings), not a hardcoded k — hardcoding would understate dense regions and bias
-        # the test anti-conservative.
+    if backend == "exact":
+        obs_tree, bg_tree = BallTree(obs), BallTree(bg)
+        if radius is None:  # balloon: fix expected background occupancy at lambda0
+            k = int(round(lambda0 * n_bg_total / n_ref))
+            k = min(max(k, 1), n_bg_total)
+            rad = bg_tree.query(obs, k=k)[0][:, -1]  # per-point radius = k-th bg-neighbour distance
+            radius_out = float(np.median(rad))
+        else:  # fixed global radius
+            rad = radius
+            radius_out = float(radius)
+        # count the *actual* background occupancy in the ball (>= k under ties), not a hardcoded k.
         n_bg = bg_tree.query_radius(obs, rad, count_only=True).astype(np.int64)
-        n_obs = (obs_tree.query_radius(obs, rad, count_only=True) - 1).astype(np.int64)
-        radius_out = float(np.median(rad))
-    else:  # fixed global radius
-        n_obs = (obs_tree.query_radius(obs, radius, count_only=True) - 1).astype(np.int64)
-        n_bg = bg_tree.query_radius(obs, radius, count_only=True).astype(np.int64)
-        radius_out = float(radius)
 
+        def _count_obs():
+            return (obs_tree.query_radius(obs, rad, count_only=True) - 1).astype(np.int64)
+
+        def _lists_obs():
+            return obs_tree.query_radius(obs, rad, return_distance=False)
+    elif backend == "kdtree":  # exact, multithreaded scipy cKDTree — 5-9x faster than BallTree
+        from scipy.spatial import cKDTree
+
+        obs_tree, bg_tree = cKDTree(obs), cKDTree(bg)
+        if radius is None:
+            k = int(round(lambda0 * n_bg_total / n_ref))
+            k = min(max(k, 1), n_bg_total)
+            d = bg_tree.query(obs, k=k, workers=-1)[0]
+            rad = d[:, -1] if d.ndim == 2 else d  # cKDTree returns 1-D for k==1
+            radius_out = float(np.median(rad))
+        else:
+            rad = np.full(n_obs_total, float(radius))
+            radius_out = float(radius)
+        n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=-1).astype(np.int64)
+
+        def _count_obs():
+            return (obs_tree.query_ball_point(obs, rad, return_length=True, workers=-1) - 1).astype(np.int64)
+
+        def _lists_obs():
+            return [np.asarray(x, dtype=np.intp)
+                    for x in obs_tree.query_ball_point(obs, rad, workers=-1)]
+    elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
+        rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
+            obs, bg, radius, lambda0, n_ref)
+    else:
+        raise ValueError(f"backend must be 'exact' or 'ann', got {backend!r}")
     p_bg = (n_bg + pseudocount) / (n_bg_total + pseudocount)
     expected = n_ref * p_bg
 
+    weighted = abundance is not None and weight != "distinct"
+    if not weighted:
+        n_obs = _count_obs()
+        if calibrate == "median":
+            pos = expected > 0
+            c = np.median(n_obs[pos]) / np.median(expected[pos]) if pos.any() else 1.0
+            expected = expected * max(float(c), 1.0)  # water level: centre the bulk at fold ~ 1
+        elif calibrate is not None:
+            raise ValueError(f"calibrate must be 'median' or None, got {calibrate!r}")
+        if test == "poisson":
+            pvalue = stats.poisson.sf(n_obs - 1, expected)
+        elif test == "binomial":
+            pvalue = stats.binom.sf(n_obs - 1, n_ref, np.clip(expected / n_ref, 0.0, 1.0))
+        else:
+            raise ValueError(f"test must be 'poisson' or 'binomial', got {test!r}")
+        pvalue = np.clip(np.asarray(pvalue, dtype=np.float64), 0.0, 1.0)
+        qvalue = stats.false_discovery_control(pvalue, method="bh")
+        return EnrichmentResult(
+            n_obs=n_obs, n_bg=n_bg, expected=expected, fold=n_obs / expected,
+            pvalue=pvalue, qvalue=qvalue, radius=radius_out,
+        )
+
+    # --- abundance-aware weighted count (appendix §T.6 sec:dens-abund) ---
+    if weight not in _WEIGHTS:
+        raise ValueError(f"weight must be one of {sorted(_WEIGHTS)}, got {weight!r}")
+    a = np.asarray(abundance, dtype=np.float64)
+    if a.shape[0] != n_obs_total:
+        raise ValueError(f"abundance length {a.shape[0]} != N_obs {n_obs_total}")
+    g = _WEIGHTS[weight](a)
+    idx = _lists_obs()  # neighbour index lists (exact BallTree or approximate ANN)
+    # vectorised weighted mass: flatten the ragged neighbour lists and one bincount, instead of a
+    # Python sum per point (the whole-repertoire hot path — ~400k points).
+    counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=n_obs_total)
+    cols = np.concatenate(idx) if n_obs_total else np.empty(0, dtype=np.intp)
+    rows = np.repeat(np.arange(n_obs_total), counts)
+    n_obs = counts - 1                                            # exclude self
+    S = np.bincount(rows, weights=g[cols], minlength=n_obs_total) - g  # weighted mass, excl self
+    mean_g = float(g.mean())
+    phi = float((g * g).mean() / mean_g)  # dispersion index E[g²]/E[g] (=1 for g≡1)
+
     if calibrate == "median":
         pos = expected > 0
-        c = np.median(n_obs[pos]) / np.median(expected[pos]) if pos.any() else 1.0
-        expected = expected * max(float(c), 1.0)  # water level: centre the bulk at fold ~ 1
+        mu_raw = expected * mean_g
+        c = np.median(S[pos]) / np.median(mu_raw[pos]) if pos.any() else 1.0
+        expected = expected * max(float(c), 1.0)
     elif calibrate is not None:
         raise ValueError(f"calibrate must be 'median' or None, got {calibrate!r}")
+    mu_S = expected * mean_g  # expected weighted neighbour mass under H0
+    # compound-Poisson null: Var = mu_S·φ -> moment-matched Gamma(shape=mu_S/φ, scale=φ) upper tail
+    p_breadth = np.clip(stats.gamma.sf(S, a=np.clip(mu_S / phi, 1e-6, None), scale=phi), 0.0, 1.0)
 
-    if test == "poisson":
-        pvalue = stats.poisson.sf(n_obs - 1, expected)
-    elif test == "binomial":
-        pvalue = stats.binom.sf(n_obs - 1, n_ref, np.clip(expected / n_ref, 0.0, 1.0))
+    if orphan:
+        p_size = _emp_survival(a)  # depth channel: P(A ≥ a_j) under the empirical size law
+        chi2 = -2.0 * (np.log(np.clip(p_breadth, 1e-300, 1.0)) + np.log(np.clip(p_size, 1e-300, 1.0)))
+        pvalue = np.clip(stats.chi2.sf(chi2, df=4), 0.0, 1.0)
     else:
-        raise ValueError(f"test must be 'poisson' or 'binomial', got {test!r}")
-    pvalue = np.clip(np.asarray(pvalue, dtype=np.float64), 0.0, 1.0)
+        p_size = None
+        pvalue = p_breadth
     qvalue = stats.false_discovery_control(pvalue, method="bh")
-
     return EnrichmentResult(
-        n_obs=n_obs, n_bg=n_bg, expected=expected, fold=n_obs / expected,
+        n_obs=n_obs, n_bg=n_bg, expected=mu_S, fold=S / np.where(mu_S > 0, mu_S, 1.0),
         pvalue=pvalue, qvalue=qvalue, radius=radius_out,
+        score=S, pvalue_breadth=p_breadth, pvalue_size=p_size,
     )
 
 
@@ -324,7 +501,13 @@ def enriched_mask(
 
     ``min_neighbors=2`` reproduces the legacy "self plus at least one neighbour" criterion
     (``n_obs`` excludes self, so the threshold is ``n_obs ≥ min_neighbors − 1``).
+
+    For an abundance-aware result (``res.score`` set) the ``min_fold``/``min_neighbors`` breadth
+    gates are dropped: the combined breadth×depth ``q`` already governs, so a hyperexpanded orphan
+    (significant depth, no neighbours) is kept rather than filtered out.
     """
+    if res.score is not None:
+        return res.qvalue < alpha
     return (
         (res.qvalue < alpha)
         & (res.fold > min_fold)
@@ -364,7 +547,8 @@ def generate_background(
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
-    Lazy ``vdjtools`` dependency (``[rearrangement]``). Returns a frame with
+    Lazy ``vdjtools.model`` import (``vdjtools`` is a core dependency; imported here only to defer
+    the cost). Returns a frame with
     ``junction_aa``, ``v_call``, ``j_call`` — ready for ``TCREmp.embed`` — sampled from the
     vdjtools VDJ-rearrangement model, i.e. a Monte-Carlo estimate of the
     ``f_gen = φ_# P_gen`` pushforward (the ALICE analog background).
@@ -403,3 +587,17 @@ if __name__ == "__main__":
         print(f"mir.density [{label}] OK; injected hit-rate {injected.mean():.2f}, "
               f"background hit-rate {background.mean():.3f}, "
               f"median injected fold {np.median(res.fold[:50]):.1f}")
+
+    # abundance-aware: sizes add the depth channel. The convergent cluster (breadth) stays enriched;
+    # a hyperexpanded clone gets the smallest size p-value (the orphan side-channel, for individual
+    # inspection — a lone orphan is BH-conservative among N clones); concavity bounds the Zipf tail.
+    a = np.ones(1000)
+    a[500] = 5000.0                                    # a hyperexpanded clone among background
+    res = neighbor_enrichment(obs, bg, lambda0=3.0, abundance=a, weight="log1p")
+    mask = enriched_mask(res)
+    assert res.score is not None and res.pvalue_size is not None
+    assert mask[:50].mean() > 0.8, mask[:50].mean()    # breadth channel keeps the convergent cluster
+    assert res.pvalue_size[500] == res.pvalue_size.min()  # depth channel flags the big clone
+    assert res.score.max() < 100                       # concavity: O(log) mass, not O(size)
+    print(f"mir.density [abundance] OK; cluster hit-rate {mask[:50].mean():.2f}, "
+          f"orphan size-p {res.pvalue_size[500]:.4f}, max weighted mass {res.score.max():.1f}")
