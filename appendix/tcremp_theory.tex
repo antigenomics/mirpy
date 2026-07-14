@@ -1281,6 +1281,36 @@ mass is spread --- a diversity number (next subsection). Reading a phenotype (ag
 a \emph{distribution regression}, consistent at a rate governed by $n_{\mathrm{eff}}$ and the kernel
 \cite{Szabo2016,Muandet2017}.
 
+\begin{remark}[The backbone is an empirical characteristic function]\label{rem:cf}
+For a reader from probability, $\Phi_1$ is a familiar object in disguise. The kernel is shift-invariant, so by
+\emph{Bochner's theorem} $k(z,z')=\int_{\R^{p}} e^{i\omega^\top(z-z')}\,d\Lambda(\omega)$ for a spectral measure
+$\Lambda$, and the random-Fourier map of Eq.~\eqref{eq:rff} simply samples the complex exponential
+$z\mapsto e^{i\omega^\top z}$ at frequencies $\omega_j\sim\Lambda$ (the $\cos(\omega^\top z+b)$ form is the
+real-inner-product bookkeeping). Each coordinate of the pooled backbone is therefore
+\begin{equation}\label{eq:ecf}
+  \sum_\sigma w_\sigma\, e^{i\omega_j^\top z_\sigma}
+  \;=\;\int e^{i\omega_j^\top z}\,d\rho_S(z)
+  \;=\;\widehat{\rho_S}(\omega_j),
+\end{equation}
+the \emph{empirical characteristic function} of the clonotype cloud at a random frequency: $\Phi_1$ is a finite
+sketch of $\rho_S$'s characteristic function. This is the moment-generating function's bounded cousin --- the
+characteristic function is the {\scshape MGF} evaluated on the imaginary axis,
+$\widehat{\rho}(\omega)=\E\,e^{i\omega^\top z}$ against the {\scshape MGF}'s $\E\,e^{t^\top z}$ --- and the swap is
+exactly what a repertoire summary needs. Clone sizes are heavy-tailed (Zipf, \S\ref{sec:dens-abund}), so an
+{\scshape MGF}-style $e^{t^\top z}$ feature would be dominated by the single largest clone and need not even
+converge; the characteristic function is bounded ($|e^{i\omega^\top z}|=1$), always exists, is robust to that
+hyperexpanded clone, and is a \emph{complete} invariant (L\'evy's uniqueness theorem). This is precisely why the
+kernel must be \emph{characteristic} (Notation): the term is inherited from the characteristic function, and the
+mean map $\mu_{\rho_S}$ is injective for the same reason $\widehat{\rho_S}$ determines its law. Two results below
+are then classical Fourier statistics: the sample distance is a spectrally-weighted $L^2$ distance between
+characteristic functions,
+$\mathrm{MMD}_k^2(\rho_S,\rho_{S'})=\int|\widehat{\rho_S}(\omega)-\widehat{\rho_{S'}}(\omega)|^2\,d\Lambda(\omega)$
+\cite{Muandet2017,Gretton2012}, and the diversity block
+$\norm{\mu_{\rho_S}}^2=\int|\widehat{\rho_S}(\omega)|^2\,d\Lambda(\omega)$ is the \emph{energy} of that same
+characteristic function (\S\ref{sec:samp-simdiv}, Prop.~\ref{prop:simdiv}). The depth-robustness of
+Prop.~\ref{prop:kme} is then just the convergence rate of an empirical characteristic function.
+\end{remark}
+
 \subsection{Depth and diversity are antagonistic; coverage standardisation reconciles them}\label{sec:samp-div}
 
 The mean $\Phi_1$ buys depth-robustness by averaging, which erases the rare tail --- exactly where diversity
@@ -1380,6 +1410,13 @@ $\Sigma_S=\int\psi\psi^\top d\rho_S$ is the uncentred covariance of the feature 
 Fisher-vector / second-order pooling statistic, codebook-free here because $\psi$ is a fixed random basis rather
 than a learned {\scshape GMM}. Convergent {\scshape HLA}-restricted responses deposit correlated mass in specific
 $\varphi$-regions, which $\Sigma_S$ (and not $\mu_{\rho_S}$) records. \end{proof}
+
+In the characteristic-function language of Rem.~\ref{rem:cf} this is transparent: since
+$\cos a\cos b=\tfrac12[\cos(a{-}b)+\cos(a{+}b)]$, an entry of $\Sigma_S$ reads $\widehat{\rho_S}$ at the
+\emph{sum and difference} frequencies $\omega_j\pm\omega_k$, whereas $\Phi_1$ reads it only at the single
+frequencies $\omega_j$. The first moment samples the characteristic function; the second moment samples its
+frequency mixing --- and frequency mixing is exactly the spectral signature of co-occurrence, which is why the
+step from $\Phi_1$ to $\Sigma_S$ is the step from marginals to interactions.
 
 Two routes exploit this and mirpy treats them as co-equal. The unsupervised route ships $\Sigma_S$ (or its
 leading spectrum) as a third block. The supervised route replaces the fixed pool by a learned
