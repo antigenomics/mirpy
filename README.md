@@ -132,6 +132,21 @@ python experiments/benchmark_vdjdb.py           # Table S1 (needs a VDJdb dump)
 Method: Kremlyakova *et al.*, *TCREMP: a bioinformatic pipeline for efficient embedding of
 T-cell receptor sequences*, **J Mol Biol** 437 (2025) 169205.
 
+## Performance & parallelism
+
+mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, by hot path:
+
+| Stage | Knob | Default | Notes |
+|---|---|---|---|
+| Embedding (junction distance) | `TCREmp(..., threads=N)` | `0` = **all cores** | The C++ `seqtree.gapblock` scorer; releases the GIL, ~530 M pairs/s @16 cores. `threads=1` for a serial run. |
+| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"exact"` (BallTree, **1 core**) | `backend="kdtree"` = exact scipy cKDTree, **all cores** (`workers=-1`), 5–9× faster; `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5. Prefer `kdtree` for multicore exact. |
+| Clustering | `cluster(..., n_jobs=-1)` | sklearn default (1) | forwarded to DBSCAN/OPTICS/HDBSCAN via `**kwargs`; parallelizes the neighbour search. |
+| BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
+| Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1 python experiments/train_forward_encoder.py`. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
+
+Rule of thumb: leave `threads=0` (all cores) for embedding; switch density to `backend="kdtree"`
+for exact multicore or `"ann"` at whole-repertoire scale; the GPU is used only by `mir.ml`.
+
 ## Development
 
 Conda env `mirpy` (Python 3.12): `bash setup.sh`. Tests: `python -m pytest tests/ -q`.

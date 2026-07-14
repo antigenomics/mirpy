@@ -310,16 +310,42 @@ def sample_embedding(
 # ---------------------------------------------------------------------- distance
 
 
-def mmd_distance(a: SampleEmbedding, b: SampleEmbedding) -> float:
-    """MMD between two repertoires, ``‖Φ₁(a) − Φ₁(b)‖`` (Eq. ``eq:kme``)."""
-    return float(np.linalg.norm(a.mean - b.mean))
+def mmd_distance(a: SampleEmbedding, b: SampleEmbedding, *, unbiased: bool = False) -> float:
+    """MMD between two repertoires, ``‖Φ₁(a) − Φ₁(b)‖`` (Eq. ``eq:kme``).
+
+    The default (``unbiased=False``) is the biased V-statistic ``‖μ̂_a − μ̂_b‖`` — simple, but its
+    self-terms carry a positive bias ``≈ 1/n_eff`` (from the ``k(z,z)`` diagonal), so a low-diversity
+    (small ``n_eff``) sample gets its distances **inflated by construction**. When diversity is itself
+    the variable of interest (e.g. divergence-vs-age), that bias masquerades as signal with the *wrong*
+    sign (distance tracks low diversity, not high). ``unbiased=True`` removes the diagonal analytically
+    using the stored ``n_eff`` (Gretton et al. 2012, unbiased MMD²) — the estimator to trust when
+    comparing samples of unequal depth/diversity.
+    """
+    if not unbiased:
+        return float(np.linalg.norm(a.mean - b.mean))
+    sa, sb = 1.0 / a.n_eff, 1.0 / b.n_eff                   # Σwᵢ² ; RFF self-similarity k(z,z)≈1
+    haa = (float(a.mean @ a.mean) - sa) / (1.0 - sa)        # diagonal-removed ‖μ‖²
+    hbb = (float(b.mean @ b.mean) - sb) / (1.0 - sb)
+    return float(np.sqrt(max(haa + hbb - 2.0 * float(a.mean @ b.mean), 0.0)))
 
 
-def mmd_matrix(embs: list[SampleEmbedding]) -> np.ndarray:
-    """Symmetric sample×sample MMD matrix (feeds a regressor / ``cluster_samples``)."""
+def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.ndarray:
+    """Symmetric sample×sample MMD matrix (feeds a regressor / ``cluster_samples``).
+
+    ``unbiased=True`` uses the diagonal-removed MMD² (see :func:`mmd_distance`) — necessary whenever
+    samples differ in depth/``n_eff``, else the ``1/n_eff`` self-bias confounds the comparison.
+    """
     M = np.stack([e.mean for e in embs])                   # (S, D)
-    sq = np.sum(M * M, axis=1)
-    d2 = np.maximum(sq[:, None] + sq[None, :] - 2.0 * (M @ M.T), 0.0)
+    G = M @ M.T
+    sq = np.diag(G).copy()
+    if unbiased:
+        s = np.array([1.0 / e.n_eff for e in embs])        # per-sample Σwᵢ²
+        h = (sq - s) / (1.0 - s)                           # diagonal-removed self-inner-products
+        d2 = h[:, None] + h[None, :] - 2.0 * G
+    else:
+        d2 = sq[:, None] + sq[None, :] - 2.0 * G
+    d2 = np.maximum(d2, 0.0)
+    np.fill_diagonal(d2, 0.0)
     return np.sqrt(d2)
 
 
