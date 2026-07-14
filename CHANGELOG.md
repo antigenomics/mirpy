@@ -3,6 +3,12 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.1.1 — 2026-07-14
+
+Maintenance re-release of 3.1.0 with no functional changes — 3.1.0 was withdrawn from PyPI, and
+this version restores the package under a fresh, clean version. The API, coordinates, and behaviour
+are identical to 3.1.0 (see below).
+
 ## 3.1.0 — 2026-07-14
 
 The Part-2 feature tier on top of the 3.0 consolidated embedding core: neural codecs, continuous-density
