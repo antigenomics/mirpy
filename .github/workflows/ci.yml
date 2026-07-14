@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # mirpy is pure Python (py3-none-any, no C build); native code comes from the
+      # seqtree / vdjtools wheels pulled as dependencies.
+      - name: Install package
+        run: pip install -e ".[dev,bench]"
+      - name: Test (fast tier)
+        run: pytest tests/ -q -m "not integration and not benchmark"
