@@ -1,0 +1,66 @@
+/* mirpy docs — namespaced landing-page styles (pydata-sphinx-theme variables only). */
+
+.proj-intro {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin: 1rem 0 2rem;
+}
+
+.proj-intro__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  color: var(--pst-color-primary);
+  margin: 0 0 0.4rem;
+}
+
+.proj-intro__lead {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--pst-color-text-base);
+  margin: 0 0 0.6rem;
+}
+
+.proj-intro__links a {
+  font-weight: 600;
+}
+
+.proj-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.proj-card {
+  display: block;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  text-decoration: none;
+  color: var(--pst-color-text-base);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.proj-card:hover {
+  border-color: var(--pst-color-primary);
+  transform: translateY(-2px);
+}
+
+.proj-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+  color: var(--pst-color-primary);
+}
+
+.proj-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .proj-intro { flex-direction: column; align-items: flex-start; }
+  .proj-card-grid { grid-template-columns: 1fr; }
+}
