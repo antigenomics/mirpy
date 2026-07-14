@@ -97,7 +97,11 @@ prototype source scarcely matters and yields the observed Gamma / extreme-value 
 concatenation are read off as a product metric, with the germline blocks provably low-rank
 (\S\ref{sec:tcr}); somatic hypermutation is a bounded perturbation that explains why {\scshape IGH} is
 the hardest chain (\S\ref{sec:igh}); and the pushforward of $\Pgen$ onto embedding space is the null
-model for density-based background subtraction (\S\ref{sec:density}). Every quantitative claim is
+model for density-based background subtraction (\S\ref{sec:density}). Lifting from single receptors to whole
+repertoires, a sample is summarised as one fixed vector --- a kernel mean, a coverage-standardised diversity
+profile, and a second moment (\S\ref{sec:sample}) --- that also serves as a neural-network modality
+(\S\ref{sec:samp-nn}); and the embedding's approximate invertibility, the privacy it implies, and the open
+frontier close the account (\S\ref{sec:losslessness}--\S\ref{sec:insights}). Every quantitative claim is
 reproduced in-repo (\S\ref{sec:insights}, Table~\ref{tab:reproduced}) by \code{mir/bench/theory.py}.
 \end{abstract}
 
@@ -213,7 +217,7 @@ receptors that are close under $d$ have similar distance profiles to the whole o
 $\bar D_\mu$, while dissimilar receptors have systematically different profiles. This is the mechanism
 behind supplementary Fig.~S2 --- the empirical Pearson correlation between $D_{ij}$ and $d_{ij}$
 (Fig.~\ref{fig:s2}, $R=0.64$ under Smith--Waterman, $0.49$ under the \code{gapblock} dissimilarity of
-\S\ref{sec:metric}) --- and behind S2c/d, where $D_{ik}$ concordates with means of $d_{ik}$ over the
+\S\ref{sec:metric}) --- and behind S2c/d, where $D_{ik}$ concords with means of $d_{ik}$ over the
 prototype set: those means are Monte-Carlo estimates of $\bar D_\mu$.
 
 \begin{figure}[t]
@@ -253,7 +257,7 @@ The logarithmic dependence on $n$ is the theoretical counterpart of Fig.~S4 of t
 \cite{Kremlyakova2025}, where the
 {\scshape UMAP} of an antigen-specific set stabilises once $K\gtrsim 100$ prototypes are used: the
 embedding geometry saturates at a prototype count that grows only logarithmically with the data.
-Prototype embeddings are the $\emph{empirical}$ / Nystr\"om feature map of the alignment kernel, and
+Prototype embeddings are the \emph{empirical} / Nystr\"om feature map of the alignment kernel, and
 Landmark {\scshape MDS} \cite{deSilvaTenenbaum2004,FaloutsosLin1995} and the dissimilarity representation
 \cite{PekalskaDuin2005} are the classical instances; the {\scshape PCA} step of \S\ref{sec:tcr} is
 Landmark {\scshape MDS} on $\varphi$.
@@ -606,7 +610,7 @@ Write $M_m$ for an operator applying $m$ substitutions to a germline-rearranged 
 \begin{proposition}[Bounded embedding drift]\label{prop:drift}
 There is a constant $c$ (the maximal per-substitution Gram penalty) such that the \emph{dissimilarity}
 drifts linearly, $d(x,M_m x)\le c\,m$. The \emph{embedding distance} then drifts \emph{sub}linearly,
-$D(\varphi(x),\varphi(M_m x)) \le 2\,\mathrm{diam}\,\sqrt{K\,d(x,M_m x)} \le 2\,\mathrm{diam}\,\sqrt{K\,c\,m}
+$D(x,M_m x) \le 2\,\mathrm{diam}\,\sqrt{K\,d(x,M_m x)} \le 2\,\mathrm{diam}\,\sqrt{K\,c\,m}
 = O(\sqrt m)$, and is in every case bounded.
 \end{proposition}
 \begin{proof}
@@ -1149,8 +1153,9 @@ that same mean (\S\ref{sec:samp-simdiv}), that interactions live in its second m
 (\S\ref{sec:samp-interact}), how {\scshape HLA} conditioning enters (\S\ref{sec:samp-hla}), that the whole
 construction is the codebook-free limit of the graph--cluster--histogram heuristic (\S\ref{sec:samp-codebook}),
 how the two technical nuisances --- sequencing \emph{depth} and \emph{batch} --- are decoupled from biological
-signal (\S\ref{sec:samp-decouple}), how the whole compresses to a model-plus-signal code
-(\S\ref{sec:samp-compress}), and how that signal traces back to the exact clonotypes and motifs driving a
+signal (\S\ref{sec:samp-decouple}) and normalised across heterogeneous {\scshape RNA}-seq kits, read lengths, and
+the tissue depth--infiltration confound (\S\ref{sec:samp-norm}), how the whole compresses to a model-plus-signal
+code (\S\ref{sec:samp-compress}), and how that signal traces back to the exact clonotypes and motifs driving a
 phenotype (\S\ref{sec:samp-trace}).
 
 \begin{definition}[The sample measure]\label{def:sampmeasure}
@@ -1335,7 +1340,7 @@ characteristic function (\S\ref{sec:samp-simdiv}, Prop.~\ref{prop:simdiv}). The 
 Prop.~\ref{prop:kme} is then just the convergence rate of an empirical characteristic function.
 \end{remark}
 
-\begin{remark}[Compare contrasts with the unbiased {\normalfont\scshape MMD}]\label{rem:unbiasedmmd}
+\begin{remark}[Use the unbiased {\normalfont\scshape MMD} across depths]\label{rem:unbiasedmmd}
 The plug-in squared distance $\norm{\Phi_1(S)-\Phi_1(S')}^2$ is the \emph{biased} {\scshape MMD} $V$-statistic:
 it carries a self-term $\sum_\sigma w_\sigma^2\,k(z_\sigma,z_\sigma)=\sum_\sigma w_\sigma^2=1/n_{\mathrm{eff}}$
 (the kernel diagonal, $k(z,z)=1$). This term is not a constant offset --- it \emph{varies} with the sample's
@@ -1672,29 +1677,30 @@ tissue uniquely, the T-cell \emph{content} itself. The measure factorisation sor
 a matter of taste: it follows from whether a nuisance scales every clonotype alike or reshapes the profile.
 Write the recovered read count of clonotype $\sigma$ in sample $S$ as
 \begin{equation}\label{eq:countfactor}
-  a_\sigma \;\approx\; \underbrace{g(\sigma)}_{\text{kit gain}}\cdot
+  a_\sigma \;\approx\; \underbrace{g_{\mathrm{kit}}(\sigma)}_{\text{kit gain}}\cdot
   \underbrace{R\,\theta\,c}_{\text{$\sigma$-independent scalars}}\cdot\,p_\sigma\cdot\xi_\sigma,
   \qquad \textstyle\sum_\sigma p_\sigma=1,
 \end{equation}
 with $R$ the sequenced library size, $\theta$ the T-cell fraction (\emph{infiltration}), $c$ the mean receptor
-transcripts per T cell, $p_\sigma$ the true clonal frequency \emph{within} the T-cell compartment, $g(\sigma)>0$
+transcripts per T cell, $p_\sigma$ the true clonal frequency \emph{within} the T-cell compartment, $g_{\mathrm{kit}}(\sigma)>0$
 the kit- and length-dependent amplification gain, and $\xi_\sigma$ multinomial sampling noise. The recovered
-{\scshape TCR} depth is $N=\sum_\sigma a_\sigma\approx R\theta c\sum_\tau g(\tau)p_\tau$. The one structural fact
-is that $R,\theta,c$ do \emph{not} depend on $\sigma$ whereas $g(\sigma)$ does, and everything below is that
+{\scshape TCR} depth is $N=\sum_\sigma a_\sigma\approx R\theta c\sum_\tau g_{\mathrm{kit}}(\tau)p_\tau$. The one structural fact
+is that $R,\theta,c$ do \emph{not} depend on $\sigma$ whereas $g_{\mathrm{kit}}(\sigma)$ does, and everything below is that
 distinction applied.
 
 \begin{proposition}[Frequencies quotient every scalar; only the kit gain survives]\label{prop:freqquotient}
 Under Eq.~\eqref{eq:countfactor} the frequency representation $f_\sigma=a_\sigma/\sum_\tau a_\tau$ cancels every
 $\sigma$-independent factor,
 \begin{equation}\label{eq:freqquotient}
-  f_\sigma \;=\; \frac{g(\sigma)\,p_\sigma}{\sum_\tau g(\tau)\,p_\tau},
+  f_\sigma \;=\; \frac{g_{\mathrm{kit}}(\sigma)\,p_\sigma}{\sum_\tau g_{\mathrm{kit}}(\tau)\,p_\tau},
 \end{equation}
-so depth $R$ \emph{and} infiltration $\theta$ (and $c$) vanish identically while the $\sigma$-dependent gain $g$
-does not. Consequently a frequency-weighted $\Phi(S)$ is exactly invariant to sequencing depth and to
-infiltration, and the \emph{only} multiplicative nuisance it still carries is the kit/length gain $g$.
+so depth $R$ \emph{and} infiltration $\theta$ (and $c$) vanish identically while the $\sigma$-dependent gain
+$g_{\mathrm{kit}}$ does not. Consequently a frequency-weighted $\Phi(S)$ is exactly invariant to sequencing depth
+and to infiltration, and the \emph{only} multiplicative nuisance it still carries is the kit/length gain
+$g_{\mathrm{kit}}$.
 \end{proposition}
 \begin{proof}
-$R\theta c$ pull out of numerator and of the denominator sum and cancel; $g(\sigma)$ and $p_\sigma$ are
+$R\theta c$ pull out of numerator and of the denominator sum and cancel; $g_{\mathrm{kit}}(\sigma)$ and $p_\sigma$ are
 $\sigma$-indexed and remain. Invariance of $\Phi_1$ to $N$ is Prop.~\ref{prop:kme}; the identical argument gives
 invariance to $\theta$ and $c$, which occupy the same scalar position in Eq.~\eqref{eq:countfactor}. \end{proof}
 
@@ -1751,13 +1757,13 @@ in a tumour biopsy $N$ folds in the {\scshape TIL} fraction across a ${\sim}10^4
 $\theta$ from depth is essential. The same count total that is a disposable nuisance in blood is a biological
 readout in tissue --- which is exactly why it must be routed to a channel, not to a normaliser.
 
-\paragraph{Kit and read length: correct the $\sigma$-dependent gain on an anchor} The surviving gain $g(\sigma)$
+\paragraph{Kit and read length: correct the $\sigma$-dependent gain on an anchor} The surviving gain $g_{\mathrm{kit}}(\sigma)$
 is not arbitrary. Read length enters through a length-recovery curve, and chemistry through a $V$/$J$ bias ---
 both confined to the low-rank germline subspace, not the {\scshape CDR3}-motif directions.
 
 \begin{proposition}[Read-length dropout is length-censoring]\label{prop:lengthcensor}
 Read length $L$ enters $g$ only through a recovery curve $r_L(\ell)$ decreasing in junction length $\ell$:
-$g(\sigma)=r_L(\ell_\sigma)\,g_{\mathrm{chem}}(\sigma)$. This is missing-not-at-random on the length marginal ---
+$g_{\mathrm{kit}}(\sigma)=r_L(\ell_\sigma)\,g_{\mathrm{chem}}(\sigma)$. This is missing-not-at-random on the length marginal ---
 it depresses the long-{\scshape CDR3} tail and drops the clonotypes there --- and it is confined to the
 length/$V$-$J$ subspace (Prop.~\ref{prop:rank}). Two corrections restore comparability: \emph{(i)} restrict to
 the length range commonly recoverable across kits (the intersection of supports) --- lossy but assumption-free;
@@ -2104,7 +2110,7 @@ string and loses at least one, so
   \label{eq:ceiling}
 \end{equation}
 the \emph{information ceiling}. The gap $\mathrm{EM}^\star-\mathrm{EM}(g)$ is decoder-limited;
-$1-\mathrm{EM}^\star$ is information-limited. Measuring both localizes the loss.
+$1-\mathrm{EM}^\star$ is information-limited. Measuring both localises the loss.
 
 \subsection{Distance preservation forces injectivity}\label{sec:loss-inject}
 
