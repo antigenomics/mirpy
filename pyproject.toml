@@ -44,8 +44,9 @@ annotate = ["vdjmatch"]
 build = ["vdjtools[model]>=2.3.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
-# Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch.
-bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "pynndescent"]
+# Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +
+# survival analysis (CoxPH for the TCGA prognostic benchmark).
+bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "pynndescent", "lifelines"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
