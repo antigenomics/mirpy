@@ -1,74 +1,74 @@
 {
   "human_IGH": {
-    "generated_at_utc": "2026-05-11T19:57:33.173293+00:00",
+    "generated_at_utc": "2026-07-13T16:16:00.810228+00:00",
     "locus": "IGH",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "human_IGK": {
-    "generated_at_utc": "2026-05-11T19:57:33.580726+00:00",
+    "generated_at_utc": "2026-07-13T16:21:24.847186+00:00",
     "locus": "IGK",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "human_IGL": {
-    "generated_at_utc": "2026-05-11T19:57:33.984159+00:00",
+    "generated_at_utc": "2026-07-13T16:24:20.224033+00:00",
     "locus": "IGL",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "human_TRA": {
-    "generated_at_utc": "2026-05-11T19:57:34.454606+00:00",
+    "generated_at_utc": "2026-07-13T16:05:19.888193+00:00",
     "locus": "TRA",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "human_TRB": {
-    "generated_at_utc": "2026-05-11T19:57:51.086887+00:00",
+    "generated_at_utc": "2026-07-13T16:07:54.498142+00:00",
     "locus": "TRB",
     "n": 10000,
     "seed": 42,
-    "source": "real",
+    "source": "arda-real",
     "species": "human"
   },
   "human_TRD": {
-    "generated_at_utc": "2026-05-11T19:57:52.101356+00:00",
+    "generated_at_utc": "2026-07-13T16:10:05.843847+00:00",
     "locus": "TRD",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "human_TRG": {
-    "generated_at_utc": "2026-05-11T19:57:52.571491+00:00",
+    "generated_at_utc": "2026-07-13T16:08:49.043371+00:00",
     "locus": "TRG",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "human"
   },
   "mouse_TRA": {
-    "generated_at_utc": "2026-05-11T19:57:52.969496+00:00",
+    "generated_at_utc": "2026-07-13T16:27:03.946665+00:00",
     "locus": "TRA",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "mouse"
   },
   "mouse_TRB": {
-    "generated_at_utc": "2026-05-11T19:57:53.601751+00:00",
+    "generated_at_utc": "2026-07-13T16:28:51.921669+00:00",
     "locus": "TRB",
     "n": 10000,
     "seed": 42,
-    "source": "synthetic",
+    "source": "arda-real",
     "species": "mouse"
   }
 }

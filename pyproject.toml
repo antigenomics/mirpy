@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mirpy-lib"
-version = "3.0.0"
+version = "3.1.0"
 authors = [
   { name="ISALGO lab", email="mikhail.shugay@gmail.com"}
 ]
@@ -18,7 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
   "Operating System :: OS Independent",
 ]
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "embedding", "prototypes", "VDJdb"]
@@ -30,21 +30,22 @@ dependencies = [
   "seqtree>=0.3.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  "vdjtools",
+  "vdjtools>=2.3.0",
   "tqdm",
 ]
-license = {text = "GPL-3.0 license"}
+license = { text = "GPL-3.0-or-later" }
 
 [project.optional-dependencies]
 # VDJdb annotation / E-values for the benchmark harness.
 annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
-# germline distance matrices (BioPython). Runtime needs neither.
-build = ["arda-mapper>=2.5", "biopython"]
+# germline distance matrices (BioPython). Runtime needs neither. arda comes
+# via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
+build = ["vdjtools[model]>=2.3.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch.
-bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub"]
+bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "pynndescent"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
@@ -58,6 +59,7 @@ docs = [
 
 [project.urls]
 Homepage      = "https://github.com/antigenomics/mirpy"
+Repository    = "https://github.com/antigenomics/mirpy"
 Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
 

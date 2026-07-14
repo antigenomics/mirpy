@@ -17,7 +17,7 @@ in embedding space approximates pairwise alignment distance (see [`THEORY.md`](T
 ## Install
 
 ```bash
-pip install mirpy-lib            # core: numpy, polars, scikit-learn, seqtree, vdjtools
+pip install mirpy-lib            # core: numpy, polars, scipy, scikit-learn, seqtree, vdjtools
 pip install "mirpy-lib[bench]"   # + benchmark / theory experiments
 ```
 
@@ -86,10 +86,11 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 |---|---|
 | `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
 | `mir.embedding.pca` | PCA denoising of embeddings |
-| `mir.distances` | junction distance (`seqtree.gapblock`) + baked germline distances |
-| `mir.bench` | VDJdb loader, DBSCAN clustering + F1/retention, theory experiments |
-| `mir.density` | continuous-density TCRNET/ALICE — enrichment + noise-filtering (Theory T6) |
-| `mir.ml` | neural codecs (Part 2, planned) |
+| `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
+| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`) |
+| `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
+| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness (Theory §T.7) |
+| `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) — Part 2, experimental; `[ml]` extra |
 
 ## Background subtraction & clustering (`mir.density`)
 
@@ -117,6 +118,10 @@ antigen-specific response. With no control, `generate_background(locus, n)` samp
 P_gen model (the ALICE regime); the "water level" of a naive repertoire is handled by the
 empirical-null calibration. See `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py`.
 
+At whole-repertoire scale, pass `neighbor_enrichment(..., backend="kdtree")` (exact scipy cKDTree,
+5–9× faster than the default BallTree) or `backend="ann"` (approximate pynndescent, ~30× faster
+past ~10⁵ clones, trading a small conservative undercount); see `experiments/benchmark_ann.py`.
+
 ## Reproduce the paper
 
 ```bash
@@ -126,6 +131,21 @@ python experiments/benchmark_vdjdb.py           # Table S1 (needs a VDJdb dump)
 
 Method: Kremlyakova *et al.*, *TCREMP: a bioinformatic pipeline for efficient embedding of
 T-cell receptor sequences*, **J Mol Biol** 437 (2025) 169205.
+
+## Performance & parallelism
+
+mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, by hot path:
+
+| Stage | Knob | Default | Notes |
+|---|---|---|---|
+| Embedding (junction distance) | `TCREmp(..., threads=N)` | `0` = **all cores** | The C++ `seqtree.gapblock` scorer; releases the GIL, ~530 M pairs/s @16 cores. `threads=1` for a serial run. |
+| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"exact"` (BallTree, **1 core**) | `backend="kdtree"` = exact scipy cKDTree, **all cores** (`workers=-1`), 5–9× faster; `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5. Prefer `kdtree` for multicore exact. |
+| Clustering | `cluster(..., n_jobs=-1)` | sklearn default (1) | forwarded to DBSCAN/OPTICS/HDBSCAN via `**kwargs`; parallelizes the neighbour search. |
+| BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
+| Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1 python experiments/train_forward_encoder.py`. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
+
+Rule of thumb: leave `threads=0` (all cores) for embedding; switch density to `backend="kdtree"`
+for exact multicore or `"ann"` at whole-repertoire scale; the GPU is used only by `mir.ml`.
 
 ## Development
 

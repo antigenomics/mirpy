@@ -4,7 +4,7 @@ Version 3 is a slim, embedding-focused rewrite. Heavy machinery is delegated to
 sibling packages rather than duplicated:
 
 * alignment → ``seqtree`` (``seqtree.gapblock``),
-* VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (extra ``[rearrangement]``),
+* VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (core dependency),
 * VDJdb annotation / E-values → ``vdjmatch`` (extra ``[annotate]``),
 * build-time germline region annotation → ``arda`` (extra ``[build]``).
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 __all__ = ["__version__", "get_resource_path", "TCREmp", "PairedTCREmp"]
 

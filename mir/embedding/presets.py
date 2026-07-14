@@ -7,8 +7,8 @@ Data-driven from the bundled prototypes (``experiments/`` measurements):
   diverse chains (IGH/TR*) benefit from 2000. The paper's 3000 is safe but generous.
 * **n_components** — PCA dimensions retaining ~95% variance (the paper's clustering regime).
 * **n_components_recon** — PCA dimensions retaining ~99% variance, needed to *reconstruct*
-  the longer, more diverse junctions with the inverse codec (Theory T5: IGH exact-match
-  0.009 at 95% → 0.152 at 99%). Compact chains barely differ; IGH/TRD/TRA need many more.
+  the longer, more diverse junctions with the inverse codec (Theory T5, arda coords: IGH
+  exact-match 0.115 at 95% → 0.356 at 99%). Compact chains barely differ; IGH/TRD/TRA need many more.
 
 Values are rounded up to the nearest 5; treat them as starting points, not hard limits.
 """
