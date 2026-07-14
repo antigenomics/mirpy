@@ -78,3 +78,135 @@ second-moment > diversity in direction **15/17** alleles; class-II present **8/9
 
 Convalescent (long-past) COVID leaves **no batch-robust bulk clonotype-identity signal** at RNA-seq depth; the
 naive 0.66–0.72 was batch confound. Ground truth is 87% α (4393 α vs 567 β).
+
+---
+
+## 2026-07-14 (pm) — spectral block, COVID witness, TCGA survival
+
+### Spectral interaction block — `benchmark_repertoire_spectral.py 300 20000`
+
+The opt-in top-`r` **eigenvalue** compaction of the second-moment block (new `n_eigs=` on `fit_repertoire_space`)
+is **lossy for the HLA imprint**: HLA-A\*02 carriage lives in *which* public clones co-occur (directional), and
+a rotation-invariant eigenvalue spectrum discards it. Default (`n_eigs=None`) keeps the full upper triangle,
+unchanged.
+
+| representation | block dim | HLA-A\*02 AUC |
+|---|---|---|
+| diversity (baseline) | 4 | 0.560±0.066 |
+| D₂=512 top-16 eigvals | 16 | 0.545±0.093 |
+| D₂=512 top-128 eigvals | 128 | 0.536±0.092 |
+| D₂=256 full upper-tri | 32896 | 0.562±0.078 |
+| **D₂=512 full upper-tri** | 131328 | **0.593±0.070** |
+
+### COVID witness — `benchmark_repertoire_covidwitness.py 300 20000`
+
+Why per-clonotype Fisher-significant clones "vanish" in the bulk embedding: **cohort breadth**, not read depth.
+
+| level | finding |
+|---|---|
+| Fisher genome-wide BH (150–300 donors) | **0** clones pass at any depth (20k or 120k reads) |
+| Fisher full cohort (~1137 donors, user tmp scan) | **39 β / 4 α** clones pass BH (min q≈5e-4) |
+| witness β: whole-cohort → **mixed-batch** | 0.510 → **0.752** (batch control is the lever) |
+| witness β: HLA-strat median / best | 0.532 / 0.712 (best = max-selection; median ≈ whole-cohort) |
+| witness α: whole / mixed / strat-best | 0.463 / 0.424 / 0.473 (no recovery — α witness fails) |
+
+Batch control (mixed-batch contrast, where COVID+healthy share runs) recovers the paper's β clones; per-allele
+HLA stratification adds more noise than signal at these donor counts. HLA+α+β is **not** the missing key — breadth is.
+
+### TCGA — `benchmark_repertoire_tcga.py <chains> BRCA,LUAD,KIRC 50000`
+
+Tumor-type separation is **depth-dependent** (deep IG light chains ≫ shallow TR); **survival adds nothing** over
+clinical covariates. Base Cox C-index (age+sex+stage+log reads): BRCA 0.72, LUAD 0.66, KIRC 0.73.
+
+| chain | tumor-type macro-OvR AUC | survival ΔC (BRCA / LUAD / KIRC) |
+|---|---|---|
+| TRB (median ~24 clonotypes) | 0.523 | +0.003 / −0.003 / +0.002 |
+| IGH | 0.500 | +0.002 / +0.001 / −0.004 |
+| **IGK (deepest chain)** | **0.666** | −0.001 / −0.004 / −0.001 |
+| concat TRB+IGH | 0.538 | −0.002 / +0.001 / +0.001 |
+
+IGK's 0.67 shows the method works when clonotype depth suffices (the deep IG compartment carries tissue signal);
+the flat ΔC across every chain says the tumour-infiltrating repertoire adds **no prognostic value beyond clinical
+covariates** at TCGA RNA-seq depth.
+
+### TCGA survival — biology-grounded features — `benchmark_repertoire_tcga_survival.py`
+
+The clonotype *embedding* adds nothing, but interpretable **biology axes** (isotype from `c_call`, infiltration /
+hot-vs-cold, atypicality = gene-usage divergence from the tumour-type centroid, clonal expansion — modelled on an
+internal AIRR-tissue EDA) do, cancer-specifically. Base Cox = age+sex+stage+log reads; **bold** = best gain per row.
+
+C-index gain over clinical (5-fold CV):
+
+| cancer | C base | isotype | infiltration | atypicality | clonality | all-AIRR |
+|---|---|---|---|---|---|---|
+| SKCM (melanoma) | 0.609 | +0.008 | +0.034 | −0.001 | +0.031 | **+0.036** |
+| KIRP (renal pap.) | 0.717 | −0.008 | **+0.030** | −0.003 | +0.014 | +0.015 |
+| LGG (glioma) | 0.764 | −0.006 | **+0.019** | +0.008 | +0.016 | +0.011 |
+| KIRC (renal cc.) | 0.721 | +0.005 | **+0.009** | +0.002 | +0.002 | +0.006 |
+
+(LUAD / STAD / OV / BLCA: AIRR gain ≈ 0 or negative.)
+
+KM median-split log-rank p (the EDA's stratification test — surfaces threshold effects the linear C-index misses;
+**bold** = p<0.05):
+
+| cancer | infiltration | IgA fraction | atypicality |
+|---|---|---|---|
+| KIRC | **0.002** | 0.089 | 0.880 |
+| SKCM | **0.000** | **0.026** | 0.716 |
+| KIRP | **0.020** | 0.750 | 0.555 |
+| OV | **0.044** | 0.581 | 0.691 |
+| LGG | **0.022** | 0.076 | **0.001** |
+| BLCA | 0.676 | **0.010** | 0.243 |
+
+**Read:** infiltration (hot/cold) stratifies survival in **5/8** cancers (melanoma, both renal, ovarian, glioma)
+and adds C-index in melanoma/KIRP; **IgA** (isotype / mucosal) stratifies **bladder** + melanoma; **atypicality**
+stratifies **glioma** — each matching known immune biology. Prognosis lives in infiltration magnitude + isotype +
+typicality, **not** clonotype identity, and is cancer-specific — the reason the identity embedding's ΔC was flat.
+
+## Repertoire embedding for TME & survival — pan-cancer (33 TCGA types)
+
+The reframing: the prognostic axes above are **channels of one TME-aware, multi-chain repertoire embedding**
+Φ(S) (`_tcga_embedding.py`: per-chain identity ‖ diversity ‖ coverage/infiltration, + isotype + composition
++ atypicality). `benchmark_repertoire_tcga_pancancer.py ALL` fits Φ once over 9 425 OS-annotated samples
+(78-dim, 5 embeddable chains + all 7 in the composition channel) and, per cancer, reports the CV **ΔC-index**
+of clinical+Φ over clinical (age+sex+stage+log reads) and a **likelihood-ratio p** for the Φ block.
+
+Cancers where Φ is robustly prognostic (**both** LR p<0.05 **and** CV ΔC>0; bold):
+
+| cancer | n | events | C base | C+Φ | ΔC | LR p | top channel |
+|---|---|---|---|---|---|---|---|
+| **SKCM** (melanoma) | 460 | 219 | 0.609 | 0.647 | **+0.039** | **0.000** | coverage |
+| **BLCA** (bladder) | 411 | 182 | 0.650 | 0.675 | **+0.025** | **0.002** | identity |
+| **HNSC** (head & neck) | 500 | 218 | 0.617 | 0.639 | **+0.022** | **0.012** | coverage |
+| **LGG** (glioma) | 423 | 112 | 0.764 | 0.779 | **+0.016** | **0.000** | coverage |
+
+Strong effect-size positives (ΔC>0, LR n.s. — power-limited): SARC +0.038 (isotype), KIRP +0.034 (atypicality),
+LUAD +0.009, KIRC +0.008, BRCA +0.007. Immune-cold / small cohorts are flat-to-negative (overfit): LIHC −0.029,
+STAD −0.026, PAAD −0.029, UCEC −0.072 (n=181/35ev).
+
+**Pan-cancer (20 evaluable):** mean ΔC ≈ 0 (median +0.003), Φ significant in 5/20 — most-informative channel
+tally **coverage 5 · atypicality 5 · composition 4 · isotype 3 · identity 2 · diversity 1**. The signal is
+cancer-specific and lives in the **TME channels (infiltration, atypicality, composition), not clonotype
+identity**; the pan-cancer mean is ≈0 because immune-cold cohorts overfit and cancel the immune-hot wins —
+so the honest claim is *Φ adds significant prognostic value in immunologically active cancers* (melanoma,
+glioma, head&neck, bladder), not universally.
+
+### TME states (unsupervised) — `benchmark_repertoire_tcga_tme.py ALL 6`
+
+KMeans (k=6) on Φ's TME channels (9 425 samples) recovers coherent, interpretable microenvironment states
+(z-scored channel means; **bold** = defining extreme). The UMAP (`experiments/figures/umap_tcga_tme`) shows a
+clean **infiltration gradient** (hot → cold) organising the pan-cancer cohort.
+
+| state | n | infiltration | T-vs-B | switch | diversity | death | HR (vs ref) | enriched cancers |
+|---|---|---|---|---|---|---|---|---|
+| cold-humoral | 1565 | −0.53 | −0.36 B | +0.39 | −0.40 | 0.33 | **1.14** (p=0.011) | BRCA, BLCA, PRAD |
+| hot-diverse | 2090 | **+1.03** | −0.70 B | +0.35 | **+0.92** | 0.31 | 0.92 (p=0.072) | BRCA, LUAD, STAD |
+| T-balanced | 1277 | −0.10 | **+0.86 T** | +0.15 | +0.06 | 0.29 | 1.09 | KIRC, PRAD, BRCA |
+| cold-T unsw. | 883 | **−1.58** | **+1.72 T** | **−2.20** | −1.66 | 0.30 | 1.05 | LGG, LIHC, SARC |
+| cold | 871 | −1.27 | +0.74 T | −0.70 | −1.13 | 0.28 | 1.08 | THCA, LIHC, LGG |
+| warm-B (ref) | 2739 | +0.48 | −0.45 B | +0.37 | +0.40 | 0.31 | — | BRCA, LUAD, HNSC |
+
+Stratified multivariate log-rank across states (blocking tumour type) **p=0.0038** — the states are prognostic
+*beyond* cancer type. The **cold-humoral** low-infiltration state carries the **worst** outcome (HR 1.14, p=0.011);
+the **hot-diverse** state trends protective (HR 0.92). Glioma (LGG) falls in the cold, strongly T-skewed states,
+matching its known low-but-T-biased infiltrate. The repertoire embedding organises the TME unsupervised.

@@ -63,6 +63,9 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   clonotype-cloud PCA + RFF basis, prototype-hash-verified `RepertoireSpace`), `sample_embedding`
   (`Φ(S)` = RFF kernel mean ‖ coverage-standardized Hill ‖ second-moment Fisher; `n_eff=(Σw²)⁻¹`),
   `mmd_distance`/`mmd_matrix`/`hla_stratified_mmd`, `class_witness` (supervised MMD motif finder). Torch-free.
+  Opt-in `fit_repertoire_space(n_eigs=r)` swaps the second-moment block's full `D₂(D₂+1)/2` upper-triangle
+  for its top-`r` eigenvalues (rotation-invariant spectrum; default `None` = upper-tri, unchanged — but
+  lossy for the *directional* HLA imprint, so the full triangle stays the recommended block; `benchmark_repertoire_spectral.py`).
 - `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
   attention pooling + `SetEncoderBundle`).
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
@@ -197,4 +200,40 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     the paper's clones (0.37β/0.45α, GT is 87% α). Long-past exposure has no batch-robust bulk signal at RNA-seq depth.
   - **Parallelism/GPU documented** (README "Performance & parallelism"): `TCREmp(threads=0)` all-core; density
     `backend="kdtree"` multicore exact; `pick_device` **CUDA→MPS→CPU** (was MPS-only) + `MIR_DEVICE`.
+- **Sample-level refinements + TCGA — 2026-07-14 (pm)** (`BENCHMARKS.md` "2026-07-14 (pm)"; all numbers recorded):
+  - **WS1 spectral block** (`fit_repertoire_space(n_eigs=r)`, `benchmark_repertoire_spectral.py`): opt-in top-`r`
+    eigenvalues of the second-moment covariance. **Lossy for HLA** — HLA-A\*02 lives in *which* clones co-occur
+    (directional), eigenvalues are rotation-invariant → top-r ≤0.55 while full upper-tri reaches **0.593** (D₂=512).
+    Default `None` = upper-tri (unchanged); keep the full triangle. Test `test_spectral_second_block_top_r_eigvals`.
+  - **WS2 COVID witness** (`benchmark_repertoire_covidwitness.py`, vdjtools `biomarker.fisher_association`): answers
+    "Fisher passes but embedding vanishes — why?" → **breadth, not depth**. Genome-wide Fisher passes 0 clones at
+    150–300 donors (any depth 20k/120k); full ~1137-donor cohort passes 39β/4α (user tmp scan). Sample-level lever
+    is **batch control** (β witness whole 0.51 → mixed-batch **0.75**); per-allele HLA-stratification adds noise
+    (median≈whole). HLA+α+β is not the key — breadth is.
+  - **WS3 UMAP** (`plot_sample_umap.py {covid,aging,hip}`): faceted UMAP of Φ₁ (=MMD geometry) by age/HLA/batch/
+    COVID/CMV → `experiments/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
+    `residualize` (the `prop:batch` story made visual).
+  - **WS4 TCGA** (`_tcga.py` local-first loader, untars once; `benchmark_repertoire_tcga.py`; `lifelines` in
+    `[bench]`): 9591 samples, 7 chains, OS survival. **Tumor-type separation is depth-dependent** — deepest chain
+    **IGK 0.67** ≫ shallow TRB 0.52 / IGH 0.50 (IG light chains carry tissue signal). **Survival = honest negative**:
+    ΔC-index ≈0 for every chain over a clinical Cox (age+sex+stage+log reads, base C 0.66–0.73) — the tumour-
+    infiltrating repertoire adds no prognostic value at RNA-seq depth. No grade column (used stage); PFS empty.
+  - **WS4b TCGA survival via biology features** (`_tcga_features.py` isotype/infiltration/atypicality/clonality;
+    `benchmark_repertoire_tcga_survival.py`) — the prognosis the *identity embedding* misses lives in interpretable
+    axes (modelled on an internal AIRR-tissue EDA). **Infiltration (hot/cold Z-axis) stratifies survival in 5/8
+    cancers** (KIRC/SKCM/KIRP/OV/LGG log-rank p<0.05) and adds C-index in melanoma (+0.036) / KIRP (+0.030);
+    **IgA isotype** stratifies bladder (mucosal, p=0.010) + melanoma; **atypicality** stratifies glioma (p=0.001)
+    — all matching known immunobiology. Isotype/atypicality show via KM stratification, not linear C-index. Net:
+    tissue prognosis = infiltration magnitude + isotype + typicality, **not clonotype identity**.
+  - **REFRAME → TME-aware repertoire embedding, pan-cancer** (`_tcga_embedding.py` = per-chain identity ‖
+    diversity ‖ coverage/infiltration ‖ isotype ‖ composition ‖ atypicality — the biology axes recast as Φ(S)
+    channels; `benchmark_repertoire_tcga_{pancancer,tme}.py`; THEORY.md T7 "Repertoire embeddings for the TME",
+    BENCHMARKS.md "Repertoire embedding for TME & survival"). One Φ over 9425 OS samples (78-dim, 5 embeddable
+    chains + all 7 via composition). **Robustly prognostic** (LR p<0.05 & CV ΔC>0) in **SKCM +0.039 / BLCA
+    +0.025 / HNSC +0.022 / LGG +0.016**; effect-size positives SARC (isotype) / KIRP (atypicality). Top channel
+    = **coverage/atypicality/composition, ~never identity**; immune-cold cohorts overfit → pan-cancer mean ΔC≈0
+    masks the immune-hot wins. **Paradigm lesson (T7 #6): the same Φ(S) that reads infection/HLA in blood via
+    its identity channels stratifies the TME + survival in tissue via its non-identity channels.** Unsupervised
+    Φ clustering → TME states (`benchmark_repertoire_tcga_tme.py`, UMAP `experiments/figures/umap_tcga_tme`).
+    **TODO**: per-cancer n_pc (small-cohort overfit); TME-state validation vs Thorsson immune subtypes; Bayesian-net typicality.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

@@ -241,6 +241,50 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   pairwise repertoire MMD must use the **unbiased** estimator (`mmd_matrix(unbiased=True)`) when samples differ
   in depth/diversity — the biased V-statistic's `1/n_eff` self-term otherwise fakes a divergence signal.
 
+- **2026-07-14 (pm) additions** (`BENCHMARKS.md` "2026-07-14 (pm)"; three more generalizable lessons):
+  **(3) the interaction block's information is directional, not spectral.** The second-moment block
+  `Σ w ψ₂ψ₂ᵀ` carries the HLA imprint in *which* public clones co-occur (its eigen-*vectors*), so an opt-in
+  top-`r` **eigenvalue** compaction (`fit_repertoire_space(n_eigs=r)`) — rotation-invariant — is lossy: HLA-A\*02
+  AUC ≤0.55 vs 0.593 for the full upper triangle. Keep the upper triangle; the spectral path is a compact
+  fingerprint only. **(4) clone-level significance is cohort-breadth-limited.** Per-clonotype Fisher (Emerson
+  incidence) needs the full cohort: 0 COVID clones clear BH FDR at 150–300 donors *at any read depth*, but ~1137
+  donors yield 39β/4α — so a bulk sample-level embedding cannot recover a signal that is not yet significant at
+  its own donor count; the tractable sample-level lever is **batch control** (mixed-batch witness β 0.51→0.75),
+  not per-allele HLA stratification. **(5) tissue signal is depth-gated.** On TCGA (bulk RNA-seq, IG-dominant),
+  the *deepest* chain IGK separates 33 tumour types at AUC 0.67 while shallow TR (~tens of clonotypes/sample)
+  sits at chance — but the embedding adds **no** survival value over clinical covariates (ΔC-index≈0, every
+  chain), a clean prognostic negative at RNA-seq depth (`benchmark_repertoire_tcga.py`).
+
+### Repertoire embeddings for the tumour microenvironment & survival (pan-cancer)
+
+The clonotype-*identity* embedding being flat for tumour survival is not the end of the paradigm — it is a
+statement about *which channel* carries the signal. A repertoire embedding is a **multi-channel object**, and
+different questions engage different channels:
+
+| channel | what it measures | question it answers |
+|---|---|---|
+| kernel-mean + second-moment (identity) | *which* clones / public structure | antigen specificity, HLA imprint, infection/vaccine response |
+| diversity (Hill) | clonality / richness | immune ageing, exhaustion |
+| coverage / infiltration | receptor read load (magnitude Φ₁ normalises away) | **tumour infiltration — hot vs cold** |
+| isotype / C-gene (IGH class-switch) | plasma / mucosal humoral state | **B-cell / TLS-driven TME** |
+| composition (T-vs-B, 7-chain balance) | TME cell-type mix | **immune contexture** |
+| atypicality (Φ-distance to tumour-type centroid) | selection / divergence from the typical repertoire | antigen-driven remodelling |
+
+Making these channels explicit (`_tcga_embedding.py`) turns the "biology features" into one **TME-aware,
+multi-chain repertoire embedding** Φ(S). Pan-cancer (33 TCGA types, 9 425 OS-annotated samples,
+`benchmark_repertoire_tcga_pancancer.py`): over a clinical Cox (age+sex+stage+log reads), Φ is **robustly
+prognostic** (LR p<0.05 *and* CV ΔC>0) in **SKCM +0.039, BLCA +0.025, HNSC +0.022, LGG +0.016** — the
+immunologically active cancers — with strong power-limited positives in SARC (isotype +0.038) and KIRP
+(atypicality +0.034). The most-informative channel is **coverage (infiltration) / atypicality / composition**,
+essentially never clonotype identity; immune-cold small cohorts overfit (LIHC/PAAD/UCEC negative), so the
+pan-cancer mean ΔC≈0 masks a clear immune-hot-cancer effect. **Lesson (6):** the same Φ(S) that fingerprints
+infection and HLA in blood also stratifies the tumour microenvironment and survival in tissue — one just reads
+the *non-identity* channels (infiltration magnitude + humoral class + contexture), which the depth-normalised,
+single-chain kernel mean discards by construction. Unsupervised clustering of Φ recovers interpretable TME
+states (hot-diverse / cold-humoral / T-skewed-unswitched), characterised by these channels, enriched in the
+expected cancers, and prognostic **beyond** tumour type (stratified multivariate log-rank p=0.004; the
+low-infiltration cold-humoral state carries the worst outcome, HR 1.14) — `benchmark_repertoire_tcga_tme.py`.
+
 ## Reproduced numbers (v3 pipeline)
 
 Run `python experiments/reproduce_supplementary.py` (S1–S3) and
