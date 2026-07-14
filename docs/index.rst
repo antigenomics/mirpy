@@ -1,55 +1,65 @@
 mirpy
 =====
 
-.. raw:: html
+ML-oriented embeddings for immune receptor repertoires (TCR/BCR) — the antigenomics group's
+machine-learning / embedding library (PyPI ``mirpy-lib``, import ``mir``).
 
-   <div class="proj-intro">
-     <div>
-       <p class="proj-intro__eyebrow">mirpy-lib &middot; import <code>mir</code></p>
-       <p class="proj-intro__lead">ML-oriented embeddings for immune receptor repertoires (TCR/BCR):
-       prototype (TCREMP) embeddings, neural codecs, continuous-density background subtraction, and a
-       sample-level repertoire embedding. Pure-Python, built on the antigenomics ecosystem
-       (<a href="https://github.com/antigenomics/vdjtools">vdjtools</a>, seqtree, arda).</p>
-       <p class="proj-intro__links">
-         <a href="https://github.com/antigenomics/mirpy">GitHub</a>
-         <span>&middot;</span>
-         <a href="mir.html">API reference</a>
-       </p>
-     </div>
-   </div>
+Pure-Python and built on the antigenomics ecosystem
+(`seqtree <https://github.com/antigenomics/seqtree>`_,
+`vdjtools <https://github.com/antigenomics/vdjtools>`_,
+`arda <https://github.com/antigenomics/arda>`_).
 
-   <div class="proj-card-grid">
-     <a class="proj-card" href="mir.embedding.html">
-       <h3>Clonotype embedding</h3>
-       <p>TCREMP prototype embedding + PCA denoise, on <code>seqtree.gapblock</code>.</p>
-     </a>
-     <a class="proj-card" href="mir.html#module-mir.density">
-       <h3>Density &amp; background subtraction</h3>
-       <p>Graph-free TCRNET/ALICE neighbour enrichment in embedding space (T6).</p>
-     </a>
-     <a class="proj-card" href="mir.html#module-mir.repertoire">
-       <h3>Repertoire embedding</h3>
-       <p>One vector per sample — kernel mean ‖ diversity ‖ second moment; MMD (T7).</p>
-     </a>
-   </div>
+.. note::
 
-Install
--------
+   **v3.1.0** — the prototype (TCREMP) clonotype embedding plus the Part-2 tier: neural codecs
+   (``mir.ml``), continuous-density background subtraction (``mir.density``, T6), and a sample-level
+   repertoire embedding (``mir.repertoire``, T7). Coordinates are arda-native and versioned. The
+   classical v1.x/v2 toolkit is frozen on the ``legacy-v2`` branch (``mirpy-lib`` 2.x).
 
-.. code-block:: bash
+New here? The :doc:`user guide <usage>` has runnable examples for each module; the mathematical
+theory (T1–T7) lives in ``THEORY.md`` and recorded benchmark numbers in ``BENCHMARKS.md``.
 
-   pip install mirpy-lib            # import mir
-   pip install "mirpy-lib[ml]"      # + neural codecs (torch)
-   pip install "mirpy-lib[bench]"   # + benchmark harness
+Quickstart — clonotype embedding
+--------------------------------
 
-Requires ``vdjtools>=2.3.0`` and ``seqtree>=0.3.0`` (native code ships in their wheels; ``mir`` itself
-is a pure-Python ``py3-none-any`` wheel). See the project ``README`` for a quick start, ``THEORY.md`` for
-the mathematical theory (T1–T7), and ``BENCHMARKS.md`` for recorded results.
+.. code-block:: python
 
-API reference
--------------
+   from mir.embedding.tcremp import TCREmp
+
+   model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
+   X = model.embed(df)      # polars frame (v_call / j_call / junction_aa) -> (N, 3K) float32
+
+Distance in the prototype-embedding space approximates the pairwise alignment distance (Theory T1);
+``TCREmp`` computes the junction part via ``seqtree.gapblock`` and adds baked germline V/J distances.
+
+Sample-level (repertoire) embedding
+-----------------------------------
+
+.. code-block:: python
+
+   from mir.repertoire import fit_repertoire_space, sample_embedding, mmd_matrix
+
+   space = fit_repertoire_space(model, pooled_clonotypes)   # ONE basis for the cohort
+   embs  = [sample_embedding(space, s) for s in samples]    # Φ(S): mean ‖ diversity ‖ second moment
+   D     = mmd_matrix(embs, unbiased=True)                  # pairwise repertoire distance (unbiased MMD²)
+
+Capabilities (see the :doc:`API reference <api>`)
+-------------------------------------------------
+
+- **Clonotype embedding** — TCREMP prototype embedding (``mir.embedding``) on ``seqtree.gapblock`` +
+  baked arda germline distances (``mir.distances``), with PCA denoise and per-chain presets.
+- **Density** — graph-free TCRNET/ALICE neighbour enrichment in embedding space, with an
+  abundance channel and exact / kdtree / ANN backends (``mir.density``, T6).
+- **Repertoire embedding** — one fixed vector per sample: RFF kernel mean, coverage-standardised
+  Hill diversity, and a second-moment Fisher block; MMD / HLA-stratified distance and a motif
+  witness (``mir.repertoire``, T7).
+- **Neural codecs** — forward / inverse / Pgen / unified codecs and a learned repertoire set
+  encoder; CUDA → MPS → CPU device selection (``mir.ml``, ``[ml]`` extra).
+- **Benchmark harness** — VDJdb clustering + F1/retention and reproduced theory (``mir.bench``).
 
 .. toctree::
-   :maxdepth: 3
+   :hidden:
 
-   mir
+   self
+   usage
+   api
