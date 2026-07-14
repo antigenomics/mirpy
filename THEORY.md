@@ -145,38 +145,49 @@ against prototype k; `D_ij = ‖φ(i) − φ(j)‖₂` the embedding-space Eucli
   (`airr_hip` = Emerson 2017), depth-robustness (`downsample` + `aging_lite`). **Build spec:**
   `REPERTOIRE_EMBEDDING.md`.
   *Reproduced (2026-07-14; `mir.repertoire`, `mir.ml.set_encoder`, `experiments/benchmark_repertoire_*.py`;
-  TRB, per-sample downsampled to the RNA-seq regime; held-out CV):*
-  - **Depth-robustness (`prop:kme`) — confirmed.** `‖Φ₁(sub)−Φ₁(full)‖` vs `n_eff`, log–log slope **−0.55**
-    (theory −0.5); `err·√n_eff` ≈ const (1.00→0.80 over `N∈{100…10⁴}`) — `n_eff^{-1/2}` convergence holds.
-  - **Age & CMV are clone-size (diversity) phenomena, not clonotype-identity ones.** A coverage/Hill diversity
-    summary dominates: age |Spearman| **0.76** (diversity) vs 0.58 (kernel mean) vs 0.28 (k-mer); CMV AUC
-    **0.94** (diversity) vs ≤0.58 (Φ blocks / learned). For CMV this is **not an age confound** — under
-    age-matching, age-only AUC collapses to 0.39 while diversity *rises* to 0.94: **CMV memory inflation
-    reshapes the clone-size distribution** (fewer, larger clones), the signal a diversity profile is built to
-    read — and which Φ₁'s depth-robust concave weighting deliberately down-weights. Diversity is the sufficient
-    statistic here; `Φ` *contains* it (its diversity block) but the kernel-mean machinery adds nothing.
-  - **HLA-A\*02 is where clonotype identity beats diversity (`prop:interact`).** A pure identity signal (shared
-    public A\*02-restricted clones; HLA leaves overall diversity unchanged): diversity AUC **0.47 (chance)**,
-    k-mer 0.43, kernel-mean Φ₁ 0.51, but the **second-moment (co-occurrence) block 0.64** — the embedding adds
-    value exactly where the clone-size distribution cannot.
-  - **Finding motifs (`prop:witness`).** `class_witness` (supervised MMD witness `w=μ_A−μ_B`, score
-    `s(σ)=⟨w,ψ(φ(σ))⟩`) surfaces A\*02-associated **public** `CASS…EQYF` clones (TRBV12/TRBV3), enriched in
-    A\*02⁺ donors — the supervised route to the antigen/HLA motifs the bulk kernel mean is too swamped to show.
-  - **Yellow-fever response** (`benchmark_repertoire_yfv.py`, `isalgo/airr_yfv19`, day-15 vs day-0):
-    `class_witness` ranks the **LLWNGPMAV/A\*02** NS4b clones above chance (mean AUC **0.57**, beating a naive
-    day15/day0 fold-change 0.53) — but the first-moment differential is weak because LLW is a minority of the
-    day-15 change; the **density-ratio** (`benchmark_density_yfv.py`) recovers the convergent cluster far better.
-  - **Spike-in recovery from RNA-seq depth** (`benchmark_repertoire_spikein.py`; VDJdb ground truth): plant the
-    **convergent core** of a VDJdb epitope (NLVPMVATV/A\*02 CMV, K=50, clonally expanded) into naive P_gen
-    backgrounds of depth `N` and recover it with `mir.density`. **Recall 70–72% at RNA-seq depth (N≤3k), FPR
-    <2%**; breadth-only detection *dilutes* at bulk depth (0% at N≥10k — a fixed response is a larger fraction of
-    a *shallow* repertoire), but the **abundance/clonal-depth channel rescues it to 44–60% at bulk depth, FPR
-    ≤0.2%** (antigen clones are clonally expanded). Two lessons: antigen specificity ≠ sequence convergence (a
-    diffuse epitope sample is undetectable — spike the *public convergent* core), and shallow depth is *favorable*
-    for a fixed convergent response.
-  *Lesson:* the unsupervised backbone's value is **depth-robustness + a fixed fusion modality**; the
-  clonotype-identity payoff lives in the **second moment / learned attention / supervised witness**, not the
-  first moment — and clone-size phenotypes (age, CMV) are diversity's turf.
+  TRB, per-sample downsampled to the RNA-seq regime. Numbers are repeated-50-fold-CV mean±std unless noted.
+  **These findings were adversarially verified — two initial over-claims were caught and corrected below.**):*
+  - **Depth-robustness (`prop:kme`) — confirmed, but generic.** `‖Φ₁(sub)−Φ₁(full)‖` vs `n_eff` has log–log
+    slope **−0.55** (theory −0.5), `err·√n_eff` 1.00→0.80 across `N∈{100…10⁴}`. ⚠ *Honest reading:* this is the
+    **Monte-Carlo concentration rate of any weighted mean of bounded features** (`Φ₁=Σwψ`, so `err²≈Σw²·V` and
+    the x-axis `n_eff=(Σw²)⁻¹` is built from the same weights) — it validates the KME/MMD estimator, **not** the
+    TCREMB coordinate system specifically (a scrambled embedding passes too); the 20% `err·√n_eff` drift is the
+    only embedding-dependent content.
+  - **Age & CMV are clone-size (diversity) phenomena.** A coverage/Hill diversity summary dominates: age
+    |Spearman| **0.76** (diversity, n=79) vs 0.58 (kernel mean) vs 0.28 (k-mer); CMV AUC **0.83±0.05**
+    (diversity, n=240) vs 0.59–0.63 (Φ blocks) vs 0.49 (learned). For CMV this is **not an age confound** — under
+    decade age-matching, age-only AUC is 0.45 (chance) while diversity is 0.83: **CMV memory inflation reshapes
+    the clone-size distribution** (fewer, larger clones), the signal a diversity profile reads and which Φ₁'s
+    depth-robust concave weighting down-weights *by design*. So "the embedding adds nothing over diversity here"
+    is partly **by construction** (Φ₁ discards clone size) — diversity is the natural sufficient statistic for a
+    clone-size phenotype, not a defeat of the embedding.
+  - **HLA-A\*02 — clonotype identity, weak signal (corrected).** A pure identity signal (public A\*02-restricted
+    clones; HLA leaves diversity unchanged): diversity AUC **0.45±0.07 (chance, as predicted)**, while the
+    clonotype blocks sit modestly higher (k-mer 0.52, kernel-mean 0.53, **second-moment 0.535±0.08**). ⚠ *An
+    earlier single 70/30 split reported 0.64 — that was noise* (n_test≈30, AUC SD≈0.1); under repeated CV the
+    **second-moment interval does NOT separate from diversity**. Honest verdict: the *direction* supports
+    "clonotype identity carries HLA signal diversity cannot" (all identity blocks > diversity, which is at
+    chance), but the effect is **weak and not decisively established** at n=240 — it needs more donors/depth.
+  - **Finding motifs (`prop:witness`).** `class_witness` (`w=μ_A−μ_B`, score `s(σ)=⟨w,ψ(φ(σ))⟩`) surfaces
+    coherent A\*02-associated `CASS…EQYF` clones (TRBV4/6/7); the injected-motif unit test recovers a planted
+    public clone. On real YF data (`benchmark_repertoire_yfv.py`, day-15 vs day-0) it ranks LLWNGPMAV/A\*02 clones
+    at mean AUC **0.57** (vs naive fold-change 0.53) — *marginal* (n=1 sample/group per donor, ≤4 donors, no CI);
+    the witness is essentially a kernel-smoothed fold-change, so the **density-ratio** recovers convergent
+    clusters far better.
+  - **Spike-in recovery from RNA-seq depth (corrected)** (`benchmark_repertoire_spikein.py`; VDJdb ground truth):
+    plant a real VDJdb epitope's **CDR3-Hamming-selected motif family** (NLVPMVATV/A\*02 CMV, clonally expanded)
+    into naive P_gen backgrounds of depth `N` and recover it with `mir.density`. ⚠ *The selection metric (Hamming)
+    is independent of the BLOSUM-gapblock detection embedding — a cross-metric test; an earlier version that
+    selected the core in the same embedding it detected in was circular (72%→50% once de-circularised).* Honest
+    result: **recall ~35–50% at RNA-seq depth (N≤3k), FPR ~1.2%**; breadth dilutes at bulk depth but the
+    abundance/clonal-depth channel holds it to ~25% at N=10k. Caveat: FPR is vs a *clean* P_gen null; a real
+    repertoire has its own convergent clusters, so a **biological differential control** (T6) is the honest
+    false-positive test. Two robust lessons: antigen specificity ≠ sequence convergence (spike a real motif
+    family, not a diffuse epitope sample → 0% recall), and shallow depth is *favorable* for a fixed response.
+  *Lesson (verified):* the CI-backed value is **depth-robustness (a generic KME property) + a fixed fusion
+  modality**; clone-size phenotypes (age, CMV) are diversity's turf (the embedding discards clone size by
+  design); the clonotype-identity payoff (HLA, motifs) is **real in direction but weak in magnitude** at these
+  cohort sizes and lives in the second moment / supervised witness / density, not the first-moment kernel mean.
 
 ## Reproduced numbers (v3 pipeline)
 

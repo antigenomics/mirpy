@@ -41,20 +41,28 @@ def _vdjdb_clones(epitope: str) -> pl.DataFrame:
             .unique())
 
 
-def _convergent_core(pool: pl.DataFrame, model, k: int, kth: int = 4) -> pl.DataFrame:
-    """The ``k`` densest clones of an epitope pool — its *convergent public motif* (not a diffuse sample).
+def _seq_convergent_core(pool: pl.DataFrame, k: int, radius: int = 1) -> pl.DataFrame:
+    """The ``k`` most sequence-convergent clones of an epitope pool — a real CDR3 **motif family**.
 
-    Antigen specificity ≠ sequence convergence: a random VDJdb sample is spread across the whole
-    epitope's TCR space and has no near neighbours, so density can't see it. Real responses are detected
-    through their *public convergent* core; we pick it as the clones with the smallest distance to their
-    ``kth`` nearest neighbour in the junction embedding.
+    Selection uses **CDR3 Hamming distance on the raw strings** (within equal-length buckets) — an
+    independent criterion from the BLOSUM-gapblock TCREMB embedding used later for detection, so
+    recovery is a *cross-metric* validation, not the circular "select-and-detect in one space".
+    Antigen specificity ≠ sequence convergence (a diffuse epitope sample has no near neighbours and is
+    invisible to density); a motif family (mutually Hamming-close public clones) is the detectable core.
     """
-    from sklearn.neighbors import BallTree
+    from collections import defaultdict
 
-    emb = model.embed(pool)[:, 2::3].astype(np.float64)              # junction sub-block
-    d, _ = BallTree(emb).query(emb, k=min(kth + 1, emb.shape[0]))
-    core = np.argsort(d[:, -1])[:k]                                  # densest = smallest kth-NN distance
-    return pool[core]
+    juncs = pool["junction_aa"].to_list()
+    deg = np.zeros(len(juncs))
+    by_len = defaultdict(list)
+    for i, s in enumerate(juncs):
+        by_len[len(s)].append(i)
+    for idxs in by_len.values():
+        arr = [juncs[i] for i in idxs]
+        for a, sa in enumerate(arr):
+            deg[idxs[a]] = sum(a != b and sum(x != y for x, y in zip(sa, sb)) <= radius
+                               for b, sb in enumerate(arr))
+    return pool[np.argsort(-deg)[:k]]                               # most Hamming-≤radius neighbours
 
 
 def main(epitope: str = "NLVPMVATV", k_spike: int = 50, spike_count: int = 20) -> None:
@@ -66,7 +74,7 @@ def main(epitope: str = "NLVPMVATV", k_spike: int = 50, spike_count: int = 20) -
           f"convergent-core clones (each expanded to {spike_count} reads) into P_gen backgrounds of depth N\n")
     print(f"{'N':>7}{'recall':>9}{'ab_recall':>11}{'bg_FPR':>9}{'spike_fold':>12}")
 
-    spike = _convergent_core(spike_pool, model, k_spike).with_columns(
+    spike = _seq_convergent_core(spike_pool, k_spike).with_columns(
         pl.lit(float(spike_count)).alias("duplicate_count"))          # antigen clones are clonally expanded
     recalls = []
     for N in DEPTHS:
@@ -87,8 +95,11 @@ def main(epitope: str = "NLVPMVATV", k_spike: int = 50, spike_count: int = 20) -
 
     best = max(recalls)
     verdict = "PASS" if best > 0.5 else "PARTIAL" if best > 0.2 else "FAIL"
-    print(f"\n[{verdict}] best recall of spiked {epitope} clones = {best:.0%}; the planted CMV/A*02 cluster "
-          f"is recoverable from RNA-seq-depth data by density enrichment (T6)")
+    print(f"\n[{verdict}] best recall of spiked {epitope} clones = {best:.0%} (Hamming-selected motif family,"
+          f" detected by the independent BLOSUM-embedding density — a cross-metric, non-circular test).")
+    print("Caveats: (1) recovery is partial because a Hamming-tight family is not perfectly embedding-tight; "
+          "(2) FPR is against a *clean* P_gen null — a real repertoire has its own convergent clusters, so use "
+          "a biological differential control (T6) for a realistic false-positive rate.")
     print(f"Total {time.perf_counter() - t0:.0f}s")
 
 
