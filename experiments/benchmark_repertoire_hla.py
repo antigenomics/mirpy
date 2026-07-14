@@ -29,7 +29,7 @@ from mir.repertoire import class_witness, fit_repertoire_space, sample_embedding
 
 REPO, META = "isalgo/airr_hip", "metadata.txt"
 ALLELE = "HLA-A*02"
-N_PROTO, N_COMPONENTS, N_RFF = 1000, 20, 2048
+N_PROTO, N_COMPONENTS, N_RFF, N_RFF_SECOND = 1000, 20, 2048, 256   # deeper 2nd moment for public clusters
 
 
 def _balanced(n_per_class: int) -> set:
@@ -67,8 +67,8 @@ def main(n_per_class: int = 50, downsample_to: int = 10_000) -> None:
           f"≤{downsample_to} reads/donor")
 
     model = TCREmp.from_defaults("human", "TRB", n_prototypes=N_PROTO)
-    space = fit_repertoire_space(model, pooled_clonotypes(samples),
-                                 n_rff=N_RFF, n_components=N_COMPONENTS, seed=0)
+    space = fit_repertoire_space(model, pooled_clonotypes(samples), n_rff=N_RFF,
+                                 n_rff_second=N_RFF_SECOND, n_components=N_COMPONENTS, seed=0)
     embs = [sample_embedding(space, df, blocks=("mean", "diversity", "second")) for df in frames]
     mean = np.stack([e.mean for e in embs])
     div = np.stack([e.diversity for e in embs])
