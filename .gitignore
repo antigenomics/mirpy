@@ -3,7 +3,12 @@ tmp/
 
 ## Data
 airr_benchmark/
-tests/assets/
+# Big test fixtures stay out of git (CI-guarded tests skip when absent); small
+# deterministic fixtures ARE committed so the default suite runs in CI.
+tests/assets/vdjdb_full.txt.gz
+tests/assets/vdjdb.slim.txt.gz
+tests/assets/real_repertoires/
+tests/assets/srx_repertoires/
 *.airr.tsv
 notebooks/assets/
 
