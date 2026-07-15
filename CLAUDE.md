@@ -20,6 +20,14 @@ This repo is now **the library + its CI/test data only**. Analysis and manuscrip
 Compute: heavy benchmarks run on the **aldan3** cluster (env `mirpy`, `sbatch`); light jobs local. See the
 analysis repo.
 
+## Worktrees — REQUIRED for Claude sessions
+**Work in a git worktree for this repo, never directly on the main checkout.** Multiple Claude sessions
+edit mirpy concurrently (the 2026-07-16 split was done across parallel sessions and hit collisions), so at
+the start of any session that will modify this repo, call **`EnterWorktree`** (isolated worktree under
+`.claude/worktrees/`, fresh branch off `origin/master`); commit + push from there; merge via PR/fast-forward.
+This keeps concurrent sessions from clobbering each other's working trees. The same applies to the sibling
+repos (`2026-mirpy-analysis`, `2026-mirpy-ms`).
+
 ## Reuse, don't duplicate — the ecosystem
 mirpy v3 has **no AIRR data-model layer of its own**; it works on `vdjtools` polars frames and
 delegates:
