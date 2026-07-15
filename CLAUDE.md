@@ -210,6 +210,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     150–300 donors (any depth 20k/120k); full ~1137-donor cohort passes 39β/4α (user tmp scan). Sample-level lever
     is **batch control** (β witness whole 0.51 → mixed-batch **0.75**); per-allele HLA-stratification adds noise
     (median≈whole). HLA+α+β is not the key — breadth is.
+  - **WS2b COVID motif recovery** (`benchmark_repertoire_covidmotif.py`, full 1137-donor incidence Fisher, both
+    chains): the *breadth-powered* way to find motifs. **α genome-wide recovers 4 GT-true clones = a coherent
+    public family CAG·NYGGSQGNLIF (paper cluster 31)**; β recovers 0 (rarer/HLA-restricted). **HLA restriction
+    adds 0** — the recoverable α clones are already public. HLA+α+β decomposes: **α=public (found by breadth, no
+    HLA); β=HLA-restricted + depth-limited** (needs full native depth + the restricting allele, e.g. DRB1\*16).
   - **WS3 UMAP** (`plot_sample_umap.py {covid,aging,hip}`): faceted UMAP of Φ₁ (=MMD geometry) by age/HLA/batch/
     COVID/CMV → `experiments/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
     `residualize` (the `prop:batch` story made visual).
@@ -235,5 +240,13 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     masks the immune-hot wins. **Paradigm lesson (T7 #6): the same Φ(S) that reads infection/HLA in blood via
     its identity channels stratifies the TME + survival in tissue via its non-identity channels.** Unsupervised
     Φ clustering → TME states (`benchmark_repertoire_tcga_tme.py`, UMAP `experiments/figures/umap_tcga_tme`).
-    **TODO**: per-cancer n_pc (small-cohort overfit); TME-state validation vs Thorsson immune subtypes; Bayesian-net typicality.
+  - **Derivable descriptor + in-silico evolution** (`mir.repertoire.sample_descriptor`/`RepertoireDescriptor`/
+    `decode_metrics`; `benchmark_repertoire_tcga_insilico.py`; THEORY.md T7 lesson 7): **mass-preserving** smooth
+    descriptor — infiltration=log-mass, diversity=log n_eff, clonality=Σw², identity=kernel mean are all smooth
+    coordinates (keeps the mass Φ normalises away). The cohort coordinate distribution = a generative manifold;
+    perturbing infiltration + conditioning (Gaussian) = **in-silico evolution**: hotter ⇒ diversity +0.84 /
+    switch +0.52 / T-vs-B −0.63; CoxPH "make hotter" protective 12/20 cancers, adverse in glioma (LGG +1.19) —
+    learned couplings match immunobiology. Test `test_descriptor_metrics_derivable_smooth_and_decodable`.
+    **TODO**: per-cancer n_pc; Thorsson immune-subtype validation; a learned (flow/VAE) generative manifold for
+    full sequence-level simulation; promote the multi-chain descriptor into `mir.repertoire`.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

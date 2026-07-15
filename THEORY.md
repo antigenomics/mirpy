@@ -285,6 +285,16 @@ states (hot-diverse / cold-humoral / T-skewed-unswitched), characterised by thes
 expected cancers, and prognostic **beyond** tumour type (stratified multivariate log-rank p=0.004; the
 low-infiltration cold-humoral state carries the worst outcome, HR 1.14) — `benchmark_repertoire_tcga_tme.py`.
 
+**Lesson (7) — derivable metrics ⇒ a simulatable embedding.** Because the mass-preserving descriptor
+(`mir.repertoire.sample_descriptor`) makes infiltration (log-mass), diversity (log n_eff) and clonality (Σw²)
+**smooth analytic coordinates** — the "smoother form" of the Hill block, keeping the total mass Φ normalises
+away — the cohort's joint coordinate distribution is a generative **manifold**. Perturbing the infiltration
+coordinate and conditioning the rest (Gaussian manifold) is *in-silico evolution*: pan-cancer, a hotter tumour
+is predicted to become more diverse (+0.84), more class-switched (+0.52) and more B-skewed (−0.63 T-vs-B), and
+the CoxPH survival response is protective in 12/20 cancers but adverse in glioma (LGG Δlog-HR +1.19) — learned
+couplings that recover known immunobiology (`benchmark_repertoire_tcga_insilico.py`). The embedding is thus not
+only a descriptor but a *model* one can sample and evolve.
+
 ## Reproduced numbers (v3 pipeline)
 
 Run `python experiments/reproduce_supplementary.py` (S1–S3) and
