@@ -13,10 +13,12 @@ from mir.repertoire import (
     RepertoireSpace,
     _make_rff,
     class_witness,
+    decode_metrics,
     fit_repertoire_space,
     hla_stratified_mmd,
     mmd_distance,
     mmd_matrix,
+    sample_descriptor,
     sample_embedding,
 )
 
@@ -98,6 +100,31 @@ def test_spectral_second_block_top_r_eigvals():
     assert np.isfinite(emb.vector).all()
     with pytest.raises(ValueError, match="n_eigs"):
         fit_repertoire_space(model, _clonotypes(600), n_rff_second=64, n_eigs=200)
+
+
+def test_descriptor_metrics_derivable_smooth_and_decodable(space):
+    # mass-preserving descriptor: infiltration/diversity/clonality are derivable coordinates,
+    # decode_metrics inverts the vector, and the scale (infiltration) tracks total reads.
+    df = _sample(_clonotypes(120, offset=0), lambda n: np.geomspace(1, 1000, n))
+    d = sample_descriptor(space, df)
+    m = d.metrics()
+    # infiltration = log1p(total reads); diversity = exp(log_neff) in the Hill interval [²D, ⁰D]
+    assert abs(m["infiltration"] - np.log1p(df["duplicate_count"].sum())) < 1e-9
+    assert m["clonality"] > 0 and m["diversity"] >= 1.0
+    # decode_metrics reads the same metrics off the (possibly perturbed) vector
+    assert decode_metrics(d.vector)["infiltration"] == m["infiltration"]
+    # scale-carrying: a deeper copy raises the infiltration coordinate (mass is retained, not normalised away)
+    deep = df.with_columns((pl.col("duplicate_count") * 10).alias("duplicate_count"))
+    assert sample_descriptor(space, deep).metrics()["infiltration"] > m["infiltration"]
+    # under presence weighting (w uniform) clonality is pure shape → scale-invariant
+    dfd = df.with_columns(pl.lit(3.0).alias("duplicate_count"))
+    dfd10 = df.with_columns(pl.lit(30.0).alias("duplicate_count"))
+    assert abs(sample_descriptor(space, dfd, weight="distinct").metrics()["clonality"]
+               - sample_descriptor(space, dfd10, weight="distinct").metrics()["clonality"]) < 1e-9
+    # smoothness (continuity): a tiny count perturbation moves the descriptor only slightly (relative)
+    pert = df.with_columns((pl.col("duplicate_count") + 1e-3).alias("duplicate_count"))
+    rel = np.linalg.norm(sample_descriptor(space, pert).vector - d.vector) / (np.linalg.norm(d.vector) + 1e-9)
+    assert rel < 0.02
 
 
 @pytest.mark.parametrize("weight", ["distinct", "log1p", "anscombe"])

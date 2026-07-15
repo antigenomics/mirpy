@@ -113,6 +113,25 @@ Why per-clonotype Fisher-significant clones "vanish" in the bulk embedding: **co
 Batch control (mixed-batch contrast, where COVID+healthy share runs) recovers the paper's β clones; per-allele
 HLA stratification adds more noise than signal at these donor counts. HLA+α+β is **not** the missing key — breadth is.
 
+### COVID motif recovery at full breadth — `benchmark_repertoire_covidmotif.py 0 60000`
+
+Using the tool that *works* at breadth (Emerson incidence Fisher) on the **full 1137-donor cohort** (761 COVID /
+376 healthy, 60 k reads), both chains, to actually *find COVID motifs*:
+
+| chain | genome-wide clones q<0.05 | GT-true recovered | + HLA-restricted |
+|---|---|---|---|
+| **α** | 7 | **4** | +0 |
+| β | 0 | 0 | +0 |
+
+The 4 recovered α clones are one coherent public family — **CAG·NYGGSQGNLIF** (single-residue variants), all
+members of the paper's COVID-associated α **cluster 31** (27 GT clones, all `has_covid_association`). **HLA
+restriction adds nothing** because these α clones are already *public* (present across HLA backgrounds) —
+per-allele restriction only loses power. β recovers **nothing** even at full breadth/60 k depth: the β COVID
+signal is rarer and HLA-restricted (the user's DRB1\*16-focused β clone needs full native depth + that specific
+allele). **HLA+α+β decomposes cleanly:** the recoverable signal is the **public α compartment** (breadth-powered,
+no HLA needed — a real motif family found), and β is the HLA-restricted, depth-limited part. This is the honest
+"find motifs" route; the breadth-starved bulk MMD witness recovered none of it.
+
 ### TCGA — `benchmark_repertoire_tcga.py <chains> BRCA,LUAD,KIRC 50000`
 
 Tumor-type separation is **depth-dependent** (deep IG light chains ≫ shallow TR); **survival adds nothing** over
@@ -210,3 +229,23 @@ Stratified multivariate log-rank across states (blocking tumour type) **p=0.0038
 *beyond* cancer type. The **cold-humoral** low-infiltration state carries the **worst** outcome (HR 1.14, p=0.011);
 the **hot-diverse** state trends protective (HR 0.92). Glioma (LGG) falls in the cold, strongly T-skewed states,
 matching its known low-but-T-biased infiltrate. The repertoire embedding organises the TME unsupervised.
+
+### In-silico evolution — perturb infiltration, decode the coupled response — `benchmark_repertoire_tcga_insilico.py ALL`
+
+`mir.repertoire.sample_descriptor` makes every metric a **smooth derivable coordinate** (infiltration = log-mass,
+diversity = log n_eff, clonality = Σw², identity = kernel mean), so the cohort's joint distribution is a
+generative **manifold** and moving a sample along the infiltration axis (hot↔cold) while staying on it predicts
+how the other metrics respond. Gaussian-manifold conditional slopes d(metric)/d(infiltration), pan-cancer mean:
+
+| response as tumour gets hotter | slope | reading |
+|---|---|---|
+| diversity | **+0.84** | hot ⇒ more diverse (universal, all cancers) |
+| class-switch | +0.52 | hot ⇒ more class-switched B cells |
+| IgG | +0.49 | hot ⇒ more IgG (mature humoral) |
+| T-vs-B | −0.63 | hot ⇒ more B-skewed (TLS-like) |
+| atypicality | −0.23 | hot ⇒ less atypical / more convergent |
+
+**In-silico "make this tumour hotter"** (move cold→hot on-manifold, read the CoxPH Δlog-HR): predicted
+**protective in 12/20** cancers (SKCM −0.49, HNSC −0.63, LUAD −0.44, LAML −0.96 …) — TIL-is-good — but correctly
+**adverse in glioma** (LGG **+1.19**, GBM +0.47) and renal (KIRC/KIRP +0.3), matching the known "immune-hot glioma
+is worse" biology. The embedding *simulates* the hot↔cold survival axis; the couplings are learned, not imposed.

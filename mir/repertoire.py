@@ -322,6 +322,73 @@ def sample_embedding(
     return SampleEmbedding(mean=mean, diversity=div, second=sec, n_eff=n_eff)
 
 
+# --------------------------------------------------------------- derivable descriptor
+
+
+@dataclass
+class RepertoireDescriptor:
+    """Smooth, **mass-preserving** repertoire descriptor — every summary metric is a derivable coordinate.
+
+    :func:`sample_embedding`'s ``Φ`` frequency-normalises, which discards the total mass (= infiltration).
+    The descriptor instead **keeps the mass as a coordinate alongside diversity and clonality**, so the whole
+    object is:
+
+    * **decodable** — :meth:`metrics` reads infiltration / diversity / clonality off analytically;
+    * **smooth** — ``log`` mass, ``log`` n_eff and Simpson λ are continuous (no integer richness ``⁰D``),
+      the "smoother form" of the Hill block;
+    * **simulatable** — :attr:`vector` is a fixed-width continuous vector you can perturb and generate:
+      fit a density over a cohort, move along the infiltration coordinate → in-silico "hotter / colder"
+      (:func:`decode_metrics` turns any perturbed vector back into named metrics).
+
+    ``mean`` is the normalised kernel mean ``μ/G`` (clonotype identity / composition); the scalar coordinates
+    are the count-distribution summaries. Distances/generation live in the concatenated :attr:`vector`.
+    """
+
+    log_mass: float          # log Σ a — infiltration / coverage (the mass Φ normalises away)
+    log_neff: float          # log (Σg)²/Σg² — effective diversity (smooth Hill number)
+    simpson: float           # Σ w² — clonality / dominance
+    mean: np.ndarray         # μ/G — normalised kernel mean (identity)
+
+    @property
+    def scalar(self) -> np.ndarray:
+        """The derivable-metric coordinates ``[infiltration, log n_eff, clonality]``."""
+        return np.array([self.log_mass, self.log_neff, self.simpson], dtype=np.float64)
+
+    @property
+    def vector(self) -> np.ndarray:
+        """The full descriptor ``[scalar ‖ mean]`` — the continuous object to perturb / generate."""
+        return np.concatenate([self.scalar, self.mean]).astype(np.float64)
+
+    def metrics(self) -> dict:
+        """Named metrics read off the coordinates (all analytic, no recomputation from counts)."""
+        return {"infiltration": float(self.log_mass), "log_neff": float(self.log_neff),
+                "diversity": float(np.exp(self.log_neff)), "clonality": float(self.simpson)}
+
+
+def sample_descriptor(space: RepertoireSpace, sample_df: pl.DataFrame, *,
+                      weight: str = "log1p") -> RepertoireDescriptor:
+    """Mass-preserving smooth descriptor of one repertoire (see :class:`RepertoireDescriptor`).
+
+    The scale (``log_mass`` = infiltration) is retained rather than normalised away, so infiltration,
+    diversity and clonality are all smooth coordinates of the *same* object — the representation the
+    in-silico-evolution / embedding-simulation workflow perturbs.
+    """
+    a = sample_df[_COUNT].to_numpy().astype(np.float64)
+    g = _WEIGHTS[weight](a)
+    w = g / g.sum()
+    mean = w @ space.rff.transform(space.transform_clonotypes(sample_df))
+    sw2 = float(np.sum(w * w))
+    return RepertoireDescriptor(log_mass=float(np.log1p(a.sum())),
+                                log_neff=float(-np.log(sw2)), simpson=sw2, mean=mean)
+
+
+def decode_metrics(vector: np.ndarray) -> dict:
+    """Read named metrics off a (possibly *perturbed* or *generated*) descriptor vector — the inverse
+    used for in-silico evolution: perturb :attr:`RepertoireDescriptor.vector`, decode the new metrics."""
+    return {"infiltration": float(vector[0]), "log_neff": float(vector[1]),
+            "diversity": float(np.exp(vector[1])), "clonality": float(vector[2])}
+
+
 # ---------------------------------------------------------------------- distance
 
 
