@@ -6,6 +6,20 @@ library** for immune receptors (TCR/BCR). A greenfield, slim rewrite: prototype 
 (TCREMP) now, neural codecs + density methods next (Part 2). The classical v1.x/v2 toolkit is
 frozen on branch **`legacy-v2`** (`mirpy-lib` 2.x) — do not develop there.
 
+## Repo split (2026-07-16) — three homes
+This repo is now **the library + its CI/test data only**. Analysis and manuscript live elsewhere:
+- **`~/vcs/code/mirpy`** (here): `mir/` library, unit + fast/slow CI tests (`tests/`, on slim bundled
+  data), plans for new features, docs, and **slim tabular benchmark results** for README/docs. Benchmark
+  *scripts* and the theory *appendix* have moved out (below).
+- **`~/vcs/projects/2026-mirpy-analysis`**: all **benchmark scripts** (`experiments/` — local + aldan3),
+  full result docs (BENCHMARKS/THEORY/…), figures, run outputs, dataset catalog. Run the mirpy library
+  from here; refresh numbers-of-record here.
+- **`~/vcs/manuscripts/2026-mirpy-ms`**: the **theory appendix** (`appendix/tcremp_theory.tex`) + the paper
+  (`manuscript-latex/`). (Earlier this appendix lived here in the code repo; it migrated on 2026-07-16.)
+
+Compute: heavy benchmarks run on the **aldan3** cluster (env `mirpy`, `sbatch`); light jobs local. See the
+analysis repo.
+
 ## Reuse, don't duplicate — the ecosystem
 mirpy v3 has **no AIRR data-model layer of its own**; it works on `vdjtools` polars frames and
 delegates:
