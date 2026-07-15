@@ -213,8 +213,13 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   - **WS2b COVID motif recovery** (`benchmark_repertoire_covidmotif.py`, full 1137-donor incidence Fisher, both
     chains): the *breadth-powered* way to find motifs. **α genome-wide recovers 4 GT-true clones = a coherent
     public family CAG·NYGGSQGNLIF (paper cluster 31)**; β recovers 0 (rarer/HLA-restricted). **HLA restriction
-    adds 0** — the recoverable α clones are already public. HLA+α+β decomposes: **α=public (found by breadth, no
-    HLA); β=HLA-restricted + depth-limited** (needs full native depth + the restricting allele, e.g. DRB1\*16).
+    adds 0** — the recoverable α clones are already public. **WS1 (2026-07-15) closed the α/β loop and REFUTED
+    the "β is depth/HLA-limited" guess**: β at full *native* depth genome-wide, and `native_beta` across 12
+    class-II/B carrier strata at native depth, both recover **0** GT-β. β's GT clones are short **public
+    bystanders** (`CASSx…YEQYF` TRBJ2-7, present in COVID *and* healthy; 253/256 present, median incidence 9),
+    so they don't discriminate status by *incidence* — the α/β split is **status-enriched vs public-bystander,
+    not depth/breadth/HLA**. (Untested caveat: an abundance/size-based test could still catch β clones enriched
+    in *magnitude* not *breadth*.)
   - **WS3 UMAP** (`plot_sample_umap.py {covid,aging,hip}`): faceted UMAP of Φ₁ (=MMD geometry) by age/HLA/batch/
     COVID/CMV → `experiments/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
     `residualize` (the `prop:batch` story made visual).
