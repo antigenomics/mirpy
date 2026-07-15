@@ -84,7 +84,53 @@ def main(n_donors: int = 0, downsample_to: int = 60_000, min_carriers: int = 60)
           f"vs the breadth-starved bulk witness. Total {time.perf_counter() - t0:.0f}s")
 
 
+def native_beta(min_carriers: int = 40, per_locus: int = 4, cap: int = 60_000) -> None:
+    """WS1 — does FULL-NATIVE-DEPTH β (+ HLA restriction) recover ground-truth COVID β clones the read-capped
+    genome-wide screen misses? β is hypothesised HLA-restricted AND depth-limited (the α screen recovers a
+    public family at breadth; β recovers 0). For each common class-II/B allele we load ONLY its carriers at
+    native depth (``carrier_of`` bounds the I/O) and run the within-stratum Fisher incidence test, pooling
+    recovered GT β clones, vs the capped genome-wide β baseline. A negative is informative (depth+HLA
+    necessary but not sufficient at this breadth)."""
+    t0 = time.perf_counter()
+    gt = _ground_truth("beta")
+
+    rows_c, pairs_c = load_covid_paired(None, cap, statuses=("COVID", "healthy"))
+    cap_gw = set(_recovered(_fisher(_cohort_frame([p[0] for p in pairs_c], rows_c),
+                                    _phenotype(rows_c)), gt)["junction_aa"].to_list())
+    alleles = _common_alleles(rows_c, min_carriers, per_locus, loci=("DRB1", "DQB1", "B"))
+    print(f"capped {cap}: {len(rows_c)} donors, β genome-wide recovers {len(cap_gw)} GT clones; "
+          f"class-II/B strata to test at native depth: {alleles}\n")
+
+    native_hits: dict[str, str] = {}
+    for al in alleles:
+        rows_a, pairs_a = load_covid_paired(None, None, carrier_of=al, statuses=("COVID", "healthy"))
+        covid = np.array([r["COVID_status"] == "COVID" for r in rows_a])
+        if covid.sum() < 5 or (~covid).sum() < 5:
+            print(f"  {al:<12} skipped ({covid.sum()} COVID / {(~covid).sum()} healthy carriers)")
+            continue
+        res = _fisher(_cohort_frame([p[0] for p in pairs_a], rows_a), _phenotype(rows_a))
+        rec = set(_recovered(res, gt)["junction_aa"].to_list())
+        for j in rec:
+            native_hits.setdefault(j, al)
+        depth = int(np.median([int(p[0]["duplicate_count"].sum()) for p in pairs_a]))
+        print(f"  {al:<12} {len(rows_a):>4} carriers, median {depth:>7} reads → β GT recovered {len(rec)} "
+              f"{sorted(rec) if rec else ''}  [{time.perf_counter() - t0:.0f}s]")
+
+    extra = set(native_hits) - cap_gw
+    print(f"\n[WS1] native-depth + HLA restriction recovers {len(set(native_hits))} GT β clone(s); "
+          f"{len(extra)} beyond the capped genome-wide screen ({len(cap_gw)}).")
+    for j in sorted(extra):
+        print(f"    native-only β  {j:<20} via {native_hits[j]}")
+    verdict = ("depth+HLA recovers β clones the capped screen misses — β IS depth+HLA-limited" if extra
+               else "no β clone recovered beyond capped — depth+HLA necessary but NOT sufficient for β at this "
+               "breadth (honest negative; the recoverable COVID signal stays α-public)")
+    print(f"[verdict] {verdict}. Total {time.perf_counter() - t0:.0f}s")
+
+
 if __name__ == "__main__":
     a = sys.argv
-    main(int(a[1]) if len(a) > 1 else 0, int(a[2]) if len(a) > 2 else 60_000,
-         int(a[3]) if len(a) > 3 else 60)
+    if len(a) > 1 and a[1] == "native_beta":
+        native_beta(int(a[2]) if len(a) > 2 else 40, int(a[3]) if len(a) > 3 else 4)
+    else:
+        main(int(a[1]) if len(a) > 1 else 0, int(a[2]) if len(a) > 2 else 60_000,
+             int(a[3]) if len(a) > 3 else 60)

@@ -51,13 +51,15 @@ def load_covid(n_donors: int | None = None, downsample_to: int | None = 20_000, 
 
 
 def load_covid_paired(n_donors: int | None = None, downsample_to: int | None = 20_000, *,
-                      statuses=("COVID", "healthy"), seed: int = 0):
+                      statuses=("COVID", "healthy"), carrier_of: str | None = None, seed: int = 0):
     """Per-donor **(TRB, TRA)** frames matched by ``donor_id`` — the cohort is fully paired (1258/1258).
 
     Returns ``(rows, [(trb_df, tra_df), ...])`` where ``rows`` are the TRB metadata dicts (they carry the
-    HLA/COVID/batch labels). Both chains downsampled to ``downsample_to``. TRA carries independent V/J/CDR3
-    information (and 87% of the shipped COVID ground-truth clones are α) so α+β concatenation should sharpen
-    HLA-imprint and COVID-biomarker signals over β alone.
+    HLA/COVID/batch labels). Both chains downsampled to ``downsample_to`` (``None`` = full native depth).
+    ``carrier_of`` (e.g. ``"DRB1*16"``) restricts to donors carrying that allele **before loading** — bounds
+    the native-depth I/O to a single HLA stratum. TRA carries independent V/J/CDR3 information (and 87% of the
+    shipped COVID ground-truth clones are α) so α+β concatenation should sharpen HLA-imprint and COVID-biomarker
+    signals over β alone.
     """
     from vdjtools.io.schema import recompute_frequency
     from vdjtools.preprocess import downsample
@@ -65,6 +67,10 @@ def load_covid_paired(n_donors: int | None = None, downsample_to: int | None = 2
     meta = pl.read_csv(covid_path("metadata.tsv"), separator="\t",
                        infer_schema_length=0).filter(pl.col("COVID_status").is_in(list(statuses)))
     trb = meta.filter(pl.col("locus") == "TRB").unique(subset=["donor_id"], keep="first")
+    if carrier_of:  # restrict to carriers before loading (bounds native-depth I/O to one HLA stratum)
+        hcols = HLA_COLS.get(carrier_of.split("*")[0], [])
+        trb = trb.filter(pl.any_horizontal(
+            [pl.col(c).fill_null("").str.contains(carrier_of, literal=True) for c in hcols]))
     tra = meta.filter(pl.col("locus") == "TRA").unique(subset=["donor_id"], keep="first")
     tra_file = dict(zip(tra["donor_id"].to_list(), tra["file_name"].to_list()))
 

@@ -126,11 +126,24 @@ Using the tool that *works* at breadth (Emerson incidence Fisher) on the **full 
 The 4 recovered α clones are one coherent public family — **CAG·NYGGSQGNLIF** (single-residue variants), all
 members of the paper's COVID-associated α **cluster 31** (27 GT clones, all `has_covid_association`). **HLA
 restriction adds nothing** because these α clones are already *public* (present across HLA backgrounds) —
-per-allele restriction only loses power. β recovers **nothing** even at full breadth/60 k depth: the β COVID
-signal is rarer and HLA-restricted (the user's DRB1\*16-focused β clone needs full native depth + that specific
-allele). **HLA+α+β decomposes cleanly:** the recoverable signal is the **public α compartment** (breadth-powered,
-no HLA needed — a real motif family found), and β is the HLA-restricted, depth-limited part. This is the honest
-"find motifs" route; the breadth-starved bulk MMD witness recovered none of it.
+per-allele restriction only loses power.
+
+**WS1 (2026-07-15) — the α/β loop closed, and it is NOT depth (refutes the earlier "β is depth-limited" note).**
+Running β at **full *native* depth** (no downsampling) over the full 1137-donor cohort
+(`benchmark_repertoire_covidmotif.py 0 0`) still passes **1** feature genome-wide at any `min_incidence∈{2,3,5}`
+and recovers **0** GT-β clones — full depth does not rescue β. Nor does the *restricting allele*: a per-stratum
+sweep (`benchmark_repertoire_covidmotif.py native_beta`, 12 class-II/B HLA carrier groups, 117–346 carriers each
+at **native depth** ~3.5 M reads/donor) recovers **0** GT-β in every stratum — refuting "β needs full depth +
+the restricting allele." And it is **not absence**: **253/256 GT-β clones
+are present** in the cohort (median incidence **9** donors, max **110**). The reason is that the paper's β
+"COVID-associated" clones are short **public bystanders** (`CASSx…YEQYF`, TRBJ2-7 — e.g. `CASSYSYEQYF` in 110
+donors) occurring in COVID **and** healthy donors alike, so they do not discriminate status by *incidence*.
+**The α/β asymmetry is which clones are status-enriched vs public bystanders — not depth or breadth:** α's
+recovered `CAG·NYGGSQGNLIF` family is a genuine status-enriched public expansion; β's GT set is dominated by
+non-discriminating convergent publics. *Caveat:* the incidence Fisher tests presence-breadth, not clonal-
+expansion magnitude — a frequency/abundance-based test could still recover β clones enriched in *size* not
+*breadth* (untested). Net: the recoverable "find-motifs" signal is the **public α compartment** (breadth-
+powered, no HLA needed); the breadth-starved bulk MMD witness recovered none of it.
 
 ### TCGA — `benchmark_repertoire_tcga.py <chains> BRCA,LUAD,KIRC 50000`
 
