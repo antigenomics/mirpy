@@ -17,7 +17,29 @@ Every dataset used by mirpy v3, its origin, and how to regenerate it.
 |---|---|---|---|
 | VDJdb slim dump | `tests/assets/vdjdb.slim.txt.gz` | VDJdb (Goncharov et al., *Nat Methods* 2022) export, dotted-column slim format | Antigen labels for the Table S1 benchmark; a specific release — F1 differs from the paper's 2023 summer release |
 | Epitope-specific TRB sets | `tests/assets/{gilgfvftl,llwngpmav}_*.gz` | VDJdb subsets | Single-antigen fixtures |
-| OLGA TRB sample | `tests/assets/olga_humanTRB_1000.txt.gz` | OLGA-generated human TRB | Synthetic repertoire sample |
+| OLGA TRB sample | `tests/assets/olga_humanTRB_1000.txt.gz` | **Computed**, not experimental: 1 000 human TRB rearrangements drawn from the OLGA generative model (Sethna et al., *Bioinformatics* 2019), seed 42. Cols (no header): `junction_nt, junction_aa, v_call, j_call`; kept in **generation order — do not sort** (see note below) | `conda run -n mirpy --no-capture-output olga-generate_sequences --humanTRB -n 1000 -o /tmp/olga.tsv --seed 42` then `awk -F'\t' -v OFS='\t' '{print $1,$2,$3"*01",$4"*01"}' /tmp/olga.tsv \| gzip -n > tests/assets/olga_humanTRB_1000.txt.gz` (the `*01` suffix is appended because OLGA emits gene-level calls but `mir` expects allele-level, matching the bundled prototypes) |
+
+> **Provenance correction (2026-07-17).** Until this date `olga_humanTRB_1000.txt.gz` was **not**
+> OLGA output despite its name and this row's claim. It was a `head`-slice of the *alphabetically
+> sorted* VDJdb TRB dump: all 969 unique junctions matched `vdjdb.slim.txt.gz` TRB `cdr3` exactly
+> (100%, vs **0.96%** for genuine OLGA), the `junction_nt` column was a placeholder run of `N`, and
+> the first row (`ATSIRFTDTQYF`) lacked the Cys anchor OLGA always emits. Consequences of the old
+> file, for anyone re-reading results predating this fix:
+> 1. **Not an antigen-naive null.** 12% of its rows had a Hamming-1 neighbour within the file vs
+>    **0.2%** for real OLGA (166 vs 4 pairs per 1 000) — VDJdb is *selected for* the antigen-driven
+>    convergence such a background is supposed to lack. Any chance-rate / null calibration against it
+>    compared VDJdb to itself and is meaningless.
+> 2. **Sorted ⇒ slices are not exchangeable.** Because it was alphabetically sorted, the
+>    `_load_olga(n)` / `_load_olga(n, offset=400)` obs-vs-background slice pattern in
+>    `tests/test_density.py` drew two systematically different regions of sequence space (the
+>    background block was 58% `CAIS`-prefixed and shared only 20 of 54 V genes with obs). Genuine
+>    OLGA output is in generation order, which is why the regenerate command above must **not** sort.
+>
+> The `tests/` suite was **not** invalidated: all 58 tests pass identically on both files (they use
+> the asset only as a generic pool of TRB junctions, never as a null), and the Hamming-1 gate in
+> `test_continuous_matches_discrete_hamming1` scores rho 0.727 on the old file vs 0.809 on real OLGA.
+> The damage was confined to external calibrations that treated the file as a synthetic negative
+> control.
 
 Bundled model / Pgen data used at runtime lives in **vdjtools** (`vdjtools.model` bundled
 parquet marginals for 7 loci × {olga, learned}) — see the vdjtools `SOURCES.md`.
