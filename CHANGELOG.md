@@ -3,6 +3,21 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+### Added
+
+- **`mir.explain`** (T7) — explainable readouts over any repertoire feature matrix.
+  `ChannelSpec` / `ChannelBuilder` / `stack_embeddings` attach the name→column map that `Φ.vector`
+  does not carry (`stack_embeddings` is exact: `X[i] == embs[i].vector`, names only, no transform);
+  `channel_report` ablates each named channel under a caller-supplied scorer (leave-one-in by
+  default; `mode="both"` adds the conditional half that exposes *redundant* channels — high `delta`,
+  `delta_out≈0`; optional row-permutation p-values); `channel_drivers` hops from a winning
+  **kernel-mean** channel to the clonotypes driving it via `class_witness`, and refuses channels with
+  no clonotype pre-image (a Hill number's "drivers" are a category error, not an open question).
+  Scorer-agnostic by design — the library never sees the labels and ships no scorers, so a Cox
+  C-index and a CV AUC both plug in. **No existing module changed.**
+
 ## 3.1.1 — 2026-07-14
 
 Maintenance re-release of 3.1.0 with no functional changes — 3.1.0 was withdrawn from PyPI, and

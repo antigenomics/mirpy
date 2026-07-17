@@ -53,6 +53,9 @@ Capabilities (see the :doc:`API reference <api>`)
 - **Repertoire embedding** — one fixed vector per sample: RFF kernel mean, coverage-standardised
   Hill diversity, and a second-moment Fisher block; MMD / HLA-stratified distance and a motif
   witness (``mir.repertoire``, T7).
+- **Explainable readouts** — name ``Φ``'s channels and ablate them under *your* scorer to see which
+  one carries the signal (and whether it is merely redundant), then hop from the winning kernel-mean
+  channel to the clonotypes driving it (``mir.explain``, T7).
 - **Neural codecs** — forward / inverse / Pgen / unified codecs and a learned repertoire set
   encoder; CUDA → MPS → CPU device selection (``mir.ml``, ``[ml]`` extra).
 - **Benchmark harness** — VDJdb clustering + F1/retention and reproduced theory (``mir.bench``).
