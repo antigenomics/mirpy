@@ -242,6 +242,38 @@ def fit_repertoire_space(
     return RepertoireSpace(clono, rff, rff2, meta)
 
 
+def fit_repertoire_spaces(
+    models: dict,
+    cohort_frames: dict,
+    *,
+    min_clonotypes: int = 50,
+    **kwargs,
+) -> dict:
+    """Fit one :class:`RepertoireSpace` **per locus** — the multi-chain (digital-donor) basis.
+
+    Each locus gets an independent basis (its own prototype set + PCA + RFF), so per-chain kernel
+    means are only ever compared within their own chain, honouring the comparability contract.
+    Loci whose pooled cloud is too small to fit a stable PCA are skipped (returned dict omits them).
+
+    Args:
+        models: ``{locus: TCREmp}`` — one fitted single-chain model per locus.
+        cohort_frames: ``{locus: pooled clonotype frame}`` (``v_call``/``j_call``/``junction_aa``),
+            the pooled cloud for that locus across the whole cohort.
+        min_clonotypes: Skip a locus whose pooled frame has fewer rows (PCA would be degenerate).
+        **kwargs: Forwarded to :func:`fit_repertoire_space` (``n_rff``, ``n_components``, ``seed`` …).
+
+    Returns:
+        ``{locus: RepertoireSpace}`` for the loci that could be fit.
+    """
+    spaces: dict = {}
+    for loc, model in models.items():
+        pool = cohort_frames.get(loc)
+        if pool is None or pool.height < min_clonotypes:
+            continue
+        spaces[loc] = fit_repertoire_space(model, pool, **kwargs)
+    return spaces
+
+
 # --------------------------------------------------------------------- embedding
 
 
@@ -513,6 +545,32 @@ def hla_stratified_mmd(embs: list[SampleEmbedding], hla: list[set]) -> np.ndarra
             A[i, col[al]] = 1
     shared = A @ A.T                                        # #shared alleles per pair
     return np.where(shared > 0, D, np.nan)
+
+
+def centroid_atypicality(X: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Per-sample cosine distance of its identity vector to its group's centroid — a Φ-geometry op.
+
+    A sample far from its group's mean identity has an atypical clonotype composition (selection /
+    divergence). Grouping is caller-supplied (tumour type, cohort, …); the geometry — centroid then
+    ``1 − cos`` — is the library concern. Feeds an ``atypicality`` channel of a digital-donor embedding.
+
+    Args:
+        X: ``(n, d)`` identity block (a per-sample kernel-mean or its PCA reduction).
+        groups: ``(n,)`` group label per row; centroids are computed within each group.
+
+    Returns:
+        ``(n,)`` atypicality in ``[0, 2]`` (0 = on the group centroid direction).
+    """
+    X = np.asarray(X, dtype=np.float64)
+    groups = np.asarray(groups)
+    out = np.zeros(X.shape[0])
+    for g in np.unique(groups):
+        m = groups == g
+        cen = X[m].mean(axis=0)
+        cn = np.linalg.norm(cen) + 1e-9
+        xn = np.linalg.norm(X[m], axis=1) + 1e-9
+        out[m] = 1.0 - (X[m] @ cen) / (xn * cn)
+    return out
 
 
 # --------------------------------------------------------------------- self-check
