@@ -3,7 +3,9 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.2.0 — 2026-07-17
+
+Minor: one new public module, nothing removed or changed.
 
 ### Added
 
