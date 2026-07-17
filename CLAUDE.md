@@ -88,6 +88,15 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   Opt-in `fit_repertoire_space(n_eigs=r)` swaps the second-moment block's full `D₂(D₂+1)/2` upper-triangle
   for its top-`r` eigenvalues (rotation-invariant spectrum; default `None` = upper-tri, unchanged — but
   lossy for the *directional* HLA imprint, so the full triangle stays the recommended block; `benchmark_repertoire_spectral.py`).
+- `explain.py` — **explainable readouts over any feature matrix** (T7). `ChannelSpec`/`ChannelBuilder`/
+  `stack_embeddings` attach the name→column map `Φ.vector` does not carry (per-chain blocks merge by
+  name); `channel_report(X, spec, scorer, base=, mode="in"|"out"|"both", n_permutations=)` ablates each
+  channel under a **caller-supplied** scorer — the library never sees `y` and ships no scorers, so a Cox
+  C-index and a CV AUC both plug in. `mode="in"` (default) is marginal, because the scorers reduce their
+  input and leave-one-*out* is near-blind to narrow channels; `"both"` adds the conditional half, and
+  high `delta` + `delta_out≈0` is the **redundancy** signature. `channel_drivers` hops channel→clonotypes
+  via `class_witness`, but **only** for a channel declared `attributable` (a kernel mean); a Hill number
+  has no clonotype pre-image and it raises. Depends one-way on `repertoire.py`; nothing there changed.
 - `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
   attention pooling + `SetEncoderBundle`).
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
@@ -275,5 +284,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     switch +0.52 / T-vs-B −0.63; CoxPH "make hotter" protective 12/20 cancers, adverse in glioma (LGG +1.19) —
     learned couplings match immunobiology. Test `test_descriptor_metrics_derivable_smooth_and_decodable`.
     **TODO**: per-cancer n_pc; Thorsson immune-subtype validation; a learned (flow/VAE) generative manifold for
-    full sequence-level simulation; promote the multi-chain descriptor into `mir.repertoire`.
+    full sequence-level simulation. "Promote the multi-chain descriptor" is **partially done** (2026-07-17):
+    `build_embedding` was four things — (a) per-locus space fitting, (b) channel assembly + registry,
+    (c) TME feature engineering, (d) impute/z-score. `mir.explain` promotes **(b)+(d)**; **(c)** is correctly
+    analysis-local (isotype/composition/atypicality are tissue features, not library concerns — though
+    atypicality, being a Φ-geometry op, would belong in `repertoire.py` as `centroid_atypicality` if ever
+    wanted). **Remaining**: (a) — "fit one `RepertoireSpace` per locus over a cohort" is construction, so it
+    belongs in `mir.repertoire` as a separate, smaller follow-up.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.

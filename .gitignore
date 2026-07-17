@@ -194,3 +194,6 @@ experiments/runs/
 
 # obsidian-memory-sync marker (machine-local absolute paths)
 .claude/obsidian-sync.json
+
+# git worktrees live inside the repo dir; never commit them as nested checkouts
+.claude/worktrees/
