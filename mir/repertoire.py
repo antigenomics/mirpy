@@ -51,6 +51,22 @@ from mir.density import DensitySpace, _WEIGHTS, _embed, calibrate_radius
 _COUNT = "duplicate_count"
 
 
+def _sample_weights(sample_df: pl.DataFrame, weight: str):
+    """Validated ``(counts a, concave g, normalized weights w=g/Σg)`` for one sample.
+
+    Raises on the degenerate inputs that would otherwise propagate a silent ``NaN``/``inf`` through
+    every block: an empty repertoire (no clonotypes) or all-zero ``duplicate_count`` (``g.sum()==0``
+    ⇒ ``w`` all-``NaN``, ``n_eff=inf``).
+    """
+    if sample_df.height == 0:
+        raise ValueError("empty repertoire: sample_df has no clonotypes")
+    a = sample_df[_COUNT].to_numpy().astype(np.float64)
+    if not (a.sum() > 0):
+        raise ValueError("degenerate repertoire: duplicate_count must sum to a positive value")
+    g = _WEIGHTS[weight](a)
+    return a, g, g / g.sum()
+
+
 # --------------------------------------------------------------------------- RFF
 
 
@@ -112,9 +128,8 @@ class RepertoireSpace:
         The raw material for both the fixed kernel mean (:func:`sample_embedding`) and the learned
         set network (:mod:`mir.ml.set_encoder`) — same basis, so their embeddings are comparable.
         """
-        a = df[_COUNT].to_numpy().astype(np.float64)
-        g = _WEIGHTS[weight](a)
-        return self.transform_clonotypes(df), g / g.sum()
+        _, _, w = _sample_weights(df, weight)
+        return self.transform_clonotypes(df), w
 
     def save(self, path) -> None:
         """Pickle the basis (scaler + PCA + RFF + meta); the model is reconstructed on load."""
@@ -198,14 +213,17 @@ def fit_repertoire_space(
     if n_components is None:
         n_components = get_preset(model.species, model.locus).n_components
 
-    X = _embed(model, cohort_df, space)
-    if pca_fit_cap is not None and X.shape[0] > pca_fit_cap:
+    # Fit the scaler+PCA on at most pca_fit_cap pooled rows. Sample the FRAME rows and embed only
+    # those — bit-identical to embedding all then subsetting (embedding is row-wise, same seed picks
+    # the same indices) but never materializes the full raw matrix for a huge cohort.
+    if pca_fit_cap is not None and cohort_df.height > pca_fit_cap:
         rng = np.random.default_rng(seed)
-        X_fit = X[rng.choice(X.shape[0], pca_fit_cap, replace=False)]
+        rows = rng.choice(cohort_df.height, pca_fit_cap, replace=False)
+        X_fit = _embed(model, cohort_df[rows], space)
     else:
-        X_fit = X
+        X_fit = _embed(model, cohort_df, space)
     scaler = StandardScaler().fit(X_fit)
-    k = min(n_components, X_fit.shape[0], X.shape[1])
+    k = min(n_components, X_fit.shape[0], X_fit.shape[1])
     pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(X_fit))
     clono = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
 
@@ -295,9 +313,7 @@ def sample_embedding(
     Returns:
         A :class:`SampleEmbedding`; ``.vector`` is the concatenated fixed-width tensor.
     """
-    a = sample_df[_COUNT].to_numpy().astype(np.float64)
-    g = _WEIGHTS[weight](a)
-    w = g / g.sum()
+    a, g, w = _sample_weights(sample_df, weight)
     n_eff = float(1.0 / np.sum(w * w))
 
     mean = div = sec = None
@@ -373,9 +389,7 @@ def sample_descriptor(space: RepertoireSpace, sample_df: pl.DataFrame, *,
     diversity and clonality are all smooth coordinates of the *same* object — the representation the
     in-silico-evolution / embedding-simulation workflow perturbs.
     """
-    a = sample_df[_COUNT].to_numpy().astype(np.float64)
-    g = _WEIGHTS[weight](a)
-    w = g / g.sum()
+    a, g, w = _sample_weights(sample_df, weight)
     mean = w @ space.rff.transform(space.transform_clonotypes(sample_df))
     sw2 = float(np.sum(w * w))
     return RepertoireDescriptor(log_mass=float(np.log1p(a.sum())),
@@ -405,6 +419,11 @@ def mmd_distance(a: SampleEmbedding, b: SampleEmbedding, *, unbiased: bool = Fal
     """
     if not unbiased:
         return float(np.linalg.norm(a.mean - b.mean))
+    if a.n_eff <= 1.0 or b.n_eff <= 1.0:
+        raise ValueError(
+            "unbiased MMD is undefined for a single-clonotype sample (n_eff ≤ 1): the diagonal "
+            "cannot be removed from a point mass. Use unbiased=False, or drop degenerate samples."
+        )
     sa, sb = 1.0 / a.n_eff, 1.0 / b.n_eff                   # Σwᵢ² ; RFF self-similarity k(z,z)≈1
     haa = (float(a.mean @ a.mean) - sa) / (1.0 - sa)        # diagonal-removed ‖μ‖²
     hbb = (float(b.mean @ b.mean) - sb) / (1.0 - sb)
@@ -422,6 +441,12 @@ def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.nda
     sq = np.diag(G).copy()
     if unbiased:
         s = np.array([1.0 / e.n_eff for e in embs])        # per-sample Σwᵢ²
+        if np.any(s >= 1.0):
+            raise ValueError(
+                "unbiased MMD is undefined for single-clonotype samples (n_eff ≤ 1); "
+                f"{int(np.sum(s >= 1.0))} of {len(embs)} samples are degenerate. "
+                "Use unbiased=False, or drop them before building the matrix."
+            )
         h = (sq - s) / (1.0 - s)                           # diagonal-removed self-inner-products
         d2 = h[:, None] + h[None, :] - 2.0 * G
     else:
@@ -439,6 +464,7 @@ def class_witness(
     *,
     weight: str = "log1p",
     top: int = 30,
+    witness: np.ndarray | None = None,
 ) -> pl.DataFrame:
     """Rank clonotypes by how much they drive the ``pos`` vs ``neg`` group difference (Prop. ``prop:witness``).
 
@@ -453,17 +479,20 @@ def class_witness(
         candidates: Clonotype frame to score (e.g. all clonotypes seen in ``pos``).
         weight: Clone-size weight for the per-sample kernel means.
         top: Number of top motifs to return.
+        witness: Optional precomputed witness direction ``μ_pos − μ_neg`` (``(D,)``). When given,
+            ``pos``/``neg`` are not re-embedded — reuse it to score several candidate sets cheaply.
 
     Returns:
         ``candidates`` with a ``witness_score`` column, sorted descending, truncated to ``top``.
     """
-    def group_mean(frames):
-        return np.mean([w @ space.rff.transform(Z)
-                        for Z, w in (space.sample_cloud(f, weight=weight) for f in frames)], axis=0)
+    if witness is None:
+        def group_mean(frames):
+            return np.mean([w @ space.rff.transform(Z)
+                            for Z, w in (space.sample_cloud(f, weight=weight) for f in frames)], axis=0)
 
-    w = group_mean(pos) - group_mean(neg)
+        witness = group_mean(pos) - group_mean(neg)
     psi = space.rff.transform(space.transform_clonotypes(candidates))     # (n, D)
-    scores = psi @ w
+    scores = psi @ witness
     return (candidates.with_columns(pl.Series("witness_score", scores))
             .sort("witness_score", descending=True).head(top))
 
@@ -476,12 +505,14 @@ def hla_stratified_mmd(embs: list[SampleEmbedding], hla: list[set]) -> np.ndarra
     HLA allele are masked to ``nan`` rather than compared.
     """
     D = mmd_matrix(embs)
-    out = np.full_like(D, np.nan)
-    for i in range(len(embs)):
-        for j in range(len(embs)):
-            if hla[i] & hla[j]:
-                out[i, j] = D[i, j]
-    return out
+    alleles = sorted({al for s in hla for al in s})
+    col = {al: k for k, al in enumerate(alleles)}
+    A = np.zeros((len(hla), len(alleles)), dtype=np.int8)   # sample × allele indicator
+    for i, s in enumerate(hla):
+        for al in s:
+            A[i, col[al]] = 1
+    shared = A @ A.T                                        # #shared alleles per pair
+    return np.where(shared > 0, D, np.nan)
 
 
 # --------------------------------------------------------------------- self-check
