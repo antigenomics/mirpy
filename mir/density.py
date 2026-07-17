@@ -99,6 +99,24 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
     return _slice(model.embed(df), space).astype(np.float32, copy=False)
 
 
+def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
+                             chunk_size: int) -> np.ndarray:
+    """Embed *df* and project it into ``scaler``+``pca``, ``chunk_size`` rows at a time.
+
+    Only ``chunk_size × n_features`` of raw embedding is ever resident: each chunk is embedded,
+    standardized, projected down to ``n_components``, and dropped. Peak memory is set by the chunk,
+    not by ``len(df)`` — which is what makes whole-cohort clouds tractable (a 4.2M-clonotype arm is
+    ~51 GB raw, and ~102 GB again once ``scaler.transform`` upcasts it to float64).
+    """
+    out = np.empty((df.height, pca.n_components_), dtype=np.float64)
+    for start in range(0, df.height, chunk_size):
+        stop = min(start + chunk_size, df.height)
+        raw = _embed(model, df.slice(start, stop - start), space)
+        out[start:stop] = pca.transform(scaler.transform(raw))
+        del raw
+    return out
+
+
 @dataclass
 class DensitySpace:
     """A single fitted TCREMP → PCA coordinate system for density comparison.
@@ -158,6 +176,7 @@ def fit_density_space(
     space: str = "full",
     seed: int = 0,
     pca_fit_cap: int | None = None,
+    chunk_size: int | None = None,
 ) -> tuple[DensitySpace, np.ndarray, np.ndarray]:
     """Embed observed + background frames into one shared PCA coordinate system.
 
@@ -176,13 +195,27 @@ def fit_density_space(
             third of the memory at whole-repertoire scale).
         seed: RNG / PCA solver seed.
         pca_fit_cap: Fit the ``StandardScaler`` + PCA on at most this many randomly-sampled
-            pooled rows (then transform *all* rows). Lets whole repertoires be embedded
-            without a full-matrix PCA; ``None`` fits on everything.
+            pooled rows (then transform *all* rows). ``None`` fits on everything. NB on its own
+            this caps the **fit**, not the memory: without ``chunk_size`` the full raw matrix for
+            both frames is materialized before the PCA is fitted at all.
+        chunk_size: Embed and project in batches of this many rows, so the full raw matrix is
+            never resident (peak ≈ ``chunk_size × n_features`` instead of ``len(df) × n_features``).
+            Required for whole-cohort clouds: 4.2M clonotypes × 1000 prototypes is ~51 GB raw and
+            ~102 GB after ``scaler.transform`` upcasts to float64, versus ~2.4 GB at
+            ``chunk_size=200_000``. When set and ``pca_fit_cap`` is ``None``, the fit is capped at
+            200k pooled rows — fitting on everything would defeat the purpose. ``None`` (default)
+            keeps the original single-shot path exactly.
 
     Returns:
         ``(density_space, obs_emb, bg_emb)`` — the fitted :class:`DensitySpace` and the
         two reduced ``float`` arrays, row-aligned to ``obs_df`` / ``bg_df``.
     """
+    if chunk_size is not None:
+        return _fit_density_space_chunked(
+            model, obs_df, bg_df, n_components=n_components, space=space, seed=seed,
+            pca_fit_cap=pca_fit_cap if pca_fit_cap is not None else 200_000,
+            chunk_size=chunk_size,
+        )
     obs = _embed(model, obs_df, space)
     bg = _embed(model, bg_df, space)
     n_total, n_feat = obs.shape[0] + bg.shape[0], obs.shape[1]
@@ -201,6 +234,42 @@ def fit_density_space(
     pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
     ds = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
     return ds, pca.transform(scaler.transform(obs)), pca.transform(scaler.transform(bg))
+
+
+def _fit_density_space_chunked(
+    model, obs_df: pl.DataFrame, bg_df: pl.DataFrame, *, n_components: int, space: str,
+    seed: int, pca_fit_cap: int, chunk_size: int,
+) -> tuple[DensitySpace, np.ndarray, np.ndarray]:
+    """``fit_density_space`` without ever holding a full raw matrix.
+
+    Same coordinate system as the single-shot path — one scaler + one PCA fitted on a pooled
+    sample, applied to both frames — but the fit sample is drawn as *frame rows* and embedded on
+    its own, and each frame is then embedded/projected in chunks. Memory is set by
+    ``max(pca_fit_cap, chunk_size)``, not by the cohort.
+    """
+    rng = np.random.default_rng(seed)
+    n_o, n_b = obs_df.height, bg_df.height
+    n_total = n_o + n_b
+
+    if n_total > pca_fit_cap:
+        take_o = min(n_o, pca_fit_cap * n_o // n_total)
+        take_b = min(n_b, pca_fit_cap - take_o)
+        fit_rows = np.vstack([
+            _embed(model, obs_df[rng.choice(n_o, take_o, replace=False)], space),
+            _embed(model, bg_df[rng.choice(n_b, take_b, replace=False)], space),
+        ])
+    else:
+        fit_rows = np.vstack([_embed(model, obs_df, space), _embed(model, bg_df, space)])
+
+    scaler = StandardScaler().fit(fit_rows)
+    k = min(n_components, fit_rows.shape[0], fit_rows.shape[1])
+    pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
+    del fit_rows
+
+    ds = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
+    return (ds,
+            _embed_transform_chunked(model, obs_df, space, scaler, pca, chunk_size),
+            _embed_transform_chunked(model, bg_df, space, scaler, pca, chunk_size))
 
 
 def _mutate1(seq: str, rng) -> str:
