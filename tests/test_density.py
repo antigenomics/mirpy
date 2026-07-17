@@ -13,6 +13,7 @@ import pytest
 from mir.density import (
     DensitySpace,
     EnrichmentResult,
+    _embed,
     _slice,
     calibrate_radius,
     denoise_and_cluster,
@@ -260,3 +261,55 @@ def test_generate_background_optional():
         pytest.skip(f"vdjtools background generation unavailable: {e}")
     assert df.height == 50
     assert set(df.columns) == {"junction_aa", "v_call", "j_call"}
+
+
+def test_chunked_raw_embedding_is_row_independent(model):
+    """The invariant chunking actually rests on: ``_embed`` of a slice == the slice of ``_embed``.
+
+    This is exact and must stay exact -- if it ever fails, chunking is unsound and every chunked
+    result is wrong. (The *projected* output is only approximately chunk-invariant; see below.)
+    """
+    obs = _load_olga(150)
+    whole = _embed(model, obs, "junction")
+    sliced = np.vstack([_embed(model, obs.slice(s, min(7, obs.height - s)), "junction")
+                        for s in range(0, obs.height, 7)])
+    assert np.array_equal(whole, sliced)
+
+
+def test_chunked_fit_matches_single_shot(model):
+    """``chunk_size`` changes memory, not the answer.
+
+    Both paths fit one scaler + one PCA on the *same* pooled sample (same seed, same cap) and apply
+    it to the same rows, so they agree to float noise. Not bit-identical, and deliberately not
+    asserted as such: ``scaler``/``pca.transform`` run BLAS matmuls whose summation order depends on
+    the batch SHAPE, so a 32-row chunk and a 400-row single shot round differently (~1e-5 here, ~1e-7
+    relative). Asserting equality would be asserting the BLAS, and would be flaky across platforms.
+    What must hold is that the science is unchanged -- hence the p-value check.
+    """
+    obs, bg = _load_olga(200), _load_olga(200, offset=400)
+    kw = dict(n_components=15, space="junction", seed=0, pca_fit_cap=120)
+    _, o_a, b_a = fit_density_space(model, obs, bg, **kw)
+    _, o_b, b_b = fit_density_space(model, obs, bg, chunk_size=32, **kw)
+    assert o_a.shape == o_b.shape and b_a.shape == b_b.shape
+    assert np.allclose(o_a, o_b, rtol=1e-5, atol=1e-4)
+    assert np.allclose(b_a, b_b, rtol=1e-5, atol=1e-4)
+    # the invariant that actually matters: the enrichment call is unmoved. Use a FIXED radius --
+    # in balloon mode (lambda0=) the radius is itself a computed k-th-neighbour distance, so a 1e-5
+    # coordinate wobble flips boundary membership, exactly as it does between the kdtree and exact
+    # backends above. That is a property of balloon mode, not of chunking.
+    ra = neighbor_enrichment(o_a, b_a, radius=0.6, test="binomial")
+    rb = neighbor_enrichment(o_b, b_b, radius=0.6, test="binomial")
+    assert np.array_equal(enriched_mask(ra), enriched_mask(rb))
+    assert np.allclose(ra.pvalue, rb.pvalue, rtol=1e-6, atol=1e-9)
+
+
+def test_chunk_size_value_does_not_change_the_science(model):
+    """The chunk boundary is an implementation detail: it must not move any enrichment call."""
+    obs, bg = _load_olga(150), _load_olga(150, offset=400)
+    kw = dict(n_components=10, space="junction", seed=0, pca_fit_cap=100)
+    _, o_small, b_small = fit_density_space(model, obs, bg, chunk_size=7, **kw)
+    _, o_big, b_big = fit_density_space(model, obs, bg, chunk_size=4096, **kw)   # one chunk
+    assert np.allclose(o_small, o_big, rtol=1e-5, atol=1e-4)
+    r_s = neighbor_enrichment(o_small, b_small, radius=0.6, test="binomial")
+    r_b = neighbor_enrichment(o_big, b_big, radius=0.6, test="binomial")
+    assert np.array_equal(enriched_mask(r_s), enriched_mask(r_b))
