@@ -102,6 +102,16 @@ One vector per repertoire: RFF kernel mean ‖ Hill diversity ‖ second moment;
    :undoc-members:
    :show-inheritance:
 
+Explainable readouts (``mir.explain``)
+--------------------------------------
+
+Which named channel of ``Φ`` carries the signal, and which clonotypes drive it (Theory T7).
+
+.. automodule:: mir.explain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Benchmark harness (``mir.bench``)
 ---------------------------------
 

@@ -89,6 +89,43 @@ Use ``unbiased=True`` whenever samples differ in depth/diversity. For a batch-co
 compare *within-batch* (residualise ``Φ`` on the batch indicator): a batch offset is first-order and
 cancels, while a batch-orthogonal signal (e.g. HLA) survives.
 
+Explainable readouts
+--------------------
+
+``Φ.vector`` is an anonymous concatenation, so "the classifier found something" has no noun.
+``mir.explain`` attaches the names and asks which of them carries the signal. The scorer is yours —
+the library never sees the labels, so the same call serves a cross-validated AUC or a Cox C-index:
+
+.. code-block:: python
+
+   from mir.explain import channel_report, stack_embeddings
+
+   X, spec = stack_embeddings(embs)          # X[i] is exactly embs[i].vector; names attached
+   rep = channel_report(X, spec, lambda B: cv_auc(B, y)[0], base=0.5)
+   rep.best                                  # -> 'second'  (the HLA imprint lives here)
+   rep.frame()                               # channel | n_columns | score | delta | rank
+
+Leave-one-**in** (the default) asks whether a channel carries the signal *alone*; it is marginal, so
+correlated channels both look important. ``mode="both"`` adds the conditional half — a channel with a
+high ``delta`` but ``delta_out ≈ 0`` is **redundant**, its signal duplicated elsewhere. Assemble
+heterogeneous channels (per-chain blocks merge by name) with :class:`~mir.explain.ChannelBuilder`,
+and mark the kernel-mean blocks attributable so the readout can go one hop further, to the clones:
+
+.. code-block:: python
+
+   from mir.explain import ChannelBuilder, channel_drivers
+
+   b = ChannelBuilder()
+   for c in chains:
+       b.add("identity", ident[c], attributable=True).add("diversity", hill[c])
+   X, spec = b.add("coverage", log_reads).build()      # median-impute + z-score
+   rep = channel_report(X, spec, lambda B: cv_cindex(rows, B), base=c_base, mode="both")
+
+   channel_drivers(rep, space=space, pos=pos, neg=neg, candidates=cands)
+
+Only a kernel-mean channel has a clonotype pre-image. Asking which clones drive a Hill number is a
+category error, and ``channel_drivers`` raises rather than answer it.
+
 Neural codecs
 -------------
 
