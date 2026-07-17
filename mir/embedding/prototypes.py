@@ -78,7 +78,7 @@ def load_prototypes(species: str, locus: str, n: int | None = None) -> pl.DataFr
         generation order.
 
     Raises:
-        ValueError: If ``n > N_PROTOTYPES``.
+        ValueError: If ``n`` is not in ``[1, N_PROTOTYPES]``.
         FileNotFoundError: If no prototype file exists for the species/locus.
 
     Example:
@@ -88,10 +88,11 @@ def load_prototypes(species: str, locus: str, n: int | None = None) -> pl.DataFr
         >>> len(df)
         100
     """
-    if n is not None and n > N_PROTOTYPES:
+    if n is not None and (n <= 0 or n > N_PROTOTYPES):
         raise ValueError(
-            f"n={n} exceeds the maximum number of prototypes ({N_PROTOTYPES}); "
-            f"use n <= {N_PROTOTYPES} or None to load all."
+            f"n={n} must be in [1, {N_PROTOTYPES}] or None to load all. A non-positive n would "
+            f"silently change the prototype set — and thus its hash — via df.head(n), breaking "
+            f"embedding comparability."
         )
 
     species_c = normalize_species_alias(species)

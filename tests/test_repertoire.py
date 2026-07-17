@@ -189,6 +189,59 @@ def test_hla_stratified_masks_mismatched_pairs(space):
     assert np.isnan(S[0, 2]) and np.isnan(S[1, 2]) # mismatched pairs masked
 
 
+def test_hla_stratified_multiallele_and_empty_set(space):
+    # vectorized indicator: partial-overlap pairs match; a donor with no HLA matches nobody.
+    embs = [sample_embedding(space, _sample(_clonotypes(50, offset=o)), blocks=("mean",))
+            for o in (0, 100, 200)]
+    hla = [{"A*02:01", "B*07:02"}, {"B*07:02"}, set()]      # 0&1 share B*07; 2 has none
+    S = hla_stratified_mmd(embs, hla)
+    assert np.isfinite(S[0, 1]) and np.isfinite(S[1, 0])   # partial overlap still matched
+    assert np.isnan(S[0, 2]) and np.isnan(S[2, 2])         # empty-HLA donor masked everywhere
+    assert np.isfinite(S[0, 0])                            # self compared when it has any allele
+
+
+def test_unbiased_mmd_rejects_singleton(space):
+    """Unbiased MMD is undefined at n_eff ≤ 1 (a point mass): raise instead of silently dividing by 0."""
+    single = sample_embedding(space, _sample(_clonotypes(1, offset=0)), blocks=("mean",))
+    ok = sample_embedding(space, _sample(_clonotypes(60, offset=100)), blocks=("mean",))
+    assert single.n_eff == 1.0
+    assert np.isfinite(mmd_distance(single, ok))                      # biased path still works
+    with pytest.raises(ValueError, match="single-clonotype"):
+        mmd_distance(single, ok, unbiased=True)
+    with pytest.raises(ValueError, match="single-clonotype"):
+        mmd_matrix([single, ok], unbiased=True)
+
+
+def test_empty_and_zero_count_samples_raise(space):
+    empty = _sample(_clonotypes(0))
+    with pytest.raises(ValueError, match="empty repertoire"):
+        sample_embedding(space, empty)
+    zeros = _sample(_clonotypes(10, offset=0), np.zeros(10))
+    with pytest.raises(ValueError, match="degenerate"):
+        sample_embedding(space, zeros)
+    with pytest.raises(ValueError, match="degenerate"):
+        sample_descriptor(space, zeros)
+
+
+def test_class_witness_precomputed_matches(space):
+    """Passing witness= must give identical scores to computing it internally (the sweep fast-path)."""
+    base = _clonotypes(400, offset=0)
+    motif = _clonotypes(1, offset=300)
+    pos = [pl.concat([_sample(base.sample(120, seed=s)),
+                      _sample(motif, lambda n: np.full(n, 400.0))]) for s in range(4)]
+    neg = [_sample(base.sample(120, seed=s + 50)) for s in range(4)]
+    cand = pl.concat([base.sample(120, seed=0), motif]).unique()
+
+    def group_mean(frames):
+        return np.mean([w @ space.rff.transform(Z)
+                        for Z, w in (space.sample_cloud(f) for f in frames)], axis=0)
+    witness = group_mean(pos) - group_mean(neg)
+
+    a = class_witness(space, pos, neg, cand, top=20)
+    b = class_witness(space, [], [], cand, top=20, witness=witness)   # pos/neg ignored
+    assert np.allclose(a["witness_score"].to_numpy(), b["witness_score"].to_numpy())
+
+
 def test_class_witness_ranks_injected_motif(space):
     # a public motif seeded into every 'pos' sample must surface at the top of the witness
     motif = _clonotypes(1, offset=300)                      # one specific clonotype
