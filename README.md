@@ -87,9 +87,11 @@ Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 | `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
 | `mir.embedding.pca` | PCA denoising of embeddings |
 | `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
-| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`) |
+| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`), cohort scorers (`bench.eval`: `cv_auc`/`cv_cindex`/`km_logrank`) |
 | `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
-| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness (Theory §T.7) |
+| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness; `centroid_atypicality`, multi-locus `fit_repertoire_spaces` (Theory §T.7) |
+| `mir.explain` | named-channel fusion (`ChannelBuilder`) + scorer-agnostic ablation (`channel_report`/`channel_drivers`) — which part of Φ carries the signal (§T.7) |
+| `mir.cohort` | the **digital donor** — multi-chain `fit_donor_embeddings`/`DonorCohort` (+ `transform`/`save`/`load`) + `residualize` / `cluster_samples` / `incidence_biomarkers` (§T.7) |
 | `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) — Part 2, experimental; `[ml]` extra |
 
 ## Background subtraction & clustering (`mir.density`)

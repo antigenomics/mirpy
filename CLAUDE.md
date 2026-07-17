@@ -88,6 +88,18 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   Opt-in `fit_repertoire_space(n_eigs=r)` swaps the second-moment block's full `D₂(D₂+1)/2` upper-triangle
   for its top-`r` eigenvalues (rotation-invariant spectrum; default `None` = upper-tri, unchanged — but
   lossy for the *directional* HLA imprint, so the full triangle stays the recommended block; `benchmark_repertoire_spectral.py`).
+  Also `fit_repertoire_spaces` (one basis **per locus** — the multi-chain fit) and `centroid_atypicality`
+  (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel).
+- `cohort.py` — **the digital donor** (T.7): `fit_donor_embeddings`/`DonorCohort` fuse per-chain identity
+  (kernel-mean, cross-sample PCA-reduced) ‖ diversity ‖ coverage across loci through **one `ChannelBuilder`**,
+  with an `extra_channels` hook for the analysis's own tissue/clinical blocks; comparability bites twice
+  (per-locus `prototype_hash` **and** the stored identity PCA) so `save`/`load` verify every hash and
+  `transform` is the only held-out path. Plus `residualize` (batch cookbook), `cluster_samples`
+  (MMD→precomputed-metric cluster), `incidence_biomarkers` (subject-incidence Fisher, delegating to
+  `vdjtools.biomarker.fisher`). Generalizes the analysis-repo `_tcga_embedding.build_embedding` glue.
+- `bench/eval.py` — the scorers `channel_report` consumes (kept out of `explain.py` so it stays scorer-free):
+  `cv_auc` / `held_out_auc` (classification), `cv_cindex` / `km_logrank` (Cox survival, `[bench]`→lifelines),
+  `kmer_matrix` (baseline).
 - `explain.py` — **explainable readouts over any feature matrix** (T7). `ChannelSpec`/`ChannelBuilder`/
   `stack_embeddings` attach the name→column map `Φ.vector` does not carry (per-chain blocks merge by
   name); `channel_report(X, spec, scorer, base=, mode="in"|"out"|"both", n_permutations=)` ablates each
@@ -126,6 +138,15 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   GPU only in `mir.ml`: `pick_device()` = **CUDA → MPS → CPU** auto, override `device=`/`MIR_DEVICE`.
 
 ## Open loops / next steps
+- **Embedding-tier roadmap** (`ROADMAP.md`, 2026-07-17) — the "vdjtools at the embedding level" audit +
+  plan (three verbs: make / measure / generate-decode). **Phase 0** (robustness + optimization quick wins)
+  and **Phase 1** (cohort tier: `bench/eval.py`, `repertoire.{fit_repertoire_spaces,centroid_atypicality}`,
+  `cohort.py` digital donor) are **DONE**. Next: **Phase 2** generative loop (`generate.py` `DescriptorDensity`
+  + `evolve`/`sample`, `CodecBundle.from_unified/from_decoder`), then multimodal encoders + embedding
+  trajectory. **Analysis-repo follow-up:** refactor `_tcga_embedding.build_embedding` onto
+  `cohort.fit_donor_embeddings` (+ `extra_channels` for isotype/composition/atypicality) and re-verify the
+  pan-cancer ΔC numbers. NB Phase 0 flipped the density default to `backend="kdtree"` — re-verify any
+  recorded balloon-mode baselines (±1 boundary counts).
 - **v3.0 remaining**: 10X paired benchmark; docs (Sphinx theory section + notebooks); CI; publish
   `py3-none-any` wheel; regenerate `generate_prototypes.py` via `vdjtools.model.generate`.
 - **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper

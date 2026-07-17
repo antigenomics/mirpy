@@ -12,6 +12,7 @@ from mir.embedding.tcremp import TCREmp
 from mir.repertoire import (
     RepertoireSpace,
     _make_rff,
+    centroid_atypicality,
     class_witness,
     decode_metrics,
     fit_repertoire_space,
@@ -221,6 +222,16 @@ def test_empty_and_zero_count_samples_raise(space):
         sample_embedding(space, zeros)
     with pytest.raises(ValueError, match="degenerate"):
         sample_descriptor(space, zeros)
+
+
+def test_centroid_atypicality_flags_outliers():
+    # a point on its group centroid -> ~0; an outlier -> large; grouping is respected.
+    X = np.array([[1.0, 0.0], [1.0, 0.02], [1.0, -0.02], [-1.0, 0.0],   # group 0 (last is the outlier)
+                  [0.0, 1.0], [0.02, 1.0]])                              # group 1
+    g = np.array([0, 0, 0, 0, 1, 1])
+    a = centroid_atypicality(X, g)
+    assert a[:3].max() < 0.1 and a[3] > 1.5            # in-group tight vs the flipped outlier
+    assert a[4] < 0.1 and a[5] < 0.1                   # group 1 is computed against its own centroid
 
 
 def test_class_witness_precomputed_matches(space):
