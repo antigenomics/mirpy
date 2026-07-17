@@ -3,6 +3,25 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+### Added
+
+- **`fit_density_space(chunk_size=)`** — embed and project in batches so the full raw matrix is never
+  resident. Peak memory becomes `max(pca_fit_cap, chunk_size) × n_features` instead of
+  `len(df) × n_features`: measured **10.60 GB → 1.81 GB** at 450k pooled clonotypes, and flat in `N`
+  (vs linear), at no wall-clock cost. This is what makes whole-cohort density arms runnable on a
+  laptop — the 4.2M-clonotype pooled arm is ~51 GB raw and ~102 GB once `scaler.transform` upcasts to
+  float64. Chunking is bit-exact at the embedding level (`_embed` of a slice == the slice of
+  `_embed`); the projected coordinates agree to float noise (~1e-7 relative), since BLAS summation
+  order depends on batch shape.
+
+### Fixed
+
+- `fit_density_space`'s `pca_fit_cap` docstring claimed it "lets whole repertoires be embedded without
+  a full-matrix PCA". It caps the **fit**, not the memory — both raw matrices were already
+  materialized before the PCA was fitted. Documented, and `chunk_size=` is the actual remedy.
+
 ## 3.2.0 — 2026-07-17
 
 Minor: one new public module, nothing removed or changed.
