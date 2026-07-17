@@ -11,7 +11,7 @@ This repo is now **the library + its CI/test data only**. Analysis and manuscrip
 - **`~/vcs/code/mirpy`** (here): `mir/` library, unit + fast/slow CI tests (`tests/`, on slim bundled
   data), plans for new features, docs, and **slim tabular benchmark results** for README/docs. Benchmark
   *scripts* and the theory *appendix* have moved out (below).
-- **`~/vcs/projects/2026-mirpy-analysis`**: all **benchmark scripts** (`experiments/` — local + aldan3),
+- **`~/vcs/projects/2026-mirpy-analysis`**: all **benchmark scripts** (`benchmarks/` — local + aldan3),
   full result docs (BENCHMARKS/THEORY/…), figures, run outputs, dataset catalog. Run the mirpy library
   from here; refresh numbers-of-record here.
 - **`~/vcs/manuscripts/2026-mirpy-ms`**: the **theory appendix** (`appendix/tcremp_theory.tex`) + the paper
@@ -68,13 +68,13 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   PCs; diverse chains (IGH/TR*) 2000 / ~65 PCs (95%), ~220–300 PCs (99%, for codec reconstruction).
 - `bench/` — `vdjdb.py` (loader), `metrics.py` (`cluster(method=…)` DBSCAN default | HDBSCAN | OPTICS,
   kneedle eps, F1/retention), `theory.py` (S1–S3 + T5 + T6 `tcrnet_convergence` + `codec_losslessness`).
-  Needs `[bench]`. Clustering is a precision/coverage trade-off (`experiments/benchmark_clustering.py`):
+  Needs `[bench]`. Clustering is a precision/coverage trade-off (`benchmarks/benchmark_clustering.py`):
   DBSCAN tightest/purest (paper regime), HDBSCAN ~3× coverage at lower F1 (variable-density), OPTICS
   dominated, KMeans no noise-rejection.
 - `density.py` — continuous-density TCRNET/ALICE (T6): `fit_density_space` (one shared PCA basis),
   `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration;
   `backend=` **exact** BallTree default | **kdtree** exact scipy cKDTree 5–9× faster | **ann**
-  pynndescent ~30× at ≥1e5, recall<1 conservative — `experiments/benchmark_ann.py`),
+  pynndescent ~30× at ≥1e5, recall<1 conservative — `benchmarks/benchmark_ann.py`),
   `enriched_mask`, `denoise_and_cluster`, `generate_background` (vdjtools P_gen, lazy). Torch-free
   (scipy/sklearn). Prefer a **biological control** as background (differential) over P_gen.
   **Abundance-aware** (T6 sec:dens-abund): pass `abundance=` (clone sizes) + `weight="log1p"`/`anscombe`
@@ -98,8 +98,8 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   (pure-Python hatchling; no C build). Extras: `[bench] [annotate] [build] [ml] [docs] [dev]`.
 - Tests: `python -m pytest tests/ -q` (78 pass; `-m "not integration"` for the ~5s fast tier —
   the pynndescent ANN parity test carries a one-time JIT cost). All self-contained on bundled resources.
-- Experiments: `python experiments/reproduce_supplementary.py` (theory S1–S3),
-  `python experiments/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
+- Experiments: `python benchmarks/reproduce_supplementary.py` (theory S1–S3),
+  `python benchmarks/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
   (geometry saturates by K≈100 — T.1/S4), `analyze_pc_decomposition.py` (V/J η² ≈0.44/0.49,
   CDR3-length η² 0.13 & R²=0.95; germline low-rank ~13 PCs — T.4). See `THEORY.md`.
 
@@ -125,7 +125,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   **PCA-compacted junction embedding** (T3: 1000-D junction → ~51 PCs @95% var on arda coords,
   99% for reconstruction), fit train-only.
   V/J stay exact germline lookups (nothing to learn); the codec's job is the junction part.
-  Results on M3 MPS (`experiments/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`),
+  Results on M3 MPS (`benchmarks/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`),
   **re-pinned on the arda-native coords** (2026-07-13):
   - **DONE forward codec** (`tokenize,encoder,train`): seq → compact code, reconstruction
     cosine **0.9984** (n=8k; paper 0.887). DNN inference is K-independent. Geometry is fine at
@@ -136,7 +136,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     (over-compacted); 99% (284 PCs) restores 0.40.** The T5 chain-adaptive lesson now bites TRB
     too, not just IGH/TRD — the decoder default is 99%.
   - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.967**,
-    **~190× faster** than the native DP. Breakdown (`experiments/benchmark_pgen_variants.py`):
+    **~190× faster** than the native DP. Breakdown (`benchmarks/benchmark_pgen_variants.py`):
     r ranks marginalized > J > V > V&J (a CDR3-only regressor best predicts the pure-CDR3
     marginalized Pgen; V&J-conditional depends on unseen genes) and 1mm > exact (smoother ball).
   - **DONE unified codec** (`codec.py`): jointly train encoder+decoder with a geometry-anchor
@@ -146,9 +146,9 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     rotation match.** `CodecBundle` serializes the PCA transform + a prototype hash + weights;
     `load` refuses a prototype-hash mismatch so incomparable embeddings can't be mixed. Any
     trained codec MUST be shipped as a bundle, never bare weights.
-  - Per-chain/species breakdown: `experiments/benchmark_codec_chains.py` (forward cos 0.997–0.999
+  - Per-chain/species breakdown: `benchmarks/benchmark_codec_chains.py` (forward cos 0.997–0.999
     universal; inverse chain-dependent — short κ/λ/γ/mouse easy, IGH/TRD hard).
-  - **DONE lossless-recon depth/K/data sweep** (`experiments/benchmark_lossless_{depth,kpc}.py`,
+  - **DONE lossless-recon depth/K/data sweep** (`benchmarks/benchmark_lossless_{depth,kpc}.py`,
     real held-out TRB from `isalgo/airr_control` vs arda landmarks): exact-match is **training-data-
     limited, not architecture-limited** — the old "~0.40 ceiling" was n≈8k starvation. Same one-shot
     decoder: n=20k→50k→100k drives exact **0.885→0.941→0.958** (token 0.996→0.998) at K=2000/PC=400,
@@ -165,7 +165,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     is V/J/CDR1/CDR2). Isotype is a low-cardinality categorical (~9 IGH classes ≈ 3 bits) *independent*
     of V/J/CDR3 ⇒ not reconstructable ⇒ **carry `c_call` as an exact stored column, never embed it**
     (same as v_call/j_call metadata). No codec change.
-  - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `experiments/benchmark_igh_shm.py`):
+  - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `benchmarks/benchmark_igh_shm.py`):
     SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH 104/mut < TRB 128/mut
     — IGH lowest slope, robust to SHM). IGH's hard reconstruction is **over-compaction, not the
     frame**: on arda coords 95% code (95 PCs) → exact 0.115, 99% (422 PCs) → 0.356 (> old 0.152;
@@ -176,7 +176,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     enrichment `E(z)=f_obs/f_gen` in embedding space; Poisson (ALICE, P_gen bg) or binomial
     (TCRNET, control bg) + BH q; water-level calibration for the naive regime. Theory
     `tcrnet_convergence` confirms the r→0 graph limit (ρ 0.37→−0.05 as radius grows). Benchmarks
-    `experiments/benchmark_density_{yfv,ankspond,tcrnet,vdjdb}.py` on HF
+    `benchmarks/benchmark_density_{yfv,ankspond,tcrnet,vdjdb}.py` on HF
     `isalgo/airr_{yfv19,ankspond,benchmark,control}` + VDJdb slim.
     **Key lesson**: real repertoires are pervasively convergent, so a P_gen background flags ~40% of
     clones — use a *biological control* (differential: day15-vs-day0, B27±, CMV-vs-control) for
@@ -192,7 +192,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   HLA-stratified; `class_witness` = supervised MMD motif finder; learned co-equal Set-Transformer/DeepRC in
   `mir.ml.set_encoder`. Reuse: `TCREmp.embed`, `density.{_WEIGHTS,fit_density_space,calibrate_radius}`,
   `vdjtools.stats.inext`, `preprocess.downsample`, `ml.bundle` hashing. Tests
-  `tests/test_{repertoire,set_encoder}.py`; benchmarks `experiments/benchmark_repertoire_{aging,depth,cmvhla,hla}.py`
+  `tests/test_{repertoire,set_encoder}.py`; benchmarks `benchmarks/benchmark_repertoire_{aging,depth,cmvhla,hla}.py`
   (shared `_cohort.py`; `airr_benchmark` aging 79, `airr_hip` Emerson 2017 786). **Key empirical lesson**
   (`THEORY.md` T7; **all adversarially verified — two over-claims caught & corrected**): depth-robustness holds
   (`prop:kme`, slope −0.55) but is a **generic KME/MMD Monte-Carlo rate**, not embedding-specific. **Age & CMV
@@ -243,7 +243,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     not depth/breadth/HLA**. (Untested caveat: an abundance/size-based test could still catch β clones enriched
     in *magnitude* not *breadth*.)
   - **WS3 UMAP** (`plot_sample_umap.py {covid,aging,hip}`): faceted UMAP of Φ₁ (=MMD geometry) by age/HLA/batch/
-    COVID/CMV → `experiments/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
+    COVID/CMV → `benchmarks/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
     `residualize` (the `prop:batch` story made visual).
   - **WS4 TCGA** (`_tcga.py` local-first loader, untars once; `benchmark_repertoire_tcga.py`; `lifelines` in
     `[bench]`): 9591 samples, 7 chains, OS survival. **Tumor-type separation is depth-dependent** — deepest chain
@@ -266,7 +266,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     = **coverage/atypicality/composition, ~never identity**; immune-cold cohorts overfit → pan-cancer mean ΔC≈0
     masks the immune-hot wins. **Paradigm lesson (T7 #6): the same Φ(S) that reads infection/HLA in blood via
     its identity channels stratifies the TME + survival in tissue via its non-identity channels.** Unsupervised
-    Φ clustering → TME states (`benchmark_repertoire_tcga_tme.py`, UMAP `experiments/figures/umap_tcga_tme`).
+    Φ clustering → TME states (`benchmark_repertoire_tcga_tme.py`, UMAP `benchmarks/figures/umap_tcga_tme`).
   - **Derivable descriptor + in-silico evolution** (`mir.repertoire.sample_descriptor`/`RepertoireDescriptor`/
     `decode_metrics`; `benchmark_repertoire_tcga_insilico.py`; THEORY.md T7 lesson 7): **mass-preserving** smooth
     descriptor — infiltration=log-mass, diversity=log n_eff, clonality=Σw², identity=kernel mean are all smooth
