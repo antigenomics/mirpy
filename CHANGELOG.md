@@ -3,7 +3,9 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.3.0 — 2026-07-17
+
+Minor: one new public parameter, nothing removed or changed.
 
 ### Added
 
@@ -21,6 +23,17 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 - `fit_density_space`'s `pca_fit_cap` docstring claimed it "lets whole repertoires be embedded without
   a full-matrix PCA". It caps the **fit**, not the memory — both raw matrices were already
   materialized before the PCA was fitted. Documented, and `chunk_size=` is the actual remedy.
+- **`mir.__version__` was stale** — it read `3.1.1` on the published 3.2.0, because the release bump
+  moved `pyproject.toml` but not `mir/__init__.py`, and `publish.yml` only validates *pyproject ==
+  tag*. Both now read 3.3.0. (`__version__` is still hand-maintained; deriving it from
+  `importlib.metadata` would retire this failure mode for good.)
+- `tests/assets/olga_humanTRB_1000.txt.gz` was a slice of the alphabetically sorted VDJdb TRB dump,
+  not OLGA output as its name and `SOURCES.md` claimed — so it was **not** an antigen-naive null (12%
+  of rows had a Hamming-1 neighbour vs 0.2% for real OLGA). Regenerated from `olga-generate_sequences`;
+  provenance and a byte-reproducible regenerate command recorded in `SOURCES.md`. No test was
+  invalidated (they use it only as a generic TRB junction pool), but external calibrations that treated
+  it as a synthetic negative control were comparing VDJdb against itself. Not shipped (tests are
+  excluded from the sdist); listed here because it invalidates results, not code.
 
 ## 3.2.0 — 2026-07-17
 
