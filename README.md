@@ -1,3 +1,13 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/mirpy_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/mirpy_light.svg">
+    <!-- Absolute PNG fallback: PyPI strips <picture>/<source> and cannot render a relative or
+         raw-served SVG, so the logo must be an absolute-URL raster here. GitHub uses the SVG sources. -->
+    <img alt="mirpy" src="https://raw.githubusercontent.com/antigenomics/mirpy/master/assets/mirpy_light.png" width="360">
+  </picture>
+</p>
+
 <h1 align="center">mirpy — ML embeddings for immune repertoires</h1>
 
 [![PyPI](https://img.shields.io/pypi/v/mirpy-lib.svg)](https://pypi.org/project/mirpy-lib/)
@@ -49,6 +59,24 @@ labels = cluster(pca_denoise(X, n_components=50))
 
 Paired chains concatenate per-chain embeddings via `PairedTCREmp`. Input/output are AIRR polars
 frames keyed by `vdjtools.io.schema` column names.
+
+## Command line
+
+`pip install mirpy-lib` also installs a `mir` command for the two embedding scales — no Python
+needed. Inputs are any format `vdjtools.io` reads (AIRR TSV, vdjtools, MiXCR, immunoSEQ, parquet).
+
+```bash
+# one repertoire  ->  per-clonotype embedding table (e0…), the input to clustering / ML
+mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
+
+# a dataset of repertoires  ->  one fingerprint Φ(S) per sample, per chain (phi0…), on one
+# shared basis so the rows are mutually comparable; --mmd also writes the pairwise MMD matrix
+mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
+```
+
+`mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
+prototype count, weight, Φ blocks, …). Sample id defaults to the filename stem; the locus is
+inferred per file (or restrict with `--locus`).
 
 ## Recommended presets
 
@@ -118,11 +146,12 @@ Use a **biological control** as the background when you have one (e.g. pre- vs p
 patient vs healthy) — differential enrichment cancels generic public convergence and isolates the
 antigen-specific response. With no control, `generate_background(locus, n)` samples the vdjtools
 P_gen model (the ALICE regime); the "water level" of a naive repertoire is handled by the
-empirical-null calibration. See `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py`.
+empirical-null calibration. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
+live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo.
 
 At whole-repertoire scale, pass `neighbor_enrichment(..., backend="kdtree")` (exact scipy cKDTree,
 5–9× faster than the default BallTree) or `backend="ann"` (approximate pynndescent, ~30× faster
-past ~10⁵ clones, trading a small conservative undercount); see `experiments/benchmark_ann.py`.
+past ~10⁵ clones, trading a small conservative undercount; `pip install "mirpy-lib[ann]"`).
 
 ## Sample-level (repertoire) embedding (`mir.repertoire`)
 
@@ -157,15 +186,22 @@ a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 empirical rule of thumb — **diversity for how-even, the embedding for which-clones**: clone-size
 phenotypes (age, CMV) are a diversity summary's turf, while clonotype identity (HLA — strongest in
 TRA and class II) lives in the second moment / witness. A learned co-equal set encoder
-(Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). See
-`experiments/benchmark_repertoire_*.py`, `BENCHMARKS.md`, and `THEORY.md` T7.
+(Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). See [`BENCHMARKS.md`](BENCHMARKS.md)
+and [`THEORY.md`](THEORY.md) T7 (the benchmark scripts themselves live in the analysis repo).
 
 ## Reproduce the paper
 
+The self-contained theory notebooks run on bundled data:
+
 ```bash
-python experiments/reproduce_supplementary.py   # supplementary S1–S3
-python experiments/benchmark_vdjdb.py           # Table S1 (needs a VDJdb dump)
+pip install "mirpy-lib[examples]"
+marimo edit notebooks/theory.py         # supplementary S1–S3 (distance laws, D↔d, prototype robustness)
+marimo edit notebooks/quickstart.py     # embed + cluster VDJdb antigens
 ```
+
+The full benchmark suite (VDJdb Table S1, density, repertoire/TCGA) and result docs live in the
+companion analysis repo [`2026-mirpy-analysis`](https://github.com/antigenomics) — this repo is the
+library + CI tests only.
 
 Method: Kremlyakova *et al.*, *TCREMP: a bioinformatic pipeline for efficient embedding of
 T-cell receptor sequences*, **J Mol Biol** 437 (2025) 169205.
@@ -180,12 +216,14 @@ mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, 
 | Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"exact"` (BallTree, **1 core**) | `backend="kdtree"` = exact scipy cKDTree, **all cores** (`workers=-1`), 5–9× faster; `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5. Prefer `kdtree` for multicore exact. |
 | Clustering | `cluster(..., n_jobs=-1)` | sklearn default (1) | forwarded to DBSCAN/OPTICS/HDBSCAN via `**kwargs`; parallelizes the neighbour search. |
 | BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
-| Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1 python experiments/train_forward_encoder.py`. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
+| Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1` pins the second GPU. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
 
 Rule of thumb: leave `threads=0` (all cores) for embedding; switch density to `backend="kdtree"`
 for exact multicore or `"ann"` at whole-repertoire scale; the GPU is used only by `mir.ml`.
 
 ## Development
 
-Conda env `mirpy` (Python 3.12): `bash setup.sh`. Tests: `python -m pytest tests/ -q`.
-See [`CLAUDE.md`](CLAUDE.md) for the architecture and reuse map.
+Repo-local `.venv` via [uv](https://docs.astral.sh/uv/) (bash/zsh): `bash setup.sh` — add
+`--dev-parents` to editable-install the sibling `seqtree` / `vdjtools` / `vdjmatch` checkouts and
+`--tests` to run the fast suite. Tests: `python -m pytest tests/ -q`. See [`CLAUDE.md`](CLAUDE.md)
+for the architecture and reuse map.

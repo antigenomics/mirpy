@@ -88,8 +88,10 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   Opt-in `fit_repertoire_space(n_eigs=r)` swaps the second-moment block's full `D₂(D₂+1)/2` upper-triangle
   for its top-`r` eigenvalues (rotation-invariant spectrum; default `None` = upper-tri, unchanged — but
   lossy for the *directional* HLA imprint, so the full triangle stays the recommended block; `benchmark_repertoire_spectral.py`).
-  Also `fit_repertoire_spaces` (one basis **per locus** — the multi-chain fit) and `centroid_atypicality`
-  (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel).
+  Also `fit_repertoire_spaces` (one basis **per locus** — the multi-chain fit), `centroid_atypicality`
+  (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel),
+  and `correct_batch` (Harmony-like cluster-aware batch correction on a stacked Φ matrix; reduces to
+  `cohort.residualize` at `n_clusters=1`/`theta=0` — `prop:batch`; test in `test_repertoire.py`).
 - `cohort.py` — **the digital donor** (T.7): `fit_donor_embeddings`/`DonorCohort` fuse per-chain identity
   (kernel-mean, cross-sample PCA-reduced) ‖ diversity ‖ coverage across loci through **one `ChannelBuilder`**,
   with an `extra_channels` hook for the analysis's own tissue/clinical blocks; comparability bites twice
@@ -111,14 +113,22 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   has no clonotype pre-image and it raises. Depends one-way on `repertoire.py`; nothing there changed.
 - `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
   attention pooling + `SetEncoderBundle`).
+- `cli.py` — the `mir` console script (argparse, stdlib): `embed clonotypes` (TCREmp table) /
+  `embed repertoires` (per-locus `fit_repertoire_space`→`sample_embedding` Φ(S), optional `--mmd`).
+  Reads via `vdjtools.io.read`; writes TSV/parquet.
 - `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
   `germline_dist/` (baked `.npz`, from `build_germline_dist.py`).
 
 ## Build / test / run
-- Conda env **`mirpy`** (Python 3.12; do NOT use `.venv` here). `pip install -e .`
-  (pure-Python hatchling; no C build). Extras: `[bench] [annotate] [build] [ml] [docs] [dev]`.
-- Tests: `python -m pytest tests/ -q` (78 pass; `-m "not integration"` for the ~5s fast tier —
-  the pynndescent ANN parity test carries a one-time JIT cost). All self-contained on bundled resources.
+- **Repo-local `.venv` via uv** (Python 3.12; conda retired 2026-07-18). `bash setup.sh`
+  (bash/zsh; `--dev-parents` editable-installs `../seqtree ../vdjtools ../vdjmatch`, `--docs`,
+  `--tests`), or `uv pip install -e ".[dev,bench]"`. Pure-Python hatchling; no C build for `mir`
+  itself. Extras: `[bench] [ann] [annotate] [build] [ml] [docs] [dev] [examples]` (`[ann]` =
+  pynndescent, split out of `[bench]` so `[bench]` stays numba-free / clean to resolve).
+- CLI: `mir embed clonotypes SAMPLE` (→ clonotype embedding table) / `mir embed repertoires
+  SAMPLE… ` (→ per-sample-per-chain Φ(S)); `mir/cli.py`, `tests/test_cli.py`.
+- Tests: `python -m pytest tests/ -q` (`-m "not integration and not benchmark"` for the fast tier;
+  torch/pynndescent tests skip unless `[ml]`/`[ann]` installed). All self-contained on bundled resources.
 - Experiments: `python benchmarks/reproduce_supplementary.py` (theory S1–S3),
   `python benchmarks/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
   (geometry saturates by K≈100 — T.1/S4), `analyze_pc_decomposition.py` (V/J η² ≈0.44/0.49,

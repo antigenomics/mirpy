@@ -307,7 +307,7 @@ def residualize(X: np.ndarray, group: np.ndarray) -> np.ndarray:
 
 def cluster_samples(embs, *, unbiased: bool = True, method: str = "dbscan",
                     eps: float | None = None, min_samples: int = 3, k: int = 4, **kwargs):
-    """Cluster repertoires by MMD — the sample-level analog of ``cluster_samples`` (TME states etc.).
+    """Cluster repertoires by MMD — the repertoire-level analog of :func:`mir.bench.metrics.cluster` (TME states etc.).
 
     Builds the MMD distance matrix (unbiased by default, since cohorts differ in depth) and clusters
     it with a precomputed-metric density estimator (:func:`mir.bench.metrics.cluster`).
@@ -376,7 +376,6 @@ def _demo() -> None:
     spaces = fit_repertoire_spaces(models, protos, n_rff=512, n_rff_second=0, n_components=15, seed=0)
 
     # 40 donors in two "risk" groups: group 1 gets a public expansion in the identity space
-    rng = np.random.default_rng(0)
     donor_frames, rows = [], []
     for i in range(40):
         grp = i % 2

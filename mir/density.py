@@ -352,7 +352,7 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     kNN graph (k=``k_max``) thresholded by radius — *approximate*: recall < 1 undercounts, biasing
     enrichment **down** (conservative). A saturated ball (all ``k_max`` neighbours inside ``rad``)
     is undercounted and warned. For large N where exact trees are slow; use ``backend='exact'`` for
-    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[bench]`` extra).
+    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
     """
     from pynndescent import NNDescent
 
