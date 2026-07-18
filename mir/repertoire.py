@@ -573,6 +573,98 @@ def centroid_atypicality(X: np.ndarray, groups: np.ndarray) -> np.ndarray:
     return out
 
 
+def correct_batch(
+    X: np.ndarray,
+    batch: np.ndarray,
+    *,
+    covariates: np.ndarray | None = None,
+    n_clusters: int = 8,
+    theta: float = 1.0,
+    sigma: float = 0.1,
+    max_iter: int = 10,
+    ridge: float = 1.0,
+    seed: int = 0,
+) -> np.ndarray:
+    """Harmony-like cluster-aware batch correction on a stacked sample×feature ``Φ`` matrix.
+
+    Removes a batch offset **per soft cluster** rather than globally, so a batch confounded with a
+    biological cluster is corrected without erasing that biology — the failure mode of plain
+    per-group mean subtraction (:func:`mir.cohort.residualize`). Follows Harmony (Korsunsky et al.
+    2019, *Nat. Methods*): soft-cluster the samples with a batch-diversity penalty ``theta``
+    (clusters pushed toward batch-balanced membership), then subtract each cluster's
+    membership-weighted batch offset (covariates retained), and iterate. **Reduces exactly to**
+    ``residualize`` at ``n_clusters=1`` or ``theta=0``.
+
+    Args:
+        X: Stacked ``(n_samples, n_features)`` matrix (e.g. :func:`mir.explain.stack_embeddings`).
+        batch: Length-``n_samples`` batch label per row.
+        covariates: Optional ``(n_samples, k)`` biological covariates to *retain* (never removed).
+        n_clusters: Number of soft clusters (Harmony's ``K``); ``<=1`` disables clustering.
+        theta: Batch-diversity penalty strength; ``0`` disables clustering (→ ``residualize``).
+        sigma: Soft-assignment temperature.
+        max_iter: Correction iterations (converges in a few — the batch fit vanishes once removed).
+        ridge: L2 ridge on the per-cluster batch regression (stabilises small clusters).
+        seed: KMeans seed for the soft-cluster initialisation.
+
+    Returns:
+        The corrected ``(n_samples, n_features)`` matrix — a new coordinate system (as with
+        ``residualize``, never compare a corrected ``X`` to an uncorrected one).
+    """
+    # ponytail: Harmony-lite — fixed K, a single KMeans-seeded soft-cluster init, fixed theta. The
+    # upgrade path is Harmony's full automatic-K + block-coordinate objective; this covers the
+    # confounded-batch case and reduces exactly to residualize when K<=1 / theta==0.
+    X = np.asarray(X, dtype=np.float64)
+    n = X.shape[0]
+    batch = np.asarray(batch)
+    _, binv = np.unique(batch, return_inverse=True)
+    Phi = np.eye(int(binv.max()) + 1)[binv]                 # (n, nb) batch one-hot
+    pr_b = Phi.mean(0)                                       # global batch proportions
+
+    if n_clusters <= 1 or theta <= 0:                       # == residualize (exact)
+        out = X.copy()
+        for b in range(Phi.shape[1]):
+            m = binv == b
+            out[m] -= X[m].mean(0)
+        return out
+
+    from sklearn.cluster import KMeans
+
+    # Cosine-geometry soft clustering (Harmony normalises to the unit sphere).
+    Z = X - X.mean(0)
+    Z = Z / (np.linalg.norm(Z, axis=1, keepdims=True) + 1e-9)
+    K = min(n_clusters, n)
+    centers = KMeans(n_clusters=K, n_init=10, random_state=seed).fit(Z).cluster_centers_
+    centers = centers / (np.linalg.norm(centers, axis=1, keepdims=True) + 1e-9)
+    dist = 2.0 * (1.0 - Z @ centers.T)                      # (n, K) cosine distance
+
+    # Batch-diversity-penalised soft assignment: up-weight clusters under-represented for a row's
+    # batch, so clusters become batch-balanced (Harmony's key term) rather than batch-defined.
+    R = np.exp(-dist / sigma)
+    R = R / (R.sum(1, keepdims=True) + 1e-9)
+    for _ in range(3):
+        O = R.T @ Phi                                       # (K, nb) batch mass per cluster
+        E = R.sum(0)[:, None] * pr_b[None, :] + 1e-9        # expected under global freq
+        pen = (E / (O + 1e-9)) ** theta                     # (K, nb) diversity re-weight
+        R = np.exp(-dist / sigma) * (Phi @ pen.T)           # (n, K)
+        R = R / (R.sum(1, keepdims=True) + 1e-9)
+
+    # Retain intercept + covariates, remove the batch design; drop one batch column for identifiability.
+    Cov = np.zeros((n, 0)) if covariates is None else np.asarray(covariates, np.float64).reshape(n, -1)
+    design = np.hstack([np.ones((n, 1)), Cov, Phi[:, 1:]])
+    n_keep = 1 + Cov.shape[1]                               # columns kept; the rest (batch) removed
+    Xc = X.copy()
+    for _ in range(max_iter):
+        acc = np.zeros_like(Xc)
+        for k in range(K):
+            w = R[:, k]
+            Wd = design * w[:, None]
+            A = Wd.T @ design + ridge * np.eye(design.shape[1])
+            beta = np.linalg.solve(A, Wd.T @ Xc)            # (p, d) weighted ridge fit
+            acc += w[:, None] * (Xc - design[:, n_keep:] @ beta[n_keep:])
+        Xc = acc / (R.sum(1, keepdims=True) + 1e-9)
+    return Xc
+
+
 # --------------------------------------------------------------------- self-check
 
 

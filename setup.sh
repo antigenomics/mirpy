@@ -1,90 +1,88 @@
 #!/usr/bin/env bash
-# mirpy v3 bootstrap — reproducible install (conda-based, pure Python, no C build).
+# mirpy v3 bootstrap — reproducible install into a repo-local .venv with uv.
+#
+# Portable: runs under bash OR zsh (bash setup.sh / zsh setup.sh / ./setup.sh). Not fish.
+#
+# mirpy itself is a pure-Python `py3-none-any` package (no C build). The heavy machinery
+# (alignment, Pgen, sampling) is reused from the compiled `seqtree` and `vdjtools` wheels,
+# which pip resolves from PyPI — unless you pass --dev-parents to editable-install the
+# co-developed sibling checkouts from ../ instead.
 #
 # Steps:
-#   1. Create/update the `mirpy` conda environment from environment.yml.
-#   2. pip install -e ../seqtree ../vdjtools (if present) then -e .
-#   3. Optionally install docs deps / run tests.
+#   1. Create/activate a repo-local .venv (uv if present, else python -m venv).
+#   2. (optional) editable-install co-developed sibling parents from ../ if present.
+#   3. pip install -e ".[dev,bench]".
 #
 # Flags:
-#   --no-conda      Use the already-active environment instead of creating `mirpy`.
-#   --docs          Install docs deps.
-#   --test          Install [dev,bench] and run the test suite.
-#   --test-all      Same as --test (no separate benchmark tier in v3 yet).
+#   --dev-parents  Editable-install ../seqtree ../vdjtools ../vdjmatch if they exist locally
+#                  (they are co-developed; otherwise the PyPI releases are used). Building the
+#                  siblings compiles their C++ _core extensions (needs a C++ toolchain).
+#   --docs         Also install the [docs] extra.
+#   --tests        Run the fast test suite after install.
 #
-# Usage:
-#   bash setup.sh [--no-conda] [--docs] [--test] [--test-all]
+# Requirements: a C++ toolchain (Xcode Command Line Tools on macOS, build-essential on Linux)
+# is needed ONLY when --dev-parents rebuilds seqtree/vdjtools from source. The `[build]` extra
+# (arda, BioPython) is for regenerating bundled resources and is not installed here.
+#
+# Usage: bash setup.sh [--dev-parents] [--docs] [--tests]
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
-ENV_NAME="mirpy"
-USE_CONDA=1
+ROOT="$(cd "$(dirname "$0")" && pwd)"   # $0, not ${BASH_SOURCE}: works in bash AND zsh
+DEV_PARENTS=0
 INSTALL_DOCS=0
-RUN_TESTS=0
-RUN_HEAVY=0
+DO_TESTS=0
 
 for arg in "$@"; do
   case "$arg" in
-    --no-conda) USE_CONDA=0 ;;
-    --docs)     INSTALL_DOCS=1 ;;
-    --test)     RUN_TESTS=1 ;;
-    --test-all) RUN_TESTS=1; RUN_HEAVY=1 ;;
-    --help|-h)  sed -n '2,16p' "$0"; exit 0 ;;
+    --dev-parents) DEV_PARENTS=1 ;;
+    --docs)        INSTALL_DOCS=1 ;;
+    --tests)       DO_TESTS=1 ;;
+    --no-conda)    ;;  # accepted for backward-compat; conda is no longer used (no-op)
+    --help|-h)     sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
 
 log() { printf '\033[1;34m[mirpy]\033[0m %s\n' "$*"; }
 
-# --- 1. conda environment --------------------------------------------------
-if [[ "$USE_CONDA" -eq 1 ]]; then
-  if ! command -v conda >/dev/null 2>&1; then
-    echo "conda not found on PATH; install miniconda/anaconda or pass --no-conda." >&2
-    exit 1
-  fi
-  if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-    log "conda env '$ENV_NAME' exists — updating from environment.yml"
-    conda env update -n "$ENV_NAME" -f "$ROOT/environment.yml" --prune
-  else
-    log "creating conda env '$ENV_NAME' from environment.yml"
-    conda env create -f "$ROOT/environment.yml"
-  fi
-  RUN="conda run -n $ENV_NAME"
+# --- 1. repo-local .venv (uv preferred) ------------------------------------
+VENV="$ROOT/.venv"
+if command -v uv >/dev/null 2>&1; then
+  PIP="uv pip"
+  [ -d "$VENV" ] || { log "creating .venv with uv (Python 3.12)"; uv venv --python 3.12 "$VENV"; }
 else
-  RUN=""
+  log "uv not found — using python -m venv + pip (install uv for faster installs: https://docs.astral.sh/uv/)"
+  PIP="python -m pip"
+  [ -d "$VENV" ] || { log "creating .venv"; python -m venv "$VENV"; }
+fi
+# shellcheck disable=SC1091
+. "$VENV/bin/activate"   # activate script is bash/zsh compatible
+
+# --- 2. co-developed sibling parents (optional) ----------------------------
+if [ "$DEV_PARENTS" -eq 1 ]; then
+  for parent in seqtree vdjtools vdjmatch; do
+    if [ -f "$ROOT/../$parent/pyproject.toml" ]; then
+      log "editable-install ../$parent (compiles its _core extension)"
+      $PIP install -e "$ROOT/../$parent"
+    fi
+  done
 fi
 
-# --- 2. editable install (pure Python — no C build) ------------------------
-# Co-developed siblings first if present, else PyPI resolves them.
-for parent in seqtree vdjtools; do
-  if [[ -d "$ROOT/../$parent" ]]; then
-    log "pip install -e ../$parent"
-    $RUN python -m pip install -e "$ROOT/../$parent"
-  fi
-done
-log "pip install -e ."
-$RUN python -m pip install -e "$ROOT"
-
-# --- 3. optional docs ------------------------------------------------------
-if [[ "$INSTALL_DOCS" -eq 1 ]]; then
-  log "installing docs deps"
-  $RUN python -m pip install -e ".[docs]"
-fi
+# --- 3. editable install (pure Python — no C build for mir itself) ---------
+EXTRAS="dev,bench"
+[ "$INSTALL_DOCS" -eq 1 ] && EXTRAS="$EXTRAS,docs"
+log "$PIP install -e .[$EXTRAS]"
+$PIP install -e "$ROOT[$EXTRAS]"
 
 # --- 4. verification -------------------------------------------------------
 log "verifying install"
-$RUN python -c "import mir; from mir.embedding.tcremp import TCREmp; print('mir import OK')"
+python -c "import mir; from mir.embedding.tcremp import TCREmp; print('mir', mir.__version__, 'import OK')"
 
 # --- 5. optional tests -----------------------------------------------------
-if [[ "$RUN_TESTS" -eq 1 ]]; then
-  log "installing test + bench tooling"
-  $RUN python -m pip install -e ".[dev,bench]"
-  log "running test suite"
-  $RUN python -m pytest "$ROOT/tests" -q
+if [ "$DO_TESTS" -eq 1 ]; then
+  log "running fast tests"
+  python -m pytest "$ROOT/tests" -q -m "not integration and not benchmark"
 fi
 
 log "done."
-if [[ "$USE_CONDA" -eq 1 ]]; then
-  echo "  conda activate $ENV_NAME"
-fi
+echo "  source $VENV/bin/activate"

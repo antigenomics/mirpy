@@ -315,3 +315,33 @@ def test_save_load_roundtrip_and_cross_basis_refusal(space, tmp_path):
     with pytest.raises(ValueError, match="prototype hash mismatch"):
         RepertoireSpace.load(p)
     RepertoireSpace.load(p, verify=False)          # explicit override is allowed
+
+
+def test_correct_batch_reduces_to_residualize_and_beats_it_under_confound():
+    """Harmony-lite correct_batch: == residualize at K=1; preserves biology a global
+    mean-subtraction destroys when batch is confounded with a biological cluster."""
+    import numpy as np
+    from mir.repertoire import correct_batch
+    from mir.cohort import residualize
+
+    rng = np.random.default_rng(0)
+    n, d = 200, 10
+    bio = rng.integers(0, 2, n)                              # biological cluster (dominant signal)
+    batch = np.where(rng.random(n) < 0.8, bio, 1 - bio)      # 80% confounded with bio
+    X = rng.normal(0, 0.1, (n, d))
+    X[:, 0] += np.where(bio == 1, 4.0, -4.0)                 # axis 0 = biology
+    X[:, 1] += np.where(batch == 1, 1.5, -1.5)              # axis 1 = batch offset
+
+    # K=1 reduces exactly to residualize
+    assert np.allclose(correct_batch(X, batch, n_clusters=1), residualize(X, batch))
+
+    Xc = correct_batch(X, batch, n_clusters=2, seed=0)
+    Xr = residualize(X, batch)
+
+    def gap(M, lab, ax):
+        return abs(M[lab == 1, ax].mean() - M[lab == 0, ax].mean())
+
+    # batch offset (axis 1) is removed by the cluster-aware correction
+    assert gap(Xc, batch, 1) < 0.5 * gap(X, batch, 1)
+    # biology (axis 0) survives the confound better than plain per-group mean subtraction
+    assert gap(Xc, bio, 0) > gap(Xr, bio, 0)

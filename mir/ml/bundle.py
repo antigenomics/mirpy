@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import mir
+from mir.distances.junction import DEFAULT_GAP_POSITIONS
 from mir.embedding.prototypes import load_prototypes
 
 
@@ -48,7 +49,7 @@ class CodecBundle:
         species: str,
         locus: str,
         n_prototypes: int,
-        gap_positions: tuple[int, ...] = (3, 4, -4, -3),
+        gap_positions: tuple[int, ...] = DEFAULT_GAP_POSITIONS,
         kind: str = "forward",
     ) -> "CodecBundle":
         meta = {
