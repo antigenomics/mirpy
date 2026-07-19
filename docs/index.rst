@@ -29,8 +29,9 @@ sequences. The classical v1.x/v2 toolkit is frozen on the ``legacy-v2`` branch (
 
 New here? Start with the :doc:`user guide <usage>` (install → a real result, one task per section),
 skim the runnable :doc:`examples <examples>`, and reach for the :doc:`API reference <api>` for
-signatures. The mathematical theory (T1–T7) lives in ``THEORY.md`` and recorded benchmark numbers
-in ``BENCHMARKS.md``.
+signatures. The mathematical theory (T1–T7) and recorded benchmark numbers live in the companion
+`2026-mirpy-analysis <https://github.com/antigenomics>`_ repo (``benchmarks/{THEORY,BENCHMARKS}.md``),
+with the LaTeX theory appendix in ``2026-mirpy-ms``.
 
 30-second quickstart
 --------------------

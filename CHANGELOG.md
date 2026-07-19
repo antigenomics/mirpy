@@ -36,6 +36,11 @@ Python API removed; one optional-dependency group split out.
 - Documentation overhaul: a use-case-driven user guide, the two CLI commands documented, an
   examples/notebooks page, `mir.cohort` and `mir.bench.eval` added to the API reference, a logo, and
   the sample-embedding schematic + real depth-robustness figure. Zero-warning Sphinx build.
+- **Repo layout** (no effect on the installed package): adopted the **src-layout** (`mir/` →
+  `src/mir/`); renamed `notebooks/` → `examples/`; and moved the working result/plan markdown out of
+  the repo root — `THEORY.md` to the manuscript repo, `BENCHMARKS.md` / `REPERTOIRE_{EMBEDDING,LESSONS}.md`
+  / `SQRT_D_MIGRATION.md` / `ROADMAP.md` to `2026-mirpy-analysis/benchmarks/`. Root keeps
+  README / CHANGELOG / CLAUDE / SOURCES.
 
 ### Fixed
 

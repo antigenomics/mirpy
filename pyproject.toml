@@ -73,7 +73,7 @@ Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["mir"]
+packages = ["src/mir"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -81,7 +81,7 @@ exclude = [
   ".idea/**",
   ".vscode/**",
   "docs/_build/**",
-  "notebooks/**",
+  "examples/**",
   "benchmarks/**",
   "tests/**",
   "tmp/**",
@@ -99,12 +99,12 @@ markers = [
 # Coverage is opt-in (not in addopts) so the default fast suite stays fast.
 # Measure with: pytest -m "not benchmark and not integration" --cov=mir --cov-report=term-missing
 [tool.coverage.run]
-source = ["mir"]
+source = ["src/mir"]
 branch = true
 omit = [
-  "mir/resources/gene_library/build_gene_library.py",
-  "mir/resources/gene_library/build_region_annotations.py",
-  "mir/resources/prototypes/generate_prototypes.py",
+  "src/mir/resources/gene_library/build_gene_library.py",
+  "src/mir/resources/gene_library/build_region_annotations.py",
+  "src/mir/resources/prototypes/generate_prototypes.py",
   "*/__init__.py",
 ]
 

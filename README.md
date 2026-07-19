@@ -17,7 +17,7 @@
 **mirpy v3** turns T-/B-cell receptor sequences into fixed-length numeric vectors you can
 cluster, visualize, and feed to ML models. It implements **TCREMP** — embedding each receptor
 by its alignment distances to a fixed set of *prototype* sequences — so that Euclidean distance
-in embedding space approximates pairwise alignment distance (see [`THEORY.md`](THEORY.md)).
+in embedding space approximates pairwise alignment distance (Theory T1).
 
 > v3 is a slim, embedding-focused rewrite. The classical repertoire toolkit (parsing, overlap,
 > diversity, TCRnet, GLIPH, …) lives on the **`legacy-v2`** branch (`mirpy-lib` 2.x) and in the
@@ -186,8 +186,9 @@ a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 empirical rule of thumb — **diversity for how-even, the embedding for which-clones**: clone-size
 phenotypes (age, CMV) are a diversity summary's turf, while clonotype identity (HLA — strongest in
 TRA and class II) lives in the second moment / witness. A learned co-equal set encoder
-(Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). See [`BENCHMARKS.md`](BENCHMARKS.md)
-and [`THEORY.md`](THEORY.md) T7 (the benchmark scripts themselves live in the analysis repo).
+(Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). Recorded results and theory
+(T7) live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo
+(`benchmarks/{BENCHMARKS,THEORY}.md`) alongside the benchmark scripts.
 
 ## Reproduce the paper
 
@@ -195,8 +196,8 @@ The self-contained theory notebooks run on bundled data:
 
 ```bash
 pip install "mirpy-lib[examples]"
-marimo edit notebooks/theory.py         # supplementary S1–S3 (distance laws, D↔d, prototype robustness)
-marimo edit notebooks/quickstart.py     # embed + cluster VDJdb antigens
+marimo edit examples/theory.py          # supplementary S1–S3 (distance laws, D↔d, prototype robustness)
+marimo edit examples/quickstart.py      # embed + cluster VDJdb antigens
 ```
 
 The full benchmark suite (VDJdb Table S1, density, repertoire/TCGA) and result docs live in the
