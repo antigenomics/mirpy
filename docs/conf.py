@@ -4,8 +4,8 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-# mir is installed (pip install -e .), but add the repo root so autodoc works from a bare checkout.
-sys.path.insert(0, os.path.abspath(".."))
+# mir is installed (pip install -e .), but add the src dir so autodoc works from a bare checkout.
+sys.path.insert(0, os.path.abspath("../src"))
 
 project = "mirpy"
 author = "ISALGO laboratory"

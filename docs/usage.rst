@@ -87,7 +87,7 @@ scores per-antigen F1 / retention against known labels (e.g. a VDJdb dump):
    metrics = cluster_metrics(labels, epitopes)                         # {epitope: AntigenMetric}
 
 DBSCAN (default) is tightest/purest; HDBSCAN trades precision for ~3× coverage on variable-density
-data. See ``notebooks/quickstart.py`` for the end-to-end VDJdb example with a UMAP.
+data. See ``examples/quickstart.py`` for the end-to-end VDJdb example with a UMAP.
 
 Density and background subtraction
 ----------------------------------
@@ -109,7 +109,7 @@ adaptive-bandwidth balloon estimator with a Poisson/binomial test and BH q-value
 Prefer a biological control (e.g. pre/post-vaccination) over the P_gen background — differential
 enrichment cancels generic public convergence and isolates the antigen-specific response. At
 whole-repertoire scale, pass ``backend="kdtree"`` (exact, multicore) or ``backend="ann"``
-(approximate, ``[ann]`` extra). See ``notebooks/density.py``.
+(approximate, ``[ann]`` extra). See ``examples/density.py``.
 
 Repertoire embedding Φ(S) + MMD
 -------------------------------
@@ -261,7 +261,7 @@ Benchmark harness & reproducing the paper
 
 ``mir.bench`` provides the VDJdb clustering benchmark (F1 / retention / purity) and the reproduced
 theory experiments (S1–S3, T5–T6, codec losslessness). The self-contained theory runs on bundled
-data via ``notebooks/theory.py``; the full benchmark suite lives in the ``2026-mirpy-analysis`` repo.
+data via ``examples/theory.py``; the full benchmark suite lives in the ``2026-mirpy-analysis`` repo.
 
 .. code-block:: python
 
