@@ -8,9 +8,12 @@ frozen on branch **`legacy-v2`** (`mirpy-lib` 2.x) — do not develop there.
 
 ## Repo split (2026-07-16) — three homes
 This repo is now **the library + its CI/test data only**. Analysis and manuscript live elsewhere:
-- **`~/vcs/code/mirpy`** (here): `mir/` library, unit + fast/slow CI tests (`tests/`, on slim bundled
-  data), plans for new features, docs, and **slim tabular benchmark results** for README/docs. Benchmark
-  *scripts* and the theory *appendix* have moved out (below).
+- **`~/vcs/code/mirpy`** (here): **src-layout** — the library is `src/mir/` (import `mir`); unit +
+  fast/slow CI tests (`tests/`, on slim bundled data), runnable `examples/` (marimo), docs. As of the
+  3.4.x cleanup the result/plan markdown moved out: **`THEORY.md` → the manuscript repo**;
+  **`BENCHMARKS.md`, `REPERTOIRE_{EMBEDDING,LESSONS}.md`, `SQRT_D_MIGRATION.md`, `ROADMAP.md` →
+  `2026-mirpy-analysis/benchmarks/`**. Only `README`/`CHANGELOG`/`CLAUDE`/`SOURCES` stay at the root.
+  Benchmark *scripts* and the theory *appendix* had already moved out (below).
 - **`~/vcs/projects/2026-mirpy-analysis`**: all **benchmark scripts** (`benchmarks/` — local + aldan3),
   full result docs (BENCHMARKS/THEORY/…), figures, run outputs, dataset catalog. Run the mirpy library
   from here; refresh numbers-of-record here.
@@ -53,7 +56,7 @@ negative S2) — so prototypes use real reads, not model generation.
 mirpy is normally read-only to the sibling repos; the `from_arda` builder + a tandem-D generation
 fix were added to `vdjtools` under the owner's direction (this is that owner's ecosystem).
 
-## Layout (`mir/`)
+## Layout (`src/mir/`)
 - `aliases.py`, `alleles.py` — species/locus + allele normalization.
 - `distances/junction.py` — `junction_distance_matrix` (seqtree.gapblock). Coordinate knobs (all
   default to the published space, threaded through `TCREmp`): `metric="squared"` (=`d`, default) |
@@ -148,7 +151,8 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   GPU only in `mir.ml`: `pick_device()` = **CUDA → MPS → CPU** auto, override `device=`/`MIR_DEVICE`.
 
 ## Open loops / next steps
-- **Embedding-tier roadmap** (`ROADMAP.md`, 2026-07-17) — the "vdjtools at the embedding level" audit +
+- **Embedding-tier roadmap** (`2026-mirpy-analysis/benchmarks/ROADMAP.md`, moved out in the 3.4.x
+  cleanup) — the "vdjtools at the embedding level" audit +
   plan (three verbs: make / measure / generate-decode). **Phase 0** (robustness + optimization quick wins)
   and **Phase 1** (cohort tier: `bench/eval.py`, `repertoire.{fit_repertoire_spaces,centroid_atypicality}`,
   `cohort.py` digital donor) are **DONE**. Next: **Phase 2** generative loop (`generate.py` `DescriptorDensity`

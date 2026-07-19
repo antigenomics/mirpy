@@ -10,7 +10,7 @@ tests/assets/vdjdb.slim.txt.gz
 tests/assets/real_repertoires/
 tests/assets/srx_repertoires/
 *.airr.tsv
-notebooks/assets/
+examples/assets/
 
 ## VSCode
 
@@ -184,10 +184,10 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-mir/docs
+src/mir/docs
 .idea
 public
-notebooks/assets/derived/
+examples/assets/derived/
 
 # ML run artifacts (checkpoints/metrics) — never committed
 experiments/runs/

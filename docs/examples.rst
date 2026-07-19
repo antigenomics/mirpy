@@ -1,14 +1,14 @@
 Examples
 ========
 
-mirpy ships three runnable `marimo <https://marimo.io>`_ notebooks under ``notebooks/``. They are
+mirpy ships three runnable `marimo <https://marimo.io>`_ notebooks under ``examples/``. They are
 self-contained (they run on the bundled prototypes / test assets — no downloads) and double as
 living documentation for the three tiers. Install the extra and open one:
 
 .. code-block:: bash
 
    pip install "mirpy-lib[examples]"     # marimo, matplotlib, umap-learn
-   marimo edit notebooks/quickstart.py   # interactive; or `marimo run …` for read-only
+   marimo edit examples/quickstart.py   # interactive; or `marimo run …` for read-only
 
 .. list-table::
    :header-rows: 1
@@ -16,13 +16,13 @@ living documentation for the three tiers. Install the extra and open one:
 
    * - Notebook
      - What it shows
-   * - ``notebooks/quickstart.py``
+   * - ``examples/quickstart.py``
      - Clonotype embedding end-to-end: ``TCREmp.embed`` a VDJdb-style set, PCA-denoise, cluster
        antigen-specific TCRs, and a UMAP coloured by epitope.
-   * - ``notebooks/density.py``
+   * - ``examples/density.py``
      - Background subtraction (Theory T6): fit a density space, run balloon ``neighbor_enrichment``
        against a P_gen / control background, and pull out the enriched convergent family.
-   * - ``notebooks/theory.py``
+   * - ``examples/theory.py``
      - Reproduces the supplementary results S1–S3 on bundled data — the distance laws
        (Gamma / extreme-value), the D↔d correlation, and prototype-source robustness.
 
