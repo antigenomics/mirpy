@@ -30,6 +30,13 @@ def test_n_cap_raises():
         load_prototypes("human", "TRB", n=N_PROTOTYPES + 1)
 
 
+def test_n_nonpositive_raises():
+    # a non-positive n silently changes the prototype set (df.head(-k)) and its hash -> reject it.
+    for bad in (0, -5):
+        with pytest.raises(ValueError):
+            load_prototypes("human", "TRB", n=bad)
+
+
 def test_unknown_locus_file():
     # IGK has no prototype file? it does; use a locus with no file: mouse IGH
     with pytest.raises(FileNotFoundError):

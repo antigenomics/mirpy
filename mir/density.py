@@ -69,6 +69,9 @@ from mir.distances.junction import junction_distance_matrix
 
 _REQUIRED_COLS = ("v_call", "j_call", "junction_aa")
 _AA = "ACDEFGHIKLMNPQRSTVWY"
+_AUTO_CHUNK_ROWS = 500_000
+"""Above this pooled row count, :func:`fit_density_space` auto-routes to the chunked path: the
+single-shot path would materialize a >10 GB raw matrix (and ~2× again on the float64 upcast)."""
 
 
 def _slice(emb: np.ndarray, space: str) -> np.ndarray:
@@ -210,6 +213,14 @@ def fit_density_space(
         ``(density_space, obs_emb, bg_emb)`` — the fitted :class:`DensitySpace` and the
         two reduced ``float`` arrays, row-aligned to ``obs_df`` / ``bg_df``.
     """
+    if chunk_size is None and obs_df.height + bg_df.height > _AUTO_CHUNK_ROWS:
+        import warnings
+
+        chunk_size = 200_000  # the single-shot path would materialize a >10 GB raw matrix
+        warnings.warn(
+            f"pooled rows ({obs_df.height + bg_df.height}) exceed {_AUTO_CHUNK_ROWS}: auto-enabling "
+            f"the chunked fit (chunk_size={chunk_size}) to bound peak memory; the PCA is fit on a "
+            "200k-row sample. Pass chunk_size explicitly to control this.", stacklevel=2)
     if chunk_size is not None:
         return _fit_density_space_chunked(
             model, obs_df, bg_df, n_components=n_components, space=space, seed=seed,
@@ -321,7 +332,15 @@ def calibrate_radius(
         pl.Series("junction_aa", [_mutate1(s, rng) for s in junc])
     )
     drift = np.linalg.norm(space.transform(sample_df) - space.transform(mutated_df), axis=1)
-    return float(np.quantile(drift, quantile))
+    r = float(np.quantile(drift, quantile))
+    if not (r > 0):
+        raise ValueError(
+            "calibrate_radius produced a non-positive radius: the calibration junctions did not "
+            "move under a single substitution (too short, or all identical), so every enrichment "
+            "ball would be empty. Supply a sample_df with longer/real junctions, or pass an "
+            "explicit radius to neighbor_enrichment."
+        )
+    return r
 
 
 def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: int = 0):
@@ -333,7 +352,7 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     kNN graph (k=``k_max``) thresholded by radius — *approximate*: recall < 1 undercounts, biasing
     enrichment **down** (conservative). A saturated ball (all ``k_max`` neighbours inside ``rad``)
     is undercounted and warned. For large N where exact trees are slow; use ``backend='exact'`` for
-    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[bench]`` extra).
+    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
     """
     from pynndescent import NNDescent
 
@@ -383,7 +402,7 @@ def neighbor_enrichment(
     abundance: np.ndarray | None = None,
     weight: str = "log1p",
     orphan: bool = True,
-    backend: str = "exact",
+    backend: str = "kdtree",
 ) -> EnrichmentResult:
     """Continuous neighbour-enrichment test in one embedding coordinate system.
 
@@ -431,14 +450,14 @@ def neighbor_enrichment(
         weight: Concave size transform ``g`` — ``"log1p"`` (default), ``"anscombe"``, or
             ``"distinct"`` (``g≡1``, ignore sizes even if ``abundance`` is given).
         orphan: When abundance-aware, combine the size p-value with the breadth p-value by Fisher.
-        backend: neighbour engine. ``"exact"`` (default, BallTree — exact, reproducible),
-            ``"kdtree"`` (scipy cKDTree — **also exact**, multithreaded, 5–9× faster; the
-            recommended speedup), or ``"ann"`` (approximate pynndescent kNN for whole-repertoire
-            scale — ~30× faster than BallTree at ≥40k but recall < 1 undercounts, biasing enrichment
-            conservatively; see :func:`_ann_neighbors`). ``"kdtree"`` is bit-identical to
-            ``"exact"`` at a *fixed* ``radius``; in balloon mode counts differ by at most ±1 at the
-            ball boundary (a float-epsilon difference in the computed k-th-neighbour distance),
-            which is negligible — prefer ``"kdtree"`` unless reproducing the BallTree baseline exactly.
+        backend: neighbour engine. ``"kdtree"`` (**default**, scipy cKDTree — exact, multithreaded,
+            5–9× faster than BallTree), ``"exact"`` (BallTree — exact, single-threaded; the historical
+            default, kept for bit-reproducing the BallTree baseline), or ``"ann"`` (approximate
+            pynndescent kNN for whole-repertoire scale — ~30× faster at ≥40k but recall < 1 undercounts,
+            biasing enrichment conservatively; see :func:`_ann_neighbors`). ``"kdtree"`` is bit-identical
+            to ``"exact"`` at a *fixed* ``radius``; in balloon mode counts differ by at most ±1 at the
+            ball boundary (float-epsilon in the computed k-th-neighbour distance), which is negligible —
+            pass ``backend="exact"`` only to reproduce the BallTree baseline exactly.
 
     Returns:
         An :class:`EnrichmentResult`; ``fold`` is the (calibrated) density ratio ``E(z)``. In
@@ -449,6 +468,16 @@ def neighbor_enrichment(
     bg = np.ascontiguousarray(bg_emb, dtype=np.float64)
     n_obs_total, n_bg_total = obs.shape[0], bg.shape[0]
     n_ref = max(n_obs_total - 1, 1)
+    if n_obs_total == 0 or n_bg_total == 0:
+        raise ValueError(
+            f"neighbor_enrichment requires non-empty obs and bg embeddings "
+            f"(got N_obs={n_obs_total}, N_bg={n_bg_total})."
+        )
+    if pseudocount <= 0:
+        raise ValueError(
+            f"pseudocount must be > 0 (got {pseudocount}); it stabilizes p_bg so a clonotype in a "
+            "zero-background ball cannot produce an infinite fold."
+        )
 
     if backend == "exact":
         obs_tree, bg_tree = BallTree(obs), BallTree(bg)
@@ -493,7 +522,7 @@ def neighbor_enrichment(
         rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
             obs, bg, radius, lambda0, n_ref)
     else:
-        raise ValueError(f"backend must be 'exact' or 'ann', got {backend!r}")
+        raise ValueError(f"backend must be 'exact', 'kdtree', or 'ann', got {backend!r}")
     p_bg = (n_bg + pseudocount) / (n_bg_total + pseudocount)
     expected = n_ref * p_bg
 

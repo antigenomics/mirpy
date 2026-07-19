@@ -13,7 +13,7 @@ copyright = "2026, ISALGO laboratory"
 try:
     version = release = _pkg_version("mirpy-lib")
 except PackageNotFoundError:
-    version = release = "3.1.0"
+    version = release = "3.4.0"
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -49,6 +49,8 @@ napoleon_use_ivar = True
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 templates_path = ["_templates"]
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 exclude_patterns = ["_build", "**.ipynb_checkpoints"]
 
 html_theme = "pydata_sphinx_theme"

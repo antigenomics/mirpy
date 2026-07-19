@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mirpy-lib"
-version = "3.3.0"
+version = "3.4.0"
 authors = [
   { name="ISALGO lab", email="mikhail.shugay@gmail.com"}
 ]
@@ -30,7 +30,7 @@ dependencies = [
   "seqtree>=0.3.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  "vdjtools>=2.3.0",
+  "vdjtools>=3.0.0",
   "tqdm",
 ]
 license = { text = "GPL-3.0-or-later" }
@@ -41,12 +41,17 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
-build = ["vdjtools[model]>=2.3.0", "biopython"]
+build = ["vdjtools[model]>=3.0.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +
-# survival analysis (CoxPH for the TCGA prognostic benchmark).
-bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "pynndescent", "lifelines"]
+# survival analysis (CoxPH for the TCGA prognostic benchmark). All pure-wheel — no
+# compiled/numba deps, so it installs cleanly on any Python via pip or uv.
+bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "lifelines"]
+# Approximate-NN backend for mir.density (backend="ann"). Split out of [bench] because
+# pynndescent pulls numba/llvmlite, whose version resolution is Python-version-sensitive;
+# the exact "kdtree"/"exact" backends need nothing here.
+ann = ["pynndescent"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
@@ -57,6 +62,9 @@ docs = [
   "nbsphinx-link>=1.3,<2",
   "ipython>=8,<10",
 ]
+
+[project.scripts]
+mir = "mir.cli:main"
 
 [project.urls]
 Homepage      = "https://github.com/antigenomics/mirpy"

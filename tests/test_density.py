@@ -104,6 +104,17 @@ def test_unknown_test_raises():
         neighbor_enrichment(obs, bg, radius=1.0, test="chi2")
 
 
+def test_empty_inputs_and_bad_pseudocount_raise():
+    rng = np.random.default_rng(0)
+    obs, bg = rng.standard_normal((10, 4)), rng.standard_normal((10, 4))
+    with pytest.raises(ValueError, match="non-empty"):
+        neighbor_enrichment(obs[:0], bg, radius=0.5)          # empty obs -> friendly error, not a tree crash
+    with pytest.raises(ValueError, match="non-empty"):
+        neighbor_enrichment(obs, bg[:0], radius=0.5)          # empty bg
+    with pytest.raises(ValueError, match="pseudocount"):
+        neighbor_enrichment(obs, bg, radius=0.5, pseudocount=0)  # would make fold = n_obs/0
+
+
 def test_unknown_backend_raises():
     obs, bg = np.zeros((3, 2)), np.ones((3, 2))
     with pytest.raises(ValueError, match="backend must be"):
@@ -194,6 +205,16 @@ def test_calibrate_radius_positive(model):
     space, _, _ = fit_density_space(model, obs, bg, n_components=20, space="junction")
     r = calibrate_radius(space, sample=200)
     assert np.isfinite(r) and r > 0
+
+
+def test_calibrate_radius_rejects_nonmutable_junctions(model):
+    # junctions of length <= 2 never mutate -> drift 0 -> a 0 radius would silently null the test.
+    obs, bg = _load_olga(150), _load_olga(150, offset=400)
+    space, _, _ = fit_density_space(model, obs, bg, n_components=20, space="junction")
+    short = pl.DataFrame({"v_call": [obs["v_call"][0]] * 4, "j_call": [obs["j_call"][0]] * 4,
+                          "junction_aa": ["CF", "CW", "CA", "CY"]})
+    with pytest.raises(ValueError, match="non-positive radius"):
+        calibrate_radius(space, sample_df=short)
 
 
 def test_denoise_and_cluster_groups_injected_family(model):

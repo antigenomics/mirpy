@@ -51,6 +51,22 @@ from mir.density import DensitySpace, _WEIGHTS, _embed, calibrate_radius
 _COUNT = "duplicate_count"
 
 
+def _sample_weights(sample_df: pl.DataFrame, weight: str):
+    """Validated ``(counts a, concave g, normalized weights w=g/Σg)`` for one sample.
+
+    Raises on the degenerate inputs that would otherwise propagate a silent ``NaN``/``inf`` through
+    every block: an empty repertoire (no clonotypes) or all-zero ``duplicate_count`` (``g.sum()==0``
+    ⇒ ``w`` all-``NaN``, ``n_eff=inf``).
+    """
+    if sample_df.height == 0:
+        raise ValueError("empty repertoire: sample_df has no clonotypes")
+    a = sample_df[_COUNT].to_numpy().astype(np.float64)
+    if not (a.sum() > 0):
+        raise ValueError("degenerate repertoire: duplicate_count must sum to a positive value")
+    g = _WEIGHTS[weight](a)
+    return a, g, g / g.sum()
+
+
 # --------------------------------------------------------------------------- RFF
 
 
@@ -112,9 +128,8 @@ class RepertoireSpace:
         The raw material for both the fixed kernel mean (:func:`sample_embedding`) and the learned
         set network (:mod:`mir.ml.set_encoder`) — same basis, so their embeddings are comparable.
         """
-        a = df[_COUNT].to_numpy().astype(np.float64)
-        g = _WEIGHTS[weight](a)
-        return self.transform_clonotypes(df), g / g.sum()
+        _, _, w = _sample_weights(df, weight)
+        return self.transform_clonotypes(df), w
 
     def save(self, path) -> None:
         """Pickle the basis (scaler + PCA + RFF + meta); the model is reconstructed on load."""
@@ -198,14 +213,17 @@ def fit_repertoire_space(
     if n_components is None:
         n_components = get_preset(model.species, model.locus).n_components
 
-    X = _embed(model, cohort_df, space)
-    if pca_fit_cap is not None and X.shape[0] > pca_fit_cap:
+    # Fit the scaler+PCA on at most pca_fit_cap pooled rows. Sample the FRAME rows and embed only
+    # those — bit-identical to embedding all then subsetting (embedding is row-wise, same seed picks
+    # the same indices) but never materializes the full raw matrix for a huge cohort.
+    if pca_fit_cap is not None and cohort_df.height > pca_fit_cap:
         rng = np.random.default_rng(seed)
-        X_fit = X[rng.choice(X.shape[0], pca_fit_cap, replace=False)]
+        rows = rng.choice(cohort_df.height, pca_fit_cap, replace=False)
+        X_fit = _embed(model, cohort_df[rows], space)
     else:
-        X_fit = X
+        X_fit = _embed(model, cohort_df, space)
     scaler = StandardScaler().fit(X_fit)
-    k = min(n_components, X_fit.shape[0], X.shape[1])
+    k = min(n_components, X_fit.shape[0], X_fit.shape[1])
     pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(X_fit))
     clono = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
 
@@ -222,6 +240,38 @@ def fit_repertoire_space(
         "n_eigs": n_eigs, "length_scale": float(length_scale), "seed": seed,
     }
     return RepertoireSpace(clono, rff, rff2, meta)
+
+
+def fit_repertoire_spaces(
+    models: dict,
+    cohort_frames: dict,
+    *,
+    min_clonotypes: int = 50,
+    **kwargs,
+) -> dict:
+    """Fit one :class:`RepertoireSpace` **per locus** — the multi-chain (digital-donor) basis.
+
+    Each locus gets an independent basis (its own prototype set + PCA + RFF), so per-chain kernel
+    means are only ever compared within their own chain, honouring the comparability contract.
+    Loci whose pooled cloud is too small to fit a stable PCA are skipped (returned dict omits them).
+
+    Args:
+        models: ``{locus: TCREmp}`` — one fitted single-chain model per locus.
+        cohort_frames: ``{locus: pooled clonotype frame}`` (``v_call``/``j_call``/``junction_aa``),
+            the pooled cloud for that locus across the whole cohort.
+        min_clonotypes: Skip a locus whose pooled frame has fewer rows (PCA would be degenerate).
+        **kwargs: Forwarded to :func:`fit_repertoire_space` (``n_rff``, ``n_components``, ``seed`` …).
+
+    Returns:
+        ``{locus: RepertoireSpace}`` for the loci that could be fit.
+    """
+    spaces: dict = {}
+    for loc, model in models.items():
+        pool = cohort_frames.get(loc)
+        if pool is None or pool.height < min_clonotypes:
+            continue
+        spaces[loc] = fit_repertoire_space(model, pool, **kwargs)
+    return spaces
 
 
 # --------------------------------------------------------------------- embedding
@@ -295,9 +345,7 @@ def sample_embedding(
     Returns:
         A :class:`SampleEmbedding`; ``.vector`` is the concatenated fixed-width tensor.
     """
-    a = sample_df[_COUNT].to_numpy().astype(np.float64)
-    g = _WEIGHTS[weight](a)
-    w = g / g.sum()
+    a, g, w = _sample_weights(sample_df, weight)
     n_eff = float(1.0 / np.sum(w * w))
 
     mean = div = sec = None
@@ -373,9 +421,7 @@ def sample_descriptor(space: RepertoireSpace, sample_df: pl.DataFrame, *,
     diversity and clonality are all smooth coordinates of the *same* object — the representation the
     in-silico-evolution / embedding-simulation workflow perturbs.
     """
-    a = sample_df[_COUNT].to_numpy().astype(np.float64)
-    g = _WEIGHTS[weight](a)
-    w = g / g.sum()
+    a, g, w = _sample_weights(sample_df, weight)
     mean = w @ space.rff.transform(space.transform_clonotypes(sample_df))
     sw2 = float(np.sum(w * w))
     return RepertoireDescriptor(log_mass=float(np.log1p(a.sum())),
@@ -405,6 +451,11 @@ def mmd_distance(a: SampleEmbedding, b: SampleEmbedding, *, unbiased: bool = Fal
     """
     if not unbiased:
         return float(np.linalg.norm(a.mean - b.mean))
+    if a.n_eff <= 1.0 or b.n_eff <= 1.0:
+        raise ValueError(
+            "unbiased MMD is undefined for a single-clonotype sample (n_eff ≤ 1): the diagonal "
+            "cannot be removed from a point mass. Use unbiased=False, or drop degenerate samples."
+        )
     sa, sb = 1.0 / a.n_eff, 1.0 / b.n_eff                   # Σwᵢ² ; RFF self-similarity k(z,z)≈1
     haa = (float(a.mean @ a.mean) - sa) / (1.0 - sa)        # diagonal-removed ‖μ‖²
     hbb = (float(b.mean @ b.mean) - sb) / (1.0 - sb)
@@ -422,6 +473,12 @@ def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.nda
     sq = np.diag(G).copy()
     if unbiased:
         s = np.array([1.0 / e.n_eff for e in embs])        # per-sample Σwᵢ²
+        if np.any(s >= 1.0):
+            raise ValueError(
+                "unbiased MMD is undefined for single-clonotype samples (n_eff ≤ 1); "
+                f"{int(np.sum(s >= 1.0))} of {len(embs)} samples are degenerate. "
+                "Use unbiased=False, or drop them before building the matrix."
+            )
         h = (sq - s) / (1.0 - s)                           # diagonal-removed self-inner-products
         d2 = h[:, None] + h[None, :] - 2.0 * G
     else:
@@ -439,6 +496,7 @@ def class_witness(
     *,
     weight: str = "log1p",
     top: int = 30,
+    witness: np.ndarray | None = None,
 ) -> pl.DataFrame:
     """Rank clonotypes by how much they drive the ``pos`` vs ``neg`` group difference (Prop. ``prop:witness``).
 
@@ -453,17 +511,20 @@ def class_witness(
         candidates: Clonotype frame to score (e.g. all clonotypes seen in ``pos``).
         weight: Clone-size weight for the per-sample kernel means.
         top: Number of top motifs to return.
+        witness: Optional precomputed witness direction ``μ_pos − μ_neg`` (``(D,)``). When given,
+            ``pos``/``neg`` are not re-embedded — reuse it to score several candidate sets cheaply.
 
     Returns:
         ``candidates`` with a ``witness_score`` column, sorted descending, truncated to ``top``.
     """
-    def group_mean(frames):
-        return np.mean([w @ space.rff.transform(Z)
-                        for Z, w in (space.sample_cloud(f, weight=weight) for f in frames)], axis=0)
+    if witness is None:
+        def group_mean(frames):
+            return np.mean([w @ space.rff.transform(Z)
+                            for Z, w in (space.sample_cloud(f, weight=weight) for f in frames)], axis=0)
 
-    w = group_mean(pos) - group_mean(neg)
+        witness = group_mean(pos) - group_mean(neg)
     psi = space.rff.transform(space.transform_clonotypes(candidates))     # (n, D)
-    scores = psi @ w
+    scores = psi @ witness
     return (candidates.with_columns(pl.Series("witness_score", scores))
             .sort("witness_score", descending=True).head(top))
 
@@ -476,12 +537,132 @@ def hla_stratified_mmd(embs: list[SampleEmbedding], hla: list[set]) -> np.ndarra
     HLA allele are masked to ``nan`` rather than compared.
     """
     D = mmd_matrix(embs)
-    out = np.full_like(D, np.nan)
-    for i in range(len(embs)):
-        for j in range(len(embs)):
-            if hla[i] & hla[j]:
-                out[i, j] = D[i, j]
+    alleles = sorted({al for s in hla for al in s})
+    col = {al: k for k, al in enumerate(alleles)}
+    A = np.zeros((len(hla), len(alleles)), dtype=np.int8)   # sample × allele indicator
+    for i, s in enumerate(hla):
+        for al in s:
+            A[i, col[al]] = 1
+    shared = A @ A.T                                        # #shared alleles per pair
+    return np.where(shared > 0, D, np.nan)
+
+
+def centroid_atypicality(X: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Per-sample cosine distance of its identity vector to its group's centroid — a Φ-geometry op.
+
+    A sample far from its group's mean identity has an atypical clonotype composition (selection /
+    divergence). Grouping is caller-supplied (tumour type, cohort, …); the geometry — centroid then
+    ``1 − cos`` — is the library concern. Feeds an ``atypicality`` channel of a digital-donor embedding.
+
+    Args:
+        X: ``(n, d)`` identity block (a per-sample kernel-mean or its PCA reduction).
+        groups: ``(n,)`` group label per row; centroids are computed within each group.
+
+    Returns:
+        ``(n,)`` atypicality in ``[0, 2]`` (0 = on the group centroid direction).
+    """
+    X = np.asarray(X, dtype=np.float64)
+    groups = np.asarray(groups)
+    out = np.zeros(X.shape[0])
+    for g in np.unique(groups):
+        m = groups == g
+        cen = X[m].mean(axis=0)
+        cn = np.linalg.norm(cen) + 1e-9
+        xn = np.linalg.norm(X[m], axis=1) + 1e-9
+        out[m] = 1.0 - (X[m] @ cen) / (xn * cn)
     return out
+
+
+def correct_batch(
+    X: np.ndarray,
+    batch: np.ndarray,
+    *,
+    covariates: np.ndarray | None = None,
+    n_clusters: int = 8,
+    theta: float = 1.0,
+    sigma: float = 0.1,
+    max_iter: int = 10,
+    ridge: float = 1.0,
+    seed: int = 0,
+) -> np.ndarray:
+    """Harmony-like cluster-aware batch correction on a stacked sample×feature ``Φ`` matrix.
+
+    Removes a batch offset **per soft cluster** rather than globally, so a batch confounded with a
+    biological cluster is corrected without erasing that biology — the failure mode of plain
+    per-group mean subtraction (:func:`mir.cohort.residualize`). Follows Harmony (Korsunsky et al.
+    2019, *Nat. Methods*): soft-cluster the samples with a batch-diversity penalty ``theta``
+    (clusters pushed toward batch-balanced membership), then subtract each cluster's
+    membership-weighted batch offset (covariates retained), and iterate. **Reduces exactly to**
+    ``residualize`` at ``n_clusters=1`` or ``theta=0``.
+
+    Args:
+        X: Stacked ``(n_samples, n_features)`` matrix (e.g. :func:`mir.explain.stack_embeddings`).
+        batch: Length-``n_samples`` batch label per row.
+        covariates: Optional ``(n_samples, k)`` biological covariates to *retain* (never removed).
+        n_clusters: Number of soft clusters (Harmony's ``K``); ``<=1`` disables clustering.
+        theta: Batch-diversity penalty strength; ``0`` disables clustering (→ ``residualize``).
+        sigma: Soft-assignment temperature.
+        max_iter: Correction iterations (converges in a few — the batch fit vanishes once removed).
+        ridge: L2 ridge on the per-cluster batch regression (stabilises small clusters).
+        seed: KMeans seed for the soft-cluster initialisation.
+
+    Returns:
+        The corrected ``(n_samples, n_features)`` matrix — a new coordinate system (as with
+        ``residualize``, never compare a corrected ``X`` to an uncorrected one).
+    """
+    # ponytail: Harmony-lite — fixed K, a single KMeans-seeded soft-cluster init, fixed theta. The
+    # upgrade path is Harmony's full automatic-K + block-coordinate objective; this covers the
+    # confounded-batch case and reduces exactly to residualize when K<=1 / theta==0.
+    X = np.asarray(X, dtype=np.float64)
+    n = X.shape[0]
+    batch = np.asarray(batch)
+    _, binv = np.unique(batch, return_inverse=True)
+    Phi = np.eye(int(binv.max()) + 1)[binv]                 # (n, nb) batch one-hot
+    pr_b = Phi.mean(0)                                       # global batch proportions
+
+    if n_clusters <= 1 or theta <= 0:                       # == residualize (exact)
+        out = X.copy()
+        for b in range(Phi.shape[1]):
+            m = binv == b
+            out[m] -= X[m].mean(0)
+        return out
+
+    from sklearn.cluster import KMeans
+
+    # Cosine-geometry soft clustering (Harmony normalises to the unit sphere).
+    Z = X - X.mean(0)
+    Z = Z / (np.linalg.norm(Z, axis=1, keepdims=True) + 1e-9)
+    K = min(n_clusters, n)
+    centers = KMeans(n_clusters=K, n_init=10, random_state=seed).fit(Z).cluster_centers_
+    centers = centers / (np.linalg.norm(centers, axis=1, keepdims=True) + 1e-9)
+    dist = 2.0 * (1.0 - Z @ centers.T)                      # (n, K) cosine distance
+
+    # Batch-diversity-penalised soft assignment: up-weight clusters under-represented for a row's
+    # batch, so clusters become batch-balanced (Harmony's key term) rather than batch-defined.
+    R = np.exp(-dist / sigma)
+    R = R / (R.sum(1, keepdims=True) + 1e-9)
+    for _ in range(3):
+        O = R.T @ Phi                                       # (K, nb) batch mass per cluster
+        E = R.sum(0)[:, None] * pr_b[None, :] + 1e-9        # expected under global freq
+        pen = (E / (O + 1e-9)) ** theta                     # (K, nb) diversity re-weight
+        R = np.exp(-dist / sigma) * (Phi @ pen.T)           # (n, K)
+        R = R / (R.sum(1, keepdims=True) + 1e-9)
+
+    # Retain intercept + covariates, remove the batch design; drop one batch column for identifiability.
+    Cov = np.zeros((n, 0)) if covariates is None else np.asarray(covariates, np.float64).reshape(n, -1)
+    design = np.hstack([np.ones((n, 1)), Cov, Phi[:, 1:]])
+    n_keep = 1 + Cov.shape[1]                               # columns kept; the rest (batch) removed
+    Xc = X.copy()
+    for _ in range(max_iter):
+        acc = np.zeros_like(Xc)
+        for k in range(K):
+            w = R[:, k]
+            Wd = design * w[:, None]
+            A = Wd.T @ design + ridge * np.eye(design.shape[1])
+            beta = np.linalg.solve(A, Wd.T @ Xc)            # (p, d) weighted ridge fit
+            acc += w[:, None] * (Xc - design[:, n_keep:] @ beta[n_keep:])
+        Xc = acc / (R.sum(1, keepdims=True) + 1e-9)
+    return Xc
 
 
 # --------------------------------------------------------------------- self-check
