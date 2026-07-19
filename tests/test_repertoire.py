@@ -12,6 +12,7 @@ from mir.embedding.tcremp import TCREmp
 from mir.repertoire import (
     RepertoireSpace,
     _make_rff,
+    centroid_atypicality,
     class_witness,
     decode_metrics,
     fit_repertoire_space,
@@ -189,6 +190,69 @@ def test_hla_stratified_masks_mismatched_pairs(space):
     assert np.isnan(S[0, 2]) and np.isnan(S[1, 2]) # mismatched pairs masked
 
 
+def test_hla_stratified_multiallele_and_empty_set(space):
+    # vectorized indicator: partial-overlap pairs match; a donor with no HLA matches nobody.
+    embs = [sample_embedding(space, _sample(_clonotypes(50, offset=o)), blocks=("mean",))
+            for o in (0, 100, 200)]
+    hla = [{"A*02:01", "B*07:02"}, {"B*07:02"}, set()]      # 0&1 share B*07; 2 has none
+    S = hla_stratified_mmd(embs, hla)
+    assert np.isfinite(S[0, 1]) and np.isfinite(S[1, 0])   # partial overlap still matched
+    assert np.isnan(S[0, 2]) and np.isnan(S[2, 2])         # empty-HLA donor masked everywhere
+    assert np.isfinite(S[0, 0])                            # self compared when it has any allele
+
+
+def test_unbiased_mmd_rejects_singleton(space):
+    """Unbiased MMD is undefined at n_eff ≤ 1 (a point mass): raise instead of silently dividing by 0."""
+    single = sample_embedding(space, _sample(_clonotypes(1, offset=0)), blocks=("mean",))
+    ok = sample_embedding(space, _sample(_clonotypes(60, offset=100)), blocks=("mean",))
+    assert single.n_eff == 1.0
+    assert np.isfinite(mmd_distance(single, ok))                      # biased path still works
+    with pytest.raises(ValueError, match="single-clonotype"):
+        mmd_distance(single, ok, unbiased=True)
+    with pytest.raises(ValueError, match="single-clonotype"):
+        mmd_matrix([single, ok], unbiased=True)
+
+
+def test_empty_and_zero_count_samples_raise(space):
+    empty = _sample(_clonotypes(0))
+    with pytest.raises(ValueError, match="empty repertoire"):
+        sample_embedding(space, empty)
+    zeros = _sample(_clonotypes(10, offset=0), np.zeros(10))
+    with pytest.raises(ValueError, match="degenerate"):
+        sample_embedding(space, zeros)
+    with pytest.raises(ValueError, match="degenerate"):
+        sample_descriptor(space, zeros)
+
+
+def test_centroid_atypicality_flags_outliers():
+    # a point on its group centroid -> ~0; an outlier -> large; grouping is respected.
+    X = np.array([[1.0, 0.0], [1.0, 0.02], [1.0, -0.02], [-1.0, 0.0],   # group 0 (last is the outlier)
+                  [0.0, 1.0], [0.02, 1.0]])                              # group 1
+    g = np.array([0, 0, 0, 0, 1, 1])
+    a = centroid_atypicality(X, g)
+    assert a[:3].max() < 0.1 and a[3] > 1.5            # in-group tight vs the flipped outlier
+    assert a[4] < 0.1 and a[5] < 0.1                   # group 1 is computed against its own centroid
+
+
+def test_class_witness_precomputed_matches(space):
+    """Passing witness= must give identical scores to computing it internally (the sweep fast-path)."""
+    base = _clonotypes(400, offset=0)
+    motif = _clonotypes(1, offset=300)
+    pos = [pl.concat([_sample(base.sample(120, seed=s)),
+                      _sample(motif, lambda n: np.full(n, 400.0))]) for s in range(4)]
+    neg = [_sample(base.sample(120, seed=s + 50)) for s in range(4)]
+    cand = pl.concat([base.sample(120, seed=0), motif]).unique()
+
+    def group_mean(frames):
+        return np.mean([w @ space.rff.transform(Z)
+                        for Z, w in (space.sample_cloud(f) for f in frames)], axis=0)
+    witness = group_mean(pos) - group_mean(neg)
+
+    a = class_witness(space, pos, neg, cand, top=20)
+    b = class_witness(space, [], [], cand, top=20, witness=witness)   # pos/neg ignored
+    assert np.allclose(a["witness_score"].to_numpy(), b["witness_score"].to_numpy())
+
+
 def test_class_witness_ranks_injected_motif(space):
     # a public motif seeded into every 'pos' sample must surface at the top of the witness
     motif = _clonotypes(1, offset=300)                      # one specific clonotype
@@ -251,3 +315,33 @@ def test_save_load_roundtrip_and_cross_basis_refusal(space, tmp_path):
     with pytest.raises(ValueError, match="prototype hash mismatch"):
         RepertoireSpace.load(p)
     RepertoireSpace.load(p, verify=False)          # explicit override is allowed
+
+
+def test_correct_batch_reduces_to_residualize_and_beats_it_under_confound():
+    """Harmony-lite correct_batch: == residualize at K=1; preserves biology a global
+    mean-subtraction destroys when batch is confounded with a biological cluster."""
+    import numpy as np
+    from mir.repertoire import correct_batch
+    from mir.cohort import residualize
+
+    rng = np.random.default_rng(0)
+    n, d = 200, 10
+    bio = rng.integers(0, 2, n)                              # biological cluster (dominant signal)
+    batch = np.where(rng.random(n) < 0.8, bio, 1 - bio)      # 80% confounded with bio
+    X = rng.normal(0, 0.1, (n, d))
+    X[:, 0] += np.where(bio == 1, 4.0, -4.0)                 # axis 0 = biology
+    X[:, 1] += np.where(batch == 1, 1.5, -1.5)              # axis 1 = batch offset
+
+    # K=1 reduces exactly to residualize
+    assert np.allclose(correct_batch(X, batch, n_clusters=1), residualize(X, batch))
+
+    Xc = correct_batch(X, batch, n_clusters=2, seed=0)
+    Xr = residualize(X, batch)
+
+    def gap(M, lab, ax):
+        return abs(M[lab == 1, ax].mean() - M[lab == 0, ax].mean())
+
+    # batch offset (axis 1) is removed by the cluster-aware correction
+    assert gap(Xc, batch, 1) < 0.5 * gap(X, batch, 1)
+    # biology (axis 0) survives the confound better than plain per-group mean subtraction
+    assert gap(Xc, bio, 0) > gap(Xr, bio, 0)

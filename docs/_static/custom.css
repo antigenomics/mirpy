@@ -1,0 +1,9 @@
+/* Figures with dark ink on a transparent background (schematics, plots exported from LaTeX/gnuplot)
+   stay legible in dark mode by rendering on a white card. Scoped to `.mir-fig` so the theme-aware
+   logo (only-light / only-dark) is untouched. */
+img.mir-fig {
+  background: #ffffff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  max-width: 100%;
+}

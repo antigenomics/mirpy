@@ -3,6 +3,48 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.4.0 — 2026-07-18
+
+Minor: a command-line interface, a uv-based dev setup, and a documentation overhaul. No public
+Python API removed; one optional-dependency group split out.
+
+### Added
+
+- **`mir` command-line interface** (`[project.scripts]`, also `python -m mir.cli`) — the two
+  embedding scales without writing Python:
+  - `mir embed clonotypes SAMPLE` → a per-clonotype TCREMP embedding table (`e0…`).
+  - `mir embed repertoires SAMPLE…` → one repertoire vector `Φ(S)` per sample **per chain** on one
+    shared basis (`phi0…`), with optional `--mmd` pairwise-distance output.
+
+  Inputs are any format `vdjtools.io` reads (AIRR/vdjtools/MiXCR/immunoSEQ/parquet); output is TSV
+  or Parquet. See `mir embed <cmd> -h`. Tests in `tests/test_cli.py`.
+- **`mir.repertoire.correct_batch`** — Harmony-like cluster-aware batch correction on a stacked
+  sample×feature Φ matrix. Removes the batch offset *per soft cluster* (batch-diversity-penalised),
+  so a batch confounded with a biological cluster is corrected without erasing that biology; reduces
+  exactly to `mir.cohort.residualize` at `n_clusters=1` / `theta=0` (`prop:batch`).
+- **`[ann]` optional-dependency group** for the approximate-NN density backend (`pynndescent`).
+
+### Changed
+
+- **Development now uses a repo-local `.venv` via [uv](https://docs.astral.sh/uv/)** instead of
+  conda. `setup.sh` is rewritten (bash/zsh portable; `--dev-parents`, `--docs`, `--tests`); the
+  conda `environment.yml` is removed. Runtime is unchanged — still a pure-Python `py3-none-any` wheel.
+- **`pynndescent` moved from `[bench]` to the new `[ann]` extra.** `[bench]` is now all pure-wheel
+  (no numba/llvmlite), so `pip install "mirpy-lib[bench]"` resolves cleanly on any Python. Users of
+  `density.neighbor_enrichment(backend="ann")` should install `"mirpy-lib[ann]"`.
+- **`vdjtools>=3.0.0`** (was `>=2.3.0`).
+- Documentation overhaul: a use-case-driven user guide, the two CLI commands documented, an
+  examples/notebooks page, `mir.cohort` and `mir.bench.eval` added to the API reference, a logo, and
+  the sample-embedding schematic + real depth-robustness figure. Zero-warning Sphinx build.
+
+### Fixed
+
+- `DEFAULT_GAP_POSITIONS = (3, 4, -4, -3)` had three independent definitions
+  (`distances/junction`, `embedding/tcremp`, `ml/bundle`); now defined once in `distances.junction`
+  and imported, so the coordinate constant cannot drift.
+- `cohort.cluster_samples` docstring described itself; `AntigenMetric` and `mir.bench.eval` gained
+  the docstrings/module-map entries they were missing.
+
 ## 3.3.0 — 2026-07-17
 
 Minor: one new public parameter, nothing removed or changed.

@@ -5,8 +5,10 @@
   (reproduces the paper's Table 1 / S1).
 * :mod:`mir.bench.theory` — reproduce supplementary S1–S3 (distribution laws,
   dissimilarity↔distance correlation, real-vs-model prototype robustness).
+* :mod:`mir.bench.eval` — scorers for the explainable readout (cross-validated AUC,
+  Cox C-index, log-rank) that :func:`mir.explain.channel_report` consumes.
 
-Requires the ``[bench]`` extra (kneed, matplotlib, BioPython for the SW baseline).
+Requires the ``[bench]`` extra (kneed, matplotlib, lifelines; BioPython for the SW baseline).
 """
 
 from mir.bench.metrics import AntigenMetric, cluster, cluster_metrics, estimate_dbscan_eps

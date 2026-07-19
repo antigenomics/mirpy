@@ -112,6 +112,17 @@ Which named channel of ``Φ`` carries the signal, and which clonotypes drive it 
    :undoc-members:
    :show-inheritance:
 
+Cohort / digital donor (``mir.cohort``)
+---------------------------------------
+
+Fuse per-chain repertoire embeddings into one hash-verified, serialisable donor matrix; batch
+residualisation, sample clustering, and incidence biomarkers (Theory T7).
+
+.. automodule:: mir.cohort
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Benchmark harness (``mir.bench``)
 ---------------------------------
 
@@ -141,6 +152,16 @@ Clustering (DBSCAN/HDBSCAN/OPTICS) + F1 / retention / purity.
 Reproduced supplementary theory (S1–S3, T5–T6, codec losslessness).
 
 .. automodule:: mir.bench.theory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.bench.eval``
+~~~~~~~~~~~~~~~~~~
+
+Scorers for the explainable readout: cross-validated AUC, Cox C-index, log-rank.
+
+.. automodule:: mir.bench.eval
    :members:
    :undoc-members:
    :show-inheritance:
@@ -239,5 +260,28 @@ Allele normalisation with default-allele cascade.
 .. automodule:: mir.alleles
    :members:
    :undoc-members:
+   :show-inheritance:
+
+Command-line interface (``mir``)
+--------------------------------
+
+``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with two
+commands, one per embedding scale:
+
+``mir embed clonotypes INPUT``
+   One repertoire's clonotype table → a per-clonotype TCREMP embedding table (columns ``e0…``).
+   Flags: ``--species``, ``--locus`` (inferred when the file has one locus), ``--n-prototypes``,
+   ``--mode {vjcdr3,cdr123}``, ``--pca K`` (compact the table), ``--threads``, ``-o`` (``.tsv`` /
+   ``.parquet``; default stdout TSV).
+
+``mir embed repertoires INPUT...``
+   A dataset of clonotype tables → one repertoire vector ``Φ(S)`` per sample **per chain** on one
+   shared basis (columns ``phi0…``; sample id = filename stem). Flags: ``--locus`` (restrict),
+   ``--weight {log1p,anscombe,distinct}``, ``--blocks mean,diversity[,second]``, ``--n-rff``,
+   ``--n-components``, ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
+   ``--threads``, ``--seed``, ``-o``.
+
+.. automodule:: mir.cli
+   :members: main, build_parser
    :show-inheritance:
 

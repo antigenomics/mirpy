@@ -70,6 +70,17 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
 
 @dataclass
 class AntigenMetric:
+    """Per-antigen clustering quality: F1 of the recovered cluster plus retention.
+
+    Attributes:
+        epitope: The antigen epitope this metric scores.
+        n: Number of clonotypes labelled with this epitope.
+        f1: F1 of the best-matching predicted cluster against the epitope's clonotypes.
+        precision: Precision of that best-matching cluster.
+        recall: Recall of that best-matching cluster.
+        retention: Fraction of the epitope's clonotypes that were clustered (not noise).
+    """
+
     epitope: str
     n: int
     f1: float
