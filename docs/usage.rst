@@ -76,6 +76,13 @@ independent draw from the same pool — ``n_replicates()`` of them, 10 at ``n=10
    scores = [my_metric(TCREmp.from_defaults("human", "TRB", 1000, replicate=r).embed(sample))
              for r in range(10)]                           # spread = prototype-draw sensitivity
 
+Usually it matters very little, and :func:`~mir.bench.theory.prototype_source_correlation` measures
+it directly — it correlates the pairwise junction-distance geometry under two prototype sets, so
+handing it two replicates answers the question at the geometry level. On 400 held-out human-TRB
+queries, two independent draws agree at R = 0.922 (``n=100``), 0.971 (250), 0.990 (500),
+**0.993 (1000, the default)**, 0.997 (2000): from ``n≈500`` up the geometry is effectively
+draw-independent, and only below ``n≈250`` does the particular draw start to show.
+
 .. warning::
 
    Each replicate is a **different coordinate system**. Distances within one are comparable,

@@ -135,6 +135,18 @@ scores = [my_metric(TCREmp.from_defaults("human", "TRB", 1000, replicate=r).embe
 
 Same from the shell: `mir embed clonotypes sample.tsv --n-prototypes 1000 --replicate 3`.
 
+**How much *does* it matter?** Usually very little, and you can check for yourself —
+`bench.theory.prototype_source_correlation(queries, protos_a, protos_b)` correlates the pairwise
+junction-distance geometry under two prototype sets. Two independent draws, 400 held-out human-TRB
+queries:
+
+| prototypes `n` | 100 | 250 | 500 | **1000** (default) | 2000 |
+|---|--:|--:|--:|--:|--:|
+| R between two draws | 0.922 | 0.971 | 0.990 | **0.993** | **0.997** |
+
+So the geometry is essentially draw-independent from `n≈500` up: at the default counts, *which*
+prototypes you drew is not what your result rests on. Below `n≈250` it starts to be.
+
 > Each replicate is a **different coordinate system**. Distances *within* one are comparable;
 > distances *across* two are not. The prototype hash covers the replicate index, so codecs,
 > `RepertoireSpace` and `DonorCohort` all refuse to mix them — compare summary statistics across

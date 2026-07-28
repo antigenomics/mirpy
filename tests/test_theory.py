@@ -34,11 +34,29 @@ def test_s1_distance_is_extreme_value_not_normal():
 
 
 def test_s3_prototype_source_robustness():
-    # distances from two disjoint TRB prototype sets are highly correlated
-    query = _CDR3[:120]
-    protos = load_prototypes("human", "TRB", n=2000)["junction_aa"].to_list()
-    r = prototype_source_correlation(query, protos[:1000], protos[1000:])
-    assert r["pearson"] > 0.8
+    # S3: two *independent* prototype draws (disjoint replicate blocks) give the same geometry.
+    # Queries are held out of both blocks. Pins the figure published in README/usage.rst:
+    # R = 0.993 at the default n=1000 — i.e. results do not rest on which prototypes were drawn.
+    query = load_prototypes("human", "TRB", n=400, replicate=24)["junction_aa"].to_list()
+    a = load_prototypes("human", "TRB", n=1000, replicate=0)["junction_aa"].to_list()
+    b = load_prototypes("human", "TRB", n=1000, replicate=1)["junction_aa"].to_list()
+    assert not set(a) & set(b)                       # independent draws, not a re-slice
+    r = prototype_source_correlation(query, a, b)
+    assert r["pearson"] > 0.98
+
+
+def test_prototype_draw_agreement_grows_with_n():
+    # the other half of the published table: below n~250 the particular draw does start to show
+    query = load_prototypes("human", "TRB", n=200, replicate=24)["junction_aa"].to_list()
+
+    def agreement(n):
+        a = load_prototypes("human", "TRB", n=n, replicate=0)["junction_aa"].to_list()
+        b = load_prototypes("human", "TRB", n=n, replicate=1)["junction_aa"].to_list()
+        return prototype_source_correlation(query, a, b)["pearson"]
+
+    small, large = agreement(100), agreement(1000)
+    assert small < large                              # more prototypes -> more draw-independent
+    assert small > 0.85 and large > 0.98
 
 
 def test_shm_drift_monotone_and_bounded():
