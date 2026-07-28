@@ -49,12 +49,13 @@ df = pl.DataFrame({
 X = model.embed(df)          # (2, 9000) float32 — 3 distances × 3000 prototypes
 ```
 
-Downstream (cluster antigen-specific TCRs):
+Downstream (cluster antigen-specific TCRs — needs `[bench]` for the kneedle `eps`, and a real
+set of clonotypes rather than the two above):
 
 ```python
 from mir.embedding.pca import pca_denoise
 from mir.bench.metrics import cluster, cluster_metrics
-labels = cluster(pca_denoise(X, n_components=50))
+labels = cluster(pca_denoise(model.embed(vdjdb_df), n_components=50))
 ```
 
 Paired chains concatenate per-chain embeddings via `PairedTCREmp`. Input/output are AIRR polars
@@ -149,9 +150,9 @@ P_gen model (the ALICE regime); the "water level" of a naive repertoire is handl
 empirical-null calibration. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
 live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo.
 
-At whole-repertoire scale, pass `neighbor_enrichment(..., backend="kdtree")` (exact scipy cKDTree,
-5–9× faster than the default BallTree) or `backend="ann"` (approximate pynndescent, ~30× faster
-past ~10⁵ clones, trading a small conservative undercount; `pip install "mirpy-lib[ann]"`).
+The default backend is `"kdtree"` (exact scipy cKDTree, all cores). At whole-repertoire scale pass
+`backend="ann"` (approximate pynndescent, ~30× faster past ~10⁵ clones, trading a small conservative
+undercount; `pip install "mirpy-lib[ann]"`).
 
 ## Sample-level (repertoire) embedding (`mir.repertoire`)
 
@@ -214,7 +215,7 @@ mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, 
 | Stage | Knob | Default | Notes |
 |---|---|---|---|
 | Embedding (junction distance) | `TCREmp(..., threads=N)` | `0` = **all cores** | The C++ `seqtree.gapblock` scorer; releases the GIL, ~530 M pairs/s @16 cores. `threads=1` for a serial run. |
-| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"exact"` (BallTree, **1 core**) | `backend="kdtree"` = exact scipy cKDTree, **all cores** (`workers=-1`), 5–9× faster; `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5. Prefer `kdtree` for multicore exact. |
+| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"kdtree"` (scipy cKDTree, **all cores**) | Exact and multithreaded (`workers=-1`), 5–9× faster than the BallTree baseline. `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5; `backend="exact"` = the 1-core BallTree baseline, for reproducing older runs. |
 | Clustering | `cluster(..., n_jobs=-1)` | sklearn default (1) | forwarded to DBSCAN/OPTICS/HDBSCAN via `**kwargs`; parallelizes the neighbour search. |
 | BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
 | Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1` pins the second GPU. Torch-free paths (`density`, `repertoire`) never touch the GPU. |

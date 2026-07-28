@@ -3,7 +3,7 @@
 # background subtraction, per-clonotype significance, noise filtering, and clustering.
 # Self-contained on the bundled human_TRB prototypes (an injected convergent family plays
 # the role of an antigen-specific cluster) — no downloads.
-# Run with:  marimo edit notebooks/density.py
+# Run with:  marimo edit examples/density.py
 import marimo
 
 __generated_with = "0.23.14"
@@ -153,7 +153,8 @@ def _(mo):
         hits = day15_df.filter(enriched_mask(res))
         ```
 
-        See `experiments/benchmark_density_{yfv,ankspond,tcrnet}.py`.
+        See `benchmarks/benchmark_density_{yfv,ankspond,tcrnet}.py` in the companion
+        `2026-mirpy-analysis` repo.
         """
     )
     return

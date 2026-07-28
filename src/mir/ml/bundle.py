@@ -8,8 +8,10 @@ system. A :class:`CodecBundle` therefore serializes, as one artifact:
 * a **prototype hash** (identity of the prototype set the embedding was built on),
 * the model weights and the metadata needed to reproduce/verify it.
 
-Loading verifies the prototype hash against the currently-bundled prototypes, so a codec
-can never be silently used to produce embeddings in a different, incomparable space.
+Reconstructing a usable encoder (:meth:`CodecBundle.forward_encoder`) verifies the prototype
+hash against the currently-bundled prototypes, so a codec can never be silently used to produce
+embeddings in a different, incomparable space. :meth:`CodecBundle.load` only deserializes — call
+:meth:`matches_current_prototypes` if you touch ``transform`` / ``model`` directly.
 """
 
 from __future__ import annotations

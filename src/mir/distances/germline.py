@@ -115,9 +115,15 @@ class GermlineDistances:
                 f"Component {component!r} unavailable for {self.species}_{self.locus}; "
                 f"have {sorted(self._components)}"
             ) from None
-        q = np.fromiter((c.resolve(a) for a in query_alleles), dtype=np.intp)
+        # A repertoire has ~10^5-10^6 rows but only ~10^2 distinct alleles: resolve each distinct
+        # string once, gather the small (n_distinct, K) table, then expand by row. Dict-keyed (not
+        # np.unique) so nulls are handled — allele_with_default(None) is a valid fallback lookup.
         p = np.fromiter((c.resolve(a) for a in proto_alleles), dtype=np.intp)
-        return c.ext[np.ix_(q, p)]
+        rows: dict[str | None, int] = {}
+        inv = np.fromiter(
+            (rows.setdefault(a, len(rows)) for a in query_alleles), dtype=np.intp)
+        small = c.ext[np.ix_(np.fromiter((c.resolve(a) for a in rows), dtype=np.intp), p)]
+        return small[inv]
 
 
 @lru_cache(maxsize=None)

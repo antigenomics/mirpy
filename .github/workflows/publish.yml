@@ -54,18 +54,20 @@ jobs:
           path: dist/
       - name: Validate package version matches release tag
         run: |
-          # PEP 440 comparison, so a tag like v3.1.0-alpha.0 matches pyproject version 3.1.0a0.
+          # PEP 440 comparison, so a tag like v3.1.0-alpha.0 matches version 3.1.0a0. The version
+          # is read off the built wheel (hatchling takes it from src/mir/__init__.py::__version__),
+          # so this checks what actually gets uploaded rather than a second copy in a manifest.
           python -m pip install --quiet packaging
           python - <<'PY'
-          import tomllib
           from pathlib import Path
           from packaging.version import Version
-          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          wheel = next(Path("dist").glob("*.whl")).name   # mirpy_lib-<version>-py3-none-any.whl
+          version = wheel.split("-")[1]
           tag = "${{ github.event.release.tag_name }}"
           norm = tag[1:] if tag.startswith("v") else tag
           if Version(version) != Version(norm):
-              raise SystemExit(f"Version mismatch: pyproject.toml={version!r} != tag {tag!r} (normalized {norm!r})")
-          print(f"Version OK: pyproject {version} == tag {tag}")
+              raise SystemExit(f"Version mismatch: wheel={version!r} != tag {tag!r} (normalized {norm!r})")
+          print(f"Version OK: wheel {version} == tag {tag}")
           PY
       - name: List distributions
         run: ls -R dist/

@@ -18,8 +18,8 @@ Three knobs, all defaulting to the published v3 coordinate system:
   stay BLOSUM62, so mix scales only deliberately).
 * ``metric`` — ``"squared"`` (default) returns the Gram dissimilarity ``d``; ``"sqrt"`` returns the
   induced metric ``ρ=√d``. ``d`` is a *squared* Hilbert distance, so it is not itself a metric (it
-  violates the triangle inequality); ``ρ`` is. Benchmarked a wash vs ``d`` (see
-  ``SQRT_D_MIGRATION.md``), so ``d`` is the default. The gap-block placement is a monotone argmin,
+  violates the triangle inequality); ``ρ`` is. Benchmarked a wash vs ``d``, so ``d`` is the
+  default (the published v3 space). The gap-block placement is a monotone argmin,
   identical under ``d`` and ``√d``; the sqrt is applied to the chosen value.
 """
 
@@ -53,10 +53,16 @@ def _apply_metric(sm, metric: str) -> np.ndarray:
 def _sw_distance_matrix(queries, refs) -> np.ndarray:
     """Paper-exact Smith-Waterman ``d(a,b)=s(a,a)+s(b,b)−2·s(a,b)`` (local BLOSUM62, linear gap).
 
-    Lazy BioPython (``[bench]``/``[build]`` extra). O(n·K) pairwise alignments — for validation and
+    Lazy BioPython (``[build]`` extra). O(n·K) pairwise alignments — for validation and
     small-scale comparison against the gap-block approximation, not whole-repertoire embedding.
     """
-    from Bio.Align import PairwiseAligner, substitution_matrices
+    try:
+        from Bio.Align import PairwiseAligner, substitution_matrices
+    except ImportError as exc:  # BioPython is not a core dep — it ships in [build]
+        raise ImportError(
+            "alignment='sw' needs BioPython: pip install biopython "
+            '(or pip install "mirpy-lib[build]")'
+        ) from exc
 
     aligner = PairwiseAligner()
     aligner.mode = "local"

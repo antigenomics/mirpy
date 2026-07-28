@@ -142,7 +142,8 @@ def _mutate(seq: str, k: int, rng) -> str:
     if not interior:
         return seq
     for p in rng.choice(interior, min(k, len(interior)), replace=False):
-        s[p] = _AA[int(rng.integers(20))]
+        choices = _AA.replace(s[p], "")   # a *different* residue, as in density._mutate1
+        s[p] = choices[int(rng.integers(len(choices)))]
     return "".join(s)
 
 

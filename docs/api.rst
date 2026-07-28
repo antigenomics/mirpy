@@ -276,10 +276,11 @@ commands, one per embedding scale:
 
 ``mir embed repertoires INPUT...``
    A dataset of clonotype tables → one repertoire vector ``Φ(S)`` per sample **per chain** on one
-   shared basis (columns ``phi0…``; sample id = filename stem). Flags: ``--locus`` (restrict),
-   ``--weight {log1p,anscombe,distinct}``, ``--blocks mean,diversity[,second]``, ``--n-rff``,
-   ``--n-components``, ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
-   ``--threads``, ``--seed``, ``-o``.
+   shared basis (columns ``phi0…``; sample id = filename stem). Flags: ``--species``, ``--locus``
+   (restrict), ``--n-prototypes``, ``--weight {log1p,anscombe,distinct}``,
+   ``--blocks mean,diversity[,second]``, ``--n-rff``, ``--n-rff-second``, ``--n-components``,
+   ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix), ``--threads``,
+   ``--seed``, ``-o``.
 
 .. automodule:: mir.cli
    :members: main, build_parser

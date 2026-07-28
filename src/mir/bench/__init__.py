@@ -8,7 +8,8 @@
 * :mod:`mir.bench.eval` — scorers for the explainable readout (cross-validated AUC,
   Cox C-index, log-rank) that :func:`mir.explain.channel_report` consumes.
 
-Requires the ``[bench]`` extra (kneed, matplotlib, lifelines; BioPython for the SW baseline).
+Requires the ``[bench]`` extra (kneed, matplotlib, seaborn, huggingface_hub, lifelines). The
+paper-exact Smith-Waterman baseline (``alignment="sw"``) needs BioPython, which ships in ``[build]``.
 """
 
 from mir.bench.metrics import AntigenMetric, cluster, cluster_metrics, estimate_dbscan_eps

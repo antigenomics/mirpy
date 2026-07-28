@@ -2,18 +2,16 @@
 
 import os
 import sys
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 # mir is installed (pip install -e .), but add the src dir so autodoc works from a bare checkout.
 sys.path.insert(0, os.path.abspath("../src"))
 
+from mir import __version__  # noqa: E402  (needs the sys.path line above)
+
 project = "mirpy"
 author = "ISALGO laboratory"
 copyright = "2026, ISALGO laboratory"
-try:
-    version = release = _pkg_version("mirpy-lib")
-except PackageNotFoundError:
-    version = release = "3.4.0"
+version = release = __version__
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -21,7 +19,6 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
-    "nbsphinx",
 ]
 
 # mir is pure Python; core deps (numpy/polars/scipy/scikit-learn/seqtree/vdjtools) import in the docs
@@ -51,7 +48,7 @@ intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 templates_path = ["_templates"]
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
-exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+exclude_patterns = ["_build"]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"mirpy {release}"
@@ -61,4 +58,3 @@ html_theme_options = {
     "github_url": "https://github.com/antigenomics/mirpy",
     "navigation_with_keys": True,
 }
-nbsphinx_execute = "never"

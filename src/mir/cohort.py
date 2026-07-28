@@ -78,6 +78,14 @@ def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
     M = np.stack(M)
     if pca is None:
         if M.shape[0] <= id_pca:
+            import warnings
+
+            # all-nan → imputed to the column median → an all-zero, information-free channel.
+            # Loud, because the identity block is the point of the digital donor.
+            warnings.warn(
+                f"only {M.shape[0]} donors carry this chain but id_pca={id_pca}: the identity "
+                "channel is left empty (imputed to a constant). Lower id_pca or drop the chain.",
+                stacklevel=3)
             return out, None                       # too few to reduce; leave holes (imputed)
         pca = make_pipeline(StandardScaler(), PCA(id_pca, random_state=seed)).fit(M)
     Mr = pca.transform(M)
@@ -155,9 +163,19 @@ class DonorCohort:
         return (raw - mu) / sd
 
     def save(self, path) -> None:
-        """Pickle the cohort: ``X``/``spec``/``rows``/``meta``/identity PCAs + each locus's basis."""
+        """Pickle the cohort: ``X``/``spec``/``rows``/``meta``/identity PCAs + each locus's basis.
+
+        Raises:
+            ValueError: If any locus basis uses a non-default ``matrix`` / ``alignment`` — ``load``
+                could not rebuild that coordinate system (see
+                :func:`mir.repertoire._check_rebuildable`).
+        """
         import pickle
 
+        from mir.repertoire import _check_rebuildable
+
+        for sp in self.spaces.values():
+            _check_rebuildable(sp.clono.model)
         spaces_ser = {c: {"meta": sp.meta, "space": sp.clono.space, "scaler": sp.clono.scaler,
                           "pca": sp.clono.pca, "rff": sp.rff, "rff2": sp.rff2}
                       for c, sp in self.spaces.items()}

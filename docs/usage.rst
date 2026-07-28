@@ -46,7 +46,7 @@ pairwise alignment distance (Theory T1).
    from mir.embedding.tcremp import TCREmp
 
    model = TCREmp.from_defaults("human", "TRB", n_prototypes=1000)
-   X = model.embed(sample)                  # (3, 3K) float32, interleaved [v, j, junction]
+   X = model.embed(sample)                  # (3 rows, 3×1000) float32, interleaved [v, j, junction]
 
    # paired chains: a dict of per-locus frames -> concatenated embedding
    from mir.embedding.tcremp import PairedTCREmp
@@ -102,14 +102,14 @@ adaptive-bandwidth balloon estimator with a Poisson/binomial test and BH q-value
 
    # background = a biological control (TCRNET) or generate_background(...) (ALICE, P_gen)
    space, obs_emb, bg_emb = fit_density_space(model, obs_df, control_df, n_components=20)
-   res  = neighbor_enrichment(obs_emb, bg_emb, test="binomial")   # backend="kdtree" for multicore
+   res  = neighbor_enrichment(obs_emb, bg_emb, test="binomial")   # exact multicore kdtree by default
    hits = obs_df.filter(enriched_mask(res, alpha=0.05))           # background-subtracted clones
    labels, mask = denoise_and_cluster(obs_emb, res)               # noise-filter + cluster the hits
 
 Prefer a biological control (e.g. pre/post-vaccination) over the P_gen background — differential
-enrichment cancels generic public convergence and isolates the antigen-specific response. At
-whole-repertoire scale, pass ``backend="kdtree"`` (exact, multicore) or ``backend="ann"``
-(approximate, ``[ann]`` extra). See ``examples/density.py``.
+enrichment cancels generic public convergence and isolates the antigen-specific response. The
+neighbour engine defaults to ``backend="kdtree"`` (exact, multicore); at whole-repertoire scale pass
+``backend="ann"`` (approximate, ``[ann]`` extra). See ``examples/density.py``.
 
 Repertoire embedding Φ(S) + MMD
 -------------------------------
@@ -215,7 +215,9 @@ and mark the kernel-mean blocks attributable so the readout can go one hop furth
    for c in chains:
        b.add("identity", ident[c], attributable=True).add("diversity", hill[c])
    X, spec = b.add("coverage", log_reads).build()      # median-impute + z-score
-   rep = channel_report(X, spec, lambda B: cv_cindex(rows, B), base=c_base, mode="both")
+   rep = channel_report(X, spec,
+                        lambda B: cv_cindex(dur, evt, base=clin, block=B, n_pc=8),
+                        base=cv_cindex(dur, evt, base=clin), mode="both")
 
    channel_drivers(rep, space=space, pos=pos, neg=neg, candidates=cands)
 
@@ -233,8 +235,9 @@ their own:
    from mir.bench.eval import cv_auc, cv_cindex, km_logrank
 
    mean, std = cv_auc(X, y)                             # repeated stratified-CV AUC (mean, std)
-   c = cv_cindex(rows, block=X, base=base)              # Cox C-index gain of X over base covariates
-   p = km_logrank(durations, events, groups)           # multivariate log-rank p-value
+   c = cv_cindex(dur, evt, base=clin, block=X, n_pc=8)  # Cox C-index of clinical covariates + X
+   c0 = cv_cindex(dur, evt, base=clin)                  # …the base to compare it against
+   p = km_logrank(dur, evt, groups)                     # multivariate log-rank p-value
 
 Needs the ``[bench]`` extra (scikit-learn is core; ``cv_cindex`` / ``km_logrank`` use ``lifelines``).
 
@@ -250,9 +253,10 @@ automatic (CUDA → MPS → CPU; override with ``device=`` or ``MIR_DEVICE``).
 
    from mir.ml.bundle import CodecBundle
 
-   bundle = CodecBundle.load("path/to/codec")   # refuses a prototype-hash mismatch
-   encoder = bundle.forward_encoder()           # a ForwardEncoder
-   codes = encoder.encode(sample["junction_aa"].to_list())   # CDR3 strings -> compact codes
+   bundle = CodecBundle.load("path/to/codec")
+   encoder = bundle.forward_encoder()           # refuses a prototype-hash mismatch
+   codes = encoder.code(sample["junction_aa"].to_list())     # CDR3 strings -> compact codes
+   emb = encoder.encode(sample["junction_aa"].to_list())     # …or the full-space embedding
 
 Training scripts and shipped bundles live in the companion analysis repo; this tier is experimental.
 
@@ -265,5 +269,10 @@ data via ``examples/theory.py``; the full benchmark suite lives in the ``2026-mi
 
 .. code-block:: python
 
-   from mir.bench.vdjdb import load_vdjdb
+   from mir.bench.vdjdb import load_vdjdb, antigen_subset
    from mir.bench.metrics import cluster, cluster_metrics
+
+   df = antigen_subset(load_vdjdb("vdjdb.slim.txt.gz"), chain="TRB", min_records=30)
+   X = model.embed(df)                                   # df is already AIRR-named
+   labels = cluster(pca_denoise(X, n_components=50))
+   metrics = cluster_metrics(labels, df["epitope"])      # {epitope: AntigenMetric}

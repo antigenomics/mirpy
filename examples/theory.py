@@ -2,7 +2,7 @@
 # Reactive marimo app reproducing the embedding's claimed properties on the bundled
 # human_TRB prototypes: D_ij vs d_ij correlation (T1), the Gamma / Frechet distribution
 # laws (T4), and real-vs-model prototype robustness (S3).
-# Run with:  marimo edit notebooks/theory.py
+# Run with:  marimo edit examples/theory.py
 import marimo
 
 __generated_with = "0.23.14"

@@ -2,7 +2,7 @@
 # Reactive marimo app: pick a mode and prototype count, embed a TCR set, PCA-denoise,
 # and see the 2-D UMAP + DBSCAN clustering. Uses a local VDJdb dump for antigen colours
 # when present (tests/assets/vdjdb.slim.txt.gz), else the bundled prototypes.
-# Run with:  marimo edit notebooks/quickstart.py
+# Run with:  marimo edit examples/quickstart.py
 import marimo
 
 __generated_with = "0.23.14"

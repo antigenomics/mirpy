@@ -89,8 +89,13 @@ class RandomFourierFeatures:
 
     def transform(self, Z: np.ndarray) -> np.ndarray:
         """Map ``(n, p)`` embedding rows to ``(n, D)`` random features."""
-        proj = np.asarray(Z, dtype=np.float64) @ self.omega + self.b
-        return np.sqrt(2.0 / self.dim) * np.cos(proj)
+        # in-place after the matmul: the (n, D) block is the memory bottleneck of a deep
+        # sample (n=2e5, D=2048 → 3 GB), and the naive expression peaks at ~3× that.
+        proj = np.asarray(Z, dtype=np.float64) @ self.omega
+        proj += self.b
+        np.cos(proj, out=proj)
+        proj *= np.sqrt(2.0 / self.dim)
+        return proj
 
 
 def _make_rff(dim: int, n_rff: int, length_scale: float, seed: int) -> RandomFourierFeatures:
@@ -101,6 +106,22 @@ def _make_rff(dim: int, n_rff: int, length_scale: float, seed: int) -> RandomFou
 
 
 # ------------------------------------------------------------------ RepertoireSpace
+
+
+def _check_rebuildable(model) -> None:
+    """Refuse to serialize a basis whose model ``load`` cannot rebuild identically.
+
+    ``load`` reconstructs the ``TCREmp`` from ``meta`` (species/locus/n_prototypes/mode/metric/
+    gap_positions). A custom ``matrix=`` or ``alignment="sw"`` is *not* in ``meta`` and is *not*
+    covered by the prototype hash, so it would come back as the default gapblock/BLOSUM62 space —
+    a different coordinate system that passes verification. Fail at save time instead.
+    """
+    if getattr(model, "_matrix", None) is not None or getattr(model, "_alignment", "gapblock") != "gapblock":
+        raise ValueError(
+            "cannot save a basis fit with a custom matrix= or alignment=: those knobs are not "
+            "recorded, so loading would silently rebuild the default gapblock/BLOSUM62 space. "
+            "Refit with the default coordinate system, or keep the fitted object in-process."
+        )
 
 
 @dataclass
@@ -132,9 +153,16 @@ class RepertoireSpace:
         return self.transform_clonotypes(df), w
 
     def save(self, path) -> None:
-        """Pickle the basis (scaler + PCA + RFF + meta); the model is reconstructed on load."""
+        """Pickle the basis (scaler + PCA + RFF + meta); the model is reconstructed on load.
+
+        Raises:
+            ValueError: If the model uses a non-default ``matrix`` / ``alignment``. Neither is
+                recorded in ``meta``, so :meth:`load` would silently rebuild a *different*
+                coordinate system while the prototype-hash check still passed.
+        """
         import pickle
 
+        _check_rebuildable(self.clono.model)
         with open(path, "wb") as fh:
             pickle.dump(
                 {"meta": self.meta, "space": self.clono.space, "scaler": self.clono.scaler,

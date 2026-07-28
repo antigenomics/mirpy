@@ -8,7 +8,7 @@ TCRNET. Both are **graph** methods (a sequence trie).
 
 This module reimplements the same enrichment test with neighbour counting in the
 **TCREMP embedding space** instead of on a trie — the graph-free density ratio the
-theory specifies (``THEORY.md`` T6, ``appendix/tcremp_theory.tex`` §Density):
+theory specifies (Theory T6):
 
     E(z) = f_obs(z) / f_gen(z),      f_gen = φ_# P_gen
 
@@ -71,7 +71,7 @@ _REQUIRED_COLS = ("v_call", "j_call", "junction_aa")
 _AA = "ACDEFGHIKLMNPQRSTVWY"
 _AUTO_CHUNK_ROWS = 500_000
 """Above this pooled row count, :func:`fit_density_space` auto-routes to the chunked path: the
-single-shot path would materialize a >10 GB raw matrix (and ~2× again on the float64 upcast)."""
+single-shot path would materialize a >10 GB raw matrix."""
 
 
 def _slice(emb: np.ndarray, space: str) -> np.ndarray:
@@ -98,7 +98,7 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
             metric=getattr(model, "metric", "squared"),      # match the model's coordinate options
             matrix=getattr(model, "_matrix", None),
             alignment=getattr(model, "_alignment", "gapblock"),
-        ).astype(np.float32)  # float32 halves the whole-repertoire memory footprint
+        ).astype(np.float32, copy=False)  # already float32; float32 halves the memory footprint
     return _slice(model.embed(df), space).astype(np.float32, copy=False)
 
 
@@ -109,7 +109,9 @@ def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
     Only ``chunk_size × n_features`` of raw embedding is ever resident: each chunk is embedded,
     standardized, projected down to ``n_components``, and dropped. Peak memory is set by the chunk,
     not by ``len(df)`` — which is what makes whole-cohort clouds tractable (a 4.2M-clonotype arm is
-    ~51 GB raw, and ~102 GB again once ``scaler.transform`` upcasts it to float64).
+    ~51 GB raw). The reduced output is float64 (the single-shot path yields float32): the reduced
+    matrix is small, and :func:`neighbor_enrichment` upcasts to float64 anyway, so emitting it
+    directly saves a second full copy there.
     """
     out = np.empty((df.height, pca.n_components_), dtype=np.float64)
     for start in range(0, df.height, chunk_size):
@@ -203,9 +205,9 @@ def fit_density_space(
             both frames is materialized before the PCA is fitted at all.
         chunk_size: Embed and project in batches of this many rows, so the full raw matrix is
             never resident (peak ≈ ``chunk_size × n_features`` instead of ``len(df) × n_features``).
-            Required for whole-cohort clouds: 4.2M clonotypes × 1000 prototypes is ~51 GB raw and
-            ~102 GB after ``scaler.transform`` upcasts to float64, versus ~2.4 GB at
-            ``chunk_size=200_000``. When set and ``pca_fit_cap`` is ``None``, the fit is capped at
+            Required for whole-cohort clouds: 4.2M clonotypes × 1000 prototypes is ~51 GB raw,
+            versus ~2.4 GB at ``chunk_size=200_000``. When set and ``pca_fit_cap`` is ``None``,
+            the fit is capped at
             200k pooled rows — fitting on everything would defeat the purpose. ``None`` (default)
             keeps the original single-shot path exactly.
 
@@ -403,6 +405,8 @@ def neighbor_enrichment(
     weight: str = "log1p",
     orphan: bool = True,
     backend: str = "kdtree",
+    k_max: int = 96,
+    seed: int = 0,
 ) -> EnrichmentResult:
     """Continuous neighbour-enrichment test in one embedding coordinate system.
 
@@ -458,6 +462,9 @@ def neighbor_enrichment(
             to ``"exact"`` at a *fixed* ``radius``; in balloon mode counts differ by at most ±1 at the
             ball boundary (float-epsilon in the computed k-th-neighbour distance), which is negligible —
             pass ``backend="exact"`` only to reproduce the BallTree baseline exactly.
+        k_max: ``backend="ann"`` only — kNN-graph degree. A clonotype whose ball holds all ``k_max``
+            neighbours is undercounted (and warned about); raise this when that warning fires.
+        seed: ``backend="ann"`` only — pynndescent ``random_state``.
 
     Returns:
         An :class:`EnrichmentResult`; ``fold`` is the (calibrated) density ratio ``E(z)``. In
@@ -520,7 +527,7 @@ def neighbor_enrichment(
                     for x in obs_tree.query_ball_point(obs, rad, workers=-1)]
     elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
         rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
-            obs, bg, radius, lambda0, n_ref)
+            obs, bg, radius, lambda0, n_ref, k_max=k_max, seed=seed)
     else:
         raise ValueError(f"backend must be 'exact', 'kdtree', or 'ann', got {backend!r}")
     p_bg = (n_bg + pseudocount) / (n_bg_total + pseudocount)

@@ -24,8 +24,8 @@ construction. Input is a polars DataFrame with the ``vdjtools.io.schema`` column
 ``v_call``, ``j_call``, ``junction_aa``.
 
 Coordinate-system options (all default to the published v3 space): ``metric="sqrt"`` maps
-every block to the metric ``ρ=√d`` (benchmarked a wash — ``SQRT_D_MIGRATION.md`` — so
-``"squared"`` is default); ``matrix=`` a custom ``seqtree.SubstitutionMatrix`` and
+every block to the metric ``ρ=√d`` (benchmarked a wash, so ``"squared"`` is default);
+``matrix=`` a custom ``seqtree.SubstitutionMatrix`` and
 ``alignment="sw"`` (paper-exact Smith-Waterman, slow) reshape the junction block — see
 :func:`mir.distances.junction.junction_distance_matrix`.
 
@@ -178,6 +178,11 @@ class TCREmp:
         missing = set(_REQUIRED_COLS) - set(clonotypes.columns)
         if missing:
             raise ValueError(f"clonotypes missing columns: {sorted(missing)}")
+        # a null junction reaches seqtree as None and dies there without naming the column/row
+        n_null = clonotypes["junction_aa"].is_null().sum()
+        if n_null:
+            raise ValueError(f"junction_aa has {n_null} null value(s); drop or impute them first "
+                             "(v_call/j_call nulls are fine — they take the allele fallback)")
 
         n = clonotypes.height
         out = np.empty((n, 3 * self.n_prototypes), dtype=np.float32)
@@ -189,7 +194,7 @@ class TCREmp:
         out[:, 2::3] = self._junction_distances(clonotypes["junction_aa"].to_list())
         if self.metric == "sqrt":
             # all three blocks are the same Gram dissimilarity d; sqrt uniformly -> the metric
-            # ρ = √d, homogeneous across V/J/junction (SQRT_D_MIGRATION.md §3.2).
+            # ρ = √d, homogeneous across V/J/junction.
             np.sqrt(np.clip(out, 0.0, None, out=out), out=out)
         return out
 
@@ -261,9 +266,12 @@ if __name__ == "__main__":
     import seqtree
     Xp = TCREmp.from_defaults("human", "TRB", n_prototypes=50,
                               matrix=seqtree.SubstitutionMatrix.pam250()).embed(df)
-    Xw = TCREmp.from_defaults("human", "TRB", n_prototypes=50, alignment="sw").embed(df)
     assert np.isfinite(Xp).all() and Xp.shape == (2, 150)
-    assert np.isfinite(Xw).all() and Xw.shape == (2, 150)
-    print(f"  metric=sqrt ρ==√d OK; pam250 & SW alignment OK (SW junc range "
-          f"[{Xw[:, 2::3].min():.1f}, {Xw[:, 2::3].max():.1f}])")
+    try:  # alignment="sw" needs BioPython ([build] extra) — optional, so skip when absent
+        Xw = TCREmp.from_defaults("human", "TRB", n_prototypes=50, alignment="sw").embed(df)
+        assert np.isfinite(Xw).all() and Xw.shape == (2, 150)
+        sw = f"SW junc range [{Xw[:, 2::3].min():.1f}, {Xw[:, 2::3].max():.1f}]"
+    except ImportError:
+        sw = "SW skipped (no BioPython)"
+    print(f"  metric=sqrt ρ==√d OK; pam250 OK; {sw}")
     print("mir.embedding.tcremp self-check OK")

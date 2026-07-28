@@ -60,7 +60,8 @@ Typical usage::
     for c in chains:
         b.add("identity", ident[c], attributable=True).add("diversity", hill[c])
     X, spec = b.add("coverage", log_reads).build()       # median-impute + z-score
-    rep = channel_report(X, spec, lambda B: cv_cindex(rows, B), base=c_base, mode="both")
+    rep = channel_report(X, spec, lambda B: cv_cindex(dur, evt, base=clin, block=B, n_pc=8),
+                         base=cv_cindex(dur, evt, base=clin), mode="both")
     channel_drivers(rep, space=space, pos=pos, neg=neg, candidates=cands)   # if rep.best is a KME
 """
 
@@ -365,10 +366,11 @@ def channel_report(
         X: ``(n_samples, spec.width)`` feature matrix.
         spec: Channel map for ``X``'s columns.
         scorer: ``X_block → float``, **higher is better**, closing over the study's labels
-            (``lambda B: cv_auc(B, y)[0]``, ``lambda B: cv_cindex(rows, B, n_pc=8)``). Any
+            (``lambda B: cv_auc(B, y)[0]``,
+            ``lambda B: cv_cindex(dur, evt, base=clin, block=B, n_pc=8)``). Any
             block-width-dependent choice — in-fold PCA, penaliser — belongs inside the closure;
             this function only slices columns.
-        base: Reference score with **no** channel features. Cox: ``cv_cindex(rows, None)``.
+        base: Reference score with **no** channel features. Cox: ``cv_cindex(dur, evt, base=clin)``.
             Classification: ``0.5``. ``None`` → ``delta`` is ``nan`` and ranking falls back to
             ``score`` (an identical ordering — ``delta`` is a constant shift of ``score``).
         mode: ``"in"`` (default; each channel alone vs ``base`` — the marginal question),

@@ -3,6 +3,61 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+A documentation-accuracy pass plus the small fixes found by the accompanying code audit. No public
+API removed; two new keyword arguments.
+
+### Added
+
+- **`neighbor_enrichment(..., k_max=, seed=)`** — forwarded to the `backend="ann"` engine, which
+  already warned "raise `k_max`" for a saturated neighbour ball but gave no way to do it.
+
+### Changed
+
+- **`GermlineDistances.matrix` resolves each *distinct* allele once** instead of once per row, then
+  gathers a small `(n_distinct, K)` table and expands it. A repertoire has ~10⁵–10⁶ rows but ~10²
+  distinct alleles, so this is the dominant cost of `TCREmp.embed`: measured **2.32 s → 1.04 s** for
+  200k clonotypes × 1000 prototypes (the germline block itself 0.765 s → 0.072 s), bit-identical
+  output, nulls still take the allele fallback.
+- **`RandomFourierFeatures.transform` computes in place** after the matmul — peak memory for a deep
+  sample drops ~3× (measured 9.2 → 3.2 GiB at n=200k, D=2048), output identical.
+- **`RepertoireSpace.save` / `DonorCohort.save` refuse a model built with a custom `matrix=` or
+  `alignment=`.** Neither knob is recorded in `meta`, so `load` rebuilt the default
+  gapblock/BLOSUM62 space — a *different* coordinate system that still passed the prototype-hash
+  check. Failing at save time keeps the comparability invariant honest.
+- **`TCREmp.embed` rejects null `junction_aa`** with a message naming the column and the row count,
+  instead of an opaque `TypeError: object of type 'NoneType' has no len()` from inside seqtree.
+- **`fit_donor_embeddings` warns when a locus has too few donors to fit the identity PCA** — that
+  block was silently emitted as all-NaN, imputed to a constant, information-free channel.
+- **`alignment="sw"` raises a directed `ImportError`** ("pip install biopython") instead of a bare
+  `ModuleNotFoundError`; `python -m mir.embedding.tcremp` now skips the SW leg when BioPython is
+  absent, so the self-check passes in the default `[dev,bench]` environment.
+- **Determinism**: `bench.theory._mutate` no longer "mutates" a residue to itself (5.3% of `k=1`
+  substitutions were no-ops, and it disagreed with `density._mutate1`); `load_vdjdb` and
+  `generate_prototypes` no longer depend on `.unique()`'s arbitrary row order.
+- **Single-sourced the version**: `pyproject.toml` takes it from `src/mir/__init__.py`
+  (`[tool.hatch.version]`), `docs/conf.py` imports `mir.__version__`, and `publish.yml` validates
+  the release tag against the built wheel — one copy instead of three.
+- **Tests**: the survival-scorer test is no longer marked `integration` (lifelines ships in
+  `[bench]`, which CI installs), lifting `mir.bench.eval` from 23% to 64% coverage in CI;
+  `test_set_encoder.py` skips instead of failing on a torch-free install, so the documented
+  `pytest tests/` is green again.
+- Docs corrections: the density `backend=` default is `"kdtree"` (all-core exact), not `"exact"`;
+  the `cv_cindex` snippets in the user guide and in `mir.explain` now match the real
+  `(durations, events, *, base, block)` signature (the old form scored every channel `NaN`);
+  `CodecBundle.load` is documented as *not* verifying (its `forward_encoder` does); `encoder.code`
+  vs `encoder.encode`; the `mir embed repertoires` flag list is complete; `SOURCES.md` records the
+  prototypes as `arda-real` (experimental) with `src/`-prefixed regenerate commands; the examples'
+  run lines point at `examples/`, not the old `notebooks/`.
+
+### Removed
+
+- **`tqdm`** from the runtime dependencies — nothing in the package imports it.
+- **`nbsphinx` / `nbsphinx-link` / `ipython`** from the `[docs]` extra, and the unreferenced
+  `docs/requirements.txt`: the docs have contained no notebooks since the examples became marimo
+  scripts. The Sphinx build stays zero-warning under `-W`.
+
 ## 3.4.0 — 2026-07-18
 
 Minor: a command-line interface, a uv-based dev setup, and a documentation overhaul. No public

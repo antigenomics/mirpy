@@ -5,6 +5,7 @@ import polars as pl
 import pytest
 
 pytestmark = pytest.mark.integration
+pytest.importorskip("torch")  # skip, don't fail, on a torch-free install ([ml] extra)
 
 _OLGA = "tests/assets/olga_humanTRB_1000.txt.gz"
 

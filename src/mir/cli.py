@@ -157,6 +157,7 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 
 # --- parser ----------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
+    """Return the ``mir`` argument parser (``embed clonotypes`` / ``embed repertoires``)."""
     p = argparse.ArgumentParser(prog="mir", description=__doc__.splitlines()[0])
     p.add_argument("--version", action="version", version=f"mir {mir.__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -199,6 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Parse ``argv`` (default ``sys.argv[1:]``) and run the requested ``mir`` subcommand."""
     args = build_parser().parse_args(argv)
     args.func(args)
 

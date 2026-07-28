@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mirpy-lib"
-version = "3.4.0"
+dynamic = ["version"]   # single source of truth: src/mir/__init__.py::__version__
 authors = [
   { name="ISALGO lab", email="mikhail.shugay@gmail.com"}
 ]
@@ -31,7 +31,6 @@ dependencies = [
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
   "vdjtools>=3.0.0",
-  "tqdm",
 ]
 license = { text = "GPL-3.0-or-later" }
 
@@ -58,9 +57,6 @@ dev = ["pytest>=8", "pytest-cov", "psutil>=5"]
 docs = [
   "sphinx>=7.2,<9",
   "pydata-sphinx-theme>=0.15,<1",
-  "nbsphinx>=0.9,<1",
-  "nbsphinx-link>=1.3,<2",
-  "ipython>=8,<10",
 ]
 
 [project.scripts]
@@ -71,6 +67,9 @@ Homepage      = "https://github.com/antigenomics/mirpy"
 Repository    = "https://github.com/antigenomics/mirpy"
 Documentation = "https://antigenomics.github.io/mirpy"
 Issues        = "https://github.com/antigenomics/mirpy/issues"
+
+[tool.hatch.version]
+path = "src/mir/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mir"]

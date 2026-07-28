@@ -20,8 +20,9 @@ def test_cv_auc_separates_signal_from_noise():
     assert 0.0 <= s_sig < 0.2                          # returns (mean, std) — a CI, not a point
 
 
-@pytest.mark.integration
 def test_survival_scorers_recover_risk():
+    # not marked integration: lifelines ships in [bench], which CI installs — the fast tier
+    # should cover the survival scorers too (~1 s).
     pytest.importorskip("lifelines")
     from mir.bench.eval import cv_cindex
 

@@ -67,7 +67,9 @@ def _generate(species: str, locus: str, n: int, seed: int) -> pl.DataFrame:
     df = _resolvable(df, species, locus)
     if df.height <= n:
         return df.sort(_COLS)  # deterministic order; fewer than n unique clonotypes available
-    return df.sample(n, seed=seed, shuffle=True)  # diverse uniform-over-clonotype sample
+    # sort first: .unique() above leaves an arbitrary row order, so sampling it is not
+    # reproducible from the same reads + seed (matches the df.height <= n branch).
+    return df.sort(_COLS).sample(n, seed=seed, shuffle=True)  # uniform-over-clonotype sample
 
 
 def generate_all_prototypes(output_dir: Path, n: int = N_PROTOTYPES, seed: int = _SEED,

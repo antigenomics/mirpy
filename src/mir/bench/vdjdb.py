@@ -33,7 +33,9 @@ def load_vdjdb(path: str) -> pl.DataFrame:
             & pl.col("v_call").is_not_null()
             & pl.col("j_call").is_not_null()
         )
-        .unique(subset=["junction_aa", "v_call", "j_call", "locus", "epitope"])
+        # maintain_order: .unique() is otherwise run-to-run nondeterministic, which wobbles
+        # downstream DBSCAN F1 in the third decimal.
+        .unique(subset=["junction_aa", "v_call", "j_call", "locus", "epitope"], maintain_order=True)
     )
 
 
