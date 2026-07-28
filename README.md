@@ -109,6 +109,41 @@ Xc = pca_denoise(X, n_components=p.n_components)          # clustering
 Xr = pca_denoise(X, n_components=p.n_components_recon)    # codec reconstruction
 ```
 
+## Prototypes — which receptors, and how much do they matter?
+
+Every embedding is *distances to prototypes*, so the prototype set **is** the coordinate system.
+mirpy ships one per chain, and you get them without downloading anything:
+
+| | |
+|---|---|
+| What | **10 000 real receptors** per chain — a uniform random sample (fixed `seed=42`) of unique, productive, germline-resolvable clonotypes from arda-annotated real repertoires |
+| Why real | Model-generated junctions have degenerate lengths and embed measurably worse (negative self-prototype distance correlation); real repertoires give a tight, well-behaved manifold |
+| The default | `replicate=0` — the first `n` rows. This is *the* set: every preset, bundled codec, and published number uses it. Don't change it unless you're deliberately testing sensitivity |
+| Chains | human TRA/TRB/TRG/TRD/IGH/IGK/IGL, mouse TRA/TRB (`list_available_prototypes()`) |
+
+**Is my result an artefact of which prototypes I drew?** Take a replicate. The file order is itself a
+uniform shuffle, so each disjoint block of `n` rows is an independent draw from the same pool —
+`n_replicates()` of them, **10 at `n=1000`**, 5 at `n=2000`:
+
+```python
+from mir.embedding.prototypes import n_replicates
+from mir.embedding.tcremp import TCREmp
+
+scores = [my_metric(TCREmp.from_defaults("human", "TRB", 1000, replicate=r).embed(df))
+          for r in range(n_replicates("human", "TRB", 1000))]   # 10 draws; spread = sensitivity
+```
+
+Same from the shell: `mir embed clonotypes sample.tsv --n-prototypes 1000 --replicate 3`.
+
+> Each replicate is a **different coordinate system**. Distances *within* one are comparable;
+> distances *across* two are not. The prototype hash covers the replicate index, so codecs,
+> `RepertoireSpace` and `DonorCohort` all refuse to mix them — compare summary statistics across
+> replicates (AUC, F1, cluster counts), never raw embeddings. Sweeping `n_prototypes` instead is a
+> *nested* comparison (draw `r=0` at `n=500` is a prefix of `n=1000`), which answers "how many do I
+> need", not "does it matter which".
+
+Provenance and the regenerate command are in [`SOURCES.md`](SOURCES.md).
+
 ## What's inside
 
 | Module | Purpose |

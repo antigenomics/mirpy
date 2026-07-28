@@ -189,7 +189,8 @@ class SetEncoderBundle:
         d = torch.load(path, weights_only=False)
         m = d["meta"]
         if verify:
-            cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"])
+            # .get: encoders predating replicates are draw 0
+            cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"], m.get("replicate", 0))
             if cur != m["prototype_hash"]:
                 raise ValueError(
                     f"prototype hash mismatch for {m['species']}_{m['locus']}: this encoder was "

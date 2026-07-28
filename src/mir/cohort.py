@@ -197,8 +197,9 @@ class DonorCohort:
         spaces = {}
         for c, s in d["spaces"].items():
             m = s["meta"]
+            replicate = m.get("replicate", 0)   # .get: cohorts predating replicates are draw 0
             if verify:
-                cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"])
+                cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"], replicate)
                 if cur != m["prototype_hash"]:
                     raise ValueError(
                         f"prototype hash mismatch for locus {c} ({m['species']}_{m['locus']}): this "
@@ -206,6 +207,7 @@ class DonorCohort:
                         "comparable to the current prototypes. Pass verify=False to override."
                     )
             model = TCREmp.from_defaults(m["species"], m["locus"], m["n_prototypes"], mode=m["mode"],
+                                         replicate=replicate,
                                          metric=m["metric"], gap_positions=tuple(m["gap_positions"]))
             clono = DensitySpace(model=model, space=s["space"], scaler=s["scaler"], pca=s["pca"])
             spaces[c] = RepertoireSpace(clono, s["rff"], s["rff2"], m)

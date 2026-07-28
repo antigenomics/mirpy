@@ -26,9 +26,13 @@ from mir.distances.junction import DEFAULT_GAP_POSITIONS
 from mir.embedding.prototypes import load_prototypes
 
 
-def prototype_hash(species: str, locus: str, n: int) -> str:
-    """Stable 16-hex-char hash of the ordered prototype junction set (its identity)."""
-    protos = load_prototypes(species, locus, n=n)["junction_aa"].to_list()
+def prototype_hash(species: str, locus: str, n: int, replicate: int = 0) -> str:
+    """Stable 16-hex-char hash of the ordered prototype junction set (its identity).
+
+    ``replicate`` is part of the identity: two draws of the same size are different coordinate
+    systems, so they must hash differently or the comparability guards would let them mix.
+    """
+    protos = load_prototypes(species, locus, n=n, replicate=replicate)["junction_aa"].to_list()
     h = hashlib.sha256()
     for s in protos:
         h.update(s.encode("ascii", "ignore"))
@@ -53,13 +57,15 @@ class CodecBundle:
         n_prototypes: int,
         gap_positions: tuple[int, ...] = DEFAULT_GAP_POSITIONS,
         kind: str = "forward",
+        replicate: int = 0,
     ) -> "CodecBundle":
         meta = {
             "kind": kind,
             "species": species,
             "locus": locus,
             "n_prototypes": n_prototypes,
-            "prototype_hash": prototype_hash(species, locus, n_prototypes),
+            "replicate": replicate,
+            "prototype_hash": prototype_hash(species, locus, n_prototypes, replicate),
             "gap_positions": list(gap_positions),
             "n_components": int(getattr(encoder.transform, "n_components_", 0)) or None,
             "is_pca": bool(encoder.is_pca),
@@ -82,7 +88,8 @@ class CodecBundle:
     def matches_current_prototypes(self) -> bool:
         """True iff the current bundled prototypes reproduce this codec's embedding space."""
         return self.meta["prototype_hash"] == prototype_hash(
-            self.meta["species"], self.meta["locus"], self.meta["n_prototypes"]
+            self.meta["species"], self.meta["locus"], self.meta["n_prototypes"],
+            self.meta.get("replicate", 0),      # .get: bundles predating replicates are draw 0
         )
 
     def forward_encoder(self, device: str | None = None, verify: bool = True):

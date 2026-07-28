@@ -4,6 +4,7 @@ from mir.embedding.prototypes import (
     N_PROTOTYPES,
     list_available_prototypes,
     load_prototypes,
+    n_replicates,
 )
 
 
@@ -47,3 +48,46 @@ def test_list_available_includes_human_trb():
     pairs = list_available_prototypes()
     assert ("human", "TRB") in pairs
     assert all(len(p) == 2 for p in pairs)
+
+
+# --- replicate draws ---------------------------------------------------------------
+
+def test_replicate_zero_is_the_default_set():
+    # the canonical set must not move: replicate=0 is exactly the historical head(n)
+    assert load_prototypes("human", "TRB", n=200).equals(
+        load_prototypes("human", "TRB", n=200, replicate=0))
+
+
+def test_replicates_are_disjoint_and_same_size():
+    n = 200
+    blocks = [load_prototypes("human", "TRB", n=n, replicate=r) for r in range(5)]
+    assert all(b.height == n for b in blocks)
+    seen: set[tuple] = set()
+    for b in blocks:
+        rows = set(map(tuple, b.rows()))
+        assert not (rows & seen)                      # disjoint = independent draws
+        seen |= rows
+    assert len(seen) == 5 * n
+
+
+def test_n_replicates_matches_pool_and_bounds_the_index():
+    assert n_replicates("human", "TRB", 1000) == 10   # the documented "sets 1-10"
+    assert n_replicates("human", "TRB", 2000) == 5
+    with pytest.raises(ValueError, match="replicates 0..9"):
+        load_prototypes("human", "TRB", n=1000, replicate=10)
+
+
+def test_replicate_requires_explicit_n_and_rejects_negative():
+    with pytest.raises(ValueError, match="explicit n"):
+        load_prototypes("human", "TRB", replicate=1)
+    with pytest.raises(ValueError, match="must be >= 0"):
+        load_prototypes("human", "TRB", n=100, replicate=-1)
+
+
+def test_replicate_changes_the_prototype_hash():
+    # the comparability guards key off this hash: two draws must not look alike
+    from mir.ml.bundle import prototype_hash
+
+    h0 = prototype_hash("human", "TRB", 100)
+    assert h0 == prototype_hash("human", "TRB", 100, replicate=0)
+    assert h0 != prototype_hash("human", "TRB", 100, replicate=1)

@@ -89,7 +89,7 @@ def cmd_clonotypes(a: argparse.Namespace) -> None:
         raise SystemExit(f"no clonotypes for locus {locus!r} in {a.input}")
 
     model = TCREmp.from_defaults(a.species, locus, n_prototypes=a.n_prototypes,
-                                 mode=a.mode, threads=a.threads)
+                                 mode=a.mode, replicate=a.replicate, threads=a.threads)
     X = model.embed(sub)
     if a.pca:
         X = pca_denoise(X, n_components=a.pca)
@@ -131,7 +131,8 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
     vectors: list = []
     for locus in sorted(by_locus):
         items = by_locus[locus]
-        model = TCREmp.from_defaults(a.species, locus, n_prototypes=a.n_prototypes, threads=a.threads)
+        model = TCREmp.from_defaults(a.species, locus, n_prototypes=a.n_prototypes,
+                                    replicate=a.replicate, threads=a.threads)
         pooled = pl.concat([sub for _, sub in items])
         space = fit_repertoire_space(model, pooled, n_rff=a.n_rff, n_rff_second=n_rff_second,
                                      n_components=a.n_components, seed=a.seed)
@@ -172,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--n-prototypes", type=int, default=None,
                    help="prototype count (default: per-chain preset)")
     c.add_argument("--mode", default="vjcdr3", choices=("vjcdr3", "cdr123"))
+    c.add_argument("--replicate", type=int, default=0, metavar="R",
+                   help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
     c.add_argument("--pca", type=int, default=None, metavar="K",
                    help="PCA-denoise the embedding to K dims (compact table)")
     c.add_argument("--threads", type=int, default=0, help="0 = all cores")
@@ -183,6 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--species", default="human")
     r.add_argument("--locus", help="restrict to one chain (default: all loci present, one basis each)")
     r.add_argument("--n-prototypes", type=int, default=None)
+    r.add_argument("--replicate", type=int, default=0, metavar="R",
+                   help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
     r.add_argument("--weight", default="log1p", choices=("log1p", "anscombe", "distinct"),
                    help="clone-size weight g (frequencies w = g(a)/Σg)")
     r.add_argument("--blocks", default="mean,diversity",

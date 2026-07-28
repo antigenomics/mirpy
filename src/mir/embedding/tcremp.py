@@ -79,6 +79,7 @@ class TCREmp:
         metric: str = "squared",
         matrix=None,
         alignment: str = "gapblock",
+        replicate: int = 0,
     ):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
@@ -92,6 +93,9 @@ class TCREmp:
         self.mode = mode
         self.threads = threads
         self.metric = metric
+        # provenance only — the prototypes are passed in; this records *which* bundled draw they
+        # are so the prototype hash (and every save/load comparability check) can see it.
+        self.replicate = replicate
         self._matrix = matrix
         self._alignment = alignment
         self._germline = germline
@@ -115,12 +119,22 @@ class TCREmp:
         locus: str,
         n_prototypes: int | None = None,
         mode: str = "vjcdr3",
+        replicate: int = 0,
         **kwargs,
     ) -> "TCREmp":
         """Build from the bundled prototypes and baked germline distances.
 
-        ``n_prototypes=None`` uses the per-chain recommended preset
-        (:func:`mir.embedding.presets.get_preset`).
+        Args:
+            species: Species identifier (aliases resolved).
+            locus: Receptor locus (aliases resolved).
+            n_prototypes: Prototype count; ``None`` uses the per-chain recommended preset
+                (:func:`mir.embedding.presets.get_preset`).
+            mode: ``"vjcdr3"`` (default) or ``"cdr123"``.
+            replicate: Which bundled prototype draw to use. ``0`` (default) is *the* prototype
+                set — every preset, bundled codec and published number uses it. ``r > 0`` is an
+                independent disjoint draw of the same size, for measuring how much a result
+                depends on the prototype sample (see :func:`mir.embedding.prototypes.n_replicates`).
+                Embeddings from different replicates are **not** mutually comparable.
         """
         from mir.embedding.presets import get_preset
 
@@ -128,9 +142,10 @@ class TCREmp:
         locus_c = normalize_locus_alias(locus)
         if n_prototypes is None:
             n_prototypes = get_preset(species_c, locus_c).n_prototypes
-        prototypes = load_prototypes(species_c, locus_c, n=n_prototypes)
+        prototypes = load_prototypes(species_c, locus_c, n=n_prototypes, replicate=replicate)
         germline = load_germline_distances(species_c, locus_c)
-        return cls(species_c, locus_c, prototypes, germline, mode=mode, **kwargs)
+        return cls(species_c, locus_c, prototypes, germline, mode=mode, replicate=replicate,
+                   **kwargs)
 
     @classmethod
     def from_file(
@@ -213,11 +228,12 @@ class PairedTCREmp:
         loci: tuple[str, str] = ("TRA", "TRB"),
         n_prototypes: int | None = None,
         mode: str = "vjcdr3",
+        replicate: int = 0,
         **kwargs,
     ) -> "PairedTCREmp":
         # n_prototypes=None -> each locus uses its own recommended preset
         chains = {
-            locus: TCREmp.from_defaults(species, locus, n_prototypes, mode, **kwargs)
+            locus: TCREmp.from_defaults(species, locus, n_prototypes, mode, replicate, **kwargs)
             for locus in loci
         }
         return cls(chains)

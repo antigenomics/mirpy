@@ -179,8 +179,9 @@ class RepertoireSpace:
         with open(path, "rb") as fh:
             d = pickle.load(fh)
         m = d["meta"]
+        replicate = m.get("replicate", 0)      # .get: spaces predating replicates are draw 0
         if verify:
-            cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"])
+            cur = prototype_hash(m["species"], m["locus"], m["n_prototypes"], replicate)
             if cur != m["prototype_hash"]:
                 raise ValueError(
                     f"prototype hash mismatch for {m['species']}_{m['locus']}: this space was "
@@ -188,7 +189,7 @@ class RepertoireSpace:
                     "current prototypes. Pass verify=False only if the difference is intentional."
                 )
         model = TCREmp.from_defaults(
-            m["species"], m["locus"], m["n_prototypes"], mode=m["mode"],
+            m["species"], m["locus"], m["n_prototypes"], mode=m["mode"], replicate=replicate,
             metric=m["metric"], gap_positions=tuple(m["gap_positions"]))
         clono = DensitySpace(model=model, space=d["space"], scaler=d["scaler"], pca=d["pca"])
         return cls(clono, d["rff"], d["rff2"], m)
@@ -263,7 +264,9 @@ def fit_repertoire_space(
     meta = {
         "species": model.species, "locus": model.locus, "n_prototypes": model.n_prototypes,
         "mode": model.mode, "metric": model.metric, "gap_positions": list(model._gap_positions),
-        "prototype_hash": prototype_hash(model.species, model.locus, model.n_prototypes),
+        "replicate": getattr(model, "replicate", 0),
+        "prototype_hash": prototype_hash(model.species, model.locus, model.n_prototypes,
+                                         getattr(model, "replicate", 0)),
         "space": space, "n_components": k, "n_rff": n_rff, "n_rff_second": n_rff_second,
         "n_eigs": n_eigs, "length_scale": float(length_scale), "seed": seed,
     }

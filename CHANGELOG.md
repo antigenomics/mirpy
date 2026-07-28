@@ -3,13 +3,27 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.5.0 — 2026-07-28
 
-A documentation-accuracy pass plus the small fixes found by the accompanying code audit. No public
-API removed; two new keyword arguments.
+A documentation-accuracy pass plus the fixes found by the accompanying code audit. No public API
+removed; two new keyword arguments, one runtime dependency dropped, and three paths that used to
+fail silently now fail loudly — hence a minor bump rather than a patch.
 
 ### Added
 
+- **Prototype replicates — `load_prototypes(..., replicate=r)`, `n_replicates()`, and
+  `replicate=` on `TCREmp`/`PairedTCREmp.from_defaults` and both `mir embed` commands.** Each
+  bundled chain ships 10 000 real receptors whose row order is already a uniform shuffle, so a
+  disjoint block of `n` rows is an independent draw from the same pool: `replicate=r` returns block
+  `r`, giving `10000 // n` replicates (**10** at the common `n=1000`) with no new data and no RNG.
+  This answers "is my result an artefact of *which* prototypes I drew?" — a question a nested
+  `n_prototypes` sweep cannot answer, since those draws are prefixes of one another.
+
+  `replicate=0` is unchanged and remains *the* prototype set behind every preset, bundled codec and
+  published number. `prototype_hash` now covers the replicate index, so `CodecBundle`,
+  `RepertoireSpace`, `DonorCohort` and `SetEncoderBundle` refuse to mix draws (artifacts written
+  before this release read as draw 0). README and the user guide state the default, the provenance
+  (real repertoires, `seed=42`), and that cross-replicate embeddings are incomparable.
 - **`neighbor_enrichment(..., k_max=, seed=)`** — forwarded to the `backend="ann"` engine, which
   already warned "raise `k_max`" for a saturated neighbour ball but gave no way to do it.
 

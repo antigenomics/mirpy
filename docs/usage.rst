@@ -53,6 +53,39 @@ pairwise alignment distance (Theory T1).
    paired = PairedTCREmp.from_defaults("human", ("TRA", "TRB"))
    Xp = paired.embed({"TRA": tra_df, "TRB": trb_df})
 
+Which prototypes?
+~~~~~~~~~~~~~~~~~
+
+The prototype set *is* the coordinate system, so it is worth one paragraph. mirpy bundles **10 000
+real receptors per chain** — a uniform random sample (fixed ``seed=42``) of unique, productive,
+germline-resolvable clonotypes from arda-annotated real repertoires, for human TRA/TRB/TRG/TRD/
+IGH/IGK/IGL and mouse TRA/TRB. Real, not model-generated: synthetic P_gen junctions have degenerate
+lengths and embed measurably worse. Nothing is downloaded at import or build time; provenance and
+the regenerate command are in ``SOURCES.md``.
+
+``replicate=0`` — the first ``n`` rows — is **the** prototype set: what every preset, bundled codec
+and published number uses. To ask *"is my result an artefact of which prototypes I drew?"*, take a
+replicate. The file order is itself a uniform shuffle, so each disjoint block of ``n`` rows is an
+independent draw from the same pool — ``n_replicates()`` of them, 10 at ``n=1000``, 5 at ``n=2000``:
+
+.. code-block:: python
+
+   from mir.embedding.prototypes import n_replicates, load_prototypes
+
+   n_replicates("human", "TRB", 1000)                      # -> 10
+   scores = [my_metric(TCREmp.from_defaults("human", "TRB", 1000, replicate=r).embed(sample))
+             for r in range(10)]                           # spread = prototype-draw sensitivity
+
+.. warning::
+
+   Each replicate is a **different coordinate system**. Distances within one are comparable,
+   distances across two are not — the prototype hash covers the replicate index, so
+   :class:`~mir.repertoire.RepertoireSpace`, :class:`~mir.cohort.DonorCohort` and the codec bundles
+   all refuse to mix them. Compare *summary statistics* across replicates, never raw embeddings.
+   Sweeping ``n_prototypes`` is a different question: those draws are **nested** (``r=0`` at
+   ``n=500`` is a prefix of ``n=1000``), so a sweep answers "how many do I need", not "does it
+   matter which".
+
 Pick prototype counts / PCA dims from the per-chain presets, and denoise with PCA:
 
 .. code-block:: python

@@ -329,6 +329,34 @@ def test_save_load_roundtrip_and_cross_basis_refusal(space, tmp_path):
     RepertoireSpace.load(p, verify=False)          # explicit override is allowed
 
 
+def test_replicate_space_is_a_distinct_incomparable_basis(tmp_path):
+    """A prototype replicate is a different coordinate system, and save/load knows it."""
+    from mir.embedding.tcremp import TCREmp
+
+    pool = _clonotypes(160, offset=0)
+    m0 = TCREmp.from_defaults("human", "TRB", 64)
+    m1 = TCREmp.from_defaults("human", "TRB", 64, replicate=1)
+    assert m0.replicate == 0 and m1.replicate == 1
+
+    s0 = fit_repertoire_space(m0, pool, n_rff=64, n_rff_second=0, n_components=8, seed=0)
+    s1 = fit_repertoire_space(m1, pool, n_rff=64, n_rff_second=0, n_components=8, seed=0)
+    assert s0.meta["replicate"] == 0 and s1.meta["replicate"] == 1
+    assert s0.meta["prototype_hash"] != s1.meta["prototype_hash"]
+
+    # a replicate basis round-trips (the replicate is carried in meta and rebuilt)…
+    df = _sample(_clonotypes(50, offset=0))
+    p = tmp_path / "rep1.pkl"
+    s1.save(p)
+    back = RepertoireSpace.load(p)
+    assert back.clono.model.replicate == 1
+    assert np.allclose(sample_embedding(s1, df, blocks=("mean",)).vector,
+                       sample_embedding(back, df, blocks=("mean",)).vector, atol=1e-6)
+
+    # …and the two draws give genuinely different embeddings of the same sample
+    assert not np.allclose(sample_embedding(s0, df, blocks=("mean",)).vector,
+                           sample_embedding(s1, df, blocks=("mean",)).vector)
+
+
 def test_correct_batch_reduces_to_residualize_and_beats_it_under_confound():
     """Harmony-lite correct_batch: == residualize at K=1; preserves biology a global
     mean-subtraction destroys when batch is confounded with a biological cluster."""
