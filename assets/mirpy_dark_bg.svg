@@ -13,7 +13,7 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
+   xmlns:svg="http://www.w3.org/2000/svg"><rect x="-1" y="-1" width="1685.75" height="1192.25" fill="#1a2332" id="fullbleed-bg"/>
   <sodipodi:namedview
      id="namedview234"
      pagecolor="#ffffff"
@@ -1241,7 +1241,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g179">
           <g
@@ -1256,7 +1256,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g182">
           <g
@@ -1271,7 +1271,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g185">
           <g
@@ -1286,7 +1286,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g188">
           <g
@@ -1301,7 +1301,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g191">
           <g
@@ -1316,7 +1316,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g194">
           <g
@@ -1331,7 +1331,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g197">
           <g
@@ -1342,7 +1342,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g200">
           <g
@@ -1357,7 +1357,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g203">
           <g
@@ -1372,7 +1372,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g206">
           <g
@@ -1387,7 +1387,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g209">
           <g
@@ -1402,7 +1402,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g212">
           <g
@@ -1417,7 +1417,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g215">
           <g
@@ -1432,7 +1432,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g218">
           <g
@@ -1447,7 +1447,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g221">
           <g
@@ -1462,7 +1462,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g224">
           <g
@@ -1477,7 +1477,7 @@
           </g>
         </g>
         <g
-           fill="#5a6c7d"
+           fill="#8fa3b8"
            fill-opacity="1"
            id="g227">
           <g
@@ -1504,7 +1504,7 @@
                  clip-path="url(#26e487e28c)"
                  id="g228">
                 <path
-                   fill="#34495e"
+                   fill="#8fa3b8"
                    d="M 0.339844 0.34375 L 1532.734375 0.34375 L 1532.734375 6.339844 L 0.339844 6.339844 Z M 0.339844 0.34375 "
                    fill-opacity="1"
                    fill-rule="nonzero"
