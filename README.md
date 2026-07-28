@@ -140,9 +140,9 @@ Same from the shell: `mir embed clonotypes sample.tsv --n-prototypes 1000 --repl
 junction-distance geometry under two prototype sets. Two independent draws, 400 held-out human-TRB
 queries:
 
-| prototypes `n` | 100 | 250 | 500 | **1000** (default) | 2000 |
+| prototypes `n` | 100 | 250 | 500 | 1000 (default) | 2000 |
 |---|--:|--:|--:|--:|--:|
-| R between two draws | 0.922 | 0.971 | 0.990 | **0.993** | **0.997** |
+| R between two draws | 0.922 | 0.971 | 0.990 | 0.993 | **0.997** |
 
 So the geometry is essentially draw-independent from `n≈500` up: at the default counts, *which*
 prototypes you drew is not what your result rests on. Below `n≈250` it starts to be.
