@@ -26,3 +26,19 @@ jobs:
         run: pip install -e ".[dev,bench]"
       - name: Test (fast tier)
         run: pytest tests/ -q -m "not integration and not benchmark"
+
+  # One extra leg with the optional tiers installed, because the fast tier above skips every
+  # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash
+  # comparability guards) and the BioPython Smith-Waterman reference run in no CI job at all.
+  optional-tiers:
+    name: Optional tiers (torch + BioPython)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package with [ml] + BioPython
+        run: pip install -e ".[dev,bench,ml]" biopython
+      - name: Test (including integration)
+        run: pytest tests/ -q -m "not benchmark"

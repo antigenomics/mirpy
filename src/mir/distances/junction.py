@@ -9,9 +9,14 @@ placements at ``gap_positions``.
 Three knobs, all defaulting to the published v3 coordinate system:
 
 * ``alignment`` — ``"gapblock"`` (default, fast, ~5·10⁸ pairs/s) or ``"sw"`` (paper-exact
-  Smith-Waterman via BioPython; O(n·K) pairwise, so validation / small-scale only). gap-block was
-  built to *approximate* SW: the two agree for equal-length CDR3s and rank-correlate ≥0.99 on
-  gapped pairs, so ``"gapblock"`` is the production choice and ``"sw"`` the reference.
+  Smith-Waterman via BioPython; O(n·K) pairwise, so validation / small-scale only). gap-block
+  approximates SW **in the near-neighbour regime that clustering and density use**: close pairs
+  agree exactly (e.g. ``CASSTTGLNTEAFF``/``CASSLTAMNTEAFF`` → 26 under both). They part company on
+  distant pairs, because ``"sw"`` is a *local* alignment that simply stops extending while gap-block
+  scores the whole junction — over all 44 850 pairs of the 300 bundled human-TRB prototypes the two
+  rank-correlate ρ≈0.78, with equal-length outliers as far apart as 181 vs 77. The two are therefore
+  **different coordinate systems, not interchangeable scales**: use ``"sw"`` to reproduce the paper's
+  distances, ``"gapblock"`` (default) for everything else, and never mix them in one embedding.
 * ``matrix`` — the substitution matrix for the gap-block backend: any ``seqtree.SubstitutionMatrix``
   (``blosum62()`` default, plus ``pam250()``, ``structural()``, ``unit()``, or ``from_similarity``
   for a fully custom matrix). Changing it is a coordinate-system change (the baked germline blocks

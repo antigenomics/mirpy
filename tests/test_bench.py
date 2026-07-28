@@ -76,15 +76,35 @@ def test_codec_losslessness_ceiling_and_recon():
     assert dup["n_unique"] == 4 and dup["collision_rate"] == 0.0
 
 
-@pytest.mark.skipif(
-    not os.path.exists("tests/assets/vdjdb.slim.txt.gz"),
-    reason="VDJdb slim dump not present (gitignored local fixture)",
-)
-def test_load_vdjdb_schema():
+def test_load_vdjdb_schema(tmp_path):
+    # inline dump, not the gitignored tests/assets/vdjdb.slim.txt.gz: that skipif could never be
+    # satisfied in CI, so the dotted-column mapping and the min_records filter went untested.
+    import gzip
+
     from mir.bench.vdjdb import antigen_subset, load_vdjdb
 
-    df = load_vdjdb("tests/assets/vdjdb.slim.txt.gz")
+    rows = [
+        # cdr3, v.segm, j.segm, gene, antigen.epitope, mhc.class
+        ("CASSIRSSYEQYF", "TRBV19*01", "TRBJ2-7*01", "TRB", "GILGFVFTL", "MHCI"),
+        ("CASSLGQAYEQFF", "TRBV28*01", "TRBJ2-1*01", "TRB", "GILGFVFTL", "MHCI"),
+        ("CASSPGQGAYEQYF", "TRBV5-1*01", "TRBJ2-7*01", "TRB", "GILGFVFTL", "MHCI"),
+        ("CASSIRSSYEQYF", "TRBV19*01", "TRBJ2-7*01", "TRB", "GILGFVFTL", "MHCI"),  # exact dup
+        ("CAVRDSNYQLIW", "TRAV3*01", "TRAJ33*01", "TRA", "GILGFVFTL", "MHCI"),     # other locus
+        ("CASSFGREQYF", "TRBV12-3*01", "TRBJ2-7*01", "TRB", "NLVPMVATV", "MHCI"),  # rare epitope
+        ("CAS", "TRBV19*01", "TRBJ2-7*01", "TRB", "NLVPMVATV", "MHCI"),            # too short
+        ("CASSQETQYF", "TRBV4-1*01", "TRBJ2-5*01", "TRB", "", "MHCI"),             # no epitope
+    ]
+    path = tmp_path / "vdjdb.slim.txt.gz"
+    header = "cdr3\tv.segm\tj.segm\tgene\tantigen.epitope\tmhc.class\n"
+    with gzip.open(path, "wt") as fh:
+        fh.write(header + "".join("\t".join(r) + "\n" for r in rows))
+
+    df = load_vdjdb(str(path))
     assert {"v_call", "j_call", "junction_aa", "locus", "epitope"} <= set(df.columns)
-    trb = antigen_subset(df, "TRB", 300)
-    assert trb.height > 0
+    assert df.height == 5                      # dup collapsed, short + epitope-less dropped
+    assert df["junction_aa"].str.len_chars().min() >= 5
+
+    trb = antigen_subset(df, "TRB", 3)
     assert (trb["locus"] == "TRB").all()
+    assert set(trb["epitope"].unique()) == {"GILGFVFTL"}   # NLVPMVATV has < 3 records
+    assert trb.height == 3

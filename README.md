@@ -198,7 +198,7 @@ The self-contained theory notebooks run on bundled data:
 ```bash
 pip install "mirpy-lib[examples]"
 marimo edit examples/theory.py          # supplementary S1–S3 (distance laws, D↔d, prototype robustness)
-marimo edit examples/quickstart.py      # embed + cluster VDJdb antigens
+marimo edit examples/quickstart.py      # embed + cluster (epitope colours need a local VDJdb dump)
 ```
 
 The full benchmark suite (VDJdb Table S1, density, repertoire/TCGA) and result docs live in the
@@ -220,8 +220,9 @@ mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, 
 | BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
 | Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1` pins the second GPU. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
 
-Rule of thumb: leave `threads=0` (all cores) for embedding; switch density to `backend="kdtree"`
-for exact multicore or `"ann"` at whole-repertoire scale; the GPU is used only by `mir.ml`.
+Rule of thumb: leave `threads=0` (all cores) for embedding; leave density on the default
+`backend="kdtree"` (exact, multicore) and switch to `"ann"` only at whole-repertoire scale; the GPU
+is used only by `mir.ml`.
 
 ## Development
 

@@ -39,10 +39,22 @@ API removed; two new keyword arguments.
 - **Single-sourced the version**: `pyproject.toml` takes it from `src/mir/__init__.py`
   (`[tool.hatch.version]`), `docs/conf.py` imports `mir.__version__`, and `publish.yml` validates
   the release tag against the built wheel — one copy instead of three.
+- **Corrected the documented gap-block ↔ Smith-Waterman relationship.** `mir.distances.junction`
+  claimed the two "agree for equal-length CDR3s and rank-correlate ≥0.99 on gapped pairs". Measured
+  over all 44 850 pairs of 300 bundled human-TRB prototypes: close pairs do agree exactly, but SW is
+  a *local* alignment, so distant pairs diverge (equal-length outliers 181 vs 77) and the overall
+  rank correlation is ρ≈0.78. The docstring now says that, and that the two are different coordinate
+  systems rather than interchangeable scales.
 - **Tests**: the survival-scorer test is no longer marked `integration` (lifelines ships in
   `[bench]`, which CI installs), lifting `mir.bench.eval` from 23% to 64% coverage in CI;
   `test_set_encoder.py` skips instead of failing on a torch-free install, so the documented
-  `pytest tests/` is green again.
+  `pytest tests/` is green again; the VDJdb loader test no longer depends on a gitignored fixture it
+  could never find in CI (`mir.bench.vdjdb` 44% → 100%); and `TCREmp`'s public coordinate knobs
+  (`metric="sqrt"`, custom `matrix=`, `alignment="sw"`, null rejection) have real tests instead of
+  assertions buried in a `__main__` block. Fast-tier coverage 64% → 66%.
+- **CI gained an `optional-tiers` job** (`[dev,bench,ml]` + BioPython, `-m "not benchmark"`): all of
+  `mir.ml` — ~20% of the library, including both prototype-hash comparability guards — previously
+  ran in no CI configuration, because the only job installs `[dev,bench]` and every torch test skips.
 - Docs corrections: the density `backend=` default is `"kdtree"` (all-core exact), not `"exact"`;
   the `cv_cindex` snippets in the user guide and in `mir.explain` now match the real
   `(durations, events, *, base, block)` signature (the old form scored every channel `NaN`);

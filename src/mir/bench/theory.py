@@ -34,7 +34,7 @@ def junction_dissimilarity_sw(cdr3s) -> np.ndarray:
     """Paper-exact ``d_ij`` via Smith-Waterman BLOSUM62 (supplementary S1/S2).
 
     ``d_ij = s_ii + s_jj − 2·s_ij`` from a local BLOSUM62 alignment (linear gap).
-    Requires BioPython (``[bench]``/``[build]`` extra). O(n²) alignments — use for
+    Requires BioPython (the ``[build]`` extra). O(n²) alignments — use for
     the theory validation on a few thousand sequences, not at scale.
     """
     from Bio.Align import PairwiseAligner, substitution_matrices
