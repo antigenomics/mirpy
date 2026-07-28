@@ -192,9 +192,12 @@ labels, mask = denoise_and_cluster(obs_emb, res)               # noise-filter + 
 
 Use a **biological control** as the background when you have one (e.g. pre- vs post-vaccination,
 patient vs healthy) — differential enrichment cancels generic public convergence and isolates the
-antigen-specific response. With no control, `generate_background(locus, n)` samples the vdjtools
-P_gen model (the ALICE regime); the "water level" of a naive repertoire is handled by the
-empirical-null calibration. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
+antigen-specific response. No control of your own? Pooled healthy-donor repertoires are one fetch
+away (HF `isalgo/airr_control`, read with `vdjtools.io.read` — see [`SOURCES.md`](SOURCES.md)).
+Failing that, `generate_background(locus, n)` samples the vdjtools P_gen model (the ALICE regime);
+the "water level" of a naive repertoire is handled by the empirical-null calibration. Pass
+`source="arda"` there when your data is arda-annotated (same allele namespace as the prototypes),
+and `species="mouse"` for mouse — both need a vdjtools shipping the bundled `arda` model set. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
 live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo.
 
 The default backend is `"kdtree"` (exact scipy cKDTree, all cores). At whole-repertoire scale pass

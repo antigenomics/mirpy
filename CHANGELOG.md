@@ -24,11 +24,26 @@ fail silently now fail loudly — hence a minor bump rather than a patch.
   `RepertoireSpace`, `DonorCohort` and `SetEncoderBundle` refuse to mix draws (artifacts written
   before this release read as draw 0). README and the user guide state the default, the provenance
   (real repertoires, `seed=42`), and that cross-replicate embeddings are incomparable.
+- **`generate_background(..., species=, source="arda")`** — the P_gen background can now be drawn
+  in the **arda IMGT allele namespace** (the same frame as the prototypes and baked germline
+  distances, so generated V/J calls resolve exactly instead of taking the allele cascade) and for
+  **mouse**. Both need a `vdjtools` shipping the bundled `arda` model set: those 9 models were
+  already in the wheel but unreachable, fixed upstream in `vdjtools.model.load_bundled`. The human
+  `learned`/`olga` path is unchanged and still works on older vdjtools; asking for arda/mouse
+  without it raises a message naming the requirement.
 - **`neighbor_enrichment(..., k_max=, seed=)`** — forwarded to the `backend="ann"` engine, which
   already warned "raise `k_max`" for a saturated neighbour ball but gave no way to do it.
 
 ### Fixed
 
+- **Germline distances silently maxed out for 42 human and 71 mouse alleles**, including
+  **`IGHV3-23*01` and `IGHV1-69*01` — the two most-used human IGHV genes.** arda emits an
+  *ambiguity group* (`"IGHV1-69*01,IGHV1-69D*01"`) as one row when the alleles share an identical
+  germline region, and the allele index registered only the joined string, so a query naming a
+  member matched nothing and took the max-distance fallback — quietly, since a fallback is also the
+  legitimate answer for a genuinely unknown gene. Members are now indexed to their group's row (a
+  standalone row still wins). Across every bundled locus, 333 of 457 group-member names resolved to
+  the fallback before; now none do.
 - **`mir embed repertoires --blocks diversity` crashed** with `ValueError: zero-dimensional arrays
   cannot be concatenated`: `SampleEmbedding.vector` assumed the kernel-mean block was always
   present. A mean-less Φ is now a valid vector, and `mmd_distance` / `mmd_matrix` say *why* MMD

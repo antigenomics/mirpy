@@ -284,6 +284,27 @@ def test_generate_background_optional():
     assert set(df.columns) == {"junction_aa", "v_call", "j_call"}
 
 
+def test_generate_background_arda_and_mouse_or_directed_error():
+    """``source="arda"`` / non-human need a vdjtools shipping the arda model set.
+
+    Where it is present, both work; where it is not, the failure must name the requirement rather
+    than surfacing a bare TypeError/ValueError from the loader.
+    """
+    from mir.density import generate_background
+
+    try:
+        df = generate_background("TRB", 20, source="arda", seed=0)
+    except ValueError as e:
+        assert "arda" in str(e) and "vdjtools" in str(e)
+        pytest.skip("installed vdjtools has no bundled arda model set")
+        return
+    assert df.height == 20
+    assert df["v_call"].str.starts_with("TRBV").all()
+    mouse = generate_background("TRB", 20, species="mouse", source="arda", seed=0)
+    assert mouse.height == 20
+    assert not set(mouse["junction_aa"]) & set(df["junction_aa"])   # a different germline
+
+
 def test_chunked_raw_embedding_is_row_independent(model):
     """The invariant chunking actually rests on: ``_embed`` of a slice == the slice of ``_embed``.
 

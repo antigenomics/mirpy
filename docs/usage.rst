@@ -147,9 +147,14 @@ adaptive-bandwidth balloon estimator with a Poisson/binomial test and BH q-value
    labels, mask = denoise_and_cluster(obs_emb, res)               # noise-filter + cluster the hits
 
 Prefer a biological control (e.g. pre/post-vaccination) over the P_gen background — differential
-enrichment cancels generic public convergence and isolates the antigen-specific response. The
-neighbour engine defaults to ``backend="kdtree"`` (exact, multicore); at whole-repertoire scale pass
-``backend="ann"`` (approximate, ``[ann]`` extra). See ``examples/density.py``.
+enrichment cancels generic public convergence and isolates the antigen-specific response. Without
+one of your own, pooled healthy-donor repertoires are a single ``hf_hub_download`` away
+(``isalgo/airr_control``, read with ``vdjtools.io.read``; see ``SOURCES.md``), and
+:func:`~mir.density.generate_background` remains the P_gen fallback — pass ``source="arda"`` when
+the observed data is arda-annotated (one allele namespace, no cascade fallback) and
+``species="mouse"`` for mouse. The neighbour engine defaults to ``backend="kdtree"`` (exact,
+multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[ann]`` extra). See
+``examples/density.py``.
 
 Repertoire embedding Φ(S) + MMD
 -------------------------------

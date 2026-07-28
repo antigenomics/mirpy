@@ -84,8 +84,20 @@ class GermlineDistances:
                 n = len(alleles)
                 ext = np.full((n + 1, n + 1), fallback, dtype=np.float32)
                 ext[:n, :n] = dist
+                # arda emits an *ambiguity group* — "IGHV1-69*01,IGHV1-69D*01" — as one row when
+                # the alleles share an identical germline region, so their distances are identical
+                # by construction. Index each member too, or a query naming one of them (e.g. the
+                # very common IGHV1-69*01) resolves to nothing and silently takes the max-distance
+                # fallback. Members use setdefault so a standalone row always wins.
+                idx: dict[str, int] = {}
+                for i, a in enumerate(alleles):
+                    idx[a] = i
+                for i, a in enumerate(alleles):
+                    if "," in a:
+                        for member in a.split(","):
+                            idx.setdefault(member, i)
                 components[comp] = _Component(
-                    idx={a: i for i, a in enumerate(alleles)},
+                    idx=idx,
                     ext=ext,
                     fallback_idx=n,
                     fallback=fallback,

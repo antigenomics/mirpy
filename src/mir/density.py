@@ -648,7 +648,8 @@ def denoise_and_cluster(
 
 
 def generate_background(
-    locus: str, n: int, *, source: str = "learned", seed: int = 0, productive_only: bool = True
+    locus: str, n: int, *, species: str = "human", source: str = "learned", seed: int = 0,
+    productive_only: bool = True
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
@@ -658,17 +659,42 @@ def generate_background(
     vdjtools VDJ-rearrangement model, i.e. a Monte-Carlo estimate of the
     ``f_gen = φ_# P_gen`` pushforward (the ALICE analog background).
 
+    A **biological control** repertoire is the better background whenever you have one (see the
+    module docstring): a P_gen sample flags the pervasive convergence of any real repertoire.
+
     Args:
         locus: Bundled model locus (e.g. ``"TRB"``).
         n: Number of sequences to generate.
-        source: Bundled model source — ``"learned"`` (vdjtools EM-inferred, the default) or
-            ``"olga"`` (legacy OLGA-parameter bootstrap, retained only for comparison).
+        species: ``"human"`` (default) or ``"mouse"``. Mouse requires ``source="arda"`` — it is the
+            only bundled set with a non-human organism.
+        source: Bundled model source — ``"learned"`` (vdjtools EM-inferred, the default),
+            ``"olga"`` (legacy OLGA-parameter bootstrap, retained only for comparison), or
+            ``"arda"``. Prefer ``"arda"`` when the observed data is arda-annotated: it is the only
+            set in the **arda IMGT allele namespace**, the same frame as mirpy's prototypes and
+            baked germline distances, so generated V/J calls resolve exactly instead of taking the
+            allele-cascade fallback.
         seed: Sampling seed.
         productive_only: Reject out-of-frame / stop-codon rearrangements.
+
+    Raises:
+        ValueError: If the installed ``vdjtools`` predates the ``arda``/``organism`` support that
+            ``source="arda"`` and non-human species need.
     """
     from vdjtools.model import generate, load_bundled
 
-    model = load_bundled(locus, source)
+    # only pass organism= when it is not the default, so a vdjtools without it still serves the
+    # human path unchanged (it landed after 3.0.0)
+    kwargs = {} if species == "human" else {"organism": species}
+    try:
+        model = load_bundled(locus, source, **kwargs)
+    except (TypeError, ValueError) as exc:
+        if source == "arda" or kwargs:
+            raise ValueError(
+                f"generate_background(species={species!r}, source={source!r}) needs a vdjtools with "
+                "the bundled arda model set (organism-aware load_bundled). Upgrade vdjtools, or use "
+                "species='human' with source='learned'/'olga'."
+            ) from exc
+        raise
     df = generate.generate(model, n, seed=seed, productive_only=productive_only)
     return df.select(list(_REQUIRED_COLS))
 
