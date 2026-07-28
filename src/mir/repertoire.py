@@ -316,13 +316,23 @@ class SampleEmbedding:
 
     @property
     def vector(self) -> np.ndarray:
-        """The concatenated feature vector (the multimodal-fusion tensor)."""
-        parts = [self.mean]
-        if self.diversity is not None:
-            parts.append(self.diversity)
-        if self.second is not None:
-            parts.append(self.second)
+        """The concatenated feature vector (the multimodal-fusion tensor).
+
+        Only the blocks that were computed are concatenated — ``blocks=("diversity",)`` is a valid
+        (mean-less) Φ, even though MMD then is not (see :func:`mmd_distance`).
+        """
+        parts = [b for b in (self.mean, self.diversity, self.second) if b is not None]
+        if not parts:
+            raise ValueError("SampleEmbedding has no blocks; sample_embedding(blocks=...) was empty")
         return np.concatenate(parts).astype(np.float64)
+
+    def _require_mean(self) -> np.ndarray:
+        if self.mean is None:
+            raise ValueError(
+                "this SampleEmbedding has no mean (kernel-mean) block, so MMD is undefined — "
+                "MMD is the distance between kernel means. Re-embed with 'mean' in blocks=."
+            )
+        return self.mean
 
 
 def _hill(f: np.ndarray) -> tuple[float, float, float]:
@@ -477,17 +487,18 @@ def mmd_distance(a: SampleEmbedding, b: SampleEmbedding, *, unbiased: bool = Fal
     using the stored ``n_eff`` (Gretton et al. 2012, unbiased MMD²) — the estimator to trust when
     comparing samples of unequal depth/diversity.
     """
+    ma, mb = a._require_mean(), b._require_mean()
     if not unbiased:
-        return float(np.linalg.norm(a.mean - b.mean))
+        return float(np.linalg.norm(ma - mb))
     if a.n_eff <= 1.0 or b.n_eff <= 1.0:
         raise ValueError(
             "unbiased MMD is undefined for a single-clonotype sample (n_eff ≤ 1): the diagonal "
             "cannot be removed from a point mass. Use unbiased=False, or drop degenerate samples."
         )
     sa, sb = 1.0 / a.n_eff, 1.0 / b.n_eff                   # Σwᵢ² ; RFF self-similarity k(z,z)≈1
-    haa = (float(a.mean @ a.mean) - sa) / (1.0 - sa)        # diagonal-removed ‖μ‖²
-    hbb = (float(b.mean @ b.mean) - sb) / (1.0 - sb)
-    return float(np.sqrt(max(haa + hbb - 2.0 * float(a.mean @ b.mean), 0.0)))
+    haa = (float(ma @ ma) - sa) / (1.0 - sa)                # diagonal-removed ‖μ‖²
+    hbb = (float(mb @ mb) - sb) / (1.0 - sb)
+    return float(np.sqrt(max(haa + hbb - 2.0 * float(ma @ mb), 0.0)))
 
 
 def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.ndarray:
@@ -496,7 +507,7 @@ def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.nda
     ``unbiased=True`` uses the diagonal-removed MMD² (see :func:`mmd_distance`) — necessary whenever
     samples differ in depth/``n_eff``, else the ``1/n_eff`` self-bias confounds the comparison.
     """
-    M = np.stack([e.mean for e in embs])                   # (S, D)
+    M = np.stack([e._require_mean() for e in embs])         # (S, D)
     G = M @ M.T
     sq = np.diag(G).copy()
     if unbiased:

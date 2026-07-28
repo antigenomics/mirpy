@@ -13,6 +13,13 @@ API removed; two new keyword arguments.
 - **`neighbor_enrichment(..., k_max=, seed=)`** — forwarded to the `backend="ann"` engine, which
   already warned "raise `k_max`" for a saturated neighbour ball but gave no way to do it.
 
+### Fixed
+
+- **`mir embed repertoires --blocks diversity` crashed** with `ValueError: zero-dimensional arrays
+  cannot be concatenated`: `SampleEmbedding.vector` assumed the kernel-mean block was always
+  present. A mean-less Φ is now a valid vector, and `mmd_distance` / `mmd_matrix` say *why* MMD
+  needs the mean block instead of raising a `NoneType` `TypeError`.
+
 ### Changed
 
 - **`GermlineDistances.matrix` resolves each *distinct* allele once** instead of once per row, then

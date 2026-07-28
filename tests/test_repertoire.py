@@ -293,6 +293,18 @@ def test_coverage_standardized_diversity_runs(space):
     assert 0.0 < emb.diversity[3] <= 1.0           # Ĉ is a coverage
 
 
+def test_mean_less_embedding_vectorizes_but_refuses_mmd(space):
+    # reachable from `mir embed repertoires --blocks diversity`
+    df = _sample(_clonotypes(60, offset=0))
+    emb = sample_embedding(space, df, blocks=("diversity",))
+    assert emb.mean is None
+    assert emb.vector.shape == (4,)                # Φ is still a vector, just a mean-less one
+    with pytest.raises(ValueError, match="no mean"):
+        mmd_distance(emb, emb)
+    with pytest.raises(ValueError, match="no mean"):
+        mmd_matrix([emb, emb])
+
+
 # --- serialization / comparability invariant ---------------------------------------
 
 def test_save_load_roundtrip_and_cross_basis_refusal(space, tmp_path):
