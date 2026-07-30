@@ -3,7 +3,7 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.7.0 — 2026-07-30
 
 Four new modules: a PhenoPath-style exposure trajectory, the generative loop's mechanical and
 research halves, and the digital twin that glues them to the digital donor — plus a repertoire-level
