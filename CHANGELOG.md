@@ -3,6 +3,38 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+Four new modules: a PhenoPath-style exposure trajectory, the generative loop's mechanical and
+research halves, and the digital twin that glues them to the digital donor — plus a repertoire-level
+exposure channel. No public API removed; a minor bump.
+
+### Added
+
+- **`mir.track.fit_exposure_trajectory`** — a covariate-disentangled latent trajectory over any
+  per-sample channel matrix (PhenoPath, Campbell & Yau 2018, *Nat. Commun.* 9:2442,
+  doi:10.1038/s41467-018-04696-6, adapted from genes×cells to repertoire-channels×samples): infers a
+  shared exposure/progression pseudotime `tau` while separating out which channels respond to it
+  differently by a known covariate (`TrajectoryFit.top_interactions`). A simplified closed-form
+  alternating fit (per-channel ridge + GLS trajectory update + iteratively-reweighted ARD shrinkage
+  on the interaction term), not a literal reimplementation of PhenoPath's CAVI engine. Torch-free.
+- **`mir.generate`** — the generative loop's mechanical half: `DescriptorDensity` (optionally
+  class-conditional Gaussian, Ledoit-Wolf shrinkage) over `RepertoireDescriptor` vectors;
+  `sample`/`evolve` (perturb one coordinate, propagate the coupled shift via the fitted covariance's
+  conditional mean) promote the ad-hoc `benchmark_repertoire_tcga_insilico.py` `np.cov`-slope pattern
+  into a reusable library object. Torch-free.
+- **`mir.ml.diffusion`** (needs `[ml]`) — the generative loop's research half: a compact conditional
+  DDPM/DDIM generator (classifier-free guidance) over a compact descriptor/code space, sharing
+  `DescriptorDensity`'s `sample(n, condition=, seed=)` call shape so either generator drops in
+  unchanged. `DiffusionModel.save`/`load` mirrors `CodecBundle`'s shape.
+- **`mir.twin.DonorTwin`/`make_twins`** — the digital twin: glue one donor's `RepertoireDescriptor` +
+  an optional `mir.track` trajectory position + covariate into one object; `.perturb()` and
+  `.simulate()` accept either generator.
+- **`mir.density.exposure_score`/`exposure_channel`** — aggregate a per-clonotype
+  `neighbor_enrichment` result into repertoire-level exposure scalars (breadth, abundance-weighted
+  mass fraction, mean log2 fold), ready for `ChannelBuilder`/`DonorCohort extra_channels` — exposure
+  detection promoted from clone-level to a first-class cohort channel.
+
 ## 3.6.0 — 2026-07-30
 
 Default-on functional filtering, a new default clone-size weight for repertoire embedding, and a

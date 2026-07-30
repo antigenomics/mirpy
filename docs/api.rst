@@ -123,6 +123,41 @@ residualisation, sample clustering, and incidence biomarkers (Theory T7).
    :undoc-members:
    :show-inheritance:
 
+Exposure trajectory (``mir.track``)
+-----------------------------------
+
+A PhenoPath-style (Campbell & Yau 2018) covariate-disentangled latent trajectory over a per-sample
+channel matrix — repertoire-level exposure detection, complementing ``mir.density``'s clone-level
+TCRNET/ALICE enrichment.
+
+.. automodule:: mir.track
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Generative loop (``mir.generate``)
+----------------------------------
+
+A fitted (optionally class-conditional) density over ``RepertoireDescriptor`` vectors: sample new
+synthetic donor states, or evolve one along a coordinate via the fitted covariance's conditional
+mean — the mechanical half of the generative loop (ROADMAP Phase 2).
+
+.. automodule:: mir.generate
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Digital twin (``mir.twin``)
+---------------------------
+
+One donor's perturbable, simulatable state — glues ``RepertoireDescriptor`` + an optional
+``mir.track`` trajectory position + a ``mir.generate``/``mir.ml.diffusion`` generator into one object.
+
+.. automodule:: mir.twin
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Benchmark harness (``mir.bench``)
 ---------------------------------
 
@@ -235,6 +270,17 @@ Unified encoder+decoder codec with a geometry-anchor term.
 Learned repertoire track (Set-Transformer / DeepRC attention pooling).
 
 .. automodule:: mir.ml.set_encoder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.ml.diffusion``
+~~~~~~~~~~~~~~~~~~~~
+
+Conditional diffusion generator (DDPM/DDIM + classifier-free guidance) over a compact descriptor/code
+space — the research half of the generative loop, complementing ``mir.generate``'s linear Gaussian.
+
+.. automodule:: mir.ml.diffusion
    :members:
    :undoc-members:
    :show-inheritance:

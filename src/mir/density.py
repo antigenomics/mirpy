@@ -622,6 +622,69 @@ def enriched_mask(
     )
 
 
+def exposure_score(
+    res: EnrichmentResult, *, abundance: np.ndarray | None = None,
+    alpha: float = 0.05, min_fold: float = 1.0, min_neighbors: int = 2,
+) -> np.ndarray:
+    """Aggregate one repertoire's per-clonotype :class:`EnrichmentResult` into 3 exposure scalars.
+
+    :func:`neighbor_enrichment` answers "which clones are enriched" (a per-clonotype hit list, the
+    TCRNET/ALICE readout); this answers "how exposed does the whole repertoire look" — a sample-level
+    summary suitable as an explainable channel (:mod:`mir.explain`) alongside identity/diversity/
+    coverage, rather than a clonotype list. Exposure detection moves from clone-level (density.py's
+    core job) to repertoire-level (a scalar a cohort model can score) with no new statistics: it is a
+    read-off of the enrichment already computed.
+
+    Args:
+        res: One donor's enrichment result (``obs_emb`` = that donor's repertoire, ``bg_emb`` shared
+            across the cohort so results are comparable).
+        abundance: Optional clone sizes (``duplicate_count``), row-aligned to ``res`` — enables the
+            mass-weighted column. ``None`` falls back to unweighted (distinct-count) breadth.
+        alpha, min_fold, min_neighbors: Forwarded to :func:`enriched_mask`.
+
+    Returns:
+        ``[breadth, mass_fraction, mean_log2_fold]``:
+
+        * ``breadth`` — fraction of distinct clonotypes flagged enriched.
+        * ``mass_fraction`` — abundance-weighted fraction of repertoire mass flagged (equals
+          ``breadth`` when ``abundance`` is ``None``).
+        * ``mean_log2_fold`` — mean ``log2(fold)`` among flagged clones (``0.0`` if none flagged).
+    """
+    mask = enriched_mask(res, alpha=alpha, min_fold=min_fold, min_neighbors=min_neighbors)
+    breadth = float(mask.mean()) if mask.size else 0.0
+    if abundance is not None:
+        a = np.asarray(abundance, dtype=np.float64)
+        mass_fraction = float(a[mask].sum() / a.sum()) if a.sum() > 0 else 0.0
+    else:
+        mass_fraction = breadth
+    if mask.any():
+        mean_log2_fold = float(np.mean(np.log2(np.clip(res.fold[mask], 1e-12, None))))
+    else:
+        mean_log2_fold = 0.0
+    return np.array([breadth, mass_fraction, mean_log2_fold], dtype=np.float64)
+
+
+def exposure_channel(
+    results: list[EnrichmentResult], *, abundances: list[np.ndarray | None] | None = None, **kwargs,
+) -> np.ndarray:
+    """Stack :func:`exposure_score` across a cohort into one ready-to-fuse channel matrix.
+
+    Args:
+        results: One :class:`EnrichmentResult` per donor (same shared background embedding).
+        abundances: Optional per-donor clone-size arrays, row-aligned to ``results`` (``None`` per
+            donor falls back to unweighted breadth for that donor).
+        **kwargs: Forwarded to :func:`exposure_score` (``alpha``, ``min_fold``, ``min_neighbors``).
+
+    Returns:
+        ``(n_donors, 3)`` array — columns ``[breadth, mass_fraction, mean_log2_fold]`` — pass
+        directly to :meth:`mir.explain.ChannelBuilder.add` (e.g.
+        ``builder.add("exposure", exposure_channel(results))``) or return it from a
+        :func:`mir.cohort.fit_donor_embeddings` ``extra_channels`` closure.
+    """
+    abundances = abundances or [None] * len(results)
+    return np.stack([exposure_score(r, abundance=a, **kwargs) for r, a in zip(results, abundances)])
+
+
 def denoise_and_cluster(
     obs_emb: np.ndarray,
     res: EnrichmentResult,

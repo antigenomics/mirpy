@@ -114,8 +114,28 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   high `delta` + `delta_out≈0` is the **redundancy** signature. `channel_drivers` hops channel→clonotypes
   via `class_witness`, but **only** for a channel declared `attributable` (a kernel mean); a Hill number
   has no clonotype pre-image and it raises. Depends one-way on `repertoire.py`; nothing there changed.
+- `track.py` — **exposure trajectory** (repertoire-level exposure detection, complementing
+  `density.py`'s clone-level TCRNET/ALICE): `fit_exposure_trajectory(X, covariates, ...)`, a
+  PhenoPath-style (Campbell & Yau 2018) covariate-disentangled latent factor model —
+  `Y[n,g] = c_g + alpha_g.x_n + (kappa_g + gamma_g.x_n)*tau_n + eps` — fit by alternating closed-form
+  per-channel ridge regression and a GLS trajectory update (a simplified, non-CAVI approximation to
+  PhenoPath's inference; ARD-style iteratively-reweighted shrinkage on `gamma`, the covariate x
+  trajectory interaction). `TrajectoryFit.top_interactions()` ranks channels. Fills the
+  analysis-repo ROADMAP's Phase 5 (embedding trajectory). Torch-free.
+- `generate.py` — the **generative loop, mechanical half** (ROADMAP Phase 2): `DescriptorDensity`
+  (optionally class-conditional Gaussian, Ledoit-Wolf shrinkage) over `RepertoireDescriptor` vectors;
+  `sample` draws new synthetic donor states, `evolve` perturbs one coordinate and propagates the
+  coupled shift via the fitted covariance's conditional mean — promotes the ad-hoc
+  `benchmark_repertoire_tcga_insilico.py` `np.cov`-slope pattern into a reusable library object.
+  Torch-free.
+- `twin.py` — the **digital twin**: `DonorTwin`/`make_twins` glue one donor's `RepertoireDescriptor`
+  + an optional `track.py` trajectory position + covariate into one object; `.perturb()` (via
+  `generate.evolve`) and `.simulate()` (via `generate.DescriptorDensity` or `ml.diffusion.DiffusionModel`
+  — both share the `sample(n, condition=, seed=)` shape, so either drops in). Torch-free itself.
 - `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
-  attention pooling + `SetEncoderBundle`).
+  attention pooling + `SetEncoderBundle`) + `diffusion.py` (**generative loop, research half**: compact
+  conditional DDPM/DDIM with classifier-free guidance over a compact descriptor/code space, standardized
+  internally with `x0`-clipping for DDIM stability; `DiffusionModel.save`/`load` mirrors `CodecBundle`).
 - `cli.py` — the `mir` console script (argparse, stdlib): `embed clonotypes` (TCREmp table) /
   `embed repertoires` (per-locus `fit_repertoire_space`→`sample_embedding` Φ(S), optional `--mmd`).
   Reads via `vdjtools.io.read`; writes TSV/parquet.
@@ -155,9 +175,18 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   cleanup) — the "vdjtools at the embedding level" audit +
   plan (three verbs: make / measure / generate-decode). **Phase 0** (robustness + optimization quick wins)
   and **Phase 1** (cohort tier: `bench/eval.py`, `repertoire.{fit_repertoire_spaces,centroid_atypicality}`,
-  `cohort.py` digital donor) are **DONE**. Next: **Phase 2** generative loop (`generate.py` `DescriptorDensity`
-  + `evolve`/`sample`, `CodecBundle.from_unified/from_decoder`), then multimodal encoders + embedding
-  trajectory. **Analysis-repo follow-up:** refactor `_tcga_embedding.build_embedding` onto
+  `cohort.py` digital donor) are **DONE**. **Phase 2 (generative loop, mechanical half) — DONE**:
+  `generate.py` `DescriptorDensity` (`sample`/`evolve`) ships, promoting the ad-hoc
+  `benchmark_repertoire_tcga_insilico.py` `np.cov`-slope pattern; `CodecBundle.from_unified/from_decoder`
+  is still open. **Phase 5 (embedding trajectory) — partially addressed**: `track.py`
+  `fit_exposure_trajectory` (a PhenoPath-style covariate-disentangled latent trajectory, Campbell &
+  Yau 2018) fills this rather than the originally-sketched `track.repertoire_trajectory`
+  Φ-velocity idea — a different, arguably more principled approach to the same phase; `clonotype_flux`
+  (differential enrichment) is still open. Also new: `mir.ml.diffusion` (generative loop, **research
+  half** — conditional DDPM/DDIM, complementing the linear `DescriptorDensity`) and `twin.py`
+  (`DonorTwin`/`make_twins` — glues descriptor + trajectory + generator into one perturb/simulate
+  object). Next: Phase 3 (embedding inversion / generation), Phase 4 (multimodal encoders).
+  **Analysis-repo follow-up:** refactor `_tcga_embedding.build_embedding` onto
   `cohort.fit_donor_embeddings` (+ `extra_channels` for isotype/composition/atypicality) and re-verify the
   pan-cancer ΔC numbers. NB Phase 0 flipped the density default to `backend="kdtree"` — re-verify any
   recorded balloon-mode baselines (±1 boundary counts).

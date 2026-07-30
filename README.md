@@ -173,7 +173,10 @@ Provenance and the regenerate command are in [`SOURCES.md`](SOURCES.md).
 | `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness; `centroid_atypicality`, multi-locus `fit_repertoire_spaces` (Theory §T.7) |
 | `mir.explain` | named-channel fusion (`ChannelBuilder`) + scorer-agnostic ablation (`channel_report`/`channel_drivers`) — which part of Φ carries the signal (§T.7) |
 | `mir.cohort` | the **digital donor** — multi-chain `fit_donor_embeddings`/`DonorCohort` (+ `transform`/`save`/`load`) + `residualize` / `cluster_samples` / `incidence_biomarkers` (§T.7) |
-| `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) — Part 2, experimental; `[ml]` extra |
+| `mir.track` | **exposure trajectory** — PhenoPath-style covariate-disentangled latent progression axis (`fit_exposure_trajectory`) over any channel matrix; repertoire-level exposure detection |
+| `mir.generate` | the **generative loop** (mechanical half) — `DescriptorDensity`: sample new synthetic donor states / `evolve` one along a coordinate, over `RepertoireDescriptor` |
+| `mir.twin` | the **digital twin** — `DonorTwin`/`make_twins`: perturb or resample one donor's state through a `mir.generate`/`mir.ml.diffusion` generator |
+| `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) + conditional **diffusion generator** (`mir.ml.diffusion`, the generative loop's research half) — Part 2, experimental; `[ml]` extra |
 
 ## Background subtraction & clustering (`mir.density`)
 
@@ -250,6 +253,47 @@ TRA and class II) lives in the second moment / witness. A learned co-equal set e
 (Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). Recorded results and theory
 (T7) live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo
 (`benchmarks/{BENCHMARKS,THEORY}.md`) alongside the benchmark scripts.
+
+## Exposure trajectory, generative loop, digital twin
+
+A repertoire cohort often has a **known covariate** (HLA, batch, vaccine arm) but an **unknown or
+noisy progression axis** (days since exposure, response severity). `mir.track.fit_exposure_trajectory`
+recovers that latent trajectory `tau` while disentangling it from the covariate — a PhenoPath-style
+model (Campbell & Yau 2018, *Nat. Commun.*
+[10.1038/s41467-018-04696-6](https://doi.org/10.1038/s41467-018-04696-6), adapted from genes×cells to
+repertoire-channels×samples) over *any* per-sample channel matrix (a stacked `Φ`, a `ChannelBuilder`
+build, or a raw embedding block):
+
+```python
+from mir.explain import stack_embeddings
+from mir.track import fit_exposure_trajectory
+
+X, spec = stack_embeddings(embs)                 # channels: mean ‖ diversity ‖ second
+fit = fit_exposure_trajectory(X, hla_indicator, channel_names=spec.names)
+fit.tau                    # inferred exposure/progression pseudotime, one per sample
+fit.top_interactions(5)    # which channels respond to progression differently by covariate
+```
+
+Complementing that, `mir.generate.DescriptorDensity` fits a (optionally class-conditional) density
+over `RepertoireDescriptor` vectors — `sample` draws brand-new synthetic donor states, `evolve`
+perturbs one donor along a coordinate ("what if hotter") and propagates the coupled shift through
+every other coordinate via the fitted covariance's conditional mean. `mir.ml.diffusion` (`[ml]`
+extra) is the non-linear alternative — a compact conditional DDPM/DDIM generator with
+classifier-free guidance, sharing the same `sample(n, condition=…)` call shape so it drops in
+unchanged. `mir.twin.DonorTwin` glues a donor's descriptor + trajectory position + covariate into
+one object you perturb or resample through, instead of threading the three APIs together by hand:
+
+```python
+from mir.generate import fit_descriptor_density
+from mir.twin import make_twins
+
+density = fit_descriptor_density(descriptors, labels=tumor_type)
+twins = make_twins(descriptors, conditions=tumor_type, donor_ids=sample_ids)
+hotter = twins[0].perturb(density, coordinate="infiltration", delta=2.0)
+synthetic = twins[0].simulate(density, n=20)     # 20 new synthetic peers of donor 0
+```
+
+See `examples/trajectory_and_twin.py` for a runnable end-to-end demo.
 
 ## Reproduce the paper
 

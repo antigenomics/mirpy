@@ -19,6 +19,8 @@ from mir.density import (
     calibrate_radius,
     denoise_and_cluster,
     enriched_mask,
+    exposure_channel,
+    exposure_score,
     fit_density_space,
     neighbor_enrichment,
 )
@@ -184,6 +186,50 @@ def test_enriched_mask_criteria():
     )
     m = enriched_mask(res, alpha=0.05, min_fold=1.0, min_neighbors=2)
     assert m.tolist() == [True, False, False, False]  # only #0 passes q, fold & n_obs
+
+
+def test_exposure_score_breadth_mass_and_fold():
+    res = EnrichmentResult(
+        n_obs=np.array([3, 0, 5, 0] * 5, dtype=float),
+        n_bg=np.array([1, 1, 1, 1] * 5, dtype=float),
+        expected=np.array([1, 1, 1, 1] * 5, dtype=float),
+        fold=np.array([4.0, 0.5, 6.0, 0.8] * 5),
+        pvalue=np.array([0.001, 0.9, 0.001, 0.9] * 5),
+        qvalue=np.array([0.01, 0.9, 0.01, 0.9] * 5),
+        radius=1.0,
+    )
+    abundance = np.array([10, 5, 50, 5] * 5, dtype=float)
+
+    s = exposure_score(res, abundance=abundance)
+    assert s.shape == (3,)
+    assert s[0] == pytest.approx(0.5)                          # breadth: half the clones flagged
+    assert s[1] > s[0]                                          # mass_fraction: flagged clones are bigger
+    assert s[2] == pytest.approx(np.log2(np.array([4.0, 6.0])).mean())
+
+    # no abundance -> mass_fraction falls back to breadth
+    s_unweighted = exposure_score(res)
+    assert s_unweighted[1] == pytest.approx(s_unweighted[0])
+
+
+def test_exposure_score_no_hits_is_zero_everywhere_but_breadth():
+    n = 8
+    res = EnrichmentResult(
+        n_obs=np.zeros(n), n_bg=np.ones(n), expected=np.ones(n), fold=np.full(n, 0.5),
+        pvalue=np.ones(n), qvalue=np.ones(n), radius=1.0,
+    )
+    s = exposure_score(res)
+    assert (s == 0.0).all()
+
+
+def test_exposure_channel_stacks_per_donor():
+    res = EnrichmentResult(
+        n_obs=np.array([3, 0] * 5, dtype=float), n_bg=np.ones(10), expected=np.ones(10),
+        fold=np.array([4.0, 0.5] * 5), pvalue=np.array([0.001, 0.9] * 5),
+        qvalue=np.array([0.01, 0.9] * 5), radius=1.0,
+    )
+    stacked = exposure_channel([res, res, res])
+    assert stacked.shape == (3, 3)
+    assert np.array_equal(stacked[0], stacked[1])
 
 
 def test_slice_junction_is_every_third_column():
