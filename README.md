@@ -79,6 +79,11 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 prototype count, weight, Φ blocks, …). Sample id defaults to the filename stem; the locus is
 inferred per file (or restrict with `--locus`).
 
+Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame markers in
+`junction_aa`) before embedding by default — pass `--no-filter-functional` to skip this. Without
+it, a stop codon silently produces a numerically meaningless embedding and an out-of-frame `_`
+marker crashes the run outright (neither is a valid amino acid).
+
 ## Recommended presets
 
 `TCREmp.from_defaults(species, locus)` uses the per-chain preset when `n_prototypes` is
@@ -208,11 +213,16 @@ undercount; `pip install "mirpy-lib[ann]"`).
 
 One fixed vector `Φ(S)` per **repertoire** — an order-invariant multiset of clonotypes with clone
 sizes — depth-robust into the low-coverage bulk-RNA-seq regime (Theory §T.7). `Φ(S)` sketches the
-empirical measure `ρ_S = Σ_σ w_σ δ_{φ(σ)}` (concave frequency weights, so one hyperexpanded clone
-can't dominate) in three blocks: an RFF **kernel mean** (depth-robust, codebook-free — no `K`, no
-clustering), a coverage-standardized **Hill diversity** profile, and a **second-moment** Fisher
-vector carrying clonotype co-occurrence (HLA-linked public structure). Repertoire distance is the
-**MMD** `‖Φ₁(S) − Φ₁(S')‖`.
+empirical measure `ρ_S = Σ_σ w_σ δ_{φ(σ)}` in three blocks: an RFF **kernel mean** (depth-robust,
+codebook-free — no `K`, no clustering), a coverage-standardized **Hill diversity** profile, and a
+**second-moment** Fisher vector carrying clonotype co-occurrence (HLA-linked public structure).
+Repertoire distance is the **MMD** `‖Φ₁(S) − Φ₁(S')‖`.
+
+The per-clonotype weights `w_σ = g(a_σ)/Σ_τ g(a_τ)` come from a clone-size transform `g` (`weight=`
+on `sample_embedding`/`fit_repertoire_space`/`mir embed repertoires --weight`): `"log2p1"` —
+`g=log2(1+a)` — is the **default**, concave so one hyperexpanded clone can't dominate;
+`"duplicate_count"` weights linearly by clone size (`g=a`); `"distinct"` ignores size entirely
+(`g≡1`, presence only). `"log1p"` (natural log) and `"anscombe"` remain available.
 
 ```python
 from mir.repertoire import fit_repertoire_space, sample_embedding, mmd_matrix, class_witness

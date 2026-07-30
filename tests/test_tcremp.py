@@ -65,6 +65,25 @@ def test_null_junction_raises_by_name():
         m.embed(df)
 
 
+def test_out_of_frame_underscore_raises_clear_error_instead_of_crashing():
+    # '_' isn't in seqtree's amino-acid alphabet and otherwise crashes with an opaque error;
+    # TCREmp.embed catches it first with a message pointing at filter_functional.
+    m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
+    df = _df().with_columns(pl.Series("junction_aa", ["CASSIRSSYEQYF", "CAS_YEQYF"]))
+    with pytest.raises(ValueError, match="filter_functional"):
+        m.embed(df)
+
+
+def test_stop_codon_still_embeds_unchanged():
+    # '*' (stop codon) is in seqtree's alphabet and doesn't crash -- only '_' gets the safeguard.
+    # Silently embedding a stop codon is still possible; filter it with filter_functional if unwanted.
+    m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
+    df = _df().with_columns(pl.Series("junction_aa", ["CASSIRSSYEQYF", "CASS*YEQYF"]))
+    X = m.embed(df)
+    assert X.shape == (2, m.n_features)
+    assert np.isfinite(X).all()
+
+
 def test_metric_sqrt_is_elementwise_root_of_squared():
     kw = dict(species="human", locus="TRB", n_prototypes=64)
     Xd = TCREmp.from_defaults(**kw).embed(_df())

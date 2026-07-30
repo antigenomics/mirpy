@@ -161,7 +161,9 @@ class EnrichmentResult:
 
 _WEIGHTS = {
     "distinct": lambda a: np.ones(a.shape, dtype=np.float64),  # g≡1: the shipped distinct count
-    "log1p": lambda a: np.log1p(a),                            # concave, robust to the Zipf tail
+    "duplicate_count": lambda a: a.astype(np.float64),         # linear: g(a)=a, raw clone size
+    "log1p": lambda a: np.log1p(a),                            # concave, robust to the Zipf tail (natural log)
+    "log2p1": lambda a: np.log2(1.0 + a),                      # concave, log2(1+a)
     "anscombe": lambda a: np.sqrt(a + 0.375),                  # variance-stabilising root
 }
 

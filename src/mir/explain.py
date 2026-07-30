@@ -429,7 +429,7 @@ def channel_drivers(
     neg: list[pl.DataFrame],
     candidates: pl.DataFrame,
     channel: str | None = None,
-    weight: str = "log1p",
+    weight: str = "log2p1",
     top: int = 30,
 ) -> pl.DataFrame:
     """Clonotypes driving a channel — the channel → clones hop (Prop. ``prop:witness``).

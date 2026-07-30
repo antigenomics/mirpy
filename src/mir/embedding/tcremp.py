@@ -198,6 +198,15 @@ class TCREmp:
         if n_null:
             raise ValueError(f"junction_aa has {n_null} null value(s); drop or impute them first "
                              "(v_call/j_call nulls are fine — they take the allele fallback)")
+        # '_' (the legacy vdjtools out-of-frame marker) isn't in seqtree's amino-acid alphabet and
+        # crashes gapblock with an opaque error; catch it here with a message naming the fix.
+        n_oof = clonotypes["junction_aa"].str.contains("_", literal=True).fill_null(False).sum()
+        if n_oof:
+            raise ValueError(
+                f"junction_aa has {n_oof} value(s) containing '_' (legacy out-of-frame marker); "
+                "seqtree's alphabet doesn't include it and will crash — drop non-coding "
+                "clonotypes first with vdjtools.preprocess.filter_functional"
+            )
 
         n = clonotypes.height
         out = np.empty((n, 3 * self.n_prototypes), dtype=np.float32)

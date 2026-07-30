@@ -55,3 +55,34 @@ def test_multiple_loci_without_flag_errors(tmp_path):
     _write(src, [TRB[0], ("TRAV1-2*01", "TRAJ33*01", "CAVMDSNYQLIW", 5)])
     with pytest.raises(SystemExit):
         main(["embed", "clonotypes", str(src), "--n-prototypes", "300"])
+
+
+def test_embed_clonotypes_filters_non_coding_by_default(tmp_path):
+    src = tmp_path / "S.tsv"
+    out = tmp_path / "emb.tsv"
+    noncoding = [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3),   # out-of-frame '_'
+                 ("TRBV20-1*01", "TRBJ1-2*01", "CSARVSG*YGYTF", 2)]   # stop codon '*'
+    _write(src, TRB + noncoding)
+    main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "-o", str(out)])
+
+    got = pl.read_csv(out, separator="\t")
+    assert got.height == len(TRB)          # both non-coding rows dropped, no crash
+
+
+def test_embed_clonotypes_no_filter_functional_crashes_on_underscore(tmp_path):
+    src = tmp_path / "S.tsv"
+    _write(src, TRB + [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3)])
+    with pytest.raises(ValueError, match="filter_functional"):
+        main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "--no-filter-functional"])
+
+
+def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):
+    s1, s2 = tmp_path / "P1.tsv", tmp_path / "P2.tsv"
+    out = tmp_path / "phi.tsv"
+    _write(s1, TRB)
+    _write(s2, [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3)])   # all non-coding
+    main(["embed", "repertoires", str(s1), str(s2), "--n-prototypes", "300",
+          "--n-rff", "32", "-o", str(out)])
+
+    got = pl.read_csv(out, separator="\t")
+    assert got["sample_id"].to_list() == ["P1"]      # P2 skipped, P1 still embedded

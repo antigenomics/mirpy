@@ -128,12 +128,21 @@ def test_descriptor_metrics_derivable_smooth_and_decodable(space):
     assert rel < 0.02
 
 
-@pytest.mark.parametrize("weight", ["distinct", "log1p", "anscombe"])
+@pytest.mark.parametrize("weight", ["distinct", "duplicate_count", "log1p", "log2p1", "anscombe"])
 def test_weights_run_and_neff_in_hill_interval(space, weight):
     df = _sample(_clonotypes(120, offset=0), lambda n: np.geomspace(1, 1000, n))
     emb = sample_embedding(space, df, weight=weight)
     d0, d2 = np.exp(emb.diversity[0]), np.exp(emb.diversity[2])
     assert d2 - 1e-6 <= emb.n_eff <= d0 + 1e-6            # n_eff is a Hill number (prop:antag)
+
+
+def test_default_weight_is_log2p1(space):
+    df = _sample(_clonotypes(90, offset=400), lambda n: np.geomspace(1, 200, n))
+    default = sample_embedding(space, df)
+    explicit = sample_embedding(space, df, weight="log2p1")
+    old_default = sample_embedding(space, df, weight="log1p")
+    assert np.array_equal(default.mean, explicit.mean)
+    assert not np.array_equal(default.mean, old_default.mean)
 
 
 def test_neff_equals_richness_under_presence_weighting(space):

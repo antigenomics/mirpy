@@ -3,6 +3,41 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.6.0 — 2026-07-30
+
+Default-on functional filtering, a new default clone-size weight for repertoire embedding, and a
+clearer crash message — a minor bump since the repertoire-embedding default changes the numeric
+output for callers who didn't pass `weight=` explicitly.
+
+### Added
+
+- **`mir embed clonotypes` / `mir embed repertoires` drop non-coding clonotypes by default**
+  (`--filter-functional`, default on; `--no-filter-functional` to disable) via
+  `vdjtools.preprocess.filter_functional` — a stop codon or legacy out-of-frame marker
+  (`[*atgc#~_?]`) in `junction_aa` otherwise either crashes (`_`) or silently produces a
+  numerically meaningless embedding (`*`). `mir embed repertoires` skips (with a warning) any
+  sample/locus left empty after filtering, instead of crashing the whole batch.
+- **`"duplicate_count"` (linear, `g(a)=a`) and `"log2p1"` (`g(a)=log2(1+a)`) clone-size weights**
+  for repertoire embedding, alongside the existing `"distinct"` (`g≡1`) and `"log1p"`/`"anscombe"`.
+  `"log2p1"` is the **new default** — see Changed.
+
+### Fixed
+
+- **`TCREmp.embed` raises a clear error when `junction_aa` contains `'_'`** (the legacy vdjtools
+  out-of-frame marker), naming the value count and pointing at `filter_functional`, instead of
+  letting seqtree's opaque `"symbol '_' is not in the alphabet"` propagate uncaught. `'*'` (stop
+  codon) is unaffected by this check — it doesn't crash, so filter it via `filter_functional` if
+  you don't want it silently embedded.
+
+### Changed
+
+- **Default clone-size weight for repertoire embedding is now `"log2p1"`** (`g=log2(1+a)`),
+  changed from `"log1p"` (natural log). Affects `mir.repertoire.sample_embedding`,
+  `RepertoireSpace.sample_cloud`, `sample_descriptor`, `class_witness`, `mir.explain.channel_drivers`,
+  and `mir embed repertoires --weight`. This changes the numeric values of `Φ(S)`'s mean/second
+  blocks (and any MMD computed from them) for callers who relied on the implicit default — pass
+  `weight="log1p"` to reproduce the old default exactly.
+
 ## 3.5.0 — 2026-07-28
 
 A documentation-accuracy pass plus the fixes found by the accompanying code audit. No public API

@@ -15,6 +15,7 @@ from mir.density import (
     EnrichmentResult,
     _embed,
     _slice,
+    _WEIGHTS,
     calibrate_radius,
     denoise_and_cluster,
     enriched_mask,
@@ -35,6 +36,15 @@ def _load_olga(n: int, offset: int = 0) -> pl.DataFrame:
 
 
 # --- pure-array tests (no model needed) -------------------------------------------
+
+def test_weight_functions():
+    a = np.array([1.0, 3.0, 7.0, 100.0])
+    assert np.allclose(_WEIGHTS["distinct"](a), 1.0)
+    assert np.allclose(_WEIGHTS["duplicate_count"](a), a)
+    assert np.allclose(_WEIGHTS["log1p"](a), np.log1p(a))
+    assert np.allclose(_WEIGHTS["log2p1"](a), np.log2(1.0 + a))
+    assert np.allclose(_WEIGHTS["anscombe"](a), np.sqrt(a + 0.375))
+
 
 def test_neighbor_enrichment_detects_injected_cluster():
     rng = np.random.default_rng(0)

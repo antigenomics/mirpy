@@ -268,19 +268,25 @@ Command-line interface (``mir``)
 ``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with two
 commands, one per embedding scale:
 
+Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame ``junction_aa``) before
+embedding by default via ``vdjtools.preprocess.filter_functional`` — pass ``--no-filter-functional``
+to disable.
+
 ``mir embed clonotypes INPUT``
    One repertoire's clonotype table → a per-clonotype TCREMP embedding table (columns ``e0…``).
    Flags: ``--species``, ``--locus`` (inferred when the file has one locus), ``--n-prototypes``,
-   ``--mode {vjcdr3,cdr123}``, ``--pca K`` (compact the table), ``--threads``, ``-o`` (``.tsv`` /
+   ``--mode {vjcdr3,cdr123}``, ``--replicate R`` (prototype draw), ``--pca K`` (compact the table),
+   ``--filter-functional``/``--no-filter-functional``, ``--threads``, ``-o`` (``.tsv`` /
    ``.parquet``; default stdout TSV).
 
 ``mir embed repertoires INPUT...``
    A dataset of clonotype tables → one repertoire vector ``Φ(S)`` per sample **per chain** on one
    shared basis (columns ``phi0…``; sample id = filename stem). Flags: ``--species``, ``--locus``
-   (restrict), ``--n-prototypes``, ``--weight {log1p,anscombe,distinct}``,
+   (restrict), ``--n-prototypes``, ``--replicate R``,
+   ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}`` (default ``log2p1``),
    ``--blocks mean,diversity[,second]``, ``--n-rff``, ``--n-rff-second``, ``--n-components``,
-   ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix), ``--threads``,
-   ``--seed``, ``-o``.
+   ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
+   ``--filter-functional``/``--no-filter-functional``, ``--threads``, ``--seed``, ``-o``.
 
 .. automodule:: mir.cli
    :members: main, build_parser

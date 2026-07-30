@@ -3,8 +3,9 @@
 A repertoire is an order-invariant multiset of clonotypes with clone counts,
 ``S = {(σ, a_σ)}``. We embed it as the *empirical measure* ``ρ_S = Σ_σ w_σ δ_{z_σ}`` on
 the clonotype embedding space (``z_σ = φ(σ)`` from :class:`~mir.embedding.tcremp.TCREmp`),
-with concave frequency weights ``w_σ = g(a_σ) / Σ_τ g(a_τ)`` (``g`` = ``log1p`` by default,
-so one hyperexpanded clone can't dominate). ``Φ(S)`` is a sketch of ``ρ_S`` in three blocks,
+with clone-size weights ``w_σ = g(a_σ) / Σ_τ g(a_τ)`` (``g`` = ``log2p1`` — ``log2(1+a)`` — by
+default, so one hyperexpanded clone can't dominate; ``"duplicate_count"`` weights linearly by clone
+size and ``"distinct"`` ignores size entirely, ``g≡1``). ``Φ(S)`` is a sketch of ``ρ_S`` in three blocks,
 each owning one requirement (appendix §T.7):
 
 * **mean** ``Φ₁ = Σ_σ w_σ ψ(z_σ)`` — the random-Fourier-feature **kernel mean embedding**
@@ -143,7 +144,7 @@ class RepertoireSpace:
         """Project a clonotype frame into the shared PCA coordinate system."""
         return self.clono.transform(df)
 
-    def sample_cloud(self, df: pl.DataFrame, *, weight: str = "log1p"):
+    def sample_cloud(self, df: pl.DataFrame, *, weight: str = "log2p1"):
         """A sample as ``(Z, w)``: PCA-coord clonotypes ``Z`` and normalized weights ``w=g(a)/Σg``.
 
         The raw material for both the fixed kernel mean (:func:`sample_embedding`) and the learned
@@ -368,7 +369,7 @@ def sample_embedding(
     space: RepertoireSpace,
     sample_df: pl.DataFrame,
     *,
-    weight: str = "log1p",
+    weight: str = "log2p1",
     blocks: tuple[str, ...] = ("mean", "diversity", "second"),
     coverage: float | None = None,
 ) -> SampleEmbedding:
@@ -377,8 +378,10 @@ def sample_embedding(
     Args:
         space: A :class:`RepertoireSpace` from :func:`fit_repertoire_space`.
         sample_df: One sample's clonotypes with ``duplicate_count`` (counts drive the weights).
-        weight: Concave clone-size weight ``g`` — ``"log1p"`` (default) / ``"anscombe"`` /
-            ``"distinct"`` (``g≡1``, presence). Frequencies are ``w = g(a)/Σg`` (scale-free).
+        weight: Clone-size weight ``g`` — ``"log2p1"`` (default, ``g=log2(1+a)``) /
+            ``"duplicate_count"`` (``g=a``, linear) / ``"distinct"`` (``g≡1``, presence) /
+            ``"log1p"`` (``g=ln(1+a)``) / ``"anscombe"`` (``g=√(a+3/8)``). Frequencies are
+            ``w = g(a)/Σg`` (scale-free).
         blocks: Which blocks to compute/return.
         coverage: Common Good–Turing coverage ``Ĉ*`` for the diversity block; ``None`` uses the
             sample's observed Hill numbers.
@@ -455,7 +458,7 @@ class RepertoireDescriptor:
 
 
 def sample_descriptor(space: RepertoireSpace, sample_df: pl.DataFrame, *,
-                      weight: str = "log1p") -> RepertoireDescriptor:
+                      weight: str = "log2p1") -> RepertoireDescriptor:
     """Mass-preserving smooth descriptor of one repertoire (see :class:`RepertoireDescriptor`).
 
     The scale (``log_mass`` = infiltration) is retained rather than normalised away, so infiltration,
@@ -536,7 +539,7 @@ def class_witness(
     neg: list[pl.DataFrame],
     candidates: pl.DataFrame,
     *,
-    weight: str = "log1p",
+    weight: str = "log2p1",
     top: int = 30,
     witness: np.ndarray | None = None,
 ) -> pl.DataFrame:

@@ -77,6 +77,24 @@ def _pick_locus(df: pl.DataFrame, requested: str | None) -> str:
     )
 
 
+def _apply_functional_filter(sub: pl.DataFrame, enabled: bool) -> pl.DataFrame:
+    """Drop non-coding clonotypes (stop codon / out-of-frame ``junction_aa``) unless disabled.
+
+    Defends against exactly what crashes or silently corrupts embedding otherwise: a stop codon
+    (``*``) or legacy out-of-frame marker (e.g. ``_``) in ``junction_aa``.
+    """
+    if not enabled:
+        return sub
+    from vdjtools.preprocess import filter_functional
+
+    n0 = sub.height
+    sub = filter_functional(sub)
+    if sub.height < n0:
+        print(f"[mir] filtered {n0 - sub.height} non-coding clonotype(s) "
+              "(stop codon / out-of-frame junction_aa)", file=sys.stderr)
+    return sub
+
+
 # --- commands --------------------------------------------------------------
 def cmd_clonotypes(a: argparse.Namespace) -> None:
     from mir.embedding.pca import pca_denoise
@@ -87,6 +105,9 @@ def cmd_clonotypes(a: argparse.Namespace) -> None:
     sub = df.filter(pl.col("locus") == locus)
     if sub.is_empty():
         raise SystemExit(f"no clonotypes for locus {locus!r} in {a.input}")
+    sub = _apply_functional_filter(sub, a.filter_functional)
+    if sub.is_empty():
+        raise SystemExit(f"no coding clonotypes remain for locus {locus!r} after functional filtering")
 
     model = TCREmp.from_defaults(a.species, locus, n_prototypes=a.n_prototypes,
                                  mode=a.mode, replicate=a.replicate, threads=a.threads)
@@ -122,7 +143,12 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
         for locus in [x for x in df["locus"].unique().to_list() if x]:
             if a.locus and locus != a.locus:
                 continue
-            by_locus[locus].append((sid, df.filter(pl.col("locus") == locus)))
+            sub = _apply_functional_filter(df.filter(pl.col("locus") == locus), a.filter_functional)
+            if sub.is_empty():
+                print(f"[mir] {sid}/{locus}: no coding clonotypes after functional filtering, "
+                      "skipping this sample/locus", file=sys.stderr)
+                continue
+            by_locus[locus].append((sid, sub))
 
     if not by_locus:
         raise SystemExit("no samples/loci to embed (check inputs / --locus)")
@@ -177,6 +203,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
     c.add_argument("--pca", type=int, default=None, metavar="K",
                    help="PCA-denoise the embedding to K dims (compact table)")
+    c.add_argument("--filter-functional", action=argparse.BooleanOptionalAction, default=True,
+                   help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
+                        "before embedding (default: on)")
     c.add_argument("--threads", type=int, default=0, help="0 = all cores")
     c.set_defaults(func=cmd_clonotypes)
 
@@ -188,8 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--n-prototypes", type=int, default=None)
     r.add_argument("--replicate", type=int, default=0, metavar="R",
                    help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
-    r.add_argument("--weight", default="log1p", choices=("log1p", "anscombe", "distinct"),
-                   help="clone-size weight g (frequencies w = g(a)/Σg)")
+    r.add_argument("--weight", default="log2p1",
+                   choices=("log2p1", "duplicate_count", "distinct", "log1p", "anscombe"),
+                   help="clone-size weight g (frequencies w = g(a)/Σg): log2p1 g=log2(1+a) "
+                        "(default), duplicate_count g=a (linear), distinct g=1 (presence), "
+                        "log1p g=ln(1+a), anscombe g=√(a+3/8)")
     r.add_argument("--blocks", default="mean,diversity",
                    help="Φ blocks: mean,diversity[,second] (second = heavy HLA-interaction block)")
     r.add_argument("--n-rff", type=int, default=1024, help="mean-block RFF dimension")
@@ -197,6 +229,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--n-components", type=int, default=None,
                    help="clonotype-PCA dims for the shared basis (default: preset)")
     r.add_argument("--mmd", metavar="OUT", help="also write the per-chain pairwise unbiased-MMD matrix")
+    r.add_argument("--filter-functional", action=argparse.BooleanOptionalAction, default=True,
+                   help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
+                        "before embedding (default: on)")
     r.add_argument("--threads", type=int, default=0, help="0 = all cores")
     r.add_argument("--seed", type=int, default=0)
     r.set_defaults(func=cmd_repertoires)
