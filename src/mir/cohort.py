@@ -230,6 +230,93 @@ def missingness_report(labels, mask) -> dict:
     }
 
 
+def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
+    """How much of an embedding's **leading geometry** is explained by sampling depth.
+
+    The companion to :func:`missingness_report`: that one asks whether a grouping tracks *which*
+    blocks a sample has, this one whether the embedding's dominant axes track *how deeply* it was
+    sequenced. Each of the top ``n_pc`` principal components is regressed on the sampling fingerprint
+    (:func:`mir.repertoire.cohort_statistics`) and reported as R².
+
+    Report the leading block, not only PC1 — a correction can move depth off PC1 and leave it in PC2.
+    Measured with the deficient measure (:func:`mir.repertoire.contrast_embedding`), R²(PC1, depth)
+    fell 0.259 → 0.001 and best-of-PC1–5 0.253 → 0.047, while PC1's *explained variance* was
+    unchanged, which is what distinguishes "a different direction" from "a collapsed one" — so read
+    ``explained_variance`` alongside the R².
+
+    Args:
+        X: ``(n_samples, d)`` embedding matrix (uncentred is fine; PCA centres internally).
+        stats: ``{name: (n_samples,) values}`` sampling fingerprint. Non-finite entries are
+            mean-filled so one missing library size cannot drop a sample.
+        n_pc: Number of leading components to test.
+        subset: Optional boolean mask of a *trusted* subset (e.g. samples above
+            :func:`mir.repertoire.depth_threshold`'s ``κ``). When given, the same statistics are
+            recomputed inside it and returned under ``*_subset``: high overall and low within the
+            subset means the structure was between coverage strata.
+
+    Returns:
+        ``r2_pc1``, ``r2_best``, ``pc_best`` (1-indexed), ``r2_by_pc``, ``explained_variance``
+        (per-PC ratio), ``n_pc``, ``stats`` (names, in fit order), ``n_samples`` — plus
+        ``r2_pc1_subset`` / ``r2_best_subset`` / ``n_samples_subset`` when ``subset`` is given.
+
+    Raises:
+        ValueError: If ``stats`` is empty or a statistic's length disagrees with ``X``.
+    """
+    from sklearn.decomposition import PCA
+
+    X = np.asarray(X, dtype=np.float64)
+    n = X.shape[0]
+    if not stats:
+        raise ValueError("stats is empty: nothing to test the geometry against")
+    names = list(stats)
+    S = np.empty((n, len(names)))
+    for j, k in enumerate(names):
+        v = np.asarray(stats[k], dtype=np.float64).ravel()
+        if v.size != n:
+            raise ValueError(f"stat {k!r} has {v.size} values for {n} samples")
+        bad = ~np.isfinite(v)
+        if bad.any():
+            v = v.copy()
+            v[bad] = v[~bad].mean() if (~bad).any() else 0.0
+        S[:, j] = v
+
+    def r2s(rows):
+        k = min(n_pc, rows.sum() - 1, X.shape[1])
+        if k < 1:
+            return np.array([]), np.array([])
+        pca = PCA(n_components=k, random_state=0).fit(X[rows])
+        P = pca.transform(X[rows])
+        A = np.column_stack([np.ones(int(rows.sum())), S[rows]])
+        out = []
+        for j in range(k):
+            y = P[:, j]
+            res = y - A @ np.linalg.lstsq(A, y, rcond=None)[0]
+            ss = float(((y - y.mean()) ** 2).sum())
+            out.append(1.0 - float(res @ res) / ss if ss > 0 else 0.0)
+        return np.array(out), pca.explained_variance_ratio_
+
+    r2, ev = r2s(np.ones(n, dtype=bool))
+    rep = {
+        "r2_pc1": float(r2[0]) if r2.size else float("nan"),
+        "r2_best": float(r2.max()) if r2.size else float("nan"),
+        "pc_best": int(np.argmax(r2) + 1) if r2.size else 0,
+        "r2_by_pc": [float(v) for v in r2],
+        "explained_variance": [float(v) for v in ev],
+        "n_pc": int(r2.size),
+        "stats": names,
+        "n_samples": n,
+    }
+    if subset is not None:
+        sub = np.asarray(subset, dtype=bool)
+        if sub.shape != (n,):
+            raise ValueError(f"subset has shape {sub.shape}, expected ({n},)")
+        r2b, _ = r2s(sub)
+        rep["r2_pc1_subset"] = float(r2b[0]) if r2b.size else float("nan")
+        rep["r2_best_subset"] = float(r2b.max()) if r2b.size else float("nan")
+        rep["n_samples_subset"] = int(sub.sum())
+    return rep
+
+
 # ------------------------------------------------------------- per-donor block assembly
 
 
@@ -569,18 +656,56 @@ def fit_donor_embeddings(
 # --------------------------------------------------------------- cohort operations
 
 
-def residualize(X: np.ndarray, group: np.ndarray) -> np.ndarray:
+def residualize(X: np.ndarray, group: np.ndarray, *, shrink: bool = False) -> np.ndarray:
     """Subtract each group's mean vector — remove the first-order batch offset (Prop. ``prop:batch``).
 
     The detect→correct→verify batch cookbook's correction step, applied to a stacked donor matrix.
     NB the corrected matrix is a *different* coordinate system: never compare a residualized ``X`` to
     an uncorrected one.
+
+    ⚠ **The plain correction can make the batch easier to read, not harder**, and this is measured
+    rather than hypothetical: evaluated out-of-sample (leave-one-batch-out for any shared basis, plus
+    a donor-level split *inside* each batch), batch-identity AUC went 0.863 raw → **0.985** after
+    per-group centring, and 0.978 after ComBat. The mechanism is estimation error, not a bug — with a
+    mean fitted from as few as 8–15 samples in ~1,280 dimensions, ``‖µ̂ − µ‖ ≈ √(σ²d/n)`` was ≈16
+    against a true offset of norm 7–24, so subtracting it **injects a batch-constant vector as large
+    as the one it removes**. In-sample this vanishes by construction, which is why only an
+    out-of-sample evaluation sees it. ``shrink=True`` (positive-part James–Stein) recovered most of
+    the damage in the same experiment: 0.985 → **0.889**.
+
+    Args:
+        X: ``(n_samples, n_features)`` stacked matrix.
+        group: Length-``n_samples`` batch label per row.
+        shrink: Scale each group's offset by the positive-part James–Stein factor
+            ``max(0, 1 − (d−2)·(σ̂²/n_g)/‖µ̂_g‖²)`` — where ``σ̂²`` is the pooled within-group
+            per-coordinate variance — so a group whose apparent offset is no bigger than its own
+            estimation error is left alone. Recommended whenever a group has few samples relative to
+            the feature count; ``False`` keeps the exact previous behaviour.
+
+    Returns:
+        The corrected ``(n_samples, n_features)`` matrix.
     """
     X = np.asarray(X, dtype=np.float64)
     out = X.copy()
+    grand = X.mean(axis=0)
+    d = X.shape[1]
+    if shrink:
+        # pooled within-group variance per coordinate, averaged over coordinates
+        ss = dof = 0.0
+        for g in np.unique(group):
+            m = group == g
+            if m.sum() > 1:
+                ss += float(np.sum((X[m] - X[m].mean(axis=0)) ** 2))
+                dof += (m.sum() - 1) * d
+        sigma2 = ss / dof if dof > 0 else 0.0
     for g in np.unique(group):
         m = group == g
-        out[m] -= X[m].mean(axis=0)
+        offset = X[m].mean(axis=0) - (grand if shrink else 0.0)
+        if shrink:
+            sq = float(offset @ offset)
+            c = max(0.0, 1.0 - (d - 2) * (sigma2 / max(int(m.sum()), 1)) / sq) if sq > 0 else 0.0
+            offset = c * offset + grand      # shrink the group effect, keep the grand mean
+        out[m] -= offset
     return out
 
 

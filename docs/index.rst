@@ -99,12 +99,19 @@ Capabilities (see the :doc:`API reference <api>`)
   (``mir.explain`` + scorers in ``mir.bench.eval``, T7).
 - **Neural codecs** — forward / inverse / Pgen / unified codecs and a learned repertoire set
   encoder; CUDA → MPS → CPU device selection (``mir.ml``, ``[ml]`` extra).
+- **Sub-probability embeddings** — a sample that was never fully observed carries a deficient mass
+  instead of asserting full confidence: Good–Turing / Chao missing mass, a germline reference for the
+  unseen, and the signed contrast ``Ψ = mass·(Φ − naive)`` (``mir.repertoire``).
 - **Benchmark harness** — VDJdb clustering + F1/retention and reproduced theory (``mir.bench``).
+
+Every formula, derivation and invariant behind these is collected in
+:doc:`Mathematical foundations <math>`.
 
 .. toctree::
    :hidden:
 
    self
    usage
+   math
    examples
    api

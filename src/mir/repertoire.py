@@ -121,6 +121,62 @@ def missing_mass(counts, method: str = "chao") -> float:
     return 0.0 if total <= 0 else float(s_u / total)
 
 
+def sample_statistics(sample_df: pl.DataFrame) -> dict:
+    """The **sampling fingerprint** of one repertoire — the basic statistics, from counts alone.
+
+    Two uses. (a) The targets :func:`mir.bench.recovery_report` asks the embedding to *carry*: if a
+    statistic is recoverable from ``Φ``, nothing has to be bolted on beside it. (b) Features in their
+    own right — the abundance classes ``f1``/``f2``/``f3plus`` and the top-clone fraction are
+    clonality and expansion, i.e. candidate biology, not only depth nuisance.
+
+    Args:
+        sample_df: One sample's clonotypes with ``duplicate_count``.
+
+    Returns:
+        ``{name: float}`` with ``n_reads``, ``log_reads``, ``richness``, ``log_richness``, ``f1``,
+        ``f2``, ``f3plus``, ``singleton_fraction``, ``top_clone_fraction``, ``shannon``,
+        ``missing_mass_turing``, ``missing_mass_chao``.
+
+    Raises:
+        ValueError: On an empty or all-zero-count repertoire (via :func:`_sample_weights`).
+    """
+    a, _, _ = _sample_weights(sample_df, "duplicate_count")
+    ai = np.rint(a)
+    p = a / a.sum()
+    return {
+        "n_reads": float(a.sum()),
+        "log_reads": float(np.log1p(a.sum())),
+        "richness": float(a.size),
+        "log_richness": float(np.log(a.size)),
+        "f1": float(np.count_nonzero(ai == 1)),
+        "f2": float(np.count_nonzero(ai == 2)),
+        "f3plus": float(np.count_nonzero(ai >= 3)),
+        "singleton_fraction": float(np.count_nonzero(ai == 1) / a.size),
+        "top_clone_fraction": float(p.max()),
+        "shannon": float(-np.sum(p * np.log(p))),
+        "missing_mass_turing": missing_mass(a, "turing"),
+        "missing_mass_chao": missing_mass(a, "chao"),
+    }
+
+
+def cohort_statistics(frames) -> dict:
+    """Per-statistic arrays over a cohort — :func:`sample_statistics` transposed.
+
+    Args:
+        frames: One clonotype frame per sample, in the same order as the embedding rows.
+
+    Returns:
+        ``{name: (n_samples,) array}``, ready as :func:`mir.bench.recovery_report`'s ``stats``.
+
+    Raises:
+        ValueError: If ``frames`` is empty.
+    """
+    if not len(frames):
+        raise ValueError("frames is empty")
+    rows = [sample_statistics(f) for f in frames]
+    return {k: np.array([r[k] for r in rows], dtype=np.float64) for k in rows[0]}
+
+
 def _sample_weights(sample_df: pl.DataFrame, weight: str):
     """Validated ``(counts a, concave g, normalized weights w=g/Σg)`` for one sample.
 
@@ -499,6 +555,116 @@ def sample_embedding(
     return SampleEmbedding(mean=mean, diversity=div, second=sec, n_eff=n_eff, mass=mass)
 
 
+# ------------------------------------------------------ functional diversity from Φ
+
+
+def rao_q(emb: SampleEmbedding) -> float:
+    """Rao's quadratic entropy of the repertoire, read straight off ``Φ₁`` as ``1 − ‖Φ₁‖²``.
+
+    Rao's ``Q = Σ_{σ,τ} w_σ w_τ d(σ,τ)`` with the kernel dissimilarity ``d = 1 − k`` collapses, for
+    weights summing to 1 and a normalised kernel (``k(z,z)=1``), to exactly ``1 − ‖Φ₁‖²`` — so the
+    **norm** of the kernel mean *is* a diversity statistic and no Gram matrix is needed. Verified
+    against an explicit Gram to machine precision (max relative error ~1e-16).
+
+    This is the diversity the Hill block cannot express. Every Hill number is a functional of the
+    clone-size distribution alone, hence invariant to permuting *which* receptor carries which
+    abundance — it describes the shape of the abundance distribution and is blind to composition.
+    Rao's ``Q`` weights each pair by how *different the receptors are*, so it is a **functional**
+    diversity: sequence-aware, and already carried inside ``Φ``. Measured: this one scalar recovers
+    R² 0.74–0.85 of classical diversity, while embedding derivatives reach R² 0.974–0.994 for Shannon
+    and 0.985–0.9999 for richness.
+
+    Two caveats. The kernel is a random-Fourier *approximation*, so ``k(z,z)=1`` holds only to
+    ``O(D^{-1/2})`` and a single-clone sample reads ``Q`` of order ``1e-2`` rather than exactly 0 —
+    widen ``n_rff`` if the absolute level matters, or read differences, which are unaffected. And it
+    is valid **only for the true, uncentred** ``Φ₁``: Centring or PCA-projecting ``Φ₁`` preserves
+    *differences* (so MMD survives) but not norms, so ``Q`` cannot be read off a centred/reduced
+    identity block — check which object you hold before quoting any norm-based quantity. With a
+    deficient ``mass`` this is the ``Q`` of the observed (renormalised) part, which is the honest
+    reading: it is the diversity you measured.
+
+    Args:
+        emb: A :class:`SampleEmbedding` with its mean block (uncentred, as returned).
+
+    Returns:
+        ``Q ∈ [0, 1]`` — 0 for a single clone, rising as the receptors present grow more dissimilar.
+
+    Raises:
+        ValueError: If ``emb`` has no mean block.
+    """
+    m = emb._require_mean()
+    return float(1.0 - m @ m)
+
+
+@dataclass
+class DepthThreshold:
+    """Where sampling noise stops being smaller than between-sample signal (see :func:`depth_threshold`)."""
+
+    kappa: float             # σ²/τ² — the effective size at which noise == signal
+    tau2: float              # between-sample (biological) variance
+    sigma2: float            # within-sample sampling variance, per unit 1/n
+    fraction_below: float    # share of the cohort below kappa
+    sizes: np.ndarray        # the per-sample n used
+
+    def __repr__(self) -> str:      # arrays make the default repr unreadable
+        return (f"DepthThreshold(kappa={self.kappa:.1f}, tau2={self.tau2:.4g}, "
+                f"sigma2={self.sigma2:.4g}, fraction_below={self.fraction_below:.3f}, "
+                f"n_samples={self.sizes.size})")
+
+
+def depth_threshold(embs, sizes=None) -> DepthThreshold:
+    """Estimate ``κ``, the sample size below which a repertoire's ``Φ`` is mostly sampling noise.
+
+    The damage depth does to a kernel mean is not bias — it is **variance ∝ 1/n**, over an ``n``
+    spanning four orders of magnitude, and in a neighbour graph that heteroscedasticity *is* a depth
+    axis. So regress each sample's squared distance from the cohort centroid on ``1/n``:
+
+    ``E‖Φ_S − Φ̄‖² ≈ τ² + σ²/n``
+
+    The intercept ``τ²`` is between-sample (biological) spread, the slope ``σ²`` is within-sample
+    sampling noise, and **``κ = σ²/τ²`` is the size at which the two are equal** — below it a
+    sample's ``Φ`` carries more noise than signal. Measured across four independent views, ``κ`` came
+    out at **40–70 clonotypes** every time, with 23–69% of samples below it.
+
+    This is the estimable replacement for a hand-picked clonotype floor: report ``κ`` and
+    ``fraction_below`` for the cohort in front of you rather than importing someone else's cutoff.
+    Note the library still does **not** apply a floor — in blood a low clonotype count is shallow
+    sequencing, in a tumour it is low infiltration (the phenotype of interest). Pair ``κ`` with
+    :func:`missing_mass` / :func:`contrast_embedding` and weight instead of filtering.
+
+    Args:
+        embs: Per-sample :class:`SampleEmbedding` (mean block present), one cohort, one basis.
+        sizes: Per-sample size to use as ``n``. ``None`` → each embedding's ``n_eff``. Pass observed
+            clonotype richness to read ``κ`` in clonotypes rather than effective clonotypes.
+
+    Returns:
+        A :class:`DepthThreshold`. ``kappa`` is ``inf`` when the fit finds no between-sample spread
+        (``τ² ≤ 0``) and ``0.0`` when it finds no depth dependence (``σ² ≤ 0``).
+
+    Raises:
+        ValueError: If fewer than three samples are given, or ``sizes`` has the wrong length.
+    """
+    M = np.stack([e._require_mean() for e in embs])
+    if M.shape[0] < 3:
+        raise ValueError(f"need at least 3 samples to fit a depth threshold, got {M.shape[0]}")
+    n = (np.array([e.n_eff for e in embs], dtype=np.float64) if sizes is None
+         else np.asarray(sizes, dtype=np.float64))
+    if n.shape != (M.shape[0],):
+        raise ValueError(f"sizes has shape {n.shape}, expected ({M.shape[0]},)")
+
+    y = np.sum((M - M.mean(axis=0)) ** 2, axis=1)
+    A = np.column_stack([np.ones_like(n), 1.0 / n])
+    tau2, sigma2 = np.linalg.lstsq(A, y, rcond=None)[0]
+    if sigma2 <= 0:
+        kappa = 0.0
+    elif tau2 <= 0:
+        kappa = float("inf")
+    else:
+        kappa = float(sigma2 / tau2)
+    return DepthThreshold(kappa=kappa, tau2=float(tau2), sigma2=float(sigma2),
+                          fraction_below=float(np.mean(n < kappa)), sizes=n)
+
+
 # ------------------------------------------------------- the location of the unseen
 
 
@@ -513,7 +679,7 @@ def naive_reference(
 
     Once a sample's mass is deficient (:func:`missing_mass`), something has to occupy the unseen
     block, and the choice decides whether the object is a shrinkage estimator toward a *meaningful*
-    point. Three priors were measured on a large corpus:
+    point. Three priors were measured:
 
     * the sample's own singletons — begs the question, adds no information;
     * the **corpus mean** — James–Stein toward the centroid, and it measurably **hurt**: it piles
@@ -598,6 +764,274 @@ def contrast_embedding(emb: SampleEmbedding, reference: np.ndarray) -> np.ndarra
     """
     ref = np.asarray(reference, dtype=np.float64)
     return float(emb.mass) * (emb._require_mean() - ref)
+
+
+# ------------------------------------------------------------ compartments (bands)
+
+_ISOTYPE_BANDS = {
+    "igm": ("IGHM", "IGHD"),                          # unswitched: naive + marginal zone
+    "igg": ("IGHG1", "IGHG2", "IGHG3", "IGHG4"),      # class-switched, T-dependent, affinity-matured
+    "iga": ("IGHA1", "IGHA2"),                        # mucosal
+}
+_SIZE_BANDS = ("singleton", "expanded", "top")
+
+
+def band_frames(
+    sample_df: pl.DataFrame,
+    *,
+    bands: tuple[str, ...] = _SIZE_BANDS,
+    top_fraction: float = 0.01,
+    top_clip: tuple[int, int] = (10, 500),
+    min_clonotypes: int = 5,
+) -> dict:
+    """Partition one sample's clonotypes into **compartments** — abundance bands or IGH isotypes.
+
+    ``Φ₁`` is a clone-size-weighted *average*, which is the right operation for estimating a
+    population mean and the wrong one for detecting a **minority** signal. Writing the repertoire as
+    a mixture ``ρ_S = (1−π)ρ_naive + π ρ_expanded`` gives ``Φ₁(S) = (1−π)Φ₁(naive) + π Φ₁(expanded)``,
+    so a difference confined to the expanded compartment reaches ``Φ₁`` attenuated to ``πΔ`` while the
+    *noise* is supplied by the naive compartment that owns most of the clonotypes. Embedding each
+    compartment separately occupies exactly the blind spot of the Hill block, which is invariant to
+    which receptor carries which abundance.
+
+    Bands (on ``duplicate_count``, never on a frequency column):
+
+    ==============  ==========================================  ====================================
+    band            definition                                  compartment
+    ==============  ==========================================  ====================================
+    ``singleton``   ``count == 1``                              naive-dominated background; also
+                                                                where sequencing error concentrates
+    ``expanded``    ``count >= 2``                              clones that divided at least once
+    ``top``         top ``top_fraction`` by count, clipped to   the dominant clonal compartment
+                    ``top_clip``                                (chronic exposure history)
+    ``igm``         ``c_call`` in IGHM/IGHD                     unswitched (IGH only)
+    ``igg``         ``c_call`` in IGHG1–4                       class-switched (IGH only)
+    ``iga``         ``c_call`` in IGHA1–2                       mucosal (IGH only)
+    ==============  ==========================================  ====================================
+
+    ``top`` and ``expanded`` overlap deliberately — "what does the dominant compartment look like" and
+    "what does everything that expanded look like" are different questions. The isotype cut partitions
+    on an irreversible molecular event rather than an abundance threshold, so IgM/IgG/IgA are
+    genuinely different cell populations sharing one locus. Rows with a **null** ``c_call`` are
+    *excluded* from every isotype band, never defaulted to IgM: an uncalled constant region is missing
+    data, and roughly 43% of IGH reads have none at RNA-seq coverage.
+
+    Args:
+        sample_df: One sample's clonotypes with ``duplicate_count`` (and ``c_call`` for isotypes).
+        bands: Which bands to build. Any of ``singleton``/``expanded``/``top``/``igm``/``igg``/``iga``.
+        top_fraction: Fraction of clonotypes in the ``top`` band before clipping.
+        top_clip: ``(min, max)`` clonotype count for the ``top`` band.
+        min_clonotypes: A band with fewer clonotypes is returned as ``None`` — recorded **absent**,
+            never embedded. A 3-clone "repertoire" is not an estimate; ``None`` is the same
+            hole convention :class:`~mir.explain.ChannelBuilder` and
+            :func:`mir.cohort.align_loci` already understand.
+
+    Returns:
+        ``{band: frame or None}`` in the requested order.
+
+    Raises:
+        ValueError: On an unknown band name, or an isotype band without a ``c_call`` column.
+    """
+    unknown = [b for b in bands if b not in _SIZE_BANDS and b not in _ISOTYPE_BANDS]
+    if unknown:
+        raise ValueError(f"unknown bands {unknown}; known: {list(_SIZE_BANDS) + list(_ISOTYPE_BANDS)}")
+    if any(b in _ISOTYPE_BANDS for b in bands) and "c_call" not in sample_df.columns:
+        raise ValueError("isotype bands need a 'c_call' column; none present")
+
+    out: dict = {}
+    for b in bands:
+        if b == "singleton":
+            f = sample_df.filter(pl.col(_COUNT) == 1)
+        elif b == "expanded":
+            f = sample_df.filter(pl.col(_COUNT) >= 2)
+        elif b == "top":
+            k = int(np.clip(round(top_fraction * sample_df.height), *top_clip))
+            f = sample_df.sort(_COUNT, descending=True).head(k)
+        else:
+            # strip the allele suffix so IGHG1*01 lands in igg; a null c_call is missing data
+            f = sample_df.filter(
+                pl.col("c_call").str.split("*").list.first().is_in(_ISOTYPE_BANDS[b]))
+        out[b] = f if f.height >= min_clonotypes else None
+    return out
+
+
+def band_embeddings(space: RepertoireSpace, sample_df: pl.DataFrame, *,
+                    bands: tuple[str, ...] = _SIZE_BANDS, min_clonotypes: int = 5,
+                    **kwargs) -> dict:
+    """Embed each compartment of one sample through the **same** basis (see :func:`band_frames`).
+
+    A band is never a reason to refit: refitting would put each compartment in its own geometry and
+    make band-to-band and cohort-to-cohort distances meaningless. One ``space``, every band.
+
+    Args:
+        space: The shared :class:`RepertoireSpace`.
+        sample_df: One sample's clonotypes.
+        bands: Which bands to embed (:func:`band_frames`).
+        min_clonotypes: Bands smaller than this are ``None`` (absent, not embedded).
+        **kwargs: Forwarded to :func:`sample_embedding` (``weight``, ``blocks``, ``missing_mass``…).
+
+    Returns:
+        ``{band: SampleEmbedding or None}``.
+
+    Note:
+        To compare two compartments' *directions*, centre the cohort first (``X - X.mean(0)``, or
+        :func:`centroid_atypicality` for the per-group version) and cosine the residuals. Do not read
+        a raw cosine between two TCREmp-derived vectors, and do not think subtracting each vector's
+        own scalar mean fixes it: on mean distance profiles, measured raw cos 0.9993, self-centred
+        0.9985, cohort-centred **−0.14**. Only cohort centring removes the shared profile. Measured
+        compartment overlaps of order 0.01 (RFF kernel means, whose null is already ≈0) are real
+        signal above that baseline.
+    """
+    frames = band_frames(sample_df, bands=bands, min_clonotypes=min_clonotypes)
+    return {b: (None if f is None else sample_embedding(space, f, **kwargs))
+            for b, f in frames.items()}
+
+
+def mixture_weights(whole, parts: dict) -> dict:
+    """Non-negative mixture weights ``π_c`` of compartments inside a whole-repertoire ``Φ₁``.
+
+    ``Φ`` is linear in the clone-weight measure, so ``Φ(S) = Σ_c π_c Φ(c)`` **exactly** for any
+    partition (verified to ~1e-17), which makes a non-negative least squares of the whole on its
+    compartments well-posed rather than a heuristic fit. The weights are the answer to "how much of
+    what I am measuring does this compartment actually own" — the dilution factor ``π`` of
+    :func:`band_frames`, measured instead of assumed.
+
+    Two things it is for. **Interpretation**: measured on IGH, the class-switched IgG compartment —
+    affinity-matured, T-dependent, the fraction most likely to carry antigen-specific signal —
+    carries a median ``π`` of only **0.070** of ``Φ₁(IGH)``, with unswitched IgM at 0.230, IgA at
+    0.176 and 0.520 unexplained (the uncalled-isotype share, agreeing in ballpark with the ~0.43
+    counted from reads — different denominators, embedding *weight* vs *reads*). **Power**: ``π`` is a
+    prior estimate of how far a subset can move ``Φ``, so a subset carrying ``π`` ≈ 0.001 will not be
+    detectable by any aggregate distance on ``Φ``, and the per-clonotype route
+    (:func:`class_witness`) is the sensitive one. Check ``π`` before spending compute on the aggregate.
+
+    Args:
+        whole: The whole repertoire's ``Φ₁`` — a :class:`SampleEmbedding` or a ``(D,)`` array.
+        parts: ``{name: SampleEmbedding | array | None}``; ``None`` entries are skipped
+            (an absent band is not a zero-weight band).
+
+    Returns:
+        ``{"weights": {name: π}, "residual": 1 − Σπ, "r2": reconstruction R²}``. ``residual`` is the
+        share of the whole no compartment accounts for (an unmeasured or excluded compartment), and
+        can be negative if the parts overlap (``top`` ⊂ ``expanded``).
+
+    Raises:
+        ValueError: If no usable parts were given, or a part's width differs from ``whole``'s.
+    """
+    from scipy.optimize import nnls
+
+    def vec(x):
+        # NB not getattr(x, "mean", x): an ndarray has a .mean *method*
+        return np.asarray(x.mean if isinstance(x, SampleEmbedding) else x, dtype=np.float64)
+
+    y = vec(whole)
+    names = [k for k, v in parts.items() if v is not None]
+    if not names:
+        raise ValueError("no usable parts: every entry is None")
+    cols = []
+    for k in names:
+        c = vec(parts[k])
+        if c.shape != y.shape:
+            raise ValueError(f"part {k!r} has shape {c.shape}, whole has {y.shape}")
+        cols.append(c)
+    A = np.column_stack(cols)
+    pi, _ = nnls(A, y)
+    resid = y - A @ pi
+    denom = float(y @ y)
+    return {"weights": {k: float(p) for k, p in zip(names, pi)},
+            "residual": float(1.0 - pi.sum()),
+            "r2": float(1.0 - (resid @ resid) / denom) if denom > 0 else float("nan")}
+
+
+# ----------------------------------------------------------------------- rarefaction
+
+
+@dataclass
+class RarefyResult:
+    """A depth-standardised embedding plus the replicate dispersion (see :func:`rarefy_embedding`)."""
+
+    embedding: SampleEmbedding   # Φ̄, the mean over replicates — itself a valid kernel mean
+    v_rep: float                 # mean_r ‖Φ_r − Φ̄‖² — this sample's sampling noise, measured
+    depth: int
+    n_replicates: int
+
+    def rao_gap(self) -> float:
+        """``v_rep`` again, under the name of the identity it satisfies.
+
+        ``Rao(Φ̄) = mean_r Rao(Φ_r) + v_rep`` holds **exactly**: ``Φ̄`` embeds the mixture over
+        subsamples, which is genuinely more diverse than any single subsample, so the excess
+        diversity of the average *is* the replicate variance. Averaging commutes with ``Φ`` but not
+        with nonlinear functionals of it — ``mean(Rao) ≠ Rao(mean)`` — and this is the exact gap.
+        """
+        return self.v_rep
+
+
+def rarefy_embedding(
+    space: RepertoireSpace,
+    sample_df: pl.DataFrame,
+    depth: int,
+    *,
+    n_replicates: int = 10,
+    weight: str = "log2p1",
+    seed: int = 0,
+) -> RarefyResult:
+    """Embed a repertoire **rarefied to a common read depth**, averaged over replicate draws.
+
+    The only depth correction that preserves the kernel-mean semantics exactly. ``Φ`` is linear in
+    the clone-weight measure, so the mean of ``Φ`` over independent multinomial subsamples is itself
+    a kernel mean embedding — of the mixture distribution over subsamples — and MMD, Rao's ``Q`` and
+    mixture linearity all survive (verified to ~1e-15). An orthogonal projection breaks Rao; a
+    per-coordinate location-scale rescale breaks MMD and Rao both.
+
+    Not a default, and not a substitute for carrying depth explicitly: rarefying a whole cohort to
+    the depth of its shallowest useful samples throws away the deep samples' entire advantage, which
+    is why :func:`depth_threshold` + :func:`missing_mass` are the first-line tools. Reach for this
+    when two groups must be compared *at matched depth* and you need the comparison to stay an MMD.
+
+    Only the mean block is averaged — see :meth:`RarefyResult.rao_gap`.
+
+    Args:
+        space: The shared :class:`RepertoireSpace`.
+        sample_df: One sample's clonotypes with ``duplicate_count``.
+        depth: Reads to draw per replicate. Must not exceed the sample's total.
+        n_replicates: Independent multinomial draws to average (``v_rep`` needs ``≥ 2``).
+        weight: Clone-size weight applied to the *rarefied* counts.
+        seed: RNG seed.
+
+    Returns:
+        A :class:`RarefyResult`.
+
+    Raises:
+        ValueError: If ``depth`` exceeds the sample's read total, ``depth < 1``, or
+            ``n_replicates < 1``.
+    """
+    a, _, _ = _sample_weights(sample_df, weight)
+    total = a.sum()
+    if depth < 1 or n_replicates < 1:
+        raise ValueError(f"depth and n_replicates must be >= 1, got {depth}, {n_replicates}")
+    if depth > total:
+        raise ValueError(
+            f"cannot rarefy to {depth} reads: the sample holds {total:.0f}. Rarefaction only ever "
+            "removes reads — drop the sample, or lower the common depth."
+        )
+    # Embed once; every replicate is then a re-weighting of the same feature rows (rarefaction
+    # changes counts, never coordinates), which is both faster and obviously the same object.
+    psi = space.rff.transform(space.transform_clonotypes(sample_df))
+    rng = np.random.default_rng(seed)
+    p = a / total
+    phis, neffs = [], []
+    for _ in range(n_replicates):
+        draw = rng.multinomial(depth, p).astype(np.float64)
+        m = draw > 0
+        g = _WEIGHTS[weight](draw[m])
+        w = g / g.sum()
+        phis.append(w @ psi[m])
+        neffs.append(1.0 / float(np.sum(w * w)))
+    P = np.stack(phis)
+    bar = P.mean(axis=0)
+    v_rep = float(np.mean(np.sum((P - bar) ** 2, axis=1)))
+    emb = SampleEmbedding(mean=bar, diversity=None, second=None, n_eff=float(np.mean(neffs)))
+    return RarefyResult(embedding=emb, v_rep=v_rep, depth=int(depth), n_replicates=int(n_replicates))
 
 
 # --------------------------------------------------------------- derivable descriptor

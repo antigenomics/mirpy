@@ -129,3 +129,87 @@ def test_cluster_samples_runs(spaces):
     embs = [sample_embedding(sp[c0], f[c0], blocks=("mean",)) for f in frames]
     labels = cluster_samples(embs)
     assert len(labels) == 12 and labels.dtype.kind in "iu"
+
+
+def test_james_stein_shrink_stops_a_small_n_batch_correction_injecting_noise():
+    """Per-group centring in high d with few samples per group injects an offset as big as it removes.
+
+    Evaluated the only way that can see it: fit the offset on half of each batch, apply it to the
+    held-out half, and ask how separable the batches are afterwards. In-sample the injected error
+    vanishes by construction.
+    """
+    rng = np.random.default_rng(0)
+    d, per_batch, n_batch = 200, 10, 6
+    batch = np.repeat(np.arange(n_batch), per_batch)
+    n = batch.size
+
+    def batch_separation(M):
+        cen = np.stack([M[batch == b].mean(0) for b in range(n_batch)])
+        return float(np.mean([np.linalg.norm(cen[i] - cen[j])
+                              for i in range(n_batch) for j in range(i + 1, n_batch)]))
+
+    # NO true batch offset: any apparent one is pure estimation error
+    X = rng.normal(0, 1, (n, d))
+    fit = np.zeros(n, dtype=bool)
+    for b in range(n_batch):
+        fit[np.flatnonzero(batch == b)[: per_batch // 2]] = True
+
+    def apply_offsets(shrink):
+        Xf = residualize(X[fit], batch[fit], shrink=shrink)
+        off = X[fit] - Xf                                   # what the correction subtracts per batch
+        out = X.copy()
+        for b in range(n_batch):
+            out[batch == b] -= off[batch[fit] == b][0]
+        return out[~fit]
+
+    def held_sep(M):
+        return float(np.mean([np.linalg.norm(M[batch[~fit] == i].mean(0) - M[batch[~fit] == j].mean(0))
+                              for i in range(n_batch) for j in range(i + 1, n_batch)]))
+
+    sep_raw = held_sep(X[~fit])
+    plain = held_sep(apply_offsets(False))
+    shrunk = held_sep(apply_offsets(True))
+    assert plain > sep_raw                     # the documented failure: correction makes batch louder
+    assert shrunk < plain                      # positive-part James-Stein recovers most of it
+    assert shrunk <= sep_raw * 1.05
+
+    # with a genuinely large offset, shrinkage keeps ~all of the correction
+    Y = X + np.repeat(rng.normal(0, 3, (n_batch, d)), per_batch, axis=0)
+    assert batch_separation(residualize(Y, batch, shrink=True)) < 0.2 * batch_separation(Y)
+    # and the default is byte-identical to the previous behaviour
+    assert np.array_equal(residualize(Y, batch), residualize(Y, batch, shrink=False))
+
+
+def test_depth_report_flags_a_depth_driven_axis_and_clears_a_clean_one():
+    from mir.cohort import depth_report
+
+    rng = np.random.default_rng(0)
+    n, d = 300, 40
+    log_reads = rng.normal(10, 2, n)
+    stats = {"log_reads": log_reads, "singleton_fraction": rng.uniform(0, 1, n)}
+
+    # X whose dominant axis IS depth
+    load = np.zeros((n, d))
+    load[:, 0] = 6.0
+    dirty = rng.normal(0, 1, (n, d)) + (log_reads - log_reads.mean())[:, None] * load[:1].repeat(n, 0)
+    rep = depth_report(dirty, stats)
+    assert rep["r2_pc1"] > 0.8 and rep["pc_best"] == 1
+    assert len(rep["r2_by_pc"]) == rep["n_pc"] == 5
+    assert len(rep["explained_variance"]) == 5 and rep["stats"] == ["log_reads", "singleton_fraction"]
+
+    # X independent of the fingerprint
+    clean = rng.normal(0, 1, (n, d))
+    assert depth_report(clean, stats)["r2_best"] < 0.2
+
+    # the trusted-subset arm, and non-finite stats are filled rather than dropping samples
+    holed = {"log_reads": log_reads.copy(), "singleton_fraction": stats["singleton_fraction"]}
+    holed["log_reads"][:5] = np.nan
+    sub = log_reads > np.median(log_reads)
+    r2 = depth_report(dirty, holed, subset=sub)
+    assert r2["n_samples"] == n and r2["n_samples_subset"] == int(sub.sum())
+    assert np.isfinite(r2["r2_pc1_subset"])
+
+    with pytest.raises(ValueError, match="stats is empty"):
+        depth_report(clean, {})
+    with pytest.raises(ValueError, match="values for"):
+        depth_report(clean, {"bad": np.ones(3)})

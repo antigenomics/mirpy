@@ -98,7 +98,11 @@ Sample-level (repertoire) embedding (``mir.repertoire``)
 One vector per repertoire: RFF kernel mean ‖ Hill diversity ‖ second moment; MMD (Theory T7).
 Optionally a **sub-probability** measure: ``missing_mass`` (Good-Turing / bias-corrected Chao1),
 ``naive_reference`` (the germline location of the unseen) and ``contrast_embedding``
-(``Ψ = mass·(Φ − naive)``, signed and magnitude-carrying).
+(``Ψ = mass·(Φ − naive)``, signed and magnitude-carrying). Also the measure algebra around it:
+``rao_q`` (Rao's quadratic entropy = ``1 − ‖Φ₁‖²``), ``depth_threshold`` (the ``κ`` below which ``Φ``
+is mostly sampling noise), ``sample_statistics`` / ``cohort_statistics``, the compartment
+decomposition ``band_frames`` / ``band_embeddings`` / ``mixture_weights``, and ``rarefy_embedding``.
+Derivations: :doc:`math`.
 
 .. automodule:: mir.repertoire
    :members:
@@ -121,7 +125,8 @@ Cohort / digital donor (``mir.cohort``)
 ---------------------------------------
 
 Fuse per-chain repertoire embeddings into one hash-verified, serialisable donor matrix; batch
-residualisation, sample clustering, and incidence biomarkers (Theory T7).
+residualisation (with optional James–Stein shrinkage), depth and missingness diagnostics, sample
+clustering, and incidence biomarkers (Theory T7).
 
 .. automodule:: mir.cohort
    :members:

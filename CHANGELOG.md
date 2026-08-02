@@ -27,7 +27,7 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 
 - **Sub-probability repertoire embeddings — the deficient measure.** `Φ(S)` normalises its weights to
   sum to 1, so it is the kernel mean of a *probability* measure and every sample asserts one full unit
-  of confidence. Measured on a large AIRR corpus, that premise fails at RNA-seq depth: the
+  of confidence. Measured, that premise fails at RNA-seq depth: the
   median tissue TRB sample holds **21 unique clonotypes** (blood TRB 254, 1st percentile 1), so
   `w_σ = a_σ/Σa` is `1/n` for a technical draw size rather than a clonal frequency (true frequencies
   are 1e-5…1e-8, and one singleton's weight spans **21,454×** across blood TRB purely from sample
@@ -61,6 +61,86 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
     (`M₀ → 1`) lands at the **origin** — the correct place for "no infiltrate detected" — and a shallow
     blood sample says so by its norm instead of being filtered out. No minimum-clonotype floor was
     added to the library, and none should be: it is a blood rule, not a tissue rule.
+- **`mir.repertoire.rao_q`** — Rao's quadratic entropy of a repertoire, read straight off the kernel
+  mean as `1 − ‖Φ₁‖²`. With the kernel dissimilarity `d = 1 − k` and weights summing to 1, Rao's
+  `Q = Σ w_σ w_τ (1 − k)` collapses to exactly that, so the **norm** of Φ₁ is a diversity statistic and
+  no Gram matrix is ever formed (verified against an explicit Gram to ~1e-16). It is the diversity the
+  Hill block structurally cannot express: every Hill number is a functional of the clone-size
+  distribution alone, hence invariant to permuting which receptor carries which abundance, whereas
+  Rao's Q weights each pair by receptor dissimilarity — a **functional** diversity, sequence-aware and
+  already carried inside Φ. Measured: this one scalar recovers R² 0.74–0.85 of classical diversity,
+  while embedding derivatives reach R² 0.974–0.994 for Shannon and 0.985–0.9999 for richness. Valid
+  only on the *uncentred* Φ₁ (centring keeps differences, hence MMD, but not norms), and only to the
+  RFF error in `k(z,z)=1` — a single-clone sample reads Q ~1e-2, not 0.
+- **`mir.repertoire.depth_threshold`** → `κ`, the sample size below which a repertoire's Φ is mostly
+  sampling noise. The damage depth does to a kernel mean is not bias but **variance ∝ 1/n** over an `n`
+  spanning four orders of magnitude, and in a neighbour graph that heteroscedasticity *is* a depth
+  axis. Regressing `‖Φ_S − Φ̄‖²` on `1/n` splits the observed spread into between-sample signal `τ²`
+  (intercept) and within-sample sampling noise `σ²` (slope), so **`κ = σ²/τ²`** is where the two are
+  equal. Measured κ ≈ 40–70 clonotypes across four independent views, 23–69% of samples below it. The
+  estimable replacement for a hand-picked clonotype floor — the library still applies none.
+- **`mir.repertoire.sample_statistics` / `cohort_statistics`** — the sampling fingerprint (`f1`, `f2`,
+  `f3plus`, singleton fraction, top-clone fraction, Shannon, library size, Turing/Chao missing mass).
+  Both the `stats=` input `recovery_report` asks for and candidate biology in their own right:
+  abundance classes and top-clone fraction are clonality and expansion, not only depth nuisance.
+- **`mir.repertoire.band_frames` / `band_embeddings` / `mixture_weights`** — compartment decomposition.
+  Φ₁ is a clone-size-weighted *average*, right for a population mean and wrong for a **minority**
+  signal: with `ρ_S = (1−π)ρ_N + π ρ_E`, an effect confined to the expanded compartment reaches Φ₁
+  attenuated to `πΔ` while the naive compartment supplies most of the noise. Bands are `singleton`
+  (count 1), `expanded` (≥2), `top` (top 1% clipped to [10, 500]) and, for IGH, the isotype cut
+  `igm`/`igg`/`iga` from `c_call` — an irreversible molecular event rather than an abundance threshold,
+  with null `c_call` rows *excluded* rather than defaulted to IgM (~43% of IGH reads carry no call).
+  Every band embeds through the **same frozen space** (refitting would put each band in its own
+  geometry and make band-to-band distances meaningless), and a band under `min_clonotypes` is recorded
+  **absent** (`None`) rather than embedded — the same hole convention `ChannelBuilder`/`align_loci`
+  already understand. `mixture_weights` then recovers each compartment's share by non-negative least
+  squares, which is well-posed rather than heuristic because mixture linearity `Φ(S) = Σ π_c Φ(c)` is
+  exact (verified ~1e-17). Measured on IGH isotypes: class-switched **IgG carries a median π of 0.070**
+  of Φ₁(IGH) (unswitched IgM 0.230, IgA 0.176, 0.520 unaccounted — the uncalled share, in ballpark
+  agreement with the ~0.43 counted from reads; different denominators). That number doubles as a power
+  calculation: a subset carrying π ≈ 0.001 cannot be detected by any aggregate distance on Φ, so the
+  per-clonotype witness is the sensitive route. On survival endpoints the bands did **not** beat a
+  diversity reference (0 of 22 pre-registered block × endpoint cells; the isotype cut failed
+  identically), but the decomposition confirmed the mixture argument — `singleton` reproduced a
+  clinical-covariates-only score (0.600 vs 0.599) while `expanded` alone reproduced the whole-repertoire
+  score (0.634 vs 0.634) — and banding won on kNN entropy in tissue IGH (0.3875 vs 0.4686).
+- **`mir.repertoire.rarefy_embedding`** — depth-standardised Φ, averaged over multinomial replicate
+  draws, plus `v_rep`. Because Φ is linear in the clone-weight measure, the mean over independent
+  subsamples is itself a kernel mean — of the mixture distribution over subsamples — so MMD, Rao's Q and
+  mixture linearity all survive (~1e-15). It is the **only** depth correction that does: an orthogonal
+  projection breaks the norm identity, a per-coordinate location-scale rescale breaks both. The
+  replicate dispersion is not a diagnostic bolted on but an exact identity,
+  `Rao(Φ̄) = mean_r Rao(Φ_r) + v_rep` — Φ̄ embeds the mixture over subsamples, which is genuinely more
+  diverse than any single subsample, so the excess diversity of the average *is* the replicate
+  variance, and `v_rep` is a free per-sample estimate of the noise `κ` measures cohort-wide. Not a
+  default: rarefying a cohort to its shallowest useful depth discards the deep samples' advantage.
+- **`mir.cohort.depth_report`** — R² of the leading PCs against the sampling fingerprint, with an
+  optional trusted-subset arm. The companion to `missingness_report`: that asks whether a grouping
+  tracks *which* blocks a sample has, this asks whether the dominant axes track *how deeply* it was
+  sequenced. Read it beside the returned `explained_variance` — with the deficient measure,
+  R²(PC1, depth) fell 0.259 → 0.001 and best-of-PC1–5 0.253 → 0.047 while PC1's explained variance was
+  unchanged, which is what distinguishes a different direction from a collapsed one.
+- **`mir.cohort.residualize(..., shrink=True)`** — positive-part James–Stein shrinkage of each batch
+  offset, `c_b = max(0, 1 − (d−2)(σ̂²/n_b)/‖µ̂_b‖²)`, so a batch whose apparent offset is no larger than
+  its own estimation error is left alone. The plain correction the library already shipped can make the
+  batch **easier** to read, measured out-of-sample (leave-one-batch-out plus a donor-level split inside
+  each batch): batch-identity AUC 0.863 raw → **0.985** after per-group centring, 0.978 after ComBat.
+  The mechanism is estimation error, not a bug — with a mean fitted from 8–15 samples in ~1,280
+  dimensions, `‖µ̂ − µ‖ ≈ √(σ²d/n)` ≈ 16 against a true offset of norm 7–24, so subtracting it injects a
+  batch-constant vector as large as the one it removes, and in-sample this vanishes by construction.
+  Shrinkage recovered most of the damage: 0.985 → **0.889**. Default `False`, so existing behaviour is
+  byte-identical.
+- **Docs: `Mathematical foundations`** (`docs/math.rst`) — every object the library computes with its
+  definition, derivation and the call that produces it: the prototype embedding and its Lipschitz
+  bound, the measure quotient that removes order *and* length, Bochner/RFF and the empirical
+  characteristic function, MMD biased and unbiased, Hill numbers versus Rao's Q, the Good–Turing/Chao
+  derivation of the missing mass, the mixture algebra behind bands and rarefaction, the balloon
+  density ratio and its two nulls, channel ablation and the MMD witness, the batch-offset estimation
+  problem, the trajectory model and the Gaussian conditional used for in-silico evolution — plus a
+  **"which transformation preserves what"** table (MMD / Rao / mixture linearity) that is the contract
+  for anything applied to Φ. MathJax for the formulas and `sphinx.ext.graphviz` for the schematics, so
+  the docs build needs no LaTeX (the CI job installs `graphviz`).
+
 - **`mir.explain.ChannelBuilder.add(..., preserve_magnitude=True)`** — scale a channel by **one global
   scalar** (pooled RMS over observed entries, no centring) and fill its holes with `0`, instead of
   per-column z-scoring. Mandatory for any block whose magnitude carries information (a contrast /

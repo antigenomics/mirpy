@@ -105,6 +105,17 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   immune desert lands at the **origin** instead of being deleted by a min-clonotype floor (never add
   one: it's a blood rule, not a tissue rule). Sub-probability, never a *negative* measure: MMD and
   convex-combination-is-a-real-repertoire are what `mir.twin`/trajectories rest on.
+  **Measure-algebra tier** (same date): `rao_q` = `1−‖Φ₁‖²` is Rao's quadratic entropy *exactly* (the
+  norm of Φ₁ IS a functional diversity — the one Hill numbers can't express, since they're invariant to
+  permuting which receptor carries which abundance; valid only **uncentred**); `depth_threshold` fits
+  `‖Φ−Φ̄‖² ≈ τ²+σ²/n` → `κ=σ²/τ²` (measured 40–70 clonotypes; the estimable replacement for a floor);
+  `sample_statistics`/`cohort_statistics` = the sampling fingerprint (also `recovery_report`'s `stats=`);
+  `band_frames`/`band_embeddings`/`mixture_weights` = compartment decomposition through the **same frozen
+  space** + NNLS shares, exploiting exact mixture linearity (IgG carries π=0.070 of Φ₁(IGH) — the
+  dilution factor, and a power calc: π≈0.001 ⇒ use the witness, not an aggregate distance; bands were a
+  survival null but confirmed the mixture argument and won kNN entropy in tissue IGH);
+  `rarefy_embedding` = the only depth correction preserving MMD/Rao/mixture exactly, with
+  `Rao(Φ̄)=mean_r Rao(Φ_r)+v_rep` giving a free per-sample noise estimate (not a default).
 - `cohort.py` — **the digital donor** (T.7): `fit_donor_embeddings`/`DonorCohort` fuse per-chain identity
   (kernel-mean, cross-sample PCA-reduced) ‖ diversity ‖ coverage across loci through **one `ChannelBuilder`**,
   with an `extra_channels` hook for the analysis's own tissue/clinical blocks; comparability bites twice
@@ -112,6 +123,12 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `transform` is the only held-out path. Plus `residualize` (batch cookbook), `cluster_samples`
   (MMD→precomputed-metric cluster), `incidence_biomarkers` (subject-incidence Fisher, delegating to
   `vdjtools.biomarker.fisher`). Generalizes the analysis-repo `_tcga_embedding.build_embedding` glue.
+  Also `residualize(..., shrink=True)` — positive-part James–Stein on the batch offset, because plain
+  per-group centring made batch **easier** to read out-of-sample (AUC 0.863→0.985; ComBat 0.978; JS
+  0.889): `‖µ̂−µ‖≈√(σ²d/n)`≈16 vs a true offset of 7–24, so it injects as much as it removes and only an
+  out-of-sample eval sees it. And `depth_report` (R² of leading PCs on the sampling fingerprint, +
+  trusted-subset arm) — read beside `explained_variance` to tell a *different* direction from a
+  collapsed one.
 - `bench/eval.py` — the scorers `channel_report` consumes (kept out of `explain.py` so it stays scorer-free):
   `cv_auc` / `held_out_auc` (classification), `cv_cindex` / `km_logrank` (Cox survival, `[bench]`→lifelines),
   `kmer_matrix` (baseline). Plus `recovery_report(X, stats, groups)` (re-exported as
@@ -373,4 +390,16 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
     atypicality, being a Φ-geometry op, would belong in `repertoire.py` as `centroid_atypicality` if ever
     wanted). **Remaining**: (a) — "fit one `RepertoireSpace` per locus over a cohort" is construction, so it
     belongs in `mir.repertoire` as a separate, smaller follow-up.
+- **Docs math section** (`docs/math.rst`, 2026-08-02) — the library-facing derivation of everything:
+  prototype embedding + Lipschitz bound, the measure quotient (order *and* length), Bochner/RFF +
+  empirical CF, MMD biased/unbiased, Hill vs Rao, the Good–Turing/Chao missing-mass derivation
+  (including *why the units work*), mixture algebra (bands, NNLS, rarefaction + the exact Rao gap),
+  balloon density ratio + its two nulls, channel ablation + witness, the batch-offset estimation
+  problem, trajectory + Gaussian-conditional evolution, codec geometry anchor — plus the
+  **"which transformation preserves what"** table (MMD / Rao / mixture linearity), which is the contract
+  for anything applied to Φ. MathJax + `sphinx.ext.graphviz` (no LaTeX in the build; docs CI installs
+  `graphviz`). Cross-refs use the manuscript appendix's labels (`prop:kme`, `eq:rff`, …) so docstrings,
+  docs and appendix name the same results.
+- **Provenance rule for measured numbers** (user, 2026-08-02): quote the numbers, never the source —
+  no corpus size, no dataset/programme/cohort names anywhere in this repo.
 - Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
