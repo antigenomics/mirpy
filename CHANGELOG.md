@@ -95,7 +95,8 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
   **absent** (`None`) rather than embedded — the same hole convention `ChannelBuilder`/`align_loci`
   already understand. `mixture_weights` then recovers each compartment's share by non-negative least
   squares, which is well-posed rather than heuristic because mixture linearity `Φ(S) = Σ π_c Φ(c)` is
-  exact (verified ~1e-17). Measured on IGH isotypes: class-switched **IgG carries a median π of 0.070**
+  exact in exact arithmetic (the realised residual is set by the float32 clonotype embedding, ~1e-5
+  relative). Measured on IGH isotypes: class-switched **IgG carries a median π of 0.070**
   of Φ₁(IGH) (unswitched IgM 0.230, IgA 0.176, 0.520 unaccounted — the uncalled share, in ballpark
   agreement with the ~0.43 counted from reads; different denominators). That number doubles as a power
   calculation: a subset carrying π ≈ 0.001 cannot be detected by any aggregate distance on Φ, so the
