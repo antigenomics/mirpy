@@ -185,6 +185,15 @@ class ChannelBuilder:
                 differ by orders of magnitude and any distance/PCA/penalised fit is otherwise
                 dominated by the loudest unit. Pass ``False`` to keep raw values.
 
+        Both statistics come from the **observed** entries of each column, before imputation. The
+        order matters: imputing first and then z-scoring computes ``sd`` over a column whose holes
+        have all been set to one constant, which deflates it in proportion to how sparse the column
+        is — so a locus present in 30% of samples ends up with its real values scaled up ~1.8x
+        against a fully-covered one, giving the *least*-observed chain the *most* weight in every
+        downstream distance, PCA and penalised fit. Standardising on observed entries makes an
+        imputed hole land at exactly 0 (the column mean, i.e. no information) in a column whose
+        scale the hole did not set.
+
         Returns:
             ``(X, spec)``.
 
@@ -194,17 +203,30 @@ class ChannelBuilder:
         if not self._blocks:
             raise ValueError("no blocks added; call add() before build()")
         X = np.hstack(self._blocks)
+        obs = np.isfinite(X)
+        if standardize:
+            mu = np.zeros(X.shape[1])
+            sd = np.ones(X.shape[1])
+            for j in range(X.shape[1]):
+                col = X[obs[:, j], j]
+                if col.size:
+                    mu[j] = col.mean()
+                    s = col.std()
+                    sd[j] = s if s > 0 else 1.0
         if impute:
             for j in range(X.shape[1]):
                 col = X[:, j]
-                bad = ~np.isfinite(col)
+                bad = ~obs[:, j]
                 if bad.any():
-                    good = col[~bad]
-                    col[bad] = float(np.median(good)) if good.size else 0.0
+                    good = col[obs[:, j]]
+                    # fill at the value the column is about to be centred on, so an imputed hole
+                    # lands at exactly 0 and exerts no pull. Without standardization there is no
+                    # centre to match, so the robust choice (median) is used instead.
+                    if standardize:
+                        col[bad] = mu[j]
+                    else:
+                        col[bad] = float(np.median(good)) if good.size else 0.0
         if standardize:
-            mu = X.mean(axis=0)
-            sd = X.std(axis=0)
-            sd[sd == 0] = 1.0
             X = (X - mu) / sd
         return X, ChannelSpec({k: list(v) for k, v in self._cols.items()}, frozenset(self._attr))
 

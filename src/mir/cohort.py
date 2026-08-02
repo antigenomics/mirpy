@@ -94,6 +94,19 @@ def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
     return out, pca
 
 
+def _block_starts(ordered):
+    """``[(name, first_column_index)]`` for the assembled block order.
+
+    The observed pattern is per BLOCK, not per column: a donor either has a chain or does not, so
+    768 identical flags per locus would be noise in the string and in the AMI.
+    """
+    out, c = [], 0
+    for name, mat, _ in ordered:
+        out.append((name, c))
+        c += mat.shape[1]
+    return out
+
+
 # --------------------------------------------------------------------- DonorCohort
 
 
@@ -117,6 +130,46 @@ class DonorCohort:
     identity_pca: dict
     rows: list | None
     meta: dict = field(default_factory=dict)
+
+    def missingness_report(self, labels) -> dict:
+        """How much of a grouping is explained by which chains each donor actually has.
+
+        A cohort with holes can cluster by coverage instead of by repertoire, and nothing in ``X``
+        says which happened. This is the check: adjusted mutual information between ``labels`` and
+        the per-donor observed-channel pattern, plus the correlation ratio of the observed fraction.
+        Near zero means the grouping is repertoire; high means it is a coverage stratification and
+        the result should be re-read inside a fully-observed subset.
+
+        Args:
+            labels: ``(n_donors,)`` cluster or group assignment to test.
+
+        Returns:
+            ``{ami_vs_observed_pattern, eta2_observed_fraction, n_patterns, mean_observed}``.
+
+        Example:
+            >>> rep = cohort.missingness_report(clusters)   # doctest: +SKIP
+            >>> rep["ami_vs_observed_pattern"] < 0.1        # doctest: +SKIP
+            True
+        """
+        from sklearn.metrics import adjusted_mutual_info_score
+
+        frac = np.asarray(self.meta.get("observed_frac", np.ones(len(self.X))), dtype=float)
+        pat = np.asarray(self.meta.get("observed_pattern", ["*"] * len(self.X)))
+        labels = np.asarray(labels)
+        gi, g = np.unique(labels, return_inverse=True)
+        cnt = np.bincount(g, minlength=len(gi))
+        tot = np.zeros(len(gi))
+        np.add.at(tot, g, frac)
+        gm = np.divide(tot, cnt, out=np.zeros_like(tot), where=cnt > 0)
+        ss_tot = float(((frac - frac.mean()) ** 2).sum())
+        return {
+            "ami_vs_observed_pattern": (float(adjusted_mutual_info_score(pat, labels))
+                                        if len(set(pat.tolist())) > 1 else 0.0),
+            "eta2_observed_fraction": (float((cnt * (gm - frac.mean()) ** 2).sum() / ss_tot)
+                                       if ss_tot > 0 else 0.0),
+            "n_patterns": int(len(set(pat.tolist()))),
+            "mean_observed": float(frac.mean()),
+        }
 
     def transform(self, donor_frames: list[dict], *, extra: dict | None = None) -> np.ndarray:
         """Project held-out donors into this fitted basis (the only comparable path for new donors).
@@ -155,11 +208,14 @@ class DonorCohort:
                 raise ValueError(f"block {name!r} has shape {mat.shape}, expected {(n, width)}")
             cols.append(mat)
         raw = np.hstack(cols)
-        med, mu, sd = self.meta["median"], self.meta["mu"], self.meta["sd"]
+        # the FIT cohort's fill/mu/sd verbatim -- a held-out donor must land in the same basis,
+        # and its own holes must land at that basis's centre, not at this batch's median
+        fill = self.meta.get("fill", self.meta["median"])
+        mu, sd = self.meta["mu"], self.meta["sd"]
         for j in range(raw.shape[1]):
             bad = ~np.isfinite(raw[:, j])
             if bad.any():
-                raw[bad, j] = med[j]
+                raw[bad, j] = fill[j]
         return (raw - mu) / sd
 
     def save(self, path) -> None:
@@ -285,24 +341,45 @@ def fit_donor_embeddings(
         b.add(name.split(":", 1)[0], mat, attributable=attr)
     raw, spec = b.build(standardize=False, impute=False)
 
+    # Statistics from OBSERVED entries only, computed before imputation. Imputing first and then
+    # taking mean/std over the filled matrix deflates sd in proportion to how sparse the column is,
+    # so a chain present in 30% of donors has its real values scaled up ~1.8x against a
+    # fully-covered one -- the least-observed locus ends up dominating every distance and PCA. The
+    # same stats are stored in meta and reused verbatim by transform(), so held-out donors project
+    # into the same basis.
+    observed = np.isfinite(raw)
     median = np.zeros(raw.shape[1])
+    mu = np.zeros(raw.shape[1])
+    sd = np.ones(raw.shape[1])
     for j in range(raw.shape[1]):
-        good = raw[np.isfinite(raw[:, j]), j]
+        good = raw[observed[:, j], j]
         median[j] = float(np.median(good)) if good.size else 0.0
-        if impute:
-            bad = ~np.isfinite(raw[:, j])
-            raw[bad, j] = median[j]
-    mu = raw.mean(axis=0) if standardize else np.zeros(raw.shape[1])
-    sd = raw.std(axis=0) if standardize else np.ones(raw.shape[1])
-    sd[sd == 0] = 1.0
+        if standardize and good.size:
+            mu[j] = float(good.mean())
+            s = float(good.std())
+            sd[j] = s if s > 0 else 1.0
+    # fill at whatever the column is centred on, so a donor's missing chain lands at exactly 0 --
+    # no information, rather than a shared offset every donor lacking that chain carries
+    fill = mu if standardize else median
+    if impute:
+        for j in range(raw.shape[1]):
+            raw[~observed[:, j], j] = fill[j]
     X = (raw - mu) / sd
+
+    # Per-donor observed fraction, so a caller can ask whether a result tracks coverage rather than
+    # repertoire -- see DonorCohort.missingness_report().
+    observed_frac = observed.mean(axis=1)
 
     meta = {
         "prototype_hashes": {c: sp.meta["prototype_hash"] for c, sp in spaces.items()},
         "id_pca": id_pca, "min_clones": min_clones, "coverage": coverage,
         "order": [(name, mat.shape[1]) for name, mat, _ in ordered],
         "extra_names": extra_names,
-        "median": median, "mu": mu, "sd": sd, "standardize": standardize, "impute": impute,
+        "median": median, "fill": fill, "mu": mu, "sd": sd,
+        "standardize": standardize, "impute": impute,
+        "observed_frac": observed_frac,
+        "observed_pattern": np.array(["".join("1" if v else "0" for v in r)
+                                      for r in observed[:, [c0 for _, c0 in _block_starts(ordered)]]]),
     }
     return DonorCohort(X=X, spec=spec, spaces=spaces, identity_pca=identity_pca, rows=rows, meta=meta)
 

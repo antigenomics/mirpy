@@ -106,7 +106,13 @@ def test_builder_standardize_and_impute_invariants():
     X, _ = ChannelBuilder().add("a", holed).build(standardize=True, impute=True)
     assert np.isfinite(X).all()
     assert np.allclose(X.mean(axis=0), 0, atol=1e-8)
-    assert np.allclose(X.std(axis=0), 1, atol=1e-8)
+    # unit variance is defined on the OBSERVED entries, not on the imputed column: a hole must not
+    # help set the scale of the channel it is missing from (see test_missing_chain_scaling.py).
+    # The imputed cell therefore sits at exactly 0, and the full column's sd is sqrt(29/30) < 1.
+    obs = np.isfinite(holed)
+    for j in range(X.shape[1]):
+        assert X[obs[:, j], j].std() == pytest.approx(1.0, abs=1e-8)
+    assert X[5, 2] == pytest.approx(0.0, abs=1e-12)
     # the hole becomes the column median of the finite entries
     Xi, _ = ChannelBuilder().add("a", holed).build(standardize=False, impute=True)
     assert Xi[5, 2] == pytest.approx(float(np.median(raw[[i for i in range(30) if i != 5], 2])))
