@@ -106,31 +106,39 @@ The construction below disposes of them in three steps, and the point of splitti
 that each step preserves a *named* property, and each property is what licenses one class of later
 operation:
 
-.. graphviz::
+.. themed-graphviz::
+   :alt: sequence to point to measure to vector, with the property each step buys noted beneath it
 
    digraph spine {
-     rankdir=LR;
-     bgcolor="transparent";
-     node [shape=box, style="rounded,filled", fillcolor="#f4f6f8", color="#8899a6",
-           fontname="Helvetica", fontsize=10];
-     edge [color="#8899a6", fontname="Helvetica", fontsize=9];
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.55; nodesep=0.30;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1,
+           margin="0.18,0.10"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
 
-     seq  [label="sequence\nσ = (junction, V, J)"];
-     z    [label="point\nz = φ(σ) ∈ ℝᵖ", fillcolor="#e8f0fe"];
-     rho  [label="measure\nρ_S = Σ w δ_z", fillcolor="#e8f0fe"];
-     phi  [label="vector\nΦ(S)", fillcolor="#e8f0fe"];
+     seq [label="sequence\nσ = (junction, V, J)"];
+     z   [label="point\nz = φ(σ) ∈ ℝᵖ", fillcolor="$fill_key"];
+     rho [label="measure\nρ_S = Σ w δ_z", fillcolor="$fill_key"];
+     phi [label="vector\nΦ(S)", fillcolor="$fill_key"];
 
-     p1 [label="Lipschitz:\ngeometry ≈ alignment", shape=note, fillcolor="#ffffff"];
-     p2 [label="order- and length-free;\nmixture linearity", shape=note, fillcolor="#ffffff"];
-     p3 [label="‖ΔΦ‖ = MMD;\nRao = 1 − ‖Φ‖²", shape=note, fillcolor="#ffffff"];
+     n1 [label="geometry ≈ alignment\n(1-Lipschitz)", shape=note, fillcolor="$fill_note",
+         fontcolor="$ink_soft", fontsize=9];
+     n2 [label="order- and length-free\nmixture linearity", shape=note, fillcolor="$fill_note",
+         fontcolor="$ink_soft", fontsize=9];
+     n3 [label="‖ΔΦ‖ = MMD\nRao = 1 − ‖Φ‖²", shape=note, fillcolor="$fill_note",
+         fontcolor="$ink_soft", fontsize=9];
 
-     seq -> z   [label=" step 1: prototype distances "];
-     z   -> rho [label=" step 2: clone-size weights "];
-     rho -> phi [label=" step 3: characteristic kernel "];
+     seq -> z   [label=" step 1\l prototype distances \l"];
+     z   -> rho [label=" step 2\l clone-size weights \l"];
+     rho -> phi [label=" step 3\l characteristic kernel \l"];
 
-     z   -> p1 [style=dotted, arrowhead=none];
-     rho -> p2 [style=dotted, arrowhead=none];
-     phi -> p3 [style=dotted, arrowhead=none];
+     z -> n1 [style=dotted, arrowhead=none, weight=10];
+     rho -> n2 [style=dotted, arrowhead=none, weight=10];
+     phi -> n3 [style=dotted, arrowhead=none, weight=10];
+
+     {rank=same; z; n1;}
+     {rank=same; rho; n2;}
+     {rank=same; phi; n3;}
    }
 
 Read the dotted notes as the reason each step exists. Step 1 makes distance meaningful, step 2 makes
@@ -608,30 +616,39 @@ Reading the result: **magnitude = confidence × deviation-from-naive**. An immun
 rather than an arbitrary point on the unit sphere. A vague, shallow blood sample lands there too and
 says so *by its norm* instead of by being dropped from the cohort.
 
-.. graphviz::
+.. themed-graphviz::
+   :alt: counts split into a missing-mass estimate and an observed kernel mean, combined with the
+         germline reference into the signed contrast
 
    digraph deficient {
-     rankdir=LR;
-     bgcolor="transparent";
-     node [shape=box, style="rounded,filled", fillcolor="#f4f6f8", color="#8899a6",
-           fontname="Helvetica", fontsize=10];
-     edge [color="#8899a6", fontname="Helvetica", fontsize=9];
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.55; nodesep=0.28;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.18,0.10"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
 
      counts [label="counts a_σ"];
-     m0     [label="M₀  (Turing | Chao)", fillcolor="#fdf0e3"];
-     seen   [label="Φ_seen\nkernel mean of what was drawn", fillcolor="#e8f0fe"];
-     naive  [label="Φ_naive\nkernel mean of germline draws", fillcolor="#e8f0fe"];
-     psi    [label="Ψ = (1−M₀)(Φ_seen − Φ_naive)\nmagnitude = confidence × deviation",
-             fillcolor="#e6f4ea"];
-     origin [label="immune desert / vague sample\nM₀ → 1  ⇒  Ψ → 0", shape=note,
-             fillcolor="#ffffff"];
+     m0     [label="M₀\nTuring | Chao", fillcolor="$fill_alt"];
+     seen   [label="Φ_seen\nwhat was drawn", fillcolor="$fill_key"];
+     naive  [label="Φ_naive\ngermline draw", fillcolor="$fill_key"];
+     psi    [label="Ψ = (1−M₀)(Φ_seen − Φ_naive)", fillcolor="$fill_ok"];
 
-     counts -> m0    [label=" f₁, f₂, N "];
-     counts -> seen  [label=" w = g(a)/Σg "];
-     m0     -> psi;
-     seen   -> psi;
-     naive  -> psi;
-     psi    -> origin [style=dashed, arrowhead=none];
+     nm [label="f₁, f₂, N\nthe unseen, estimated", shape=note, fillcolor="$fill_note",
+         fontcolor="$ink_soft", fontsize=9];
+     np [label="magnitude =\nconfidence × deviation;\nM₀ → 1 ⇒ Ψ → origin", shape=note,
+         fillcolor="$fill_note", fontcolor="$ink_soft", fontsize=9];
+
+     counts -> m0   [label=" singletons,\l doubletons \l"];
+     counts -> seen [label=" w = g(a)/Σg "];
+     m0    -> psi;
+     seen  -> psi;
+     naive -> psi   [label=" the unseen\l has a location \l"];
+
+     m0 -> nm   [style=dotted, arrowhead=none, weight=10];
+     psi -> np  [style=dotted, arrowhead=none, weight=10];
+
+     {rank=same; m0; nm;}
+     {rank=same; psi; np;}
+     {rank=same; seen; naive;}
    }
 
 Where the unseen lives
@@ -759,30 +776,36 @@ least squares — well-posed, not a heuristic fit:
 
    \hat\pi \;=\; \arg\min_{\pi \ge 0} \Big\| \Phi_1(S) - \sum_c \pi_c \Phi_1(c) \Big\|^2 .
 
-.. graphviz::
+.. themed-graphviz::
+   :alt: a repertoire partitioned into abundance bands or IGH isotypes, recombined by non-negative
+         least squares into per-compartment weights
 
    digraph bands {
-     rankdir=LR;
-     bgcolor="transparent";
-     node [shape=box, style="rounded,filled", fillcolor="#f4f6f8", color="#8899a6",
-           fontname="Helvetica", fontsize=10];
-     edge [color="#8899a6", fontname="Helvetica", fontsize=9];
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.5; nodesep=0.16;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.16,0.07"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
 
-     S [label="repertoire S", fillcolor="#e8f0fe"];
-     a [label="singleton\ncount = 1"];
-     b [label="expanded\ncount ≥ 2"];
-     c [label="top\ntop 1%, clipped"];
-     m [label="igm  IGHM/IGHD"];
-     g [label="igg  IGHG1–4"];
-     i [label="iga  IGHA1–2"];
-     nnls [label="NNLS on Φ₁(S)\nπ per compartment", shape=box, fillcolor="#e6f4ea"];
+     S [label="repertoire S", fillcolor="$fill_key"];
+     a [label="singleton   count = 1"];
+     b [label="expanded   count ≥ 2"];
+     c [label="top   top 1%, clipped"];
+     m [label="igm   IGHM/IGHD"];
+     g [label="igg   IGHG1–4"];
+     i [label="iga   IGHA1–2"];
+     nnls [label="NNLS on Φ₁(S)\nπ per compartment", fillcolor="$fill_ok"];
+
+     nn [label="Φ(S) = Σ π_c Φ(c) is exact,\nso the fit is well-posed;\nmeasured π(IgG) = 0.070",
+         shape=note, fillcolor="$fill_note", fontcolor="$ink_soft", fontsize=9];
 
      S -> a; S -> b; S -> c;
      S -> m [style=dashed]; S -> g [style=dashed]; S -> i [style=dashed];
      a -> nnls; b -> nnls; c -> nnls; m -> nnls; g -> nnls; i -> nnls;
+     nnls -> nn [style=dotted, arrowhead=none, weight=10];
+     {rank=same; nnls; nn;}
 
-     label="dashed: IGH only, via c_call; rows with a null c_call belong to no isotype band";
-     labelloc="b"; fontname="Helvetica"; fontsize=9; fontcolor="#667788";
+     label="dashed: IGH only, via c_call — a null c_call belongs to no isotype band";
+     labelloc="b"; fontname="Helvetica"; fontsize=9; fontcolor="$ink_soft";
    }
 
 Two implementation constraints follow from the mathematics rather than from taste. Every compartment
@@ -841,6 +864,35 @@ the sampling noise that :math:`\kappa` measures cohort-wide. And as a warning: a
 Q(\mathrm{mean})` and the gap must be reported rather than assumed away. Measured gaps ran 0.02% to
 0.93%, monotone in target depth.
 
+.. themed-graphviz::
+   :alt: one repertoire subsampled R times, each draw embedded, averaged into a depth-standardised
+         embedding whose replicate spread is the Rao gap
+
+   digraph rarefy {
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.5; nodesep=0.18;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.16,0.08"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+     S [label="repertoire S\nN reads", fillcolor="$fill_key"];
+     d1 [label="draw 1\nmultinomial to depth m"];
+     d2 [label="draw 2"];
+     dR [label="draw R", style="rounded,filled,dashed"];
+     p1 [label="Φ₁", fillcolor="$fill_key"];
+     p2 [label="Φ₂", fillcolor="$fill_key"];
+     pR [label="Φ_R", fillcolor="$fill_key", style="rounded,filled,dashed"];
+     bar [label="Φ̄ = mean_r Φ_r\nstill a kernel mean", fillcolor="$fill_ok"];
+
+     nb [label="Rao(Φ̄) = mean_r Rao(Φ_r) + v_rep\nthe excess diversity of the average\nIS the replicate variance",
+         shape=note, fillcolor="$fill_note", fontcolor="$ink_soft", fontsize=9];
+
+     S -> d1; S -> d2; S -> dR [style=dashed];
+     d1 -> p1; d2 -> p2; dR -> pR [style=dashed];
+     p1 -> bar; p2 -> bar; pR -> bar [style=dashed];
+     bar -> nb [style=dotted, arrowhead=none, weight=10];
+     {rank=same; bar; nb;}
+   }
+
 Rarefaction is not a default: rarefying a cohort to the depth of its shallowest useful samples
 discards the deep samples' entire advantage. Reach for it when two groups must be compared *at matched
 depth* and the comparison has to stay an MMD.
@@ -876,6 +928,33 @@ it usable in high :math:`p`: the ball volume cancels between numerator and denom
 bandwidth normalisation is needed and no density has to be estimated on its own — which in :math:`p`
 of this size a kernel density estimate could not do. As :math:`r \to 0` it recovers the graph limit,
 confirmed numerically (:math:`\rho` 0.37 → −0.05 as the radius grows).
+
+.. themed-graphviz::
+   :alt: observed and background clonotypes counted in an adaptive ball, ratioed into an enrichment,
+         tested and corrected into a set of hits
+
+   digraph density {
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.5; nodesep=0.24;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.17,0.09"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+     obs [label="observed repertoire\nn_obs(z) in the ball", fillcolor="$fill_key"];
+     bg  [label="background\nn_gen(z) in the ball", fillcolor="$fill_key"];
+     E   [label="E(z) = f_obs / f_gen\nvolume cancels", fillcolor="$fill_ok"];
+     test [label="Poisson (generative)\nbinomial (control)", fillcolor="$fill_alt"];
+     bh  [label="BH q + water level"];
+     hit [label="enriched clones\n→ denoise & cluster", fillcolor="$fill_ok"];
+
+     nd [label="a P_gen background flags ~40% of clones;\na biological control gives 46× the\nsignal-to-noise — and never subsample",
+         shape=note, fillcolor="$fill_note", fontcolor="$ink_soft", fontsize=9];
+
+     obs -> E; bg -> E;
+     E -> test -> bh -> hit;
+     test -> nd [style=dotted, arrowhead=none, weight=10];
+     {rank=same; obs; bg;}
+     {rank=same; test; nd;}
+   }
 
 Two nulls, two background types
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -935,6 +1014,34 @@ From vectors to answers
 *A cohort is now a matrix of vectors. Two things are needed to report a result from it: a way to say
 which part of the vector carried the signal, and a correction for the nuisance structure that will
 otherwise carry it instead.*
+
+.. themed-graphviz::
+   :alt: per-sample embeddings stacked into named channels, ablated under a caller-supplied scorer,
+         and the winning kernel-mean channel traced back to clonotypes
+
+   digraph readout {
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=0.5; nodesep=0.22;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.17,0.09"];
+     edge [color="$line", fontcolor="$ink_soft", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+     phi [label="Φ per sample", fillcolor="$fill_key"];
+     X   [label="ChannelBuilder\nX + named columns", fillcolor="$fill_key"];
+     rep [label="channel_report\nδ_in  and  δ_out", fillcolor="$fill_ok"];
+     wit [label="class_witness\ns(σ) = ⟨μ⁺−μ⁻, ψ(z)⟩", fillcolor="$fill_ok"];
+     clo [label="driving clonotypes"];
+     sc  [label="your scorer\n(AUC, C-index, …)", shape=note, fillcolor="$fill_note",
+          fontcolor="$ink_soft", fontsize=9];
+     nr  [label="high in + ~zero out\n= redundant, not absent", shape=note,
+          fillcolor="$fill_note", fontcolor="$ink_soft", fontsize=9];
+
+     phi -> X -> rep;
+     rep -> wit [label=" only if the channel\l has a clonotype pre-image \l"];
+     wit -> clo;
+     sc -> rep [style=dotted, arrowhead=none];
+     rep -> nr [style=dotted, arrowhead=none, weight=10];
+     {rank=same; rep; nr; sc;}
+   }
 
 Named channels and ablation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1135,6 +1242,42 @@ The contract: which transformation preserves what
 *Each of the three steps bought a property, and each property licensed a class of operation. The
 practical consequence is that no transformation of* :math:`\Phi` *is neutral: it keeps some and breaks
 others, and which ones decides what may still be computed downstream.*
+
+.. themed-graphviz::
+   :alt: which transformations preserve MMD, Rao's Q and mixture linearity; per-column
+         standardisation preserves none of the three
+
+   digraph invariants {
+     rankdir=LR; bgcolor="transparent"; pad=0.18; ranksep=1.6; nodesep=0.16;
+     node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10,
+           color="$line", fontcolor="$ink", fillcolor="$fill", penwidth=1.1, margin="0.16,0.08"];
+     edge [color="$good", penwidth=1.3, arrowsize=0.7];
+
+     subgraph cluster_t {
+       label="transformation"; labelloc="t"; labeljust="l"; fontname="Helvetica"; fontsize=9;
+       fontcolor="$ink_soft"; color="$line"; style=dashed;
+       rarefy [label="replicate averaging"];
+       scalar [label="one global scalar"];
+       centre [label="centring / PCA"];
+       proj   [label="orthogonal projection"];
+       defic  [label="(1−M₀) scaling"];
+       colz   [label="per-column z-score\npreserves nothing", fillcolor="$fill_alt",
+               color="$bad", fontcolor="$bad", penwidth=1.4];
+     }
+     subgraph cluster_p {
+       label="property preserved"; labelloc="t"; labeljust="l"; fontname="Helvetica"; fontsize=9;
+       fontcolor="$ink_soft"; color="$line"; style=dashed;
+       mmd [label="MMD = ‖ΔΦ‖", fillcolor="$fill_key"];
+       mix [label="mixture linearity", fillcolor="$fill_key"];
+       rao [label="Rao = 1 − ‖Φ‖²", fillcolor="$fill_key"];
+     }
+
+     rarefy -> mmd; rarefy -> mix; rarefy -> rao;
+     scalar -> mmd; scalar -> mix;
+     centre -> mmd; centre -> mix;
+     proj   -> mmd; proj -> mix;
+     defic  -> mmd; defic -> mix;
+   }
 
 .. list-table::
    :header-rows: 1
