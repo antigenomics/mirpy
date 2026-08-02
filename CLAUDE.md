@@ -95,6 +95,16 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel),
   and `correct_batch` (Harmony-like cluster-aware batch correction on a stacked Φ matrix; reduces to
   `cohort.residualize` at `n_clusters=1`/`theta=0` — `prop:batch`; test in `test_repertoire.py`).
+  **Sub-probability tier** (2026-08-02, from `TODO_DEFICIENT_MEASURE.md`): `Φ` normalised to mass 1 is a
+  lie at RNA-seq depth (median tissue TRB = 21 clonotypes), so `missing_mass(counts, "turing"|"chao")`
+  estimates the never-drawn mass `M₀` (bias-corrected Chao1 `f1(f1-1)/(2(f2+1))` — the classical
+  `f1²/2f2` is undefined when `f2=0`, which is the common case), `sample_embedding(missing_mass=…)`
+  records `SampleEmbedding.mass = 1−M₀` (default `"none"` ⇒ blocks bit-identical), `naive_reference`
+  gives the unseen a germline location (**not** the corpus centroid — measured worse; germline drops
+  R²(PC1,depth) 0.259→0.001 blood TRB), and `contrast_embedding` = `mass·(Φ−naive)` — signed, so an
+  immune desert lands at the **origin** instead of being deleted by a min-clonotype floor (never add
+  one: it's a blood rule, not a tissue rule). Sub-probability, never a *negative* measure: MMD and
+  convex-combination-is-a-real-repertoire are what `mir.twin`/trajectories rest on.
 - `cohort.py` — **the digital donor** (T.7): `fit_donor_embeddings`/`DonorCohort` fuse per-chain identity
   (kernel-mean, cross-sample PCA-reduced) ‖ diversity ‖ coverage across loci through **one `ChannelBuilder`**,
   with an `extra_channels` hook for the analysis's own tissue/clinical blocks; comparability bites twice
@@ -104,7 +114,11 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `vdjtools.biomarker.fisher`). Generalizes the analysis-repo `_tcga_embedding.build_embedding` glue.
 - `bench/eval.py` — the scorers `channel_report` consumes (kept out of `explain.py` so it stays scorer-free):
   `cv_auc` / `held_out_auc` (classification), `cv_cindex` / `km_logrank` (Cox survival, `[bench]`→lifelines),
-  `kmer_matrix` (baseline).
+  `kmer_matrix` (baseline). Plus `recovery_report(X, stats, groups)` (re-exported as
+  `mir.bench.recovery_report`) — grouped-CV ridge R² from the embedding's PCs back to each basic
+  repertoire statistic. The criterion is **recoverability, not competition**: mass-1 renormalisation
+  makes coverage/richness unrecoverable from Φ by construction, so the deficient measure wins it by
+  design. Beside `cohort.missingness_report` as the other "is this object honest" check.
 - `explain.py` — **explainable readouts over any feature matrix** (T7). `ChannelSpec`/`ChannelBuilder`/
   `stack_embeddings` attach the name→column map `Φ.vector` does not carry (per-chain blocks merge by
   name); `channel_report(X, spec, scorer, base=, mode="in"|"out"|"both", n_permutations=)` ablates each
@@ -114,6 +128,10 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   high `delta` + `delta_out≈0` is the **redundancy** signature. `channel_drivers` hops channel→clonotypes
   via `class_witness`, but **only** for a channel declared `attributable` (a kernel mean); a Hill number
   has no clonotype pre-image and it raises. Depends one-way on `repertoire.py`; nothing there changed.
+  `add(..., preserve_magnitude=True)` = **one global scalar** (pooled RMS, no centring, holes→0) for a
+  block whose *magnitude* is the signal (a `contrast_embedding` sub-probability block); per-column
+  z-scoring deletes exactly that deficiency (it cost one experiment a bogus 0.6481-vs-0.6179 result).
+  `stack_embeddings` warns on `mass < 1` inputs — `Φ.vector` does not carry the mass.
 - `track.py` — **exposure trajectory** (repertoire-level exposure detection, complementing
   `density.py`'s clone-level TCRNET/ALICE): `fit_exposure_trajectory(X, covariates, ...)`, a
   PhenoPath-style (Campbell & Yau 2018) covariate-disentangled latent factor model —

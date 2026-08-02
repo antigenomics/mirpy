@@ -96,6 +96,9 @@ Sample-level (repertoire) embedding (``mir.repertoire``)
 --------------------------------------------------------
 
 One vector per repertoire: RFF kernel mean ‖ Hill diversity ‖ second moment; MMD (Theory T7).
+Optionally a **sub-probability** measure: ``missing_mass`` (Good-Turing / bias-corrected Chao1),
+``naive_reference`` (the germline location of the unseen) and ``contrast_embedding``
+(``Ψ = mass·(Φ − naive)``, signed and magnitude-carrying).
 
 .. automodule:: mir.repertoire
    :members:
@@ -106,6 +109,8 @@ Explainable readouts (``mir.explain``)
 --------------------------------------
 
 Which named channel of ``Φ`` carries the signal, and which clonotypes drive it (Theory T7).
+``ChannelBuilder.add(..., preserve_magnitude=True)`` scales a magnitude-carrying (sub-probability)
+block by one global scalar instead of per-column z-scoring.
 
 .. automodule:: mir.explain
    :members:
@@ -194,7 +199,9 @@ Reproduced supplementary theory (S1–S3, T5–T6, codec losslessness).
 ``mir.bench.eval``
 ~~~~~~~~~~~~~~~~~~
 
-Scorers for the explainable readout: cross-validated AUC, Cox C-index, log-rank.
+Scorers for the explainable readout: cross-validated AUC, Cox C-index, log-rank — plus
+``recovery_report``, the grouped-CV ridge that asks whether each basic repertoire statistic is
+carried *inside* the embedding.
 
 .. automodule:: mir.bench.eval
    :members:

@@ -159,6 +159,93 @@ def km_logrank(durations, events, groups) -> float:
     return float(multivariate_logrank_test(durations, groups, events).p_value)
 
 
+# -------------------------------------------------------------------- recoverability
+
+
+def recovery_report(
+    X: np.ndarray,
+    stats: dict,
+    groups=None,
+    *,
+    n_pc: int = 20,
+    n_splits: int = 5,
+    alpha: float = 1.0,
+    seed: int = 0,
+) -> dict:
+    """Grouped-CV ridge ``R²`` from an embedding's PCs back to each basic repertoire statistic.
+
+    The honest scoring rule for a repertoire embedding is **not** "does ``Φ`` beat the one-number
+    marker" — that is a competition between an object and one of its own coordinates. It is
+    *recoverability*: is the statistic **carried inside** the embedding, so nothing has to be bolted
+    on beside it? A high ``R²`` says yes; a low one says the embedding threw that information away
+    and a downstream model will need the statistic as a separate feature.
+
+    This is where a sub-probability embedding earns its keep by construction. Renormalising every
+    sample to mass 1 (:func:`mir.repertoire.sample_embedding`'s default) **deletes the magnitude**,
+    so coverage- and richness-like statistics are unrecoverable from ``Φ`` no matter how good the
+    model — whereas the deficient measure (:func:`mir.repertoire.contrast_embedding`) keeps them.
+    Sits beside :func:`mir.cohort.missingness_report` as the other "is this object honest" check.
+
+    Report it together with the *increment*: the endpoint score for the embedding, for the statistic
+    alone, and for both together (:func:`cv_auc` / :func:`cv_cindex`).
+
+    Args:
+        X: ``(n_samples, d)`` embedding matrix.
+        stats: ``{name: (n_samples,) values}`` — the basic statistics to recover (clonotype richness,
+            Shannon, top-clone fraction, singleton fraction, Chao unseen fraction, library size,
+            AIRR-per-million …). Non-finite entries are dropped per statistic.
+        groups: Optional ``(n_samples,)`` grouping (subject / batch / cohort) — folds are then
+            grouped so a subject never appears in both train and test. ``None`` → plain shuffled
+            k-fold.
+        n_pc: PCA components fit **inside each training fold**; ``0`` uses the raw columns.
+        n_splits: Number of folds.
+        alpha: Ridge penalty.
+        seed: Fold RNG seed.
+
+    Returns:
+        ``{name: R²}`` from out-of-fold predictions (can be negative — worse than the mean).
+
+    Raises:
+        ValueError: If a statistic's length disagrees with ``X``'s row count.
+
+    Example:
+        >>> recovery_report(X, {"richness": rich, "top_clone": top}, groups=subject)  # doctest: +SKIP
+        {'richness': 0.81, 'top_clone': 0.44}
+    """
+    from sklearn.decomposition import PCA
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import r2_score
+    from sklearn.model_selection import GroupKFold, KFold
+    from sklearn.preprocessing import StandardScaler
+
+    X = np.asarray(X, dtype=np.float64)
+    n = X.shape[0]
+    out = {}
+    for name, values in stats.items():
+        y = np.asarray(values, dtype=np.float64).ravel()
+        if y.size != n:
+            raise ValueError(f"stat {name!r} has {y.size} values for {n} samples")
+        ok = np.isfinite(y)
+        Xo, yo = X[ok], y[ok]
+        g = None if groups is None else np.asarray(groups)[ok]
+        k = min(n_splits, yo.size if g is None else len(np.unique(g)))
+        if k < 2:
+            out[name] = float("nan")
+            continue
+        splitter = (KFold(k, shuffle=True, random_state=seed) if g is None
+                    else GroupKFold(n_splits=k))
+        pred = np.full(yo.size, np.nan)
+        for tr, te in splitter.split(Xo, yo, groups=g):
+            sc = StandardScaler().fit(Xo[tr])
+            Atr, Ate = sc.transform(Xo[tr]), sc.transform(Xo[te])
+            if n_pc and Atr.shape[1] > n_pc:
+                pca = PCA(min(n_pc, len(tr) - 1), random_state=seed).fit(Atr)
+                Atr, Ate = pca.transform(Atr), pca.transform(Ate)
+            pred[te] = Ridge(alpha=alpha).fit(Atr, yo[tr]).predict(Ate)
+        out[name] = float(r2_score(yo, pred))
+    return out
+
+
 # --------------------------------------------------------------------- baseline
 
 

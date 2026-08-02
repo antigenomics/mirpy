@@ -25,6 +25,58 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 
 ### Added
 
+- **Sub-probability repertoire embeddings — the deficient measure.** `Φ(S)` normalises its weights to
+  sum to 1, so it is the kernel mean of a *probability* measure and every sample asserts one full unit
+  of confidence. Measured on a large AIRR corpus, that premise fails at RNA-seq depth: the
+  median tissue TRB sample holds **21 unique clonotypes** (blood TRB 254, 1st percentile 1), so
+  `w_σ = a_σ/Σa` is `1/n` for a technical draw size rather than a clonal frequency (true frequencies
+  are 1e-5…1e-8, and one singleton's weight spans **21,454×** across blood TRB purely from sample
+  size). Normalising also *forces* a 5-clonotype tumour to assert full confidence, so it lands
+  arbitrarily on the unit sphere — and the usual response, a minimum-clonotype floor, deletes the
+  **immune desert** phenotype in tumour (a floor once cut 7,179 labelled donors to 2,129). Four new
+  pieces, composable and off by default:
+  - **`mir.repertoire.missing_mass(counts, method)`** — the mass `M₀` of the never-drawn clonotypes:
+    `"turing"` (Good–Turing, `f₁/N`) or `"chao"` (`S_u/(N+S_u)`, `S_u = f₁(f₁−1)/(2(f₂+1))`). The
+    **bias-corrected** Chao1, never the classical `f₁²/2f₂` — that form is undefined when no clonotype
+    was seen exactly twice, which is common at these depths. Measured means: blood TRB 0.552 (Turing)
+    vs 0.649 (Chao), tissue IGH 0.189 vs 0.458 (ranks agree, `r` = 0.93 / 0.76).
+  - **`SampleEmbedding.mass`** + **`sample_embedding(missing_mass=…)`** — the retained mass `1 − M₀`
+    rides along on the embedding. `"none"` is the default and the blocks are untouched by the setting,
+    so existing output is **bit-identical**. Deliberately *not* a negative measure: `‖Φ_P − Φ_Q‖`
+    being the MMD and a convex combination of two `Φ`'s being the `Φ` of a real pooled repertoire are
+    what make `mir.twin` and trajectory interpolation meaningful, and a signed measure loses both. A
+    sub-probability measure costs neither.
+  - **`mir.repertoire.naive_reference(space)`** — the kernel mean of `n` naive V(D)J recombinations
+    (`vdjtools.model.generate`, ~8 s for 20,000), cached per `(n, seed)`, or injectable via
+    `sequences=`. This is the load-bearing choice for *where the unseen lives*: shrinking toward the
+    corpus centroid is James–Stein toward the mean and it measurably **hurt** (shallow samples pile
+    into a dense, itself-depth-correlated ball), while the germline draw took `R²(PC1, depth)` from
+    0.259 → **0.001** (blood TRB) and 0.067 → **0.006** (tissue IGH), kNN label entropy unchanged or
+    better, PC1's explained variance unchanged (0.309 → 0.334, so a different direction, not a
+    collapsed one) and the whole leading block 0.253 → **0.047**.
+  - **`mir.repertoire.contrast_embedding(emb, reference)`** — `Ψ_S = mass·(Φ_S − naive)`, where
+    legitimate negativity lives: a signed *difference of two probability measures*, negative where the
+    sample is depleted relative to unselected recombination, still an RKHS element with
+    `‖Ψ_S‖ = MMD(S, naive)`. Magnitude = **confidence × deviation-from-naive**, so an immune desert
+    (`M₀ → 1`) lands at the **origin** — the correct place for "no infiltrate detected" — and a shallow
+    blood sample says so by its norm instead of being filtered out. No minimum-clonotype floor was
+    added to the library, and none should be: it is a blood rule, not a tissue rule.
+- **`mir.explain.ChannelBuilder.add(..., preserve_magnitude=True)`** — scale a channel by **one global
+  scalar** (pooled RMS over observed entries, no centring) and fill its holes with `0`, instead of
+  per-column z-scoring. Mandatory for any block whose magnitude carries information (a contrast /
+  sub-probability block): per-column standardisation forces every coordinate to unit variance across
+  samples, so a matrix where half the rows sit at the origin comes out looking exactly like one where
+  none do — it deletes the deficiency it was built to preserve. This already invalidated one
+  experiment, whose deficient arm scored 0.6481 against a 0.6179 baseline purely from the rescaling.
+  `stack_embeddings` now warns when handed embeddings with `mass < 1`, since `Φ.vector` does not carry
+  the mass.
+- **`mir.bench.recovery_report(X, stats, groups)`** — grouped-CV ridge R² from an embedding's PCs back
+  to each basic repertoire statistic (richness, Shannon, top-clone fraction, singleton fraction, Chao
+  unseen fraction, library size). The honest scoring rule is **recoverability, not competition**: is
+  the statistic carried *inside* the embedding, so nothing has to be bolted on beside it? Renormalising
+  to mass 1 deletes the magnitude, so coverage/richness are unrecoverable from `Φ` by construction and
+  the deficient measure should win this question as a design consequence. Sits beside
+  `mir.cohort.missingness_report` as the other "is this object honest" check.
 - **`mir.cohort.align_loci`** / **`mir.cohort.LocusAlignment`** — align per-locus embedding matrices
   keyed by sample id onto one sample axis, holes where a locus is absent. The step between "one
   matrix per locus, each over its own samples" and "one matrix over one sample set", which the
