@@ -3,7 +3,7 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## 3.7.0 — 2026-07-30
+## Unreleased
 
 ### Fixed
 
@@ -25,11 +25,27 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 
 ### Added
 
-- **`mir.cohort.DonorCohort.missingness_report(labels)`** — adjusted mutual information between a
-  grouping and the per-donor observed-chain pattern, plus the correlation ratio of the observed
-  fraction. The check for whether a clustering/finding is repertoire or is a coverage
-  stratification; near zero is what you want, high means re-read the result inside a fully-observed
-  subset.
+- **`mir.cohort.align_loci`** / **`mir.cohort.LocusAlignment`** — align per-locus embedding matrices
+  keyed by sample id onto one sample axis, holes where a locus is absent. The step between "one
+  matrix per locus, each over its own samples" and "one matrix over one sample set", which the
+  library previously left to every caller. `how="union"` is the default because an **inner join
+  across seven loci is bound by the thinnest two**: measured on a 62,293-sample tissue cohort,
+  intersecting all seven left 19,346 samples (31%) while the union keeps every one — complete-case
+  deletion wearing a join's clothes. Absent blocks become `nan`, which is the hole convention
+  `ChannelBuilder` already understands, so `LocusAlignment.build()` composes straight through the
+  observed-entry standardization fixed above. `how="inner"` is kept so the difference stays
+  measurable, not as a default.
+  Explicitly **do not zero-fill before aligning**: a literal `0` is a value, and after a naive
+  global z-score it becomes `-mean/std`, a large shared constant that every sample missing that
+  locus carries. `nan` says "not observed"; `0` says "observed to be zero".
+- **`mir.cohort.missingness_report(labels, mask)`** and **`DonorCohort.missingness_report(labels)`**
+  — adjusted mutual information between a grouping and the block-presence pattern, plus the
+  correlation ratio of the per-sample present-block count. The check for whether a clustering,
+  enrichment or trajectory built on holed data is content or is a coverage stratification; near zero
+  is what you want, high means re-read the result inside a fully-observed subset. `DonorCohort` now
+  records the per-block presence matrix at fit so this needs no bespoke bookkeeping.
+
+## 3.7.0 — 2026-07-30
 
 Four new modules: a PhenoPath-style exposure trajectory, the generative loop's mechanical and
 research halves, and the digital twin that glues them to the digital donor — plus a repertoire-level
