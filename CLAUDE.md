@@ -95,7 +95,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel),
   and `correct_batch` (Harmony-like cluster-aware batch correction on a stacked Φ matrix; reduces to
   `cohort.residualize` at `n_clusters=1`/`theta=0` — `prop:batch`; test in `test_repertoire.py`).
-  **Sub-probability tier** (2026-08-02, from `TODO_DEFICIENT_MEASURE.md`): `Φ` normalised to mass 1 is a
+  **Sub-probability tier** (2026-08-02): `Φ` normalised to mass 1 is a
   lie at RNA-seq depth (median tissue TRB = 21 clonotypes), so `missing_mass(counts, "turing"|"chao")`
   estimates the never-drawn mass `M₀` (bias-corrected Chao1 `f1(f1-1)/(2(f2+1))` — the classical
   `f1²/2f2` is undefined when `f2=0`, which is the common case), `sample_embedding(missing_mass=…)`
