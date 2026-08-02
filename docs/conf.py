@@ -5,6 +5,7 @@ import sys
 
 # mir is installed (pip install -e .), but add the src dir so autodoc works from a bare checkout.
 sys.path.insert(0, os.path.abspath("../src"))
+sys.path.insert(0, os.path.abspath("_ext"))   # local Sphinx extensions
 
 from mir import __version__  # noqa: E402  (needs the sys.path line above)
 
@@ -21,6 +22,7 @@ extensions = [
     "sphinx.ext.githubpages",
     "sphinx.ext.mathjax",     # the math section renders client-side; no LaTeX in the build
     "sphinx.ext.graphviz",    # schematics are dot, drawn natively (a TikZ pass would need LaTeX)
+    "themed_graphviz",        # docs/_ext: one dot source -> a light and a dark rendering
 ]
 
 # SVG so the schematics stay sharp and selectable; needs the `dot` binary at build time.
