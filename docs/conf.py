@@ -19,7 +19,12 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
+    "sphinx.ext.mathjax",     # the math section renders client-side; no LaTeX in the build
+    "sphinx.ext.graphviz",    # schematics are dot, drawn natively (a TikZ pass would need LaTeX)
 ]
+
+# SVG so the schematics stay sharp and selectable; needs the `dot` binary at build time.
+graphviz_output_format = "svg"
 
 # mir is pure Python; core deps (numpy/polars/scipy/scikit-learn/seqtree/vdjtools) import in the docs
 # build env. The heavy optional deps (only imported by mir.ml / build-time / bench viz) are mocked.

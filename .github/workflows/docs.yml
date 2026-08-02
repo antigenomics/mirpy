@@ -25,6 +25,9 @@ jobs:
           python-version: "3.12"
       # Installing the package makes `mir` importable for autodoc; heavy optional deps
       # (torch, arda, …) are mocked in docs/conf.py, so only the core deps are pulled.
+      # `sphinx.ext.graphviz` shells out to `dot` for the math section's schematics.
+      - name: Install graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
       - name: Install package + docs toolchain
         run: pip install -e ".[docs]"
       - name: Build HTML (fail on warnings)
