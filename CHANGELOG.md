@@ -3,7 +3,9 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## 3.8.0 — 2026-08-02
+## 3.8.1 — 2026-08-02
+
+*(3.8.0 was withdrawn from PyPI immediately after upload and never reached general availability; a deleted PyPI version can never be reused, so the same content ships as 3.8.1. Nothing in the library differs between the two.)*
 
 **The repertoire measure, repaired.** `Φ(S)` was the kernel mean of a *probability* measure: weights
 normalised to 1, so every sample asserted one full unit of confidence about its repertoire. At RNA-seq
