@@ -25,6 +25,20 @@ The comparability invariant (as in :class:`mir.ml.bundle.CodecBundle` and
 :func:`fit_repertoire_space` fits that basis once on the pooled clonotype cloud;
 :class:`RepertoireSpace` serializes it and refuses a prototype-hash mismatch on load.
 
+**Sub-probability embeddings.** ``Φ₁`` above is the kernel mean of a *probability* measure — the
+weights are normalised to sum to 1, so every sample asserts one full unit of confidence. At RNA-seq
+depth that premise fails: a tissue sample holding 21 unique clonotypes has ``w_σ = 1/n`` for a
+technical draw size, not a clonal frequency, and normalising **forces** a 5-clonotype tumour to land
+somewhere arbitrary on the unit sphere. ``sample_embedding(missing_mass="turing"|"chao")`` instead
+estimates the probability mass of the clonotypes that were *never drawn* (:func:`missing_mass`) and
+records the retained mass on :attr:`SampleEmbedding.mass` ≤ 1 — a **sub-probability** measure, which
+keeps everything that makes ``Φ`` useful (``‖Φ_P − Φ_Q‖ = MMD``, convex combinations are real pooled
+repertoires) while a signed measure would not. The unseen block gets a principled location from
+:func:`naive_reference` (the germline recombination model, *not* the corpus centroid — measured
+worse), and :func:`contrast_embedding` composes the two into ``Ψ_S = mass·(Φ_S − naive)``, where
+magnitude = confidence × deviation-from-naive and an immune desert lands at the origin instead of
+being filtered out. See :func:`mir.bench.recovery_report` for the "is this object honest" check.
+
 Torch-free (numpy / sklearn; vdjtools + the learned set-network in :mod:`mir.ml` are lazy).
 
 Typical usage::
@@ -42,7 +56,7 @@ Typical usage::
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import polars as pl
@@ -50,6 +64,61 @@ import polars as pl
 from mir.density import DensitySpace, _WEIGHTS, _embed, calibrate_radius
 
 _COUNT = "duplicate_count"
+_MISSING_MASS = ("none", "turing", "chao")
+
+
+def missing_mass(counts, method: str = "chao") -> float:
+    """Estimated probability mass ``M₀`` of the clonotypes that were **never drawn**.
+
+    Both estimators feed the same identity with a different ``M₀``; they rank samples nearly
+    identically (measured ``r`` = 0.93 blood TRB, 0.76 tissue IGH) but differ in level — Chao runs
+    above Turing when singletons dominate doubletons (``f₁ ≫ 2f₂``) and below it when doubletons are
+    abundant. Measured means: blood TRB 0.552 (Turing) vs 0.649 (Chao), tissue IGH 0.189 vs 0.458::
+
+        none    M0 = 0                        the sample is treated as complete
+        turing  M0 = f1 / N                   Good-Turing, read-weighted
+        chao    M0 = S_u / (N + S_u)          S_u = f1(f1-1) / (2(f2+1))
+
+    ``f₁``/``f₂`` are the singleton / doubleton clonotype counts and ``N`` the total reads. The
+    ``chao`` form rests on one modelling assumption: *an unseen clonotype is rare, so had it been
+    drawn it would carry at most one read, and unseen clonotypes do not overlap.* That pins each
+    unseen clone's frequency at the detection boundary ``1/(N + S_u)`` and is what makes the units
+    legal — ``N`` counts reads and ``S_u`` counts clonotypes, and adding them is only defensible
+    because each unseen clone contributes exactly one read. The observed term then collapses to
+    exactly ``a_σ/(N + S_u)``.
+
+    ``S_u`` is the **bias-corrected** Chao1 ``f1(f1-1)/(2(f2+1))``, never the classical
+    ``f1²/(2f2)``: at these depths a sample with no clonotype seen exactly twice is common, and the
+    classical form is undefined there.
+
+    Args:
+        counts: Per-clonotype read counts (``duplicate_count``); rounded to integers to count
+            singletons and doubletons.
+        method: ``"none"`` | ``"turing"`` | ``"chao"``.
+
+    Returns:
+        ``M₀ ∈ [0, 1]`` — the missing (unobserved) mass. The retained mass is ``1 − M₀``.
+
+    Raises:
+        ValueError: If ``method`` is not recognised.
+
+    Example:
+        >>> missing_mass([5000, 3000, 2000], "chao")     # deep, no singletons
+        0.0
+    """
+    if method not in _MISSING_MASS:
+        raise ValueError(f"missing_mass must be one of {_MISSING_MASS}, got {method!r}")
+    if method == "none":
+        return 0.0
+    a = np.rint(np.asarray(counts, dtype=np.float64))
+    n_reads = float(a.sum())
+    f1 = float(np.count_nonzero(a == 1))
+    if method == "turing":
+        return 0.0 if n_reads <= 0 else min(f1 / n_reads, 1.0)
+    f2 = float(np.count_nonzero(a == 2))
+    s_u = f1 * (f1 - 1.0) / (2.0 * (f2 + 1.0))          # +1: never divides by zero
+    total = n_reads + s_u
+    return 0.0 if total <= 0 else float(s_u / total)
 
 
 def _sample_weights(sample_df: pl.DataFrame, weight: str):
@@ -139,6 +208,7 @@ class RepertoireSpace:
     rff: RandomFourierFeatures              # mean-block features
     rff2: RandomFourierFeatures | None      # second-moment features (smaller)
     meta: dict
+    _naive: dict = field(default_factory=dict, repr=False, compare=False)  # naive_reference cache
 
     def transform_clonotypes(self, df: pl.DataFrame) -> np.ndarray:
         """Project a clonotype frame into the shared PCA coordinate system."""
@@ -311,12 +381,19 @@ def fit_repertoire_spaces(
 
 @dataclass
 class SampleEmbedding:
-    """One repertoire's fixed-width embedding, kept block-wise so MMD uses only the mean block."""
+    """One repertoire's fixed-width embedding, kept block-wise so MMD uses only the mean block.
+
+    ``mass`` is the retained probability mass ``1 − M₀``: ``1.0`` (the default) means the sample is
+    treated as a complete probability measure, ``< 1`` that :func:`missing_mass` estimated part of
+    the repertoire was never drawn. The blocks themselves are **unchanged** by ``mass`` — the
+    deficiency is applied where it is meaningful, in :func:`contrast_embedding`.
+    """
 
     mean: np.ndarray                    # Φ₁, the kernel mean (n_rff,)
     diversity: np.ndarray | None        # Φ₂, [log ⁰D, log ¹D, log ²D, Ĉ]
     second: np.ndarray | None           # Σ_S: upper-tri (D₂·(D₂+1)/2,) or top-n_eigs eigvals (n_eigs,)
     n_eff: float                        # (Σ w²)⁻¹ — a Hill number in [²D, ⁰D]
+    mass: float = 1.0                   # retained mass 1 − M₀ (≤ 1; sub-probability when < 1)
 
     @property
     def vector(self) -> np.ndarray:
@@ -365,6 +442,9 @@ def _diversity_block(counts: np.ndarray, coverage: float | None) -> np.ndarray:
     return np.array([np.log(d0), np.log(d1), np.log(d2), chat], dtype=np.float64)
 
 
+_missing_mass = missing_mass          # the sample_embedding kwarg shadows the public name
+
+
 def sample_embedding(
     space: RepertoireSpace,
     sample_df: pl.DataFrame,
@@ -372,6 +452,7 @@ def sample_embedding(
     weight: str = "log2p1",
     blocks: tuple[str, ...] = ("mean", "diversity", "second"),
     coverage: float | None = None,
+    missing_mass: str = "none",
 ) -> SampleEmbedding:
     """Embed one repertoire into ``Φ(S)`` (mean ‖ diversity ‖ second).
 
@@ -385,12 +466,16 @@ def sample_embedding(
         blocks: Which blocks to compute/return.
         coverage: Common Good–Turing coverage ``Ĉ*`` for the diversity block; ``None`` uses the
             sample's observed Hill numbers.
+        missing_mass: Estimator for the mass of the never-drawn clonotypes (:func:`missing_mass`):
+            ``"none"`` (default — a complete probability measure, ``mass=1``, **bit-identical** to
+            pre-3.8 output), ``"turing"`` or ``"chao"``. Only ``.mass`` changes; the blocks do not.
 
     Returns:
         A :class:`SampleEmbedding`; ``.vector`` is the concatenated fixed-width tensor.
     """
     a, g, w = _sample_weights(sample_df, weight)
     n_eff = float(1.0 / np.sum(w * w))
+    mass = 1.0 - _missing_mass(a, missing_mass)      # aliased: the kwarg shadows the public name
 
     mean = div = sec = None
     if "mean" in blocks or "second" in blocks:
@@ -411,7 +496,108 @@ def sample_embedding(
         else:
             iu = np.triu_indices(sigma.shape[0])
             sec = sigma[iu]
-    return SampleEmbedding(mean=mean, diversity=div, second=sec, n_eff=n_eff)
+    return SampleEmbedding(mean=mean, diversity=div, second=sec, n_eff=n_eff, mass=mass)
+
+
+# ------------------------------------------------------- the location of the unseen
+
+
+def naive_reference(
+    space: RepertoireSpace,
+    *,
+    n: int = 20_000,
+    seed: int = 0,
+    sequences: pl.DataFrame | None = None,
+) -> np.ndarray:
+    """Kernel mean of ``n`` naive V(D)J recombinations — where the **unseen** clonotypes live.
+
+    Once a sample's mass is deficient (:func:`missing_mass`), something has to occupy the unseen
+    block, and the choice decides whether the object is a shrinkage estimator toward a *meaningful*
+    point. Three priors were measured on a large corpus:
+
+    * the sample's own singletons — begs the question, adds no information;
+    * the **corpus mean** — James–Stein toward the centroid, and it measurably **hurt**: it piles
+      shallow samples into a dense ball that is itself depth-correlated;
+    * the **germline draw** — the one that works. Filling the unseen block with it dropped
+      ``R²(PC1, depth)`` from 0.259 to 0.001 (blood TRB) and 0.067 to 0.006 (tissue IGH), with kNN
+      label entropy unchanged or better and PC1's explained variance *unchanged* (so PC1 is a
+      different direction, not a collapsed one).
+
+    The draw comes from :func:`vdjtools.model.generate` over the bundled germline model for this
+    space's locus (~8 s for 20,000 sequences), and is cached per ``(n, seed)`` on the space. Pass
+    ``sequences=`` to supply the reference repertoire yourself (an uncached path) if you do not want
+    the vdjtools generative model in the loop.
+
+    Args:
+        space: The shared :class:`RepertoireSpace` — supplies the locus *and* the coordinate system,
+            so the reference is automatically comparable to every ``Φ`` fit through it.
+        n: Number of naive recombinations to draw.
+        seed: Generation seed; the result is deterministic in ``(n, seed)``.
+        sequences: Optional pre-built clonotype frame to use instead of generating (``v_call`` /
+            ``j_call`` / ``junction_aa``). Not cached.
+
+    Returns:
+        ``(n_rff,)`` unweighted kernel mean of the naive draw, in ``space``'s RFF coordinates.
+
+    Raises:
+        ValueError: If the space is non-human (only human germline models are bundled).
+
+    Example:
+        >>> ref = naive_reference(space)                      # doctest: +SKIP
+        >>> psi = contrast_embedding(emb, ref)                # doctest: +SKIP
+    """
+    if sequences is None:
+        key = (n, seed)
+        if key in space._naive:
+            return space._naive[key]
+        if space.meta["species"] != "human":
+            raise ValueError(
+                f"no bundled germline model for species {space.meta['species']!r}; pass "
+                "sequences= with your own naive draw"
+            )
+        from vdjtools.model import load_bundled
+        from vdjtools.model.generate import generate
+
+        sequences = generate(load_bundled(space.meta["locus"]), n, seed=seed, productive_only=True)
+        ref = space.rff.transform(space.transform_clonotypes(sequences)).mean(axis=0)
+        space._naive[key] = ref
+        return ref
+    return space.rff.transform(space.transform_clonotypes(sequences)).mean(axis=0)
+
+
+def contrast_embedding(emb: SampleEmbedding, reference: np.ndarray) -> np.ndarray:
+    """``Ψ_S = mass · (Φ₁(S) − reference)`` — the deficient measure as a signed contrast.
+
+    This is the answer to "can the missing mass be a *negative* probability". It cannot: ``Φ``'s
+    value is that ``‖Φ_P − Φ_Q‖ = MMD(P,Q)`` and that a convex combination of two ``Φ``'s is the
+    ``Φ`` of a real pooled repertoire (what makes :mod:`mir.twin` and trajectory interpolation
+    mean anything), and a measure allowed to go negative on a set is not a probability measure.
+    But a signed **difference of two** probability measures already gives signed coordinates —
+    negative wherever the sample is depleted relative to unselected recombination — and stays an
+    ordinary RKHS element with ``‖Ψ_S‖ = MMD(S, naive)`` intact.
+
+    Note ``Ψ_S`` is exactly the reference-centred sub-probability embedding: with
+    ``Φ_true = mass·Φ₁ + M₀·reference``, ``Φ_true − reference = mass·(Φ₁ − reference)``.
+
+    Combined with a deficient mass, **magnitude = confidence × deviation-from-naive**. An immune
+    desert has ``M₀ → 1`` and lands at the **origin**, which is the correct place for "no infiltrate
+    detected"; a vague shallow blood sample lands there too and says so *by its norm* rather than by
+    being dropped from the cohort. Scale such a block with **one global scalar** — see
+    :meth:`mir.explain.ChannelBuilder.add`'s ``preserve_magnitude``.
+
+    Args:
+        emb: A :class:`SampleEmbedding` with a mean block (embed with ``missing_mass=`` for
+            ``mass < 1``; at the ``"none"`` default this is just the centred kernel mean).
+        reference: ``(n_rff,)`` unseen-block location, normally :func:`naive_reference`.
+
+    Returns:
+        ``(n_rff,)`` signed contrast vector.
+
+    Raises:
+        ValueError: If ``emb`` has no mean block.
+    """
+    ref = np.asarray(reference, dtype=np.float64)
+    return float(emb.mass) * (emb._require_mean() - ref)
 
 
 # --------------------------------------------------------------- derivable descriptor
