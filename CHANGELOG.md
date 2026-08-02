@@ -3,7 +3,20 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.8.0 — 2026-08-02
+
+**The repertoire measure, repaired.** `Φ(S)` was the kernel mean of a *probability* measure: weights
+normalised to 1, so every sample asserted one full unit of confidence about its repertoire. At RNA-seq
+depth that premise is false — a weight computed from a median of 21 unique clonotypes is `1/n` for a
+technical draw size, not a clonal frequency — and the usual workaround, a minimum-clonotype floor,
+deletes the immune-desert phenotype in tissue. This release lets the measure be **sub-probability**
+instead (`missing_mass`, `SampleEmbedding.mass`, `naive_reference`, `contrast_embedding`), then follows
+the same algebra out to functional diversity (`rao_q`), an estimable depth scale (`depth_threshold`),
+compartment decomposition (`band_embeddings`, `mixture_weights`), semantics-preserving depth correction
+(`rarefy_embedding`), and the two guards that keep magnitude and batch offsets honest
+(`preserve_magnitude`, `residualize(shrink=True)`). Plus `recovery_report`, which scores an embedding on
+*recoverability rather than competition*, and a new `Mathematical foundations` docs section deriving all
+of it. No public API removed and every new behaviour is opt-in — a minor bump.
 
 ### Fixed
 
