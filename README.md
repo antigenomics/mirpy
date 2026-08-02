@@ -257,8 +257,8 @@ TRA and class II) lives in the second moment / witness. A learned co-equal set e
 ### Sub-probability embeddings: the deficient measure
 
 `Φ(S)` above is the kernel mean embedding of a **probability** measure — the weights sum to 1, so
-every sample asserts one full unit of confidence. At RNA-seq depth that premise fails. Measured on a
-large AIRR corpus: the **median tissue TRB sample holds 21 unique clonotypes** (blood TRB
+every sample asserts one full unit of confidence. At RNA-seq depth that premise fails. Measured: the
+**median tissue TRB sample holds 21 unique clonotypes** (blood TRB
 254, 1st percentile 1), so `w_σ = a_σ/Σa` is `1/n` for a *technical draw size*, not a clonal
 frequency — the true frequencies live at 1e-5…1e-8, and one singleton's weight spans **21,454×**
 across blood TRB purely from sample size. Worse, normalising to 1 *forces* a 5-clonotype tumour to
@@ -305,6 +305,71 @@ psi = contrast_embedding(emb, ref)           # Ψ = mass·(Φ − naive): signed
 > it was built to preserve. Use `ChannelBuilder.add(..., preserve_magnitude=True)`, which applies one
 > pooled RMS per channel and fills holes with `0`. (`stack_embeddings` warns if it is handed
 > deficient-mass embeddings, since `Φ.vector` does not carry the mass.)
+
+### Functional diversity, compartments, and depth
+
+Four more consequences of the same measure algebra, all of them cheap once `Φ` is a kernel mean:
+
+```python
+from mir.repertoire import (band_embeddings, depth_threshold, mixture_weights,
+                            rao_q, rarefy_embedding, sample_statistics)
+
+rao_q(emb)                          # 1 − ‖Φ₁‖² — Rao's quadratic entropy, exactly
+depth_threshold(embs).kappa         # the size below which Φ is mostly sampling noise
+bands = band_embeddings(space, sample)              # singleton / expanded / top (or IGH isotypes)
+mixture_weights(emb, bands)["weights"]              # π per compartment, by NNLS
+rarefy_embedding(space, sample, depth=20_000).v_rep # matched-depth Φ + its replicate noise
+```
+
+* **`rao_q`** — Rao's quadratic entropy is `1 − ‖Φ₁‖²` *exactly* (verified against an explicit Gram to
+  ~1e-16), so the **norm** of the kernel mean is a diversity statistic and no Gram matrix is needed.
+  It is the diversity the Hill block cannot express: every Hill number is a functional of the
+  clone-size distribution alone, hence invariant to permuting *which* receptor carries which
+  abundance, while Rao's Q weights each pair by how different the receptors are. Measured: this one
+  scalar recovers R² 0.74–0.85 of classical diversity, and embedding derivatives reach R² 0.974–0.994
+  for Shannon. Valid only on the **uncentred** Φ₁ — centring preserves differences (MMD) but not norms.
+* **`depth_threshold`** — the damage depth does to a kernel mean is not bias but **variance ∝ 1/n**.
+  Regressing `‖Φ_S − Φ̄‖²` on `1/n` splits the spread into between-sample signal `τ²` and sampling
+  noise `σ²`, so **κ = σ²/τ²** is the size at which they are equal. Measured κ ≈ 40–70 clonotypes
+  across four independent views, with 23–69% of samples below it. Report κ for *your* cohort instead
+  of importing a cutoff — and note the library still applies no floor.
+* **`band_frames` / `band_embeddings` / `mixture_weights`** — Φ₁ is an *average*, which is the right
+  operation for a population mean and the wrong one for a minority signal: writing the repertoire as
+  `(1−π)ρ_naive + π ρ_expanded` shows a compartment-confined effect reaching Φ₁ attenuated to `πΔ`
+  while the naive compartment supplies the noise. Bands (`singleton` / `expanded` / `top 1%`, or IGH
+  isotypes from `c_call`) are embedded through the **same frozen space** — never refit, or band-to-band
+  distances stop meaning anything — and bands under 5 clonotypes are recorded absent (`None`), not
+  upsampled. Because mixture linearity `Φ(S) = Σ π_c Φ(c)` is exact, a non-negative least
+  squares recovers each compartment's share (exact in exact arithmetic; float32 embeddings put the
+  realised residual near 1e-5). Measured on IGH isotypes: class-switched **IgG carries
+  π = 0.070** of Φ₁(IGH) (IgM 0.230, IgA 0.176, 0.520 uncalled) — the dilution factor measured rather
+  than assumed, and a power calculation before you spend compute: a subset with π ≈ 0.001 is not
+  detectable by any aggregate distance, so use the per-clonotype witness. Straight about the negative:
+  on survival endpoints the bands did **not** beat a diversity reference (0/22 pre-registered cells),
+  though `singleton` reproduced a clinical-only score and `expanded` reproduced the whole-repertoire
+  score exactly as the mixture argument predicts, and banding did win on kNN entropy in tissue IGH
+  (0.3875 vs 0.4686).
+* **`rarefy_embedding`** — averaging Φ over multinomial subsamples is itself a kernel mean (of the
+  mixture over subsamples), so it is the **only** depth correction that keeps MMD, Rao and mixture
+  linearity exactly (~1e-15); an orthogonal projection breaks the norm identity and a per-coordinate
+  rescale breaks both. It also hands you a free per-sample noise estimate, because
+  `Rao(Φ̄) = mean_r Rao(Φ_r) + v_rep` holds **exactly** — the excess diversity of the average *is* the
+  replicate variance. Not a default: rarefying a cohort to its shallowest useful depth throws away the
+  deep samples' advantage.
+
+Also `sample_statistics` / `cohort_statistics` (the sampling fingerprint: f₁/f₂/f₃₊, singleton
+fraction, missing mass, top-clone fraction, library size — the `stats=` input below, and candidate
+biology in their own right) and `mir.cohort.depth_report`, which regresses the leading PCs on that
+fingerprint. Read it beside `explained_variance`: with the deficient measure, R²(PC1, depth) fell
+0.259 → 0.001 and best-of-PC1–5 0.253 → 0.047 *while PC1's explained variance was unchanged*, which is
+what distinguishes "a different direction" from "a collapsed one".
+
+> ⚠ **`mir.cohort.residualize(..., shrink=True)`** for batch offsets fitted from few samples in many
+> dimensions. Plain per-group centring can make the batch *easier* to read, measured out-of-sample:
+> batch-identity AUC 0.863 raw → **0.985** after centring, 0.978 after ComBat. The mechanism is
+> estimation error — `‖µ̂ − µ‖ ≈ √(σ²d/n)` was ≈16 against a true offset of 7–24, so subtracting it
+> injects a batch-constant vector as large as the one it removes, invisible in-sample by construction.
+> Positive-part James–Stein shrinkage recovered most of it: 0.985 → **0.889**.
 
 The matching evaluation criterion is **recoverability, not competition**:
 `mir.bench.recovery_report(X, stats, groups)` runs a grouped-CV ridge from the embedding's PCs back

@@ -468,11 +468,7 @@ def test_naive_reference_deterministic_and_cached(space):
 
 
 def test_naive_reference_tracks_the_germline_draw_not_an_expansion(space):
-    """Centred cosine: the reference sits next to an independent naive draw, not an expansion.
-
-    Centred, because an uncentred comparison of two kernel means is dominated by their shared DC
-    offset and puts *any* two of them at cos ≈ 1 — an artifact that produced a wrong conclusion once.
-    """
+    """The reference sits next to an independent naive draw, not next to a clonal expansion."""
     from mir.repertoire import naive_reference
 
     def cos_centred(u, v):
@@ -533,3 +529,184 @@ def test_contrast_embedding_is_confidence_times_deviation(space):
     # while the clonotype embedding it is built from is an all-positive distance profile.
     assert (psi_expanded > 0).any() and (psi_expanded < 0).any()
     assert (space.clono.model.embed(naive_like) >= 0).all()
+
+
+# --- functional diversity, depth threshold, fingerprint ----------------------------
+
+def test_rao_q_equals_one_minus_norm_squared_against_explicit_gram(space):
+    """Rao's Q = 1 − ‖Φ₁‖² algebraically, and matches an explicit weighted Gram."""
+    from mir.repertoire import rao_q
+
+    df = _sample(_clonotypes(120, offset=0), lambda n: np.geomspace(1, 500, n))
+    emb = sample_embedding(space, df)
+    q = rao_q(emb)
+
+    # explicit: Q = Σ_ij w_i w_j (1 − k_ij) with the same RFF features the mean was built from
+    _, _, w = _sample_weights(df, "log2p1")
+    psi = space.rff.transform(space.transform_clonotypes(df))
+    K = psi @ psi.T
+    q_gram = float(w @ (1.0 - K) @ w)
+    assert abs(q - q_gram) < 1e-10, (q, q_gram)
+    assert 0.0 <= q <= 1.0
+
+    # a single clone has no diversity (up to the RFF error in k(z,z)≈1); a spread-out sample has some
+    one = _sample(_clonotypes(1, offset=0), lambda n: np.full(n, 10.0))
+    q_one = rao_q(sample_embedding(space, one))
+    assert abs(q_one) < 0.05 and q_one < 0.1 * q
+
+
+def test_depth_threshold_recovers_planted_kappa():
+    """κ = σ²/τ² from the 1/n variance law, on embeddings with a known signal:noise split."""
+    from mir.repertoire import SampleEmbedding, depth_threshold
+
+    rng = np.random.default_rng(0)
+    d, S = 64, 400
+    tau2, sigma2 = 0.5, 25.0                               # ⇒ κ = 50
+    n = rng.integers(5, 3000, S).astype(float)
+    embs = []
+    for i in range(S):
+        mu = rng.normal(0, np.sqrt(tau2 / d), d)           # between-sample (biological) spread
+        noise = rng.normal(0, np.sqrt(sigma2 / (d * n[i])), d)   # sampling noise ∝ 1/n
+        embs.append(SampleEmbedding(mean=mu + noise, diversity=None, second=None, n_eff=n[i]))
+
+    r = depth_threshold(embs)
+    assert 0.6 * 50 < r.kappa < 1.6 * 50, r
+    assert r.fraction_below == float(np.mean(n < r.kappa))
+    assert r.sizes.shape == (S,) and "kappa" in repr(r)
+
+    # explicit sizes are honoured (κ then reads in whatever unit they carry)
+    assert depth_threshold(embs, sizes=n * 10).kappa > r.kappa
+    with pytest.raises(ValueError, match="at least 3 samples"):
+        depth_threshold(embs[:2])
+    with pytest.raises(ValueError, match="sizes has shape"):
+        depth_threshold(embs, sizes=n[:10])
+
+
+def test_sample_and_cohort_statistics(space):
+    from mir.repertoire import cohort_statistics, missing_mass, sample_statistics
+
+    counts = np.array([1.0, 1.0, 1.0, 2.0, 5.0, 40.0])
+    df = _sample(_clonotypes(6, offset=0), counts)
+    s = sample_statistics(df)
+    assert s["n_reads"] == 50.0 and s["richness"] == 6.0
+    assert s["f1"] == 3.0 and s["f2"] == 1.0 and s["f3plus"] == 2.0
+    assert s["singleton_fraction"] == 0.5
+    assert abs(s["top_clone_fraction"] - 40.0 / 50.0) < 1e-12
+    assert s["missing_mass_turing"] == missing_mass(counts, "turing")
+    assert s["shannon"] > 0
+
+    stats = cohort_statistics([df, _sample(_clonotypes(20, offset=100))])
+    assert set(stats) == set(s) and all(v.shape == (2,) for v in stats.values())
+    with pytest.raises(ValueError, match="frames is empty"):
+        cohort_statistics([])
+
+
+# --- compartments (bands) + mixture weights ---------------------------------------
+
+def test_band_frames_partition_and_absent_bands():
+    from mir.repertoire import band_frames
+
+    df = _sample(_clonotypes(60, offset=0),
+                 lambda n: np.r_[np.ones(40), np.full(15, 3.0), np.full(n - 55, 900.0)])
+    b = band_frames(df)
+    assert b["singleton"].height == 40 and b["expanded"].height == 20
+    assert b["singleton"].height + b["expanded"].height == df.height
+    assert b["top"].height == 10                            # 1% of 60 clipped up to the floor of 10
+    assert b["top"]["duplicate_count"].min() >= 3.0         # the top band is the largest clones
+
+    # a band under min_clonotypes is absent (None), never embedded
+    tiny = _sample(_clonotypes(30, offset=0), lambda n: np.r_[np.ones(2), np.full(n - 2, 7.0)])
+    assert band_frames(tiny)["singleton"] is None
+
+    with pytest.raises(ValueError, match="unknown bands"):
+        band_frames(df, bands=("naive",))
+    with pytest.raises(ValueError, match="c_call"):
+        band_frames(df, bands=("igg",))
+
+
+def test_isotype_bands_exclude_uncalled_constant_region():
+    from mir.repertoire import band_frames
+
+    df = _sample(_clonotypes(30, offset=0), lambda n: np.full(n, 4.0)).with_columns(
+        pl.Series("c_call", ["IGHM"] * 10 + ["IGHG1*01"] * 8 + ["IGHA2"] * 6 + [None] * 6))
+    b = band_frames(df, bands=("igm", "igg", "iga"), min_clonotypes=5)
+    assert b["igm"].height == 10 and b["igg"].height == 8 and b["iga"].height == 6
+    # 6 uncalled rows belong to no band: missing data, not IgM
+    assert sum(f.height for f in b.values()) == df.height - 6
+
+
+def test_mixture_weights_recover_exact_band_shares(space):
+    """Φ is linear in the clone measure, so NNLS on a partition recovers the weight shares exactly."""
+    from mir.repertoire import band_embeddings, mixture_weights
+
+    df = _sample(_clonotypes(120, offset=0),
+                 lambda n: np.r_[np.ones(70), np.geomspace(2, 800, n - 70)])
+    whole = sample_embedding(space, df)
+    bands = band_embeddings(space, df, bands=("singleton", "expanded"))
+
+    # ground truth: each band's share of total g(a) weight
+    a, g, _ = _sample_weights(df, "log2p1")
+    share_singleton = float(g[np.rint(a) == 1].sum() / g.sum())
+
+    # mixture linearity holds up to floating point: the identity is exact in exact arithmetic, but
+    # the clonotype embedding is float32 and computed in thread-dependent batches, so a band's rows
+    # can differ from the same rows inside the whole frame in the last float32 digits.
+    def rel_err(v):
+        return float(np.linalg.norm(v - whole.mean) / np.linalg.norm(whole.mean))
+
+    mix = (share_singleton * bands["singleton"].mean
+           + (1 - share_singleton) * bands["expanded"].mean)
+    assert rel_err(mix) < 1e-4
+    # ... and the tolerance is not what makes it pass: the wrong shares are orders of magnitude off
+    wrong = 0.5 * bands["singleton"].mean + 0.5 * bands["expanded"].mean
+    assert rel_err(wrong) > 100 * max(rel_err(mix), 1e-9)
+
+    res = mixture_weights(whole, bands)
+    assert abs(res["weights"]["singleton"] - share_singleton) < 1e-6
+    assert abs(res["residual"]) < 1e-6 and res["r2"] > 0.9999
+
+    # absent bands are skipped, not treated as zero-weight
+    res2 = mixture_weights(whole, {"singleton": bands["singleton"], "gone": None})
+    assert set(res2["weights"]) == {"singleton"} and res2["residual"] > 0.1
+    with pytest.raises(ValueError, match="no usable parts"):
+        mixture_weights(whole, {"a": None})
+    with pytest.raises(ValueError, match="has shape"):
+        mixture_weights(whole, {"a": np.ones(3)})
+
+
+# --- rarefaction ------------------------------------------------------------------
+
+def test_rarefy_embedding_preserves_the_rao_identity(space):
+    """Rao(Φ̄) = mean_r Rao(Φ_r) + v_rep, exactly — the replicate dispersion IS the excess diversity."""
+    from mir.repertoire import rao_q, rarefy_embedding
+
+    df = _sample(_clonotypes(150, offset=0), lambda n: np.geomspace(1, 1000, n))
+    total = df["duplicate_count"].sum()
+    r = rarefy_embedding(space, df, depth=2000, n_replicates=8, seed=0)
+    assert r.depth == 2000 and r.n_replicates == 8 and r.v_rep > 0
+    assert r.embedding.mean.shape == (space.rff.dim,)
+
+    # recompute the per-replicate Raos to check the identity the docstring claims
+    rng = np.random.default_rng(0)
+    a = df["duplicate_count"].to_numpy().astype(float)
+    psi = space.rff.transform(space.transform_clonotypes(df))
+    raos = []
+    for _ in range(8):
+        draw = rng.multinomial(2000, a / a.sum()).astype(float)
+        m = draw > 0
+        g = np.log2(1.0 + draw[m])
+        w = g / g.sum()
+        phi = w @ psi[m]
+        raos.append(1.0 - phi @ phi)
+    assert abs(rao_q(r.embedding) - (np.mean(raos) + r.v_rep)) < 1e-12
+    assert r.rao_gap() == r.v_rep
+
+    # deterministic in the seed, and rarefying deeper leaves less replicate noise
+    assert np.array_equal(rarefy_embedding(space, df, 2000, n_replicates=8, seed=0).embedding.mean,
+                          r.embedding.mean)
+    assert rarefy_embedding(space, df, int(total), n_replicates=4, seed=0).v_rep < r.v_rep
+
+    with pytest.raises(ValueError, match="cannot rarefy"):
+        rarefy_embedding(space, df, depth=int(total) + 1)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        rarefy_embedding(space, df, depth=0)
