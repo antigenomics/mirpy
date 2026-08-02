@@ -306,3 +306,45 @@ def test_channel_spec_constructed_directly_is_usable():
     spec = ChannelSpec({"a": [0, 1], "b": [2]}, frozenset({"a"}))
     assert spec.width == 3 and spec.names == ["a", "b"]
     assert spec["a"] == [0, 1] and "a" in spec.attributable
+
+
+def test_preserve_magnitude_keeps_the_deficiency_column_scaling_deletes():
+    """A mass-deficient block must be scaled by ONE global scalar, never per-column.
+
+    Per-column standardisation centres each coordinate, so the rows that sat at the origin (mass 0,
+    "nothing confidently observed") are pushed out to a large shared constant ``-mean/sd`` and end up
+    looking like any other sample — it deletes the deficiency it was meant to preserve.
+    """
+    rng = np.random.default_rng(0)
+    n = 120
+    block = rng.normal(0.0, 1.0, (n, 6)) + 3.0        # Φ − naive: a systematic non-zero offset
+    block[:60] = 0.0                                  # half the cohort carries no confidence
+
+    Xz, _ = ChannelBuilder().add("psi", block).build()                          # per-column z
+    Xm, spec = ChannelBuilder().add("psi", block, preserve_magnitude=True).build()
+
+    def rows(M):
+        return np.linalg.norm(M[:60], axis=1).mean(), np.linalg.norm(M[60:], axis=1).mean()
+
+    zero_z, full_z = rows(Xz)
+    zero_m, full_m = rows(Xm)
+    assert zero_m == 0.0 and full_m > 0.5                       # deficiency preserved exactly
+    assert zero_z > 0.5 * full_z                                # ... and destroyed by column z
+    assert spec.width == Xm.shape[1] == 6
+
+    # holes in a magnitude block mean "not observed" -> 0, both with and without standardization
+    holed = block.copy()
+    holed[0] = np.nan
+    for std in (True, False):
+        Xh, _ = ChannelBuilder().add("psi", holed, preserve_magnitude=True).build(standardize=std)
+        assert np.all(Xh[0] == 0.0)
+
+
+def test_stack_embeddings_warns_on_deficient_mass():
+    from mir.repertoire import SampleEmbedding
+
+    embs = [SampleEmbedding(mean=np.ones(4), diversity=None, second=None, n_eff=2.0, mass=m)
+            for m in (1.0, 0.3)]
+    with pytest.warns(UserWarning, match="mass < 1"):
+        X, spec = stack_embeddings(embs)
+    assert X.shape == (2, 4) and spec.names == ["mean"]

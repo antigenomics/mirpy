@@ -168,10 +168,10 @@ Provenance and the regenerate command are in [`SOURCES.md`](SOURCES.md).
 | `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
 | `mir.embedding.pca` | PCA denoising of embeddings |
 | `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
-| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`), cohort scorers (`bench.eval`: `cv_auc`/`cv_cindex`/`km_logrank`) |
+| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`), cohort scorers (`bench.eval`: `cv_auc`/`cv_cindex`/`km_logrank`) + `recovery_report` (are the basic statistics carried inside the embedding?) |
 | `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
-| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness; `centroid_atypicality`, multi-locus `fit_repertoire_spaces` (Theory §T.7) |
-| `mir.explain` | named-channel fusion (`ChannelBuilder`) + scorer-agnostic ablation (`channel_report`/`channel_drivers`) — which part of Φ carries the signal (§T.7) |
+| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness; `centroid_atypicality`, multi-locus `fit_repertoire_spaces`; **sub-probability** `missing_mass`/`naive_reference`/`contrast_embedding` (Theory §T.7) |
+| `mir.explain` | named-channel fusion (`ChannelBuilder`, incl. `preserve_magnitude` global scaling) + scorer-agnostic ablation (`channel_report`/`channel_drivers`) — which part of Φ carries the signal (§T.7) |
 | `mir.cohort` | the **digital donor** — multi-chain `fit_donor_embeddings`/`DonorCohort` (+ `transform`/`save`/`load`) + `residualize` / `cluster_samples` / `incidence_biomarkers` (§T.7) |
 | `mir.track` | **exposure trajectory** — PhenoPath-style covariate-disentangled latent progression axis (`fit_exposure_trajectory`) over any channel matrix; repertoire-level exposure detection |
 | `mir.generate` | the **generative loop** (mechanical half) — `DescriptorDensity`: sample new synthetic donor states / `evolve` one along a coordinate, over `RepertoireDescriptor` |
@@ -253,6 +253,67 @@ TRA and class II) lives in the second moment / witness. A learned co-equal set e
 (Set-Transformer / DeepRC) is in `mir.ml.set_encoder` (`[ml]` extra). Recorded results and theory
 (T7) live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo
 (`benchmarks/{BENCHMARKS,THEORY}.md`) alongside the benchmark scripts.
+
+### Sub-probability embeddings: the deficient measure
+
+`Φ(S)` above is the kernel mean embedding of a **probability** measure — the weights sum to 1, so
+every sample asserts one full unit of confidence. At RNA-seq depth that premise fails. Measured on a
+134,806-sample AIRR corpus: the **median tissue TRB sample holds 21 unique clonotypes** (blood TRB
+254, 1st percentile 1), so `w_σ = a_σ/Σa` is `1/n` for a *technical draw size*, not a clonal
+frequency — the true frequencies live at 1e-5…1e-8, and one singleton's weight spans **21,454×**
+across blood TRB purely from sample size. Worse, normalising to 1 *forces* a 5-clonotype tumour to
+assert full confidence, so it lands somewhere arbitrary on the unit sphere instead of where it
+belongs, and callers respond with a minimum-clonotype floor which in tumour deletes the **immune
+desert** — the phenotype of interest. (A floor once cut 7,179 labelled donors to 2,129.)
+
+Let the measure be **sub-probability** instead:
+
+```python
+from mir.repertoire import contrast_embedding, missing_mass, naive_reference, sample_embedding
+
+emb = sample_embedding(space, sample, missing_mass="chao")   # or "turing"; "none" = old behaviour
+emb.mass                                    # retained mass 1 − M₀ ∈ [0, 1]
+ref = naive_reference(space)                 # kernel mean of 20k naive V(D)J recombinations (~8 s)
+psi = contrast_embedding(emb, ref)           # Ψ = mass·(Φ − naive): signed, magnitude-carrying
+```
+
+* **`missing_mass`** estimates the mass `M₀` of the clonotypes that were never drawn — Good–Turing
+  (`f₁/N`) or **bias-corrected Chao1** (`S_u/(N+S_u)`, `S_u = f₁(f₁−1)/(2(f₂+1))`; never the
+  classical `f₁²/2f₂`, undefined when no clone was seen exactly twice, which is common here).
+  `missing_mass=` only sets `.mass`; the blocks are untouched, and the `"none"` default is
+  bit-identical to before.
+* **Not** a negative measure. `Φ`'s value is that `‖Φ_P − Φ_Q‖` *is* the MMD and that a convex
+  combination of two `Φ`'s is the `Φ` of a real pooled repertoire (what makes `mir.twin` and
+  trajectory interpolation mean anything); a measure allowed to go negative on a set is not a
+  probability measure and loses both. A sub-probability measure costs neither.
+* **`naive_reference`** gives the unseen block a principled location — the germline recombination
+  model (`vdjtools.model.generate`), not the corpus centroid. This is the load-bearing choice:
+  shrinking toward the centroid is James–Stein toward the mean and it measurably **hurt** (it piles
+  shallow samples into a dense ball that is itself depth-correlated), while the germline draw dropped
+  `R²(PC1, depth)` from 0.259 to **0.001** (blood TRB) and 0.067 to **0.006** (tissue IGH) with kNN
+  label entropy unchanged or better.
+* **`contrast_embedding`** is where legitimate negativity lives: a signed *difference of two
+  probability measures*, negative wherever the sample is depleted relative to unselected
+  recombination, still an ordinary RKHS element with `‖Ψ_S‖ = MMD(S, naive)`. Magnitude then reads
+  as **confidence × deviation-from-naive**: an immune desert has `M₀ → 1` and lands at the
+  **origin**, the right place for "no infiltrate detected", and a shallow blood sample says so by
+  its norm instead of being dropped. Give the caller `mass` to weight with; don't add a floor.
+
+> ⚠ **Scale a magnitude-carrying block with one global scalar, never per column.** Per-column
+> standardisation forces every coordinate to unit variance across samples, so a matrix where half the
+> rows sit at the origin comes out looking exactly like one where none do — it deletes the deficiency
+> it was built to preserve. Use `ChannelBuilder.add(..., preserve_magnitude=True)`, which applies one
+> pooled RMS per channel and fills holes with `0`. (`stack_embeddings` warns if it is handed
+> deficient-mass embeddings, since `Φ.vector` does not carry the mass.)
+
+The matching evaluation criterion is **recoverability, not competition**:
+`mir.bench.recovery_report(X, stats, groups)` runs a grouped-CV ridge from the embedding's PCs back
+to each basic repertoire statistic (richness, Shannon, top-clone fraction, singleton fraction, Chao
+unseen fraction, library size) and reports R² — high means the statistic is *carried inside* the
+embedding and nothing has to be bolted on beside it. Renormalising to mass 1 deletes the magnitude,
+so coverage and richness are unrecoverable from `Φ` **by construction**; the deficient measure should
+win that question as a design consequence. It sits beside `mir.cohort.missingness_report` as the
+other "is this object honest" check.
 
 ## Exposure trajectory, generative loop, digital twin
 
