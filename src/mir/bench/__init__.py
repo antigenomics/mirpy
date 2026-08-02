@@ -6,12 +6,15 @@
 * :mod:`mir.bench.theory` — reproduce supplementary S1–S3 (distribution laws,
   dissimilarity↔distance correlation, real-vs-model prototype robustness).
 * :mod:`mir.bench.eval` — scorers for the explainable readout (cross-validated AUC,
-  Cox C-index, log-rank) that :func:`mir.explain.channel_report` consumes.
+  Cox C-index, log-rank) that :func:`mir.explain.channel_report` consumes, plus
+  :func:`~mir.bench.eval.recovery_report` (are the basic repertoire statistics *carried inside*
+  the embedding?).
 
 Requires the ``[bench]`` extra (kneed, matplotlib, seaborn, huggingface_hub, lifelines). The
 paper-exact Smith-Waterman baseline (``alignment="sw"``) needs BioPython, which ships in ``[build]``.
 """
 
+from mir.bench.eval import recovery_report
 from mir.bench.metrics import AntigenMetric, cluster, cluster_metrics, estimate_dbscan_eps
 from mir.bench.vdjdb import antigen_subset, load_vdjdb
 
@@ -22,4 +25,5 @@ __all__ = [
     "cluster_metrics",
     "estimate_dbscan_eps",
     "AntigenMetric",
+    "recovery_report",
 ]

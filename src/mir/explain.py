@@ -143,9 +143,11 @@ class ChannelBuilder:
     _blocks: list[np.ndarray] = field(default_factory=list, repr=False)
     _cols: dict[str, list[int]] = field(default_factory=dict, repr=False)
     _attr: set[str] = field(default_factory=set, repr=False)
+    _mag: set[str] = field(default_factory=set, repr=False)
     _col: int = 0
 
-    def add(self, name: str, mat: np.ndarray, *, attributable: bool = False) -> "ChannelBuilder":
+    def add(self, name: str, mat: np.ndarray, *, attributable: bool = False,
+            preserve_magnitude: bool = False) -> "ChannelBuilder":
         """Append a block. Returns ``self`` for chaining.
 
         Args:
@@ -153,6 +155,17 @@ class ChannelBuilder:
             mat: ``(n_samples,)`` or ``(n_samples, k)``. 1-D is treated as a single column.
             attributable: Mark the channel clonotype-attributable (a kernel-mean block). Sticky:
                 one attributable block makes the whole merged channel attributable.
+            preserve_magnitude: Scale this channel by **one global scalar** (its pooled RMS over
+                observed entries, no centring) instead of per-column z-scoring, and fill holes with
+                ``0``. Required for any block whose *magnitude* carries information — a
+                sub-probability / contrast block from
+                :func:`mir.repertoire.contrast_embedding`, where a near-zero row means "no
+                confident deviation from naive". Per-column standardisation forces every coordinate
+                to unit variance across samples, so a matrix where half the rows are near-zero comes
+                out looking exactly like one where none are: **it deletes the deficiency it was
+                meant to preserve.** (This already invalidated one experiment, whose deficient arm
+                scored 0.6481 against a 0.6179 baseline purely from the rescaling.) Sticky, as with
+                ``attributable``.
 
         Returns:
             ``self``.
@@ -172,6 +185,8 @@ class ChannelBuilder:
         self._col += m.shape[1]
         if attributable:
             self._attr.add(name)
+        if preserve_magnitude:
+            self._mag.add(name)
         return self
 
     def build(self, *, standardize: bool = True, impute: bool = True) -> tuple[np.ndarray, ChannelSpec]:
@@ -194,6 +209,9 @@ class ChannelBuilder:
         imputed hole land at exactly 0 (the column mean, i.e. no information) in a column whose
         scale the hole did not set.
 
+        Channels added with ``preserve_magnitude=True`` are exempt from both: they get one global
+        scalar and no centring, so their row norms survive, and their holes are filled with ``0``.
+
         Returns:
             ``(X, spec)``.
 
@@ -204,6 +222,9 @@ class ChannelBuilder:
             raise ValueError("no blocks added; call add() before build()")
         X = np.hstack(self._blocks)
         obs = np.isfinite(X)
+        mag = np.zeros(X.shape[1], dtype=bool)
+        for name in self._mag:
+            mag[self._cols[name]] = True
         if standardize:
             mu = np.zeros(X.shape[1])
             sd = np.ones(X.shape[1])
@@ -213,6 +234,14 @@ class ChannelBuilder:
                     mu[j] = col.mean()
                     s = col.std()
                     sd[j] = s if s > 0 else 1.0
+            for name in self._mag:
+                # ONE global scalar (pooled RMS, uncentred) for the whole channel: per-column
+                # variance-equalisation would delete exactly the magnitude this block carries.
+                cols = self._cols[name]
+                vals = X[:, cols][obs[:, cols]]
+                s = float(np.sqrt(np.mean(vals ** 2))) if vals.size else 0.0
+                mu[cols] = 0.0
+                sd[cols] = s if s > 0 else 1.0
         if impute:
             for j in range(X.shape[1]):
                 col = X[:, j]
@@ -221,9 +250,12 @@ class ChannelBuilder:
                     good = col[obs[:, j]]
                     # fill at the value the column is about to be centred on, so an imputed hole
                     # lands at exactly 0 and exerts no pull. Without standardization there is no
-                    # centre to match, so the robust choice (median) is used instead.
+                    # centre to match, so the robust choice (median) is used instead — except in a
+                    # magnitude block, where 0 *is* the meaningful "nothing observed" value.
                     if standardize:
                         col[bad] = mu[j]
+                    elif mag[j]:
+                        col[bad] = 0.0
                     else:
                         col[bad] = float(np.median(good)) if good.size else 0.0
         if standardize:
@@ -248,9 +280,27 @@ def stack_embeddings(embs: Sequence[SampleEmbedding]) -> tuple[np.ndarray, Chann
 
     Raises:
         ValueError: If ``embs`` is empty or the embeddings disagree on present blocks / widths.
+
+    Warns:
+        UserWarning: If any embedding carries a deficient mass (``mass < 1``). ``Φ.vector`` does not
+            encode it — the blocks are renormalised measures either way — so a deficient cohort
+            stacked this way silently discards the deficiency. Build the mean block with
+            :func:`mir.repertoire.contrast_embedding` and add it under
+            ``ChannelBuilder.add(..., preserve_magnitude=True)`` instead.
     """
     if not embs:
         raise ValueError("embs is empty")
+    deficient = sum(1 for e in embs if getattr(e, "mass", 1.0) < 1.0)
+    if deficient:
+        import warnings
+
+        warnings.warn(
+            f"{deficient} of {len(embs)} embeddings have mass < 1, but Phi.vector does not carry "
+            "the mass — stacking them here discards the deficiency. Use "
+            "mir.repertoire.contrast_embedding(emb, naive_reference(space)) and add it with "
+            "ChannelBuilder.add(..., preserve_magnitude=True).",
+            UserWarning, stacklevel=2,
+        )
     present = [b for b in ("mean", "diversity", "second") if getattr(embs[0], b) is not None]
     for i, e in enumerate(embs):
         p = [b for b in ("mean", "diversity", "second") if getattr(e, b) is not None]

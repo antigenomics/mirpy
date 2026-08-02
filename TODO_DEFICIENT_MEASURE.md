@@ -1,5 +1,11 @@
 # TODO — sub-probability repertoire embeddings, missing mass, and a naive reference
 
+> **LANDED 2026-08-02** — all five items ship in `mir` (`missing_mass` / `SampleEmbedding.mass` /
+> `naive_reference` / `contrast_embedding` in `mir.repertoire`, `preserve_magnitude` in
+> `mir.explain.ChannelBuilder.add`, `recovery_report` in `mir.bench`). The measured evidence below is
+> reproduced in `CHANGELOG.md` and the README's "Sub-probability embeddings" section; this file is
+> kept only as the original hand-off and can be deleted.
+
 Written 2026-08-02 from the eurynome phase24 work. Everything below is **measured on a
 134,806-sample AIRR corpus**, not proposed from theory; the evidence lives in
 `~/work/industry/bostongene/eurynome/doc/WEIGHTING_AND_DEPTH.md` and

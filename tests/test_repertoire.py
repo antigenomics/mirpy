@@ -12,6 +12,7 @@ from mir.embedding.tcremp import TCREmp
 from mir.repertoire import (
     RepertoireSpace,
     _make_rff,
+    _sample_weights,
     centroid_atypicality,
     class_witness,
     decode_metrics,
@@ -394,3 +395,141 @@ def test_correct_batch_reduces_to_residualize_and_beats_it_under_confound():
     assert gap(Xc, batch, 1) < 0.5 * gap(X, batch, 1)
     # biology (axis 0) survives the confound better than plain per-group mean subtraction
     assert gap(Xc, bio, 0) > gap(Xr, bio, 0)
+
+
+# --- deficient measure: missing mass, naive reference, contrast ---------------------
+
+def test_missing_mass_estimators_and_edge_cases():
+    """M₀ limits, the f2==0 guard, and the singleton-vs-doubleton ordering of the estimators."""
+    from mir.repertoire import missing_mass
+
+    ones = np.ones(200)                                    # every clone seen exactly once
+    assert missing_mass(ones, "turing") == 1.0             # f1/N = 1 -> nothing retained
+    assert missing_mass(ones, "chao") > 0.99
+    deep = np.full(200, 5000.0)                            # no singletons, no doubletons
+    assert missing_mass(deep, "turing") == 0.0
+    assert missing_mass(deep, "chao") == 0.0
+    assert missing_mass(deep, "none") == 0.0
+
+    # f2 == 0 is common at RNA-seq depth: bias-corrected Chao1 must not divide by zero
+    assert np.isfinite(missing_mass(np.array([1.0, 1.0, 1.0, 7.0]), "chao"))
+
+    # singletons dominating doubletons -> Chao above Turing; doubletons abundant -> below
+    singleton_rich = np.concatenate([np.ones(100), np.full(1, 2.0), np.full(9, 100.0)])
+    assert missing_mass(singleton_rich, "chao") > missing_mass(singleton_rich, "turing")
+    doubleton_rich = np.concatenate([np.ones(10), np.full(1000, 2.0), np.full(980, 100.0)])
+    assert missing_mass(doubleton_rich, "chao") < missing_mass(doubleton_rich, "turing")
+
+    with pytest.raises(ValueError, match="missing_mass must be"):
+        missing_mass(ones, "goodturing")
+
+
+def test_missing_mass_default_leaves_blocks_untouched(space):
+    """The regression gate: missing_mass= only sets .mass, never a block."""
+    df = _sample(_clonotypes(120, offset=0), lambda n: np.geomspace(1, 500, n))
+    default = sample_embedding(space, df)
+    none = sample_embedding(space, df, missing_mass="none")
+    chao = sample_embedding(space, df, missing_mass="chao")
+    assert default.mass == none.mass == 1.0
+    assert np.array_equal(default.vector, none.vector)
+    assert np.array_equal(default.vector, chao.vector)     # blocks are bit-identical
+    assert chao.mass <= 1.0
+
+
+@pytest.mark.parametrize("method", ["turing", "chao"])
+def test_mass_plus_unseen_block_sums_to_one(space, method):
+    from mir.repertoire import missing_mass
+
+    df = _sample(_clonotypes(120, offset=0), lambda n: np.r_[np.ones(n - 5), np.full(5, 900.0)])
+    emb = sample_embedding(space, df, missing_mass=method)
+    m0 = missing_mass(df["duplicate_count"].to_numpy(), method)
+    _, _, w = _sample_weights(df, "log2p1")
+    assert emb.mass * w.sum() + m0 == 1.0                  # exactly, not approximately
+
+
+def test_mass_is_low_when_shallow_and_high_when_deep(space):
+    shallow = _sample(_clonotypes(150, offset=0))                      # all singletons
+    deep = _sample(_clonotypes(150, offset=0), lambda n: np.full(n, 4000.0))
+    assert sample_embedding(space, shallow, missing_mass="chao").mass < 0.02
+    assert sample_embedding(space, deep, missing_mass="chao").mass == 1.0
+
+
+def test_naive_reference_deterministic_and_cached(space):
+    from mir.repertoire import naive_reference
+
+    r1 = naive_reference(space, n=1500, seed=3)
+    assert r1.shape == (space.rff.dim,) and np.isfinite(r1).all()
+    assert naive_reference(space, n=1500, seed=3) is r1                # cached per (n, seed)
+    assert not np.array_equal(naive_reference(space, n=1500, seed=4), r1)
+    # the injectable path bypasses vdjtools (and the cache) but is still reproducible
+    seqs = _clonotypes(200, offset=0)
+    assert np.array_equal(naive_reference(space, sequences=seqs),
+                          naive_reference(space, sequences=seqs))
+
+
+def test_naive_reference_tracks_the_germline_draw_not_an_expansion(space):
+    """Centred cosine: the reference sits next to an independent naive draw, not an expansion.
+
+    Centred, because an uncentred comparison of two kernel means is dominated by their shared DC
+    offset and puts *any* two of them at cos ≈ 1 — an artifact that produced a wrong conclusion once.
+    """
+    from mir.repertoire import naive_reference
+
+    def cos_centred(u, v):
+        u, v = u - u.mean(), v - v.mean()
+        return float(u @ v / (np.linalg.norm(u) * np.linalg.norm(v)))
+
+    ref = naive_reference(space, n=2000, seed=0)
+    other = naive_reference(space, n=2000, seed=11)                     # independent naive draw
+    one_clone = _sample(_clonotypes(1, offset=0), lambda n: np.full(n, 500.0))
+    spike = sample_embedding(space, one_clone).mean
+    assert cos_centred(ref, other) > cos_centred(ref, spike)
+
+
+def test_naive_reference_differs_between_loci():
+    from vdjtools.model import load_bundled
+    from vdjtools.model.generate import generate
+
+    from mir.repertoire import naive_reference
+
+    refs = {}
+    for locus in ("TRB", "TRA"):
+        pool = generate(load_bundled(locus), 400, seed=0, productive_only=True)
+        model = TCREmp.from_defaults("human", locus, n_prototypes=300)
+        sp = fit_repertoire_space(model, pool, n_rff=256, n_rff_second=0, n_components=15, seed=0)
+        refs[locus] = naive_reference(sp, n=600, seed=0)
+    assert not np.allclose(refs["TRB"], refs["TRA"])
+
+
+def test_contrast_embedding_is_confidence_times_deviation(space):
+    """Ψ = mass·(Φ − naive): signed, big for an expansion, zero for a sample with no confidence."""
+    from mir.repertoire import contrast_embedding, naive_reference
+
+    ref = naive_reference(space, n=2000, seed=0)
+
+    # a deep, naive-looking repertoire: full mass (no singletons), Φ ≈ naive -> small ‖Ψ‖
+    naive_like = _sample(_clonotypes(200, offset=0), lambda n: np.full(n, 50.0))
+    emb_naive = sample_embedding(space, naive_like, missing_mass="chao")
+    psi_naive = contrast_embedding(emb_naive, ref)
+    assert emb_naive.mass == 1.0
+
+    # same depth, but one hyperexpanded clone dominates -> large ‖Ψ‖
+    expanded = pl.concat([
+        _sample(_clonotypes(199, offset=1), lambda n: np.full(n, 50.0)),
+        _sample(_clonotypes(1, offset=0), lambda n: np.full(n, 2_000_000.0)),
+    ])
+    psi_expanded = contrast_embedding(
+        sample_embedding(space, expanded, weight="duplicate_count", missing_mass="chao"), ref)
+    assert np.linalg.norm(psi_expanded) > 3 * np.linalg.norm(psi_naive)
+
+    # a 3-clonotype "immune desert": no confidence at all, so it lands at the ORIGIN — and is
+    # still embedded, not dropped. This is the whole point of the deficient measure.
+    desert = _sample(_clonotypes(3, offset=300))
+    emb_desert = sample_embedding(space, desert, missing_mass="turing")
+    assert emb_desert.mass == 0.0 and np.isfinite(emb_desert.vector).all()
+    assert np.linalg.norm(contrast_embedding(emb_desert, ref)) == 0.0
+
+    # Ψ is signed (depletion relative to unselected recombination is a negative coordinate),
+    # while the clonotype embedding it is built from is an all-positive distance profile.
+    assert (psi_expanded > 0).any() and (psi_expanded < 0).any()
+    assert (space.clono.model.embed(naive_like) >= 0).all()
