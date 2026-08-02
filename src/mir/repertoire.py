@@ -891,8 +891,10 @@ def mixture_weights(whole, parts: dict) -> dict:
     """Non-negative mixture weights ``π_c`` of compartments inside a whole-repertoire ``Φ₁``.
 
     ``Φ`` is linear in the clone-weight measure, so ``Φ(S) = Σ_c π_c Φ(c)`` **exactly** for any
-    partition (verified to ~1e-17), which makes a non-negative least squares of the whole on its
-    compartments well-posed rather than a heuristic fit. The weights are the answer to "how much of
+    partition, which makes a non-negative least squares of the whole on its compartments well-posed
+    rather than a heuristic fit. (Exact in exact arithmetic: the realised agreement is limited by the
+    float32 clonotype embedding, whose per-row values depend slightly on the thread batching, so
+    expect a relative residual around ``1e-5`` rather than machine epsilon.) The weights are the answer to "how much of
     what I am measuring does this compartment actually own" — the dilution factor ``π`` of
     :func:`band_frames`, measured instead of assumed.
 

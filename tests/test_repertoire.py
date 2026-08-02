@@ -648,10 +648,18 @@ def test_mixture_weights_recover_exact_band_shares(space):
     a, g, _ = _sample_weights(df, "log2p1")
     share_singleton = float(g[np.rint(a) == 1].sum() / g.sum())
 
-    # mixture linearity holds to machine precision
+    # mixture linearity holds up to floating point: the identity is exact in exact arithmetic, but
+    # the clonotype embedding is float32 and computed in thread-dependent batches, so a band's rows
+    # can differ from the same rows inside the whole frame in the last float32 digits.
+    def rel_err(v):
+        return float(np.linalg.norm(v - whole.mean) / np.linalg.norm(whole.mean))
+
     mix = (share_singleton * bands["singleton"].mean
            + (1 - share_singleton) * bands["expanded"].mean)
-    assert np.allclose(mix, whole.mean, atol=1e-12)
+    assert rel_err(mix) < 1e-4
+    # ... and the tolerance is not what makes it pass: the wrong shares are orders of magnitude off
+    wrong = 0.5 * bands["singleton"].mean + 0.5 * bands["expanded"].mean
+    assert rel_err(wrong) > 100 * max(rel_err(mix), 1e-9)
 
     res = mixture_weights(whole, bands)
     assert abs(res["weights"]["singleton"] - share_singleton) < 1e-6

@@ -339,8 +339,9 @@ rarefy_embedding(space, sample, depth=20_000).v_rep # matched-depth Φ + its rep
   while the naive compartment supplies the noise. Bands (`singleton` / `expanded` / `top 1%`, or IGH
   isotypes from `c_call`) are embedded through the **same frozen space** — never refit, or band-to-band
   distances stop meaning anything — and bands under 5 clonotypes are recorded absent (`None`), not
-  upsampled. Because mixture linearity `Φ(S) = Σ π_c Φ(c)` is exact (~1e-17), a non-negative least
-  squares recovers each compartment's share. Measured on IGH isotypes: class-switched **IgG carries
+  upsampled. Because mixture linearity `Φ(S) = Σ π_c Φ(c)` is exact, a non-negative least
+  squares recovers each compartment's share (exact in exact arithmetic; float32 embeddings put the
+  realised residual near 1e-5). Measured on IGH isotypes: class-switched **IgG carries
   π = 0.070** of Φ₁(IGH) (IgM 0.230, IgA 0.176, 0.520 uncalled) — the dilution factor measured rather
   than assumed, and a power calculation before you spend compute: a subset with π ≈ 0.001 is not
   detectable by any aggregate distance, so use the per-clonotype witness. Straight about the negative:

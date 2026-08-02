@@ -111,7 +111,7 @@ fix were added to `vdjtools` under the owner's direction (this is that owner's e
   `‖Φ−Φ̄‖² ≈ τ²+σ²/n` → `κ=σ²/τ²` (measured 40–70 clonotypes; the estimable replacement for a floor);
   `sample_statistics`/`cohort_statistics` = the sampling fingerprint (also `recovery_report`'s `stats=`);
   `band_frames`/`band_embeddings`/`mixture_weights` = compartment decomposition through the **same frozen
-  space** + NNLS shares, exploiting exact mixture linearity (IgG carries π=0.070 of Φ₁(IGH) — the
+  space** + NNLS shares, exploiting mixture linearity (exact arithmetic; float32 ⇒ ~1e-5) (IgG carries π=0.070 of Φ₁(IGH) — the
   dilution factor, and a power calc: π≈0.001 ⇒ use the witness, not an aggregate distance; bands were a
   survival null but confirmed the mixture argument and won kNN entropy in tissue IGH);
   `rarefy_embedding` = the only depth correction preserving MMD/Rao/mixture exactly, with

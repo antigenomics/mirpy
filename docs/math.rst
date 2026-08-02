@@ -277,7 +277,7 @@ sub-populations :math:`c` with weight shares :math:`\pi_c` satisfies
    \Phi(S) = \sum_c \pi_c\, \Phi(c),
    \qquad \pi_c = \frac{\sum_{\sigma \in c} g(a_\sigma)}{\sum_\tau g(a_\tau)} ,
 
-verified numerically to :math:`\sim 10^{-17}`. Two corollaries used repeatedly below. Pooling two
+an identity, not an approximation. Two corollaries used repeatedly below. Pooling two
 samples gives :math:`\Phi(S \cup T) = (N_S\Phi_S + N_T\Phi_T)/(N_S+N_T)` — exactly linear
 interpolation, so a point *between* two sample embeddings is the embedding of a real pooled
 repertoire. And any partition can be decomposed after the fact, which is what makes
