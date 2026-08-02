@@ -5,6 +5,32 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 
 ## 3.7.0 — 2026-07-30
 
+### Fixed
+
+- **A sparsely-observed chain no longer gains weight from its own sparsity.**
+  `mir.explain.ChannelBuilder.build` and `mir.cohort.build_donor_cohort` imputed holes *before*
+  computing `mean`/`std`, so a column's `sd` was deflated in proportion to how much of it was
+  imputed — the filled entries are all one constant and contribute no spread. A chain observed in
+  30% of donors therefore had its real values scaled up ~1.8x against a fully-covered one, giving
+  the **least**-observed locus the **most** weight in every downstream distance, PCA and penalised
+  fit. Both now standardise on observed entries only, and impute at the value the column is centred
+  on, so a hole lands at exactly 0 (no information) rather than at a shared offset that every donor
+  missing that chain carries. `DonorCohort.transform` reuses the fit cohort's fill.
+  Measured in eurynome before the fix: a 7-locus union embedding clustered by *which loci a sample
+  had* at AMI 0.741, with read-depth eta-squared 0.42 across the whole cohort against 0.01 inside
+  the fully-observed subset.
+  **Behaviour change**: a column containing holes no longer has total variance 1 — its *observed*
+  entries do. `test_builder_standardize_and_impute_invariants` was updated accordingly; that
+  assertion encoded the defect.
+
+### Added
+
+- **`mir.cohort.DonorCohort.missingness_report(labels)`** — adjusted mutual information between a
+  grouping and the per-donor observed-chain pattern, plus the correlation ratio of the observed
+  fraction. The check for whether a clustering/finding is repertoire or is a coverage
+  stratification; near zero is what you want, high means re-read the result inside a fully-observed
+  subset.
+
 Four new modules: a PhenoPath-style exposure trajectory, the generative loop's mechanical and
 research halves, and the digital twin that glues them to the digital donor — plus a repertoire-level
 exposure channel. No public API removed; a minor bump.
