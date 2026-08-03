@@ -1,10 +1,13 @@
 """Theme-aware graphviz: one dot source, rendered once per colour scheme.
 
-``sphinx.ext.graphviz`` bakes colours into the SVG and embeds it with ``<object>``, so page CSS
-cannot reach inside to recolour it and a single diagram must pick one palette. This directive
-renders the same source twice — once per palette below — wrapping each in a container that
-``custom.css`` shows or hides according to the active theme (pydata-sphinx-theme sets
-``data-theme`` on ``<html>``).
+``sphinx.ext.graphviz`` bakes colours into the SVG, so page CSS cannot reach inside to recolour it
+and a single diagram must pick one palette. This directive renders the same source twice — once per
+palette below — wrapping each in a container that ``custom.css`` shows or hides according to the
+active theme (pydata-sphinx-theme sets ``data-theme`` on ``<html>``).
+
+It also re-registers the HTML visitor for ``graphviz`` nodes so the SVG is embedded with ``<img>``
+rather than Sphinx's ``<object>`` — see :func:`html_visit_graphviz_img` for why that matters in
+dark mode.
 
 Write ``$token`` placeholders in the dot source; :data:`PALETTES` defines them. Literal ``$`` is
 ``$$``. An unknown token is a build error rather than a silently unstyled diagram.
@@ -26,8 +29,11 @@ from string import Template
 
 from docutils import nodes
 from docutils.parsers.rst import directives
-from sphinx.ext.graphviz import graphviz
+from sphinx.ext.graphviz import GraphvizError, graphviz, html_visit_graphviz, render_dot
+from sphinx.util import logging
 from sphinx.util.docutils import SphinxDirective
+
+logger = logging.getLogger(__name__)
 
 #: Every diagram is drawn on a transparent background, so only ink and fills change.
 PALETTES = {
@@ -98,7 +104,39 @@ class ThemedGraphviz(SphinxDirective):
         return out
 
 
+def html_visit_graphviz_img(self, node: graphviz) -> None:
+    """Embed the rendered SVG with ``<img>`` instead of Sphinx's ``<object>``.
+
+    ``<object>`` loads the SVG as a *nested document*, and a nested document's canvas is
+    painted opaque white unless the embedded document opts into a dark colour scheme —
+    which graphviz output never does. So ``bgcolor="transparent"`` still came out as a
+    white card in dark mode. ``<img>`` has no nested document and composites the
+    transparent SVG straight onto the page.
+    """
+    if self.builder.config.graphviz_output_format != "svg":
+        return html_visit_graphviz(self, node)  # PNG output is an <img> already
+    try:
+        fname, _ = render_dot(self, node["code"], node["options"], "svg", "graphviz")
+    except GraphvizError as exc:
+        logger.warning("dot code %r: %s", node["code"], exc)
+        raise nodes.SkipNode from exc
+    if fname is None:
+        self.body.append(self.encode(node["code"]))
+        raise nodes.SkipNode
+    src = fname.as_posix() if hasattr(fname, "as_posix") else fname  # Path since Sphinx 8
+    alt = self.encode(node.get("alt") or node["code"]).strip()
+    cls = " ".join(["graphviz", *node.get("classes", [])])
+    align = node.get("align")
+    if align:
+        self.body.append(f'<div align="{align}" class="align-{align}">')
+    self.body.append(f'<div class="graphviz"><img src="{src}" alt="{alt}" class="{cls}" /></div>\n')
+    if align:
+        self.body.append("</div>\n")
+    raise nodes.SkipNode
+
+
 def setup(app):
     app.setup_extension("sphinx.ext.graphviz")
     app.add_directive("themed-graphviz", ThemedGraphviz)
+    app.add_node(graphviz, override=True, html=(html_visit_graphviz_img, None))
     return {"version": "1.0", "parallel_read_safe": True, "parallel_write_safe": True}

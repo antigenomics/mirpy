@@ -8,15 +8,15 @@ img.mir-fig {
   max-width: 100%;
 }
 
-/* Theme-aware schematics (docs/_ext/themed_graphviz.py). Graphviz bakes colours into the SVG and
-   Sphinx embeds it with <object>, so CSS cannot recolour it from here — the diagram is rendered
-   once per palette and we show the one matching the active theme. Default (no data-theme yet, e.g.
-   before the theme script runs) shows the light one, so nothing flashes empty. */
+/* Theme-aware schematics (docs/_ext/themed_graphviz.py). Graphviz bakes colours into the SVG, so
+   CSS cannot recolour it from here — the diagram is rendered once per palette and we show the one
+   matching the active theme. Default (no data-theme yet, e.g. before the theme script runs) shows
+   the light one, so nothing flashes empty. The extension embeds each SVG with <img>, not Sphinx's
+   <object>, so the transparent background survives in dark mode. */
 .mir-diagram {
   text-align: center;
   margin: 1.2rem 0;
 }
-.mir-diagram object,
 .mir-diagram img {
   max-width: 100%;
 }
