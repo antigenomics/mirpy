@@ -807,10 +807,15 @@ def test_density_space_transform_is_chunked_and_unchanged(space):
     """DensitySpace.transform now batches; the result must not depend on the batching.
 
     A frame at or under chunk_size takes one pass, so it is bit-identical to the single-shot
-    expression. Across MANY batches only float32 agreement is guaranteed, not bit-identity:
-    BLAS picks a different blocking for a (150, 6000) matmul than for seven (23, 6000) ones,
-    and the two round differently in the last ulp. (Learned the hard way -- asserting
-    array_equal here passed on one machine's BLAS and failed on CI's.)
+    expression. Across MANY batches nothing stronger than agreement *at the scale of the matrix*
+    is available, and the comparison has to be written that way:
+
+    BLAS blocks a (150, 6000) matmul differently from seven (23, 6000) ones, so the two round
+    differently -- bitwise identical under Accelerate, not under OpenBLAS. Worse, an elementwise
+    `rtol` is the wrong test entirely here: a PC score is a 6000-term dot product with heavy
+    cancellation, so the smallest scores are ~1e-3 while the matrix scale is ~33, and float32
+    simply cannot deliver a small *relative* error on those. Compare the largest deviation against
+    the matrix scale instead -- which still fails loudly if chunking ever misplaces a row.
     """
     df = _sample(_clonotypes(150))
     full = space.transform_clonotypes(df)
@@ -829,4 +834,10 @@ def test_density_space_transform_is_chunked_and_unchanged(space):
     finally:
         space.clono.chunk_size = 200_000
     assert chunked.dtype == np.float32
-    assert np.allclose(full, chunked, rtol=1e-5, atol=1e-6)
+    scale = float(np.abs(full).max())
+    assert float(np.abs(full - chunked).max()) <= 1e-4 * scale
+
+    # the rows must still be the SAME rows in the same order -- a slice-offset bug would leave
+    # each row a valid embedding of some other clonotype, which a scale bound alone could miss
+    order = np.argsort(np.linalg.norm(full, axis=1))
+    assert np.array_equal(order, np.argsort(np.linalg.norm(chunked, axis=1)))
