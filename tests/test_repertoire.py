@@ -710,3 +710,108 @@ def test_rarefy_embedding_preserves_the_rao_identity(space):
         rarefy_embedding(space, df, depth=int(total) + 1)
     with pytest.raises(ValueError, match="must be >= 1"):
         rarefy_embedding(space, df, depth=0)
+
+
+# --- review regressions -------------------------------------------------------------
+
+
+def test_shannon_survives_a_zero_count_clonotype():
+    """Regression: `-sum(p log p)` over unfiltered p returned nan when any count was 0.
+
+    _sample_weights only guarantees a positive TOTAL, not a positive every row, so a single
+    zero-count row made shannon nan -- and the nan flowed into cohort_statistics and on into
+    recovery_report. 0*log 0 is 0 by the usual convention; _hill already filtered this way.
+    """
+    from mir.repertoire import sample_statistics
+
+    df = _sample(_clonotypes(4), counts=np.array([10.0, 5.0, 0.0, 3.0]))
+    stats = sample_statistics(df)
+    assert np.isfinite(stats["shannon"]) and stats["shannon"] > 0
+
+    # value matches the same entropy computed over the positive weights only
+    p = np.array([10.0, 5.0, 3.0]) / 18.0
+    assert stats["shannon"] == pytest.approx(-np.sum(p * np.log(p)))
+
+    # and every other statistic stays finite alongside it
+    assert all(np.isfinite(v) for v in stats.values())
+
+
+def test_missing_mass_rejects_a_frequency_column():
+    """Regression: rint() flattened frequencies to zeros, so M0 came back 0.0 in silence.
+
+    That silently declared a shallow sample a complete probability measure and reduced the whole
+    sub-probability tier (mass / contrast_embedding / naive_reference) to the mass-1 default with
+    no signal that it had.
+    """
+    from mir.repertoire import missing_mass
+
+    with pytest.raises(ValueError, match="integer clonotype counts"):
+        missing_mass([0.5, 0.3, 0.2], "chao")
+    with pytest.raises(ValueError, match="integer clonotype counts"):
+        missing_mass([0.5, 0.3, 0.2], "turing")
+
+    # genuine counts are untouched, including the all-ones case (every clonotype a singleton)
+    assert missing_mass([5000, 3000, 2000], "chao") == 0.0
+    assert missing_mass([1, 1, 1, 2], "turing") == pytest.approx(3 / 5)
+    assert missing_mass([1.0, 1.0, 2.0], "turing") == pytest.approx(2 / 4)  # whole-valued floats OK
+
+
+def test_rarefy_n_eff_describes_the_mixture_not_the_replicate_mean(space):
+    """Regression: n_eff was mean_r n_eff(w_r), but Phi-bar embeds the MIXTURE measure.
+
+    Phi-bar = sum_j (mean_r w_rj) psi(z_j), so its effective size is 1/sum(w-bar^2) -- strictly
+    larger than any replicate's, since averaging spreads the weight. Storing the smaller value
+    made mmd_distance(unbiased=True) over-remove the 1/n_eff diagonal self-term and bias the
+    distance low.
+    """
+    from mir.repertoire import rarefy_embedding
+
+    rng = np.random.default_rng(0)
+    df = _sample(_clonotypes(300), counts=rng.integers(1, 60, 300).astype(float))
+    res = rarefy_embedding(space, df, depth=400, n_replicates=8, seed=0)
+
+    # the stored self-term must match the norm scale of the averaged embedding, i.e. it must be
+    # at least as large as any single replicate's -- the property the old value violated
+    single = rarefy_embedding(space, df, depth=400, n_replicates=1, seed=0)
+    assert res.embedding.n_eff > single.embedding.n_eff
+
+    # a self-MMD is exactly zero under the unbiased estimator only if n_eff is the right one
+    assert mmd_distance(res.embedding, res.embedding, unbiased=True) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_chunked_rff_reductions_match_the_single_shot_expression(space):
+    """The blockwise Phi_1 / second-moment accumulators are exact, not approximate."""
+    from mir.repertoire import _RFF_BLOCK, _weighted_rff_gram, _weighted_rff_mean
+
+    df = _sample(_clonotypes(200))
+    Z = space.transform_clonotypes(df)
+    _, _, w = _sample_weights(df, "log2p1")
+
+    assert np.allclose(_weighted_rff_mean(space.rff, Z, w), w @ space.rff.transform(Z), atol=1e-12)
+    psi2 = space.rff2.transform(Z)
+    assert np.allclose(_weighted_rff_gram(space.rff2, Z, w),
+                       (psi2 * w[:, None]).T @ psi2, atol=1e-12)
+
+    # and the block boundary itself is exercised, not just the one-block path
+    import mir.repertoire as R
+
+    R._RFF_BLOCK = 37
+    try:
+        assert np.allclose(_weighted_rff_mean(space.rff, Z, w), w @ space.rff.transform(Z), atol=1e-10)
+        assert np.allclose(_weighted_rff_gram(space.rff2, Z, w), psi2.T @ (psi2 * w[:, None]), atol=1e-10)
+    finally:
+        R._RFF_BLOCK = _RFF_BLOCK
+
+
+def test_density_space_transform_is_chunked_and_unchanged(space):
+    """DensitySpace.transform now batches; small frames must stay bit-identical to one shot."""
+    df = _sample(_clonotypes(150))
+    full = space.transform_clonotypes(df)
+    assert full.dtype == np.float32                       # contract preserved for callers
+
+    space.clono.chunk_size = 23                            # force many batches
+    try:
+        chunked = space.transform_clonotypes(df)
+    finally:
+        space.clono.chunk_size = 200_000
+    assert np.array_equal(full, chunked)

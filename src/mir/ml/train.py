@@ -46,6 +46,37 @@ def seed_everything(seed: int) -> None:
         torch.mps.manual_seed(seed)
 
 
+def train_val_test_split(n: int, test_frac: float, val_frac: float, seed: int):
+    """Permuted ``(test, val, train)`` index arrays, refusing a degenerate split.
+
+    ``int(n * frac)`` floors to 0 on a small ``n``, so the validation loop would run over an empty
+    set and every metric would come back ``nan`` — best-epoch selection then compares against
+    ``nan`` and silently keeps an arbitrary epoch, returning a model with NaN metrics rather than
+    an error. That is always a too-small dataset, never a real result, so raise instead.
+
+    Args:
+        n: Number of examples.
+        test_frac: Held-out test fraction.
+        val_frac: Held-out validation fraction.
+        seed: RNG seed for the permutation.
+
+    Returns:
+        ``(test_idx, val_idx, train_idx)`` index arrays.
+
+    Raises:
+        ValueError: If the split leaves no validation or no training rows.
+    """
+    perm = np.random.default_rng(seed).permutation(n)
+    n_test, n_val = int(n * test_frac), int(n * val_frac)
+    n_train = n - n_test - n_val
+    if n_val < 1 or n_train < 1:
+        raise ValueError(
+            f"n={n} with test_frac={test_frac}, val_frac={val_frac} leaves {n_val} validation "
+            f"and {n_train} training rows; both must be >= 1. Use more data, or smaller fractions."
+        )
+    return perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
+
+
 def _mean_cosine(a: np.ndarray, b: np.ndarray) -> float:
     a = a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-8)
     b = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-8)
@@ -117,10 +148,7 @@ def train_forward_encoder(
     raw = np.asarray(targets, dtype=np.float32)
     n, dim0 = len(cdr3s), raw.shape[1]
 
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(n)
-    n_test, n_val = int(n * test_frac), int(n * val_frac)
-    te, va, tr = perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
+    te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     # compact target (PCA, whitened) or raw (standardized) — fit on train only
     if target_pca is not None:
@@ -236,9 +264,7 @@ def train_inverse_decoder(
     n = len(cdr3s)
     tgt = encode_indices(cdr3s)  # (n, 40) int64
 
-    perm = np.random.default_rng(seed).permutation(n)
-    n_test, n_val = int(n * test_frac), int(n * val_frac)
-    te, va, tr = perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
+    te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     cs = StandardScaler().fit(codes[tr])
     Z = cs.transform(codes).astype(np.float32)
@@ -336,9 +362,7 @@ def train_pgen_regressor(
     y = np.asarray(log_pgen, dtype=np.float32).reshape(-1, 1)
     n = len(cdr3s)
 
-    perm = np.random.default_rng(seed).permutation(n)
-    n_test, n_val = int(n * test_frac), int(n * val_frac)
-    te, va, tr = perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
+    te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     scaler = StandardScaler().fit(y[tr])
     Y = scaler.transform(y).astype(np.float32)

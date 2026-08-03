@@ -162,7 +162,10 @@ def _val_score(clouds, y, model, dev, task) -> float:
     if task == "classification":
         return roc_auc_score(y, pred) if len(set(y.tolist())) > 1 else 0.5
     r = spearmanr(y, pred).correlation
-    return abs(r) if np.isfinite(r) else 0.0
+    # SIGNED, not abs(): the caller checkpoints on `score > best_score`, so an abs() would rank a
+    # perfectly anti-correlated model (rho=-1 -> 1.0) above a correctly-signed rho=0.9 one and
+    # report it as a strong fit. The classification branch above is already signed (raw AUC).
+    return float(r) if np.isfinite(r) else 0.0
 
 
 @dataclass

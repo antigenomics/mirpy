@@ -213,13 +213,18 @@ def fit_exposure_trajectory(
         D_inter = C * tau[:, None] if p else np.zeros((n, 0))            # (n, p) -- covariate x tau
         D = np.hstack([D_main, D_inter])                                # (n, 1+2p+1)
         k_main = 1 + p + 1
+        # D is fixed across channels within an M-step (it depends only on tau), so its Gram and
+        # its projection onto Y are computed ONCE rather than g times per iteration — only the
+        # ridge diagonal below is per-channel.
+        G = D.T @ D
+        DtY = D.T @ Y                                                   # (1+2p+1, g)
         for j in range(g):
             reg = np.concatenate([
                 np.full(k_main, _RIDGE_MAIN),
                 ard_precision[j] if ard else np.full(p, _RIDGE_MAIN),
             ])
-            A = D.T @ D + np.diag(reg)
-            theta = np.linalg.solve(A, D.T @ Y[:, j])
+            A = G + np.diag(reg)
+            theta = np.linalg.solve(A, DtY[:, j])
             intercept[j] = theta[0]
             alpha[j] = theta[1:1 + p]
             kappa[j] = theta[1 + p]

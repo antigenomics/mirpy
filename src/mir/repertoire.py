@@ -110,7 +110,17 @@ def missing_mass(counts, method: str = "chao") -> float:
         raise ValueError(f"missing_mass must be one of {_MISSING_MASS}, got {method!r}")
     if method == "none":
         return 0.0
-    a = np.rint(np.asarray(counts, dtype=np.float64))
+    raw = np.asarray(counts, dtype=np.float64)
+    if raw.size and raw.max() <= 1.0 and not np.array_equal(raw, np.rint(raw)):
+        # Frequencies, not counts. rint() would flatten them all to 0, giving f1 = 0 and hence
+        # M0 = 0.0 -- silently declaring a shallow sample a complete probability measure, and
+        # silently reducing the whole sub-probability tier to the mass-1 default.
+        raise ValueError(
+            "missing_mass needs integer clonotype counts (duplicate_count), but got values in "
+            "(0, 1] that are not whole numbers — this looks like a frequency column. The "
+            "abundance classes f1/f2 it is built on do not exist for frequencies."
+        )
+    a = np.rint(raw)
     n_reads = float(a.sum())
     f1 = float(np.count_nonzero(a == 1))
     if method == "turing":
@@ -153,7 +163,10 @@ def sample_statistics(sample_df: pl.DataFrame) -> dict:
         "f3plus": float(np.count_nonzero(ai >= 3)),
         "singleton_fraction": float(np.count_nonzero(ai == 1) / a.size),
         "top_clone_fraction": float(p.max()),
-        "shannon": float(-np.sum(p * np.log(p))),
+        # p > 0 only: a zero count contributes 0·log 0 == 0 to the entropy, but evaluates to
+        # nan here and poisons cohort_statistics -> recovery_report downstream. _sample_weights
+        # guarantees a positive *total*, not a positive every row. (_hill filters the same way.)
+        "shannon": float(-np.sum(p[p > 0] * np.log(p[p > 0]))),
         "missing_mass_turing": missing_mass(a, "turing"),
         "missing_mass_chao": missing_mass(a, "chao"),
     }
@@ -222,6 +235,32 @@ class RandomFourierFeatures:
         np.cos(proj, out=proj)
         proj *= np.sqrt(2.0 / self.dim)
         return proj
+
+
+#: Rows per random-feature block. The ``(n, D)`` feature matrix — not the ``(n, p)`` PCA coords —
+#: is the memory bottleneck of a deep sample, so the two weighted reductions below accumulate over
+#: blocks of this many rows instead of materializing it whole. Any sample at or under this size
+#: takes exactly one block, so ordinary runs are bit-identical to the single-shot expression.
+_RFF_BLOCK = 50_000
+
+
+def _weighted_rff_mean(rff: "RandomFourierFeatures", Z: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """``Φ₁ = Σ w·ψ(z)`` accumulated blockwise (never holds the full ``(n, D)`` feature matrix)."""
+    out = np.zeros(rff.dim, dtype=np.float64)
+    for s in range(0, len(Z), _RFF_BLOCK):
+        e = min(s + _RFF_BLOCK, len(Z))
+        out += w[s:e] @ rff.transform(Z[s:e])
+    return out
+
+
+def _weighted_rff_gram(rff: "RandomFourierFeatures", Z: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """``Σ w·ψ₂(z)ψ₂(z)ᵀ`` accumulated blockwise — the ``(D₂, D₂)`` output is size-independent."""
+    out = np.zeros((rff.dim, rff.dim), dtype=np.float64)
+    for s in range(0, len(Z), _RFF_BLOCK):
+        e = min(s + _RFF_BLOCK, len(Z))
+        psi = rff.transform(Z[s:e])
+        out += (psi * w[s:e, None]).T @ psi
+    return out
 
 
 def _make_rff(dim: int, n_rff: int, length_scale: float, seed: int) -> RandomFourierFeatures:
@@ -537,12 +576,11 @@ def sample_embedding(
     if "mean" in blocks or "second" in blocks:
         Z = space.transform_clonotypes(sample_df)          # (n, p) shared PCA coords
     if "mean" in blocks:
-        mean = w @ space.rff.transform(Z)                  # Φ₁ = Σ w ψ(z)
+        mean = _weighted_rff_mean(space.rff, Z, w)         # Φ₁ = Σ w ψ(z)
     if "diversity" in blocks:
         div = _diversity_block(a, coverage)
     if "second" in blocks and space.rff2 is not None:
-        psi2 = space.rff2.transform(Z)                     # (n, D₂)
-        sigma = (psi2 * w[:, None]).T @ psi2               # Σ w ψ₂ψ₂ᵀ  (D₂, D₂), symmetric PSD
+        sigma = _weighted_rff_gram(space.rff2, Z, w)       # Σ w ψ₂ψ₂ᵀ  (D₂, D₂), symmetric PSD
         n_eigs = space.meta.get("n_eigs")
         if n_eigs:
             # top-r eigenvalues (energy spectrum) — compact, rotation-invariant.
@@ -1021,18 +1059,25 @@ def rarefy_embedding(
     psi = space.rff.transform(space.transform_clonotypes(sample_df))
     rng = np.random.default_rng(seed)
     p = a / total
-    phis, neffs = [], []
+    phis = []
+    w_sum = np.zeros_like(a)      # Σ_r w_r, on the full clonotype support
     for _ in range(n_replicates):
         draw = rng.multinomial(depth, p).astype(np.float64)
         m = draw > 0
         g = _WEIGHTS[weight](draw[m])
         w = g / g.sum()
         phis.append(w @ psi[m])
-        neffs.append(1.0 / float(np.sum(w * w)))
+        w_sum[m] += w
     P = np.stack(phis)
     bar = P.mean(axis=0)
     v_rep = float(np.mean(np.sum((P - bar) ** 2, axis=1)))
-    emb = SampleEmbedding(mean=bar, diversity=None, second=None, n_eff=float(np.mean(neffs)))
+    # Φ̄ = Σ_j w̄_j ψ(z_j) with w̄ = mean_r w_r, so the measure it embeds is the MIXTURE, whose
+    # effective size is 1/Σw̄² — necessarily larger than any replicate's. Averaging the replicates'
+    # own n_eff instead understates it, and mmd_distance(unbiased=True) subtracts 1/n_eff as the
+    # diagonal self-term, so that over-removes and biases the distance low.
+    w_bar = w_sum / n_replicates
+    emb = SampleEmbedding(mean=bar, diversity=None, second=None,
+                          n_eff=1.0 / float(np.sum(w_bar * w_bar)))
     return RarefyResult(embedding=emb, v_rep=v_rep, depth=int(depth), n_replicates=int(n_replicates))
 
 

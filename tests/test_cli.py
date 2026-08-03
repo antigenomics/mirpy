@@ -86,3 +86,49 @@ def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):
 
     got = pl.read_csv(out, separator="\t")
     assert got["sample_id"].to_list() == ["P1"]      # P2 skipped, P1 still embedded
+
+
+def test_per_locus_mmd_path_splits_on_the_extension(tmp_path):
+    """Regression: `--mmd` inserted the locus at the first dot ANYWHERE in the path.
+
+    `str.replace(".", ".TRB.", 1)` turned `./mmd.tsv` into `.TRB./mmd.tsv` -> FileNotFoundError,
+    raised only after both loci had been embedded and before `-o` was written, losing the run.
+    An extensionless path was worse: a silent no-op, so one locus overwrote the other's matrix
+    and the single file claimed to be both.
+    """
+    from mir.cli import _per_locus_path
+
+    assert _per_locus_path("./mmd.tsv", "TRB") == "mmd.TRB.tsv"
+    assert _per_locus_path("out/mmd.tsv", "TRA") == "out/mmd.TRA.tsv"
+    assert _per_locus_path("mmdout", "TRB") == "mmdout.TRB"          # no longer a silent no-op
+    assert _per_locus_path("../a.b/mmd.parquet", "IGH") == "../a.b/mmd.IGH.parquet"
+
+
+def test_embed_repertoires_writes_one_mmd_matrix_per_locus(tmp_path):
+    """End-to-end: two loci in a dot-containing directory each get their own MMD file."""
+    d = tmp_path / "v1.0"
+    d.mkdir()
+    s1, s2 = d / "P1.tsv", d / "P2.tsv"
+    mixed = [TRB[0], TRB[1], ("TRAV1-2*01", "TRAJ33*01", "CAVMDSNYQLIW", 5),
+             ("TRAV12-2*01", "TRAJ42*01", "CAVNGGSQGNLIF", 9)]
+    _write(s1, mixed)
+    _write(s2, mixed)
+    main(["embed", "repertoires", str(s1), str(s2), "--n-prototypes", "300",
+          "--n-rff", "32", "-o", str(d / "phi.tsv"), "--mmd", str(d / "mmd.tsv")])
+
+    for locus in ("TRB", "TRA"):
+        got = pl.read_csv(d / f"mmd.{locus}.tsv", separator="\t")
+        assert got.height == 2 and got["sample_id"].to_list() == ["P1", "P2"]
+
+
+def test_locus_flag_accepts_aliases(tmp_path):
+    """Regression: `--locus beta` bypassed normalize_locus_alias and matched zero rows."""
+    src = tmp_path / "S.tsv"
+    _write(src, TRB)
+    out = tmp_path / "emb.tsv"
+    main(["embed", "clonotypes", str(src), "--locus", "beta", "--n-prototypes", "300",
+          "-o", str(out)])
+    assert pl.read_csv(out, separator="\t").height == 4
+
+    with pytest.raises(SystemExit, match="Unknown locus"):
+        main(["embed", "clonotypes", str(src), "--locus", "nonsense", "--n-prototypes", "300"])

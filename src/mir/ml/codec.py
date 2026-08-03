@@ -16,7 +16,7 @@ from torch import nn
 from mir.ml.decoder import SequenceDecoder, tokens_to_seq
 from mir.ml.encoder import SequenceEncoder
 from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
-from mir.ml.train import _mean_cosine, pick_device, seed_everything
+from mir.ml.train import _mean_cosine, pick_device, seed_everything, train_val_test_split
 
 
 class UnifiedCodec:
@@ -80,9 +80,7 @@ def train_unified_codec(
 
     X = encode_onehot(cdr3s)
     T = encode_indices(cdr3s)
-    perm = np.random.default_rng(seed).permutation(n)
-    n_test, n_val = int(n * test_frac), int(n * val_frac)
-    te, va, tr = perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
+    te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     def _dev(idx):
         return (torch.from_numpy(X[idx]).to(dev),

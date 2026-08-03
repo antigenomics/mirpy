@@ -256,8 +256,17 @@ def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
 
     Returns:
         ``r2_pc1``, ``r2_best``, ``pc_best`` (1-indexed), ``r2_by_pc``, ``explained_variance``
-        (per-PC ratio), ``n_pc``, ``stats`` (names, in fit order), ``n_samples`` — plus
-        ``r2_pc1_subset`` / ``r2_best_subset`` / ``n_samples_subset`` when ``subset`` is given.
+        (per-PC ratio), ``n_pc``, ``stats`` (names, in fit order), ``n_samples``,
+        ``residual_dof`` — plus ``r2_pc1_subset`` / ``r2_best_subset`` / ``n_samples_subset``
+        when ``subset`` is given.
+
+    Note:
+        Needs meaningfully more samples than statistics. The regression uses an intercept plus one
+        column per statistic, so it saturates (R² ≡ 1 on any input, including pure noise) at
+        ``len(stats) + 1`` samples; with the 12 :func:`cohort_statistics` that is 13 samples. Below
+        one residual degree of freedom the R²s come back ``nan`` with a warning, and below five
+        they are warned as upper bounds. ``subset`` is smaller still by construction, so it
+        saturates first — check ``residual_dof`` before reading ``r2_*_subset``.
 
     Raises:
         ValueError: If ``stats`` is empty or a statistic's length disagrees with ``X``.
@@ -280,8 +289,32 @@ def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
             v[bad] = v[~bad].mean() if (~bad).any() else 0.0
         S[:, j] = v
 
+    # An intercept plus one column per statistic. With len(names) statistics the design saturates
+    # at len(names)+1 rows, and a saturated least-squares fit reproduces ANY y exactly — so a
+    # 12-sample cohort against the 12 cohort_statistics reports r2 = 1.0 on pure noise, i.e. a
+    # confident, entirely false "your embedding is depth-driven". Refuse below one residual dof.
+    n_params = len(names) + 1
+    _MIN_RESIDUAL_DOF = 5   # below this R² is badly upward-biased even though it is computable
+
     def r2s(rows):
-        k = min(n_pc, rows.sum() - 1, X.shape[1])
+        n_rows = int(rows.sum())
+        dof = n_rows - n_params
+        if dof < 1:
+            import warnings
+
+            warnings.warn(
+                f"depth_report: {n_rows} samples against {len(names)} statistics leaves no residual "
+                "degrees of freedom, so every R² would be exactly 1 regardless of the data. "
+                "Reporting nan — use more samples or fewer statistics.", stacklevel=3)
+            return np.array([]), np.array([])
+        if dof < _MIN_RESIDUAL_DOF:
+            import warnings
+
+            warnings.warn(
+                f"depth_report: only {dof} residual degrees of freedom ({n_rows} samples, "
+                f"{len(names)} statistics); R² is strongly upward-biased here — read it as an "
+                "upper bound, not an estimate.", stacklevel=3)
+        k = min(n_pc, n_rows - 1, X.shape[1])
         if k < 1:
             return np.array([]), np.array([])
         pca = PCA(n_components=k, random_state=0).fit(X[rows])
@@ -305,6 +338,8 @@ def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
         "n_pc": int(r2.size),
         "stats": names,
         "n_samples": n,
+        # how much to trust the R² above: n - (1 intercept + one column per statistic)
+        "residual_dof": int(n - n_params),
     }
     if subset is not None:
         sub = np.asarray(subset, dtype=bool)
@@ -458,7 +493,15 @@ class DonorCohort:
         means, div, cov = _locus_blocks(self.spaces, donor_frames, min_clones=self.meta["min_clones"])
         blocks: dict[str, np.ndarray] = {}
         for c in self.spaces:
-            ident, _ = _identity_matrix(means[c], n, self.meta["id_pca"], pca=self.identity_pca.get(c))
+            pca = self.identity_pca.get(c)
+            if pca is None:
+                # The fit cohort had too few donors on this chain to reduce, so its identity block
+                # is holes (imputed to a constant). Fitting a reducer *here* would put held-out
+                # donors in a basis the fit cohort never saw — unscaled scores in a matrix whose
+                # every other column is unit-variance — so keep the holes instead.
+                ident = np.full((n, self.meta["id_pca"]), np.nan)
+            else:
+                ident, _ = _identity_matrix(means[c], n, self.meta["id_pca"], pca=pca)
             blocks[f"identity:{c}"] = ident
             blocks[f"diversity:{c}"] = div[c]
             if self.meta["coverage"]:

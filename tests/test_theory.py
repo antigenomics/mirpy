@@ -88,3 +88,59 @@ def test_t6_tcrnet_convergence_decays_with_radius():
     corr = out["spearman_by_scale"]
     assert np.isfinite(out["spearman_at_1sub"])
     assert corr[0.5] >= corr[3.0]          # correlation fades as radius grows
+
+
+def test_theory_helpers_accept_single_pass_iterables():
+    """Regression: these walked their sequence argument more than once without materializing it.
+
+    A generator over a polars column -- the natural way to feed them -- arrived empty on the
+    second pass, so `tcrnet_convergence` died deep inside StandardScaler with "Found array with
+    0 sample(s)" rather than anywhere near the caller.
+    """
+    from mir.bench.theory import tcrnet_convergence
+
+    seqs = _CDR3[:40]
+    ref = junction_dissimilarity(seqs)
+    assert np.allclose(junction_dissimilarity(iter(seqs)), ref)      # consumed twice internally
+
+    r_list = prototype_source_correlation(seqs, _CDR3[:60], _CDR3[60:120])
+    r_gen = prototype_source_correlation(iter(seqs), _CDR3[:60], _CDR3[60:120])
+    assert r_gen["pearson"] == r_list["pearson"]                     # embedded twice
+
+    # obs is walked three times (matrix, mutation calibration, Hamming-1 counts) and prototypes
+    # three times; before the fix this raised from inside StandardScaler on the second pass.
+    out = tcrnet_convergence(iter(seqs), iter(_CDR3[40:120]), iter(_CDR3[120:200]),
+                             n_components=5, scales=(1.0,), seed=0)
+    assert out["radius_1sub"] > 0
+    assert len(out["spearman_by_scale"]) == 1
+
+
+def test_sw_dissimilarity_agrees_with_gapblock_on_near_neighbours():
+    """The paper-exact Smith-Waterman reference (S1/S2), needed to validate the gapblock default.
+
+    The two are different coordinate systems at long range -- 'sw' is a LOCAL alignment that stops
+    extending -- but must agree in the near-neighbour regime clustering and density actually use.
+    """
+    import pytest
+
+    pytest.importorskip("Bio", reason="junction_dissimilarity_sw needs BioPython ([build] extra)")
+    from mir.bench.theory import junction_dissimilarity_sw
+
+    seqs = _CDR3[:24]
+    d = junction_dissimilarity_sw(seqs)
+    assert d.shape == (24, 24)
+    assert np.allclose(np.diag(d), 0.0)          # d(a,a) = s_aa + s_aa - 2 s_aa = 0
+    assert np.allclose(d, d.T)                   # symmetric
+    assert (d >= -1e-9).all()                    # non-negative (a Gram dissimilarity)
+
+    # a single substitution is closer than an unrelated pair, under BOTH backends
+    a = seqs[0]
+    b = a[:5] + ("A" if a[5] != "A" else "G") + a[6:]
+    near = junction_dissimilarity_sw([a, b])[0, 1]
+    far = junction_dissimilarity_sw([a, seqs[7]])[0, 1]
+    assert near < far
+    assert junction_dissimilarity([a, b])[0, 1] < junction_dissimilarity([a, seqs[7]])[0, 1]
+
+    # and the S2 correlation route accepts the 'sw' backend end-to-end
+    r = s2_dissimilarity_distance_correlation(seqs, dissimilarity="sw")
+    assert r.n == 24 and np.isfinite(r.pearson)

@@ -213,3 +213,64 @@ def test_depth_report_flags_a_depth_driven_axis_and_clears_a_clean_one():
         depth_report(clean, {})
     with pytest.raises(ValueError, match="values for"):
         depth_report(clean, {"bad": np.ones(3)})
+
+
+def test_depth_report_refuses_a_saturated_regression():
+    """Regression: n <= len(stats)+1 saturates least squares, so R2 was 1.0 on pure noise.
+
+    An intercept plus one column per statistic reproduces ANY y exactly once the design is
+    square, which reported a confident "your embedding is entirely depth-driven" for a cohort
+    that had no depth structure at all. The 12 cohort_statistics saturate at 13 samples.
+    """
+    from mir.cohort import depth_report
+
+    rng = np.random.default_rng(0)
+    n, n_stats = 12, 12
+    noise = rng.normal(0, 1, (n, 50))
+    stats = {f"s{j}": rng.normal(0, 1, n) for j in range(n_stats)}
+
+    with pytest.warns(UserWarning, match="no residual degrees of freedom"):
+        rep = depth_report(noise, stats)
+    assert np.isnan(rep["r2_pc1"]) and np.isnan(rep["r2_best"])
+    assert rep["residual_dof"] == n - (n_stats + 1) < 1
+
+    # a comfortable cohort still reports, and reports honestly on the same pure noise
+    big = rng.normal(0, 1, (300, 50))
+    stats_big = {f"s{j}": rng.normal(0, 1, 300) for j in range(n_stats)}
+    rep_big = depth_report(big, stats_big)
+    assert rep_big["residual_dof"] == 300 - (n_stats + 1)
+    assert rep_big["r2_best"] < 0.3          # noise is not depth-driven
+
+    # the in-between regime (few residual dof) is reported, but flagged as an upper bound
+    stats_15 = {f"s{j}": rng.normal(0, 1, 15) for j in range(n_stats)}
+    with pytest.warns(UserWarning, match="residual degrees of freedom"):
+        rep_15 = depth_report(rng.normal(0, 1, (15, 50)), stats_15)
+    assert rep_15["residual_dof"] == 2 and np.isfinite(rep_15["r2_pc1"])
+
+
+def test_transform_keeps_identity_holes_when_fit_had_no_reducer(spaces):
+    """Regression: transform() re-FIT the identity PCA when the fit cohort had too few donors.
+
+    _identity_matrix returns pca=None (and stores nothing) below id_pca donors, so
+    identity_pca.get(locus) was None at transform time and the held-out donors got a brand-new
+    PCA fit on themselves -- unscaled scores in a foreign basis, injected into a matrix whose
+    every other column is unit-variance, from the method documented as "the only comparable
+    path for new donors".
+    """
+    sp, protos = spaces
+    frames, rows = _cohort_frames(protos, n=6)
+    # id_pca >= n donors => no reducer can be fit for any locus
+    with pytest.warns(UserWarning, match="identity channel is left empty"):
+        coh = fit_donor_embeddings(sp, frames, rows=rows, id_pca=8, seed=0)
+    assert coh.identity_pca == {}                       # nothing stored, for any locus
+
+    ident_cols = coh.spec["identity"]
+    assert np.allclose(coh.X[:, ident_cols], 0.0)       # fit: an empty, constant channel
+
+    # MORE held-out donors than id_pca, so the old refit branch could and did fit a fresh
+    # reducer on them -- with fewer, it bailed for the same reason the fit did and the bug hid.
+    held_out, _ = _cohort_frames(protos, n=20)
+    Xt = coh.transform(held_out)
+    assert Xt.shape == (20, coh.X.shape[1])
+    # held-out donors land at the same empty channel, NOT in a freshly-fit basis
+    assert np.allclose(Xt[:, ident_cols], 0.0)

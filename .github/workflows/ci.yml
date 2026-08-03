@@ -30,15 +30,17 @@ jobs:
   # One extra leg with the optional tiers installed, because the fast tier above skips every
   # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash
   # comparability guards) and the BioPython Smith-Waterman reference run in no CI job at all.
+  # [ann] belongs here for the same reason: pynndescent is in no other leg, so mir.density's
+  # whole approximate-NN backend would otherwise be executed by no job anywhere.
   optional-tiers:
-    name: Optional tiers (torch + BioPython)
+    name: Optional tiers (torch + ANN + BioPython)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install package with [ml] + BioPython
-        run: pip install -e ".[dev,bench,ml]" biopython
+      - name: Install package with [ml] + [ann] + BioPython
+        run: pip install -e ".[dev,bench,ml,ann]" biopython
       - name: Test (including integration)
         run: pytest tests/ -q -m "not benchmark"

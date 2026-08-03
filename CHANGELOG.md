@@ -3,6 +3,88 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+**A code-review pass, and what it found.** Twenty findings across the library, all fixed, each with
+a regression test that fails without the fix. Coverage 87% → 93%. Three of them changed answers
+rather than crashing, which is the reason for the detail below.
+
+*Silently wrong answers*
+
+- `DonorCohort.transform` **re-fitted the identity PCA** whenever the fit cohort had too few donors
+  on a chain to build one. The documented "only comparable path for new donors" therefore projected
+  held-out donors into a basis the fit cohort had never seen — unscaled scores in a matrix whose
+  every other column is unit-variance. It now keeps the holes, as the fit did.
+- `cohort.depth_report` had **no degrees-of-freedom guard**. The regression uses an intercept plus
+  one column per statistic, so with the 12 `cohort_statistics` it saturates at 13 samples and
+  returns R² ≡ 1 for *any* input — a confident "your embedding is entirely depth-driven" on pure
+  noise. Below one residual dof it now returns `nan` with a warning, below five it warns that R² is
+  an upper bound, and the report carries `residual_dof`.
+- `density.neighbor_enrichment(backend="ann")` **undercounted the background** in fixed-radius mode
+  (a `k_max`-truncated kNN list), which shrinks the expected count and *inflates* fold and
+  significance — the opposite of the documented conservative bias, and the one direction an
+  enrichment test must not err in. The background is now an exact scipy radius count, which is both
+  correct and cheaper (it drops a whole NNDescent build). Only the observed side stays approximate.
+- `bench.theory.codec_losslessness`'s `exact_ceiling` charged for **every** member of a colliding
+  group when only `group_size − 1` are unrecoverable, and normalised by `n_unique` while
+  `exact_match` uses all `n` — so a measured value could exceed its own ceiling. Both fixed;
+  `collision_rate` and `exact_ceiling` are no longer complements.
+- `bench.metrics.estimate_dbscan_eps` indexed `[:, k-1]` of a `k`-neighbour query that **includes
+  each point's own zero-distance self-match**, yielding the (k−1)-NN curve. At `k=1` it returned a
+  curve of zeros. Recorded `eps`/`eps_factor` baselines sit on the old curve — re-derive them.
+- `repertoire.sample_statistics` returned `shannon = nan` when any `duplicate_count` was 0, and the
+  NaN flowed into `cohort_statistics` → `recovery_report`.
+- `repertoire.missing_mass` rounded a frequency column to all-zeros and reported `M₀ = 0.0`,
+  silently declaring a shallow sample a complete probability measure. It now rejects non-integer
+  input in (0, 1].
+- `repertoire.rarefy_embedding` stored the replicate-mean `n_eff` on an embedding whose mean is the
+  *mixture* kernel mean, so `mmd_distance(unbiased=True)` over-removed the diagonal self-term. It
+  now uses `1/Σw̄²` for the mixture weights.
+- `ml.set_encoder` scored regression with `abs(spearman)` while checkpointing on `score > best`, so
+  a perfectly **anti-correlated** model scored 1.0 and was saved as best. Now signed.
+- `ml.diffusion`'s DDIM `x0` clamp did not re-derive `eps` from the clipped estimate, so at exactly
+  the timesteps it exists for the update degenerated to `x ← eps` and the blow-up propagated (a
+  measured trajectory excursion to ~493 against a ±6 clamp).
+
+*Crashes and contracts*
+
+- `mir embed repertoires --mmd` split the path on the **first dot anywhere**, so `./mmd.tsv` became
+  `.TRB./mmd.tsv` (`FileNotFoundError` after both loci had been embedded and before `-o` was
+  written), and an extensionless path silently let one locus overwrite another. Now splits on the
+  extension.
+- `mir embed clonotypes --locus beta` bypassed `normalize_locus_alias` and matched zero rows.
+  Aliases now resolve, and an unresolvable locus is an error.
+- `DiffusionModel.load` rebuilt the network at constructor defaults because `hidden` / `time_dim` /
+  `class_dim` were never recorded in `meta`; anything trained off-defaults failed with a size
+  mismatch. Bundles written before this still load.
+- `bench.theory.tcrnet_convergence`, `prototype_source_correlation` and `junction_dissimilarity`
+  walked their sequence argument two or three times without materializing it, so a generator over a
+  polars column arrived empty and died inside `StandardScaler`.
+- `ml.train` / `ml.codec` could floor the validation split to zero rows and return NaN metrics
+  instead of erroring. New shared `train_val_test_split` refuses it.
+- `pip install "mirpy-lib[ann]"` **could not resolve on Python ≥ 3.10**: unpinned, resolvers picked a
+  numba old enough to drag in llvmlite 0.36, which refuses to build. Added a `numba>=0.60` floor.
+  `[ann]` is now installed in CI, which previously executed the entire ANN backend in no job at all.
+
+*Memory and speed, no behaviour change*
+
+- `DensitySpace.transform` is chunked, so the `(n, n_features)` raw embedding — 6000 columns wide at
+  K=2000 — is never fully resident. Every repertoire-tier caller took the single-shot path, one deep
+  sample at a time.
+- `Φ₁` and the second-moment block accumulate over row blocks instead of materializing the full
+  `(n, D)` random-feature matrix. Exact, and bit-identical below 50k rows.
+- `generate.DescriptorDensity.sample` caches a Cholesky factor. `rng.multivariate_normal` redoes an
+  `O(dim³)` SVD per call, `dim` is 2051 at the default `n_rff`, and `DonorTwin.simulate` calls it
+  once per twin.
+- `track.fit_exposure_trajectory` hoists the design Gram out of the per-channel loop (it was rebuilt
+  `g` times per iteration for a matrix that does not change).
+
+*Docs*
+
+- New `skills/mirpy/SKILL.md` — the v3 API surface, replacing the v2 one dropped in the 3.0 cleanup.
+- README/`usage.rst`: per-locus `--mmd` naming, `--locus` aliases, and the corrected description of
+  what `backend="ann"` approximates.
+
 ## 3.8.1 — 2026-08-02
 
 *(3.8.0 was withdrawn from PyPI immediately after upload and never reached general availability; a deleted PyPI version can never be reused, so the same content ships as 3.8.1. Nothing in the library differs between the two.)*

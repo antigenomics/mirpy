@@ -49,8 +49,10 @@ ml = ["torch"]
 bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "lifelines"]
 # Approximate-NN backend for mir.density (backend="ann"). Split out of [bench] because
 # pynndescent pulls numba/llvmlite, whose version resolution is Python-version-sensitive;
-# the exact "kdtree"/"exact" backends need nothing here.
-ann = ["pynndescent"]
+# the exact "kdtree"/"exact" backends need nothing here. The numba floor is load-bearing:
+# unpinned, resolvers pick a numba old enough to drag in llvmlite 0.36, which refuses to
+# build on Python >= 3.10 — so `pip install mirpy-lib[ann]` failed outright on 3.11/3.12.
+ann = ["pynndescent", "numba>=0.60"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]

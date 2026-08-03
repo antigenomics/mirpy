@@ -15,6 +15,7 @@ actual v3 pipeline distances (``seqtree.gapblock`` junction dissimilarity):
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,6 +28,7 @@ from mir.distances.junction import junction_distance_matrix
 def junction_dissimilarity(cdr3s, threads: int = 0) -> np.ndarray:
     """Symmetric ``(n, n)`` junction dissimilarity ``d_ij`` (v3 gapblock; a
     negative-type semimetric / squared Hilbert distance, not a metric — ρ=√d is)."""
+    cdr3s = list(cdr3s)  # consumed twice below, so a generator would arrive empty the second time
     return junction_distance_matrix(cdr3s, cdr3s, threads=threads)
 
 
@@ -180,6 +182,7 @@ def prototype_source_correlation(
     Embeds ``query_cdr3s`` against each prototype set (junction only), takes pairwise
     Euclidean distances under each embedding, and returns their Pearson R (paper ≈ 0.96).
     """
+    query_cdr3s = list(query_cdr3s)  # embedded twice — a generator would be empty for Xm
     Xr = junction_distance_matrix(query_cdr3s, real_prototypes, threads=threads).astype(np.float64)
     Xm = junction_distance_matrix(query_cdr3s, model_prototypes, threads=threads).astype(np.float64)
     Dr, Dm = pdist(Xr), pdist(Xm)
@@ -236,6 +239,10 @@ def tcrnet_convergence(
     from sklearn.neighbors import BallTree
     from sklearn.preprocessing import StandardScaler
 
+    # obs_cdr3s is walked three times (matrix, mutation calibration, Hamming-1 counts) and
+    # prototypes three times, so a single-pass iterable — a generator over a polars column,
+    # a map/zip — would arrive empty after the first and fail deep inside StandardScaler.
+    obs_cdr3s, prototypes = list(obs_cdr3s), list(prototypes)
     obs = junction_distance_matrix(obs_cdr3s, prototypes, threads=threads).astype(np.float64)
     bg = junction_distance_matrix(bg_cdr3s, prototypes, threads=threads).astype(np.float64)
     scaler = StandardScaler().fit(np.vstack([obs, bg]))
@@ -309,7 +316,11 @@ def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
         eps: code-distance below which two distinct sequences count as colliding.
 
     Returns:
-        Always ``{n, n_unique, collision_rate, exact_ceiling, nn_dist_median, nn_dist_min}``; and
+        Always ``{n, n_unique, collision_rate, exact_ceiling, nn_dist_median, nn_dist_min}``.
+        ``collision_rate`` is the fraction of *unique* sequences having some other sequence within
+        ``eps``; ``exact_ceiling`` is the best exact-match fraction any decoder could reach, over
+        the same base as ``exact_match`` (all ``n``), counting one recoverable sequence per
+        mutually-confusable group. The two are therefore **not** complements of each other. And
         when ``recon`` is given, additionally ``{exact_match, mean_edit, token_acc, anchor_acc,
         middle_acc, pos_acc}`` (``pos_acc`` a length-40 array).
     """
@@ -323,15 +334,31 @@ def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
     uniq = list({s: i for i, s in enumerate(seqs)}.values())
     C = codes[uniq]
     n_unique = len(uniq)
+    # multiplicity of each unique sequence, so the ceiling is over the same base (all n) that
+    # exact_match is measured on -- otherwise a measured value can legitimately exceed its ceiling.
+    counts = Counter(seqs)
+    mult = np.array([counts[seqs[i]] for i in uniq], dtype=np.int64)
     if n_unique >= 2:
         nn = BallTree(C).query(C, k=2)[0][:, 1]  # distance to nearest distinct code
         collision_rate = float((nn < eps).mean())
         nn_median, nn_min = float(np.median(nn)), float(nn.min())
+        # A decoder recovers at most ONE sequence per mutually-confusable group -- best case the
+        # most frequent one. `1 - collision_rate` instead charged for *every* member of a group,
+        # so a single colliding pair among 10 sequences reported a ceiling of 0.8 against a true
+        # 0.9. Groups are connected components of the within-eps graph (confusability chains
+        # through a shared neighbour).
+        from scipy.sparse.csgraph import connected_components
+        from sklearn.neighbors import radius_neighbors_graph
+
+        n_groups, labels = connected_components(
+            radius_neighbors_graph(C, eps, mode="connectivity"), directed=False)
+        recoverable = int(sum(mult[labels == k].max() for k in range(n_groups)))
     else:
         collision_rate, nn_median, nn_min = 0.0, float("nan"), float("nan")
+        recoverable = n
     out = {
         "n": n, "n_unique": n_unique, "collision_rate": collision_rate,
-        "exact_ceiling": 1.0 - collision_rate,
+        "exact_ceiling": recoverable / n if n else float("nan"),
         "nn_dist_median": nn_median, "nn_dist_min": nn_min,
     }
     if recon is None:

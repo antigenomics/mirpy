@@ -65,3 +65,41 @@ def test_unknown_condition_raises():
     density = fit_descriptor_density(descriptors, labels=["a"] * 25 + ["b"] * 25)
     with pytest.raises(ValueError, match="not in fitted labels"):
         density.sample(1, condition="nope")
+
+
+def test_sample_reuses_one_cached_factor_and_matches_the_fitted_moments():
+    """Regression: every sample() call redid an O(dim^3) factorization of the SAME covariance.
+
+    rng.multivariate_normal re-decomposes sigma on every call, and DonorTwin.simulate calls
+    sample() once per twin -- so N twins cost N full factorizations of a fixed matrix. The
+    factor is now built once per label and cached; the draws must still match the fit moments.
+    """
+    descs, base = _descriptors(n=400, dim=6, seed=1)
+    d = fit_descriptor_density(descs)
+
+    assert d._factors == {}                     # nothing built until first draw
+    s1 = d.sample(3000, seed=0)
+    assert list(d._factors) == [None]           # one factor, for the single unconditional label
+    factor = d._factors[None]
+
+    s2 = d.sample(3000, seed=0)
+    assert np.array_equal(s1, s2)               # deterministic given the seed
+    assert d._factors[None] is factor           # reused, not rebuilt
+
+    # L @ L.T reconstructs the fitted covariance, so the draws carry the right second moment
+    assert np.allclose(factor @ factor.T, d.cov[None], atol=1e-10)
+    assert np.allclose(s1.mean(axis=0), base.mean(axis=0), atol=0.15)
+    assert np.allclose(np.cov(s1.T), d.cov[None], atol=0.15)
+
+
+def test_sample_handles_a_singular_covariance():
+    """A rank-deficient cohort is PSD but not positive-definite: Cholesky refuses, eigh does not."""
+    dim = 5
+    descs = [RepertoireDescriptor(log_mass=float(i), log_neff=float(2 * i), simpson=float(3 * i),
+                                  mean=np.array([4.0 * i, 5.0 * i]))
+             for i in range(20)]                 # every coordinate a multiple of one factor
+    d = fit_descriptor_density(descs)
+    d.cov[None] = np.zeros((dim, dim))           # the degenerate limit shrinkage would avoid
+    out = d.sample(10, seed=0)
+    assert out.shape == (10, dim) and np.isfinite(out).all()
+    assert np.allclose(out, d.mean[None])        # zero covariance => every draw is the mean

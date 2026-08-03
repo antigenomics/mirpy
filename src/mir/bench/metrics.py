@@ -17,11 +17,18 @@ from sklearn.neighbors import NearestNeighbors
 
 
 def estimate_dbscan_eps(X: np.ndarray, k: int = 4) -> float:
-    """Kneedle ``eps``: the knee of the sorted k-th nearest-neighbour distance curve."""
+    """Kneedle ``eps``: the knee of the sorted k-th nearest-neighbour distance curve.
+
+    ``k`` counts *other* points. ``kneighbors`` on the training set returns each point's own
+    zero-distance self-match in column 0, so the k-th true neighbour is column ``k`` of a
+    ``k+1``-neighbour query — indexing ``k-1`` there silently yields the ``(k-1)``-NN curve and a
+    correspondingly smaller ``eps``. Baselines recorded before this correction sit on that shifted
+    curve; re-derive ``eps`` (or ``eps_factor``) rather than comparing across the change.
+    """
     from kneed import KneeLocator
 
-    nn = NearestNeighbors(n_neighbors=k).fit(X)
-    kdist = np.sort(nn.kneighbors(X)[0][:, k - 1])
+    nn = NearestNeighbors(n_neighbors=k + 1).fit(X)
+    kdist = np.sort(nn.kneighbors(X)[0][:, k])
     kl = KneeLocator(
         np.arange(kdist.size), kdist, curve="convex", direction="increasing",
         interp_method="polynomial", polynomial_degree=7,

@@ -108,3 +108,29 @@ def test_codec_bundle_ships_prototypes_and_pca(tmp_path):
     b2.meta["prototype_hash"] = "deadbeef00000000"
     with pytest.raises(ValueError):
         b2.forward_encoder()
+
+
+def test_train_val_test_split_refuses_an_empty_validation_or_train_split():
+    """Regression: int(n*frac) floors to 0, so training returned NaN metrics instead of erroring.
+
+    With an empty validation set the loop produced nan, best-epoch selection compared against nan
+    and silently kept an arbitrary epoch, and the caller got a model whose reported metrics were
+    all NaN -- indistinguishable from a real result unless you looked.
+    """
+    import numpy as np
+    import pytest
+
+    from mir.ml.train import train_val_test_split
+
+    with pytest.raises(ValueError, match="validation"):
+        train_val_test_split(5, test_frac=0.1, val_frac=0.1, seed=0)     # int(5*0.1) == 0
+    with pytest.raises(ValueError, match="training"):
+        train_val_test_split(10, test_frac=0.5, val_frac=0.5, seed=0)    # nothing left to train on
+
+    te, va, tr = train_val_test_split(100, test_frac=0.1, val_frac=0.1, seed=0)
+    assert (len(te), len(va), len(tr)) == (10, 10, 80)
+    assert sorted(np.concatenate([te, va, tr])) == list(range(100))      # a true partition
+
+    # deterministic given the seed, and different seeds really do reshuffle
+    assert np.array_equal(train_val_test_split(100, 0.1, 0.1, 0)[0], te)
+    assert not np.array_equal(train_val_test_split(100, 0.1, 0.1, 1)[0], te)

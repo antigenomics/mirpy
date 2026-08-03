@@ -139,7 +139,12 @@ class DiffusionModel:
         """Rebuild a saved :class:`DiffusionModel` (weights on CPU unless ``device`` given)."""
         d = torch.load(path, weights_only=False)
         meta = d["meta"]
-        model = DiffusionMLP(meta["dim"], n_classes=meta["n_classes"])
+        # .get() with the constructor defaults so bundles written before the architecture
+        # was recorded still load (they were all trained at the defaults).
+        model = DiffusionMLP(
+            meta["dim"], n_classes=meta["n_classes"], hidden=meta.get("hidden", 256),
+            time_dim=meta.get("time_dim", 64), class_dim=meta.get("class_dim", 32),
+        )
         model.load_state_dict(d["state_dict"])
         model.eval()
         if device is not None:
@@ -218,6 +223,12 @@ class DiffusionModel:
             # prediction makes x0_hat blow up -- unclipped, that error compounds every remaining step
             # (the standard DDPM/DDIM stability fix; data is standardized, so +/-6 sigma is generous).
             x0_hat = torch.clamp(x0_hat, -6.0, 6.0)
+            # Re-derive eps from the CLIPPED x0, or the step still uses the raw unbounded network
+            # output and the blow-up propagates anyway: at exactly the timesteps the clamp targets
+            # (ab_t~0, sqrt(1-ab_prev)~1) the update degenerates to x <- eps. Recomputing also keeps
+            # (x0_hat, eps) a consistent pair, so this stays the deterministic DDIM path
+            # (cf. diffusers DDIMScheduler(clip_sample=True)).
+            eps = (x - torch.sqrt(ab_t) * x0_hat) / torch.sqrt(1 - ab_t)
             x = torch.sqrt(ab_prev) * x0_hat + torch.sqrt(1 - ab_prev) * eps
         mu = torch.as_tensor(self.meta["mu"], device=dev, dtype=x.dtype)
         sd = torch.as_tensor(self.meta["sd"], device=dev, dtype=x.dtype)
@@ -307,6 +318,16 @@ def train_diffusion(
     if verbose:
         print(f"torch {torch.__version__} | device={dev} | n={n} dim={dim} n_classes={n_classes}")
 
+    # One FIXED validation noising, drawn once. Eps-prediction MSE varies systematically with the
+    # timestep, so re-drawing (t, eps) every epoch makes consecutive val_losses incomparable and
+    # `best_state` latches onto whichever epoch happened to draw easy timesteps — at these defaults
+    # (n_val is 40 at n=400, 4 at n=40) that noise swamps real late-training improvement.
+    g = torch.Generator(device="cpu").manual_seed(seed)
+    t_va = torch.randint(0, T, (Xva.shape[0],), generator=g).to(dev)
+    eps_va = torch.randn(Xva.shape, generator=g).to(dev)
+    ab_va = alphabar[t_va][:, None]
+    x_t_va = torch.sqrt(ab_va) * Xva + torch.sqrt(1 - ab_va) * eps_va
+
     best_val, best_state = float("inf"), None
     for ep in range(epochs):
         model.train()
@@ -330,11 +351,7 @@ def train_diffusion(
 
         model.eval()
         with torch.no_grad():
-            t = torch.randint(0, T, (Xva.shape[0],), device=dev)
-            eps = torch.randn_like(Xva)
-            ab = alphabar[t][:, None]
-            x_t = torch.sqrt(ab) * Xva + torch.sqrt(1 - ab) * eps
-            val_loss = nn.functional.mse_loss(model(x_t, t, yva), eps).item()
+            val_loss = nn.functional.mse_loss(model(x_t_va, t_va, yva), eps_va).item()
         if val_loss < best_val:
             best_val, best_state = val_loss, {k: v.detach().clone() for k, v in model.state_dict().items()}
         if verbose and (ep % max(1, epochs // 10) == 0 or ep == epochs - 1):
@@ -344,7 +361,11 @@ def train_diffusion(
     model.eval().to("cpu")
 
     full_meta = dict(meta or {})
-    full_meta.update({"dim": dim, "n_classes": n_classes, "T": T, "classes": classes, "mu": mu, "sd": sd})
+    # hidden/time_dim/class_dim all change state-dict shapes, so they belong in meta —
+    # without them `load` rebuilds at constructor defaults and any non-default architecture
+    # fails with a size mismatch.
+    full_meta.update({"dim": dim, "n_classes": n_classes, "T": T, "classes": classes, "mu": mu, "sd": sd,
+                      "hidden": hidden, "time_dim": time_dim, "class_dim": class_dim})
     return DiffusionModel(model=model, betas=betas.cpu(), meta=full_meta), {
         "val_loss": best_val, "n": n, "n_classes": n_classes,
     }

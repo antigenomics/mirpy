@@ -50,6 +50,19 @@ def _emb_frame(X, prefix: str) -> pl.DataFrame:
     return pl.from_numpy(X, schema=[f"{prefix}{i}" for i in range(X.shape[1])])
 
 
+def _per_locus_path(path: str, locus: str) -> str:
+    """Insert ``locus`` before the extension: ``mmd.tsv`` → ``mmd.TRB.tsv``.
+
+    A plain ``str.replace(".", …, 1)`` would split on the first dot *anywhere* — mangling
+    ``./mmd.tsv`` into ``.TRB./mmd.tsv`` — and would silently no-op on an extensionless path,
+    letting one locus overwrite another's matrix.
+    """
+    from pathlib import Path
+
+    p = Path(path)
+    return str(p.with_name(f"{p.stem}.{locus}{p.suffix}"))
+
+
 def _write(df: pl.DataFrame, path: str | None) -> None:
     if path is None or path == "-":
         sys.stdout.write(df.write_csv(separator="\t"))
@@ -67,9 +80,17 @@ def _sample_id(path: str) -> str:
 
 
 def _pick_locus(df: pl.DataFrame, requested: str | None) -> str:
+    """Resolve ``--locus`` to a canonical IMGT locus, or infer it when the file has only one."""
     loci = [x for x in df["locus"].unique().to_list() if x]
     if requested:
-        return requested
+        # Through the alias table, so `--locus beta` matches the data's `TRB` rows rather
+        # than silently selecting nothing.
+        from mir.aliases import normalize_locus_alias
+
+        try:
+            return normalize_locus_alias(requested)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from None
     if len(loci) == 1:
         return loci[0]
     raise SystemExit(
@@ -171,7 +192,7 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
             ids = [sid for sid, _ in items]
             mmd_df = pl.DataFrame({"sample_id": ids}).with_columns(
                 [pl.Series(ids[j], D[:, j]) for j in range(len(ids))])
-            out = a.mmd if len(by_locus) == 1 else a.mmd.replace(".", f".{locus}.", 1)
+            out = a.mmd if len(by_locus) == 1 else _per_locus_path(a.mmd, locus)
             _write(mmd_df, out)
         print(f"[mir] {locus}: {len(items)} samples → Φ dim {len(embs[0].vector)}", file=sys.stderr)
 

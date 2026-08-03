@@ -103,7 +103,7 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
 
 
 def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
-                             chunk_size: int) -> np.ndarray:
+                             chunk_size: int, dtype=np.float64) -> np.ndarray:
     """Embed *df* and project it into ``scaler``+``pca``, ``chunk_size`` rows at a time.
 
     Only ``chunk_size × n_features`` of raw embedding is ever resident: each chunk is embedded,
@@ -111,9 +111,10 @@ def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
     not by ``len(df)`` — which is what makes whole-cohort clouds tractable (a 4.2M-clonotype arm is
     ~51 GB raw). The reduced output is float64 (the single-shot path yields float32): the reduced
     matrix is small, and :func:`neighbor_enrichment` upcasts to float64 anyway, so emitting it
-    directly saves a second full copy there.
+    directly saves a second full copy there. Pass ``dtype=np.float32`` where the caller's contract
+    is float32 (:meth:`DensitySpace.transform`).
     """
-    out = np.empty((df.height, pca.n_components_), dtype=np.float64)
+    out = np.empty((df.height, pca.n_components_), dtype=dtype)
     for start in range(0, df.height, chunk_size):
         stop = min(start + chunk_size, df.height)
         raw = _embed(model, df.slice(start, stop - start), space)
@@ -136,10 +137,20 @@ class DensitySpace:
     space: str             # "full" | "junction"
     scaler: StandardScaler
     pca: PCA
+    chunk_size: int = 200_000   # rows per embed+project batch; see transform
 
     def transform(self, df: pl.DataFrame) -> np.ndarray:
-        """Embed *df* and project it into this fitted coordinate system."""
-        return self.pca.transform(self.scaler.transform(_embed(self.model, df, self.space)))
+        """Embed *df* and project it into this fitted coordinate system (float32).
+
+        Chunked at ``chunk_size`` rows, so the ``(len(df), n_features)`` raw embedding — 6000
+        columns wide at K=2000 — is never fully resident. This is the path every repertoire-tier
+        caller takes (:func:`~mir.repertoire.sample_embedding`, ``naive_reference``,
+        ``class_witness``, ``sample_descriptor``, ``rarefy_embedding``), one deep sample at a time,
+        so the single-shot version could blow past the working-set budget on a single sample.
+        Frames at or under ``chunk_size`` take exactly one pass and are bit-identical to it.
+        """
+        return _embed_transform_chunked(self.model, df, self.space, self.scaler, self.pca,
+                                        self.chunk_size, dtype=np.float32)
 
 
 @dataclass
@@ -352,30 +363,42 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
 
     Returns ``(rad, radius_out, n_bg, count_obs, lists_obs)`` matching the exact BallTree path:
     per-obs radius ``rad``, background occupancy ``n_bg``, and two closures giving the
-    self-excluded observed-neighbour count and index lists within ``rad``. Neighbours come from a
-    kNN graph (k=``k_max``) thresholded by radius — *approximate*: recall < 1 undercounts, biasing
-    enrichment **down** (conservative). A saturated ball (all ``k_max`` neighbours inside ``rad``)
-    is undercounted and warned. For large N where exact trees are slow; use ``backend='exact'`` for
-    small or reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
+    self-excluded observed-neighbour count and index lists within ``rad``.
+
+    Only the *observed* side is approximate: its neighbours come from a kNN graph (k=``k_max``)
+    thresholded by radius, so recall < 1 undercounts ``count_obs``, biasing enrichment **down**
+    (conservative), and a saturated ball (all ``k_max`` neighbours inside ``rad``) is warned.
+    The *background* occupancy is always exact — undercounting it would shrink the expected
+    count and inflate fold and significance, which is the one direction this must never err in.
+    In the fixed-radius branch that is a scipy radius count (no kNN truncation to saturate);
+    in the balloon branch the occupancy is ``k`` by construction, so only the radius itself
+    (a genuine kNN query) rides the approximate index.
+
+    For large N where exact trees are slow; use ``backend='exact'`` for small or
+    reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
     """
     from pynndescent import NNDescent
+    from scipy.spatial import cKDTree
 
     obs = np.ascontiguousarray(obs, dtype=np.float32)  # pynndescent prefers float32
     bg = np.ascontiguousarray(bg, dtype=np.float32)
     n_obs_total, n_bg_total = len(obs), len(bg)
-    bg_index = NNDescent(bg, metric="euclidean",
-                         n_neighbors=min(max(k_max, 16), n_bg_total - 1), random_state=seed)
     obs_index = NNDescent(obs, metric="euclidean",
                           n_neighbors=min(k_max, n_obs_total - 1), random_state=seed)
     if radius is None:  # balloon: radius = k-th bg-neighbour distance, occupancy == k
+        bg_index = NNDescent(bg, metric="euclidean",
+                             n_neighbors=min(max(k_max, 16), n_bg_total - 1), random_state=seed)
         k = min(max(int(round(lambda0 * n_bg_total / n_ref)), 1), n_bg_total)
         rad = bg_index.query(obs, k=k)[1][:, -1].astype(np.float64)
         n_bg = np.full(n_obs_total, k, dtype=np.int64)
         radius_out = float(np.median(rad))
     else:  # fixed global radius
         rad = np.full(n_obs_total, float(radius), dtype=np.float64)
-        bd = bg_index.query(obs, k=min(k_max, n_bg_total))[1]
-        n_bg = (bd <= float(radius)).sum(1).astype(np.int64)
+        # Exact radius count, not a k_max-truncated kNN list: this is a *counting* query, which
+        # is what a KD-tree does natively, and it is strictly cheaper than the NNDescent build
+        # it replaces. Saturating it would inflate fold rather than deflate it.
+        n_bg = cKDTree(bg).query_ball_point(
+            obs, float(radius), return_length=True, workers=-1).astype(np.int64)
         radius_out = float(radius)
     oi, od = obs_index.query(obs, k=min(k_max, n_obs_total))  # self included (dist ~0)
     within = od <= rad[:, None]

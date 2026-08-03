@@ -62,6 +62,12 @@ def _shrunk_cov(X: np.ndarray) -> np.ndarray:
 class DescriptorDensity:
     """A fitted (optionally class-conditional) Gaussian density over descriptor vectors.
 
+    The covariance is dense and ``dim`` is dominated by the descriptor's identity block — 2051 at
+    the default ``n_rff=2048``, against cohorts of a few hundred donors, so ``p ≫ n`` and the fit
+    leans entirely on Ledoit-Wolf shrinkage. For couplings you intend to *read* (:meth:`evolve`),
+    PCA-reduce the identity block first: the named scalar coordinates stay interpretable, and the
+    covariance is then estimated rather than regularized into existence.
+
     Attributes:
         mean: ``{label: (dim,) mean}`` — a single key ``None`` when unconditional.
         cov: ``{label: (dim, dim) shrinkage covariance}``.
@@ -71,6 +77,8 @@ class DescriptorDensity:
     mean: dict = field(default_factory=dict)
     cov: dict = field(default_factory=dict)
     dim: int = 0
+    #: Lazily-built ``{label: L}`` with ``L @ L.T == cov[label]`` — see :meth:`_factor`.
+    _factors: dict = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def fit(cls, X: np.ndarray, labels: list | None = None) -> "DescriptorDensity":
@@ -101,12 +109,37 @@ class DescriptorDensity:
             cov[lab] = _shrunk_cov(Xg) if Xg.shape[0] >= 2 else np.eye(X.shape[1])
         return cls(mean=mean, cov=cov, dim=X.shape[1])
 
-    def _resolve(self, condition):
+    def _resolve_label(self, condition):
+        """The fitted label ``condition`` refers to (the sole label when unconditional)."""
         if condition in self.mean:
-            return self.mean[condition], self.cov[condition]
+            return condition
         if condition is None and len(self.mean) == 1:
-            return next(iter(self.mean.values())), next(iter(self.cov.values()))
+            return next(iter(self.mean))
         raise ValueError(f"condition {condition!r} not in fitted labels {sorted(self.mean, key=str)}")
+
+    def _resolve(self, condition):
+        lab = self._resolve_label(condition)
+        return self.mean[lab], self.cov[lab]
+
+    def _factor(self, label) -> np.ndarray:
+        """Cached ``L`` with ``L @ L.T == cov[label]``, so drawing is one matmul.
+
+        ``rng.multivariate_normal`` redoes an ``O(dim³)`` SVD on *every* call, and ``dim`` is 2051
+        at the default ``n_rff=2048`` (3 scalars ‖ RFF mean). :meth:`mir.twin.DonorTwin.simulate`
+        calls :meth:`sample` once per twin, so that was one full 2051×2051 factorization per twin
+        of the same fixed covariance. Factor once, reuse.
+        """
+        if label not in self._factors:
+            sigma = self.cov[label]
+            try:
+                L = np.linalg.cholesky(sigma)
+            except np.linalg.LinAlgError:
+                # PSD but not positive-definite (no shrinkage on a rank-deficient cohort):
+                # the symmetric eigen square root works where Cholesky refuses.
+                vals, vecs = np.linalg.eigh(sigma)
+                L = vecs * np.sqrt(np.clip(vals, 0.0, None))
+            self._factors[label] = L
+        return self._factors[label]
 
     def sample(self, n: int = 1, *, condition=None, seed: int = 0) -> np.ndarray:
         """Draw ``n`` synthetic descriptor vectors from the fitted (conditional) Gaussian.
@@ -120,9 +153,10 @@ class DescriptorDensity:
         Returns:
             ``(n, dim)`` array — decode with :func:`mir.repertoire.decode_metrics` per row.
         """
-        mu, sigma = self._resolve(condition)
+        lab = self._resolve_label(condition)
+        L = self._factor(lab)
         rng = np.random.default_rng(seed)
-        return rng.multivariate_normal(mu, sigma, size=n)
+        return self.mean[lab] + rng.standard_normal((n, self.dim)) @ L.T
 
     def evolve(self, vector: np.ndarray, *, coordinate: int | str, delta: float, condition=None) -> np.ndarray:
         """Shift ``vector`` by ``delta`` along one coordinate, propagating the coupled response.

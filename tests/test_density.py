@@ -411,3 +411,35 @@ def test_chunk_size_value_does_not_change_the_science(model):
     r_s = neighbor_enrichment(o_small, b_small, radius=0.6, test="binomial")
     r_b = neighbor_enrichment(o_big, b_big, radius=0.6, test="binomial")
     assert np.array_equal(enriched_mask(r_s), enriched_mask(r_b))
+
+
+@pytest.mark.integration
+def test_ann_fixed_radius_background_count_is_exact():
+    """Regression: the ANN fixed-radius background count saturated at k_max, inflating fold.
+
+    `n_bg` came from a k_max-truncated kNN distance list, so a ball holding more than k_max=96
+    background points reported 96. Undercounting the BACKGROUND shrinks `expected`, which inflates
+    `fold` and significance -- the opposite of the documented "recall < 1 biases enrichment down
+    (conservative)", and the one direction an enrichment test must never err in. The saturation
+    warning only ever inspected the observed ball, so nothing flagged it either.
+    """
+    pytest.importorskip("pynndescent")
+    from scipy.spatial import cKDTree
+
+    rng = np.random.default_rng(0)
+    d = 8
+    # a dense background blob: every observed point's ball holds far more than k_max=96 of them
+    bg = 0.10 * rng.standard_normal((3000, d))
+    obs = 0.10 * rng.standard_normal((200, d))
+    radius = 0.5
+
+    truth = cKDTree(bg).query_ball_point(obs, radius, return_length=True)
+    assert truth.min() > 96, "test is only meaningful if the ball saturates the old k_max"
+
+    ra = neighbor_enrichment(obs, bg, backend="ann", radius=radius)
+    assert np.array_equal(ra.n_bg, truth)               # exact, not capped
+
+    rx = neighbor_enrichment(obs, bg, backend="exact", radius=radius)
+    assert np.array_equal(ra.n_bg, rx.n_bg)
+    # and with the background counted properly, nothing in a homogeneous blob is "enriched"
+    assert ra.fold.max() < 3.0 and enriched_mask(ra).sum() == 0

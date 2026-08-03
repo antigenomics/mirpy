@@ -71,3 +71,38 @@ def test_bundle_roundtrip_and_cross_basis_refusal(tmp_path):
     with pytest.raises(ValueError, match="prototype hash mismatch"):
         SetEncoderBundle.load(p)
     SetEncoderBundle.load(p, verify=False)          # explicit override allowed
+
+
+def test_regression_val_score_is_signed_not_absolute():
+    """Regression: `abs(spearman)` ranked an anti-correlated model above a correct one.
+
+    train_set_encoder checkpoints on `score > best_score`, so abs() gave a perfectly
+    anti-correlated model (rho = -1) a score of 1.0 -- beating a correctly-signed rho = 0.9 and
+    reporting it as a strong fit. The classification branch was already signed (raw AUC).
+    """
+    import torch
+
+    from mir.ml.set_encoder import _val_score
+
+    class Fixed(torch.nn.Module):
+        """Returns a pre-set prediction per cloud, in call order."""
+
+        def __init__(self, preds):
+            super().__init__()
+            self.preds, self.i = preds, 0
+
+        def forward(self, Z, w):
+            out = torch.tensor(self.preds[self.i])
+            self.i += 1
+            return out
+
+    y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    clouds = [(np.zeros((2, 2)), np.ones(2))] * len(y)
+    dev = torch.device("cpu")
+
+    anti = _val_score(clouds, y, Fixed([5.0, 4.0, 3.0, 2.0, 1.0]), dev, "regression")
+    agree = _val_score(clouds, y, Fixed([1.0, 2.0, 3.0, 4.5, 4.0]), dev, "regression")
+
+    assert anti == pytest.approx(-1.0)          # was +1.0, the best possible score
+    assert agree > anti                          # so the correctly-signed model now wins
+    assert 0.8 < agree < 1.0

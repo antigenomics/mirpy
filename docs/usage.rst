@@ -201,6 +201,11 @@ HLA) survives.
    #   chain (sample_id, locus, n_clonotypes, phi0…). --blocks mean,diversity[,second] and
    #   --weight / --n-rff pick the Φ layout;  --mmd also writes the pairwise unbiased-MMD matrix.
 
+An MMD matrix is per chain, so with more than one locus present the ``--mmd`` path gains the locus
+before its extension — ``mmd.tsv`` becomes ``mmd.TRB.tsv`` and ``mmd.TRA.tsv``; a single locus keeps
+the name as given. ``--locus`` accepts the usual aliases (``beta``/``TRB``, ``T-alpha``/``TRA``, …)
+and rejects anything it cannot resolve rather than quietly matching no rows.
+
 Multi-chain digital donor (``mir.cohort``)
 ------------------------------------------
 

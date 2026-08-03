@@ -78,7 +78,9 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
 prototype count, weight, Φ blocks, …). Sample id defaults to the filename stem; the locus is
-inferred per file (or restrict with `--locus`).
+inferred per file (or restrict with `--locus`, which takes aliases — `beta`, `T-alpha` — and errors
+on anything it can't resolve). An MMD matrix is per chain, so across several loci `--mmd mmd.tsv`
+writes `mmd.TRB.tsv`, `mmd.TRA.tsv`, …; with one locus the name is used as given.
 
 Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame markers in
 `junction_aa`) before embedding by default — pass `--no-filter-functional` to skip this. Without
@@ -210,8 +212,11 @@ and `species="mouse"` for mouse — both need a vdjtools shipping the bundled `a
 live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo.
 
 The default backend is `"kdtree"` (exact scipy cKDTree, all cores). At whole-repertoire scale pass
-`backend="ann"` (approximate pynndescent, ~30× faster past ~10⁵ clones, trading a small conservative
-undercount; `pip install "mirpy-lib[ann]"`).
+`backend="ann"` (pynndescent, ~30× faster past ~10⁵ clones; `pip install "mirpy-lib[ann]"`). Only
+the **observed** side is approximate there — recall < 1 undercounts the observed ball, which biases
+enrichment *down* (conservative). The **background** occupancy is always exact, because
+undercounting it would shrink the expected count and inflate fold and significance, which is the one
+direction an enrichment test must never err in.
 
 ## Sample-level (repertoire) embedding (`mir.repertoire`)
 
@@ -446,7 +451,7 @@ mirpy is CPU-parallel by default and uses the GPU for the neural codecs. Knobs, 
 | Stage | Knob | Default | Notes |
 |---|---|---|---|
 | Embedding (junction distance) | `TCREmp(..., threads=N)` | `0` = **all cores** | The C++ `seqtree.gapblock` scorer; releases the GIL, ~530 M pairs/s @16 cores. `threads=1` for a serial run. |
-| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"kdtree"` (scipy cKDTree, **all cores**) | Exact and multithreaded (`workers=-1`), 5–9× faster than the BallTree baseline. `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5; `backend="exact"` = the 1-core BallTree baseline, for reproducing older runs. |
+| Density kNN / balloon | `neighbor_enrichment(..., backend=…)` | `"kdtree"` (scipy cKDTree, **all cores**) | Exact and multithreaded (`workers=-1`), 5–9× faster than the BallTree baseline. `backend="ann"` = pynndescent, auto all-core, ~30× at ≥1e5 (observed side approximate/conservative, background exact); `backend="exact"` = the 1-core BallTree baseline, for reproducing older runs. |
 | Clustering | `cluster(..., n_jobs=-1)` | sklearn default (1) | forwarded to DBSCAN/OPTICS/HDBSCAN via `**kwargs`; parallelizes the neighbour search. |
 | BLAS (PCA, RFF, matmul) | `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` env | all cores | numpy/sklearn use the platform BLAS; cap via env if oversubscribed. |
 | Neural codecs (`mir.ml`) | `pick_device()` / `device=` / `MIR_DEVICE` env | **CUDA → MPS → CPU**, auto | every `train_*` / codec / bundle takes `device=`; e.g. `MIR_DEVICE=cuda:1` pins the second GPU. Torch-free paths (`density`, `repertoire`) never touch the GPU. |
