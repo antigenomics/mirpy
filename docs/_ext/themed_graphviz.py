@@ -99,7 +99,10 @@ class ThemedGraphviz(SphinxDirective):
             if "alt" in self.options:
                 node["alt"] = self.options["alt"]
             node["align"] = self.options.get("align", "center")
-            node["classes"] = self.options.get("class", [])
+            # pydata-sphinx-theme repaints every content image onto a white card in dark mode
+            # (and dims it) so that transparent figures stay readable. These diagrams already
+            # ship a per-theme palette, so take the theme's own opt-out class.
+            node["classes"] = ["dark-light", *self.options.get("class", [])]
             out.append(nodes.container("", node, classes=["mir-diagram", f"mir-only-{theme}"]))
         return out
 

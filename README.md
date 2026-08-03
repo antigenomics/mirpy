@@ -13,6 +13,7 @@
 [![PyPI](https://img.shields.io/pypi/v/mirpy-lib.svg)](https://pypi.org/project/mirpy-lib/)
 [![Python](https://img.shields.io/pypi/pyversions/mirpy-lib.svg)](https://pypi.org/project/mirpy-lib/)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-docs.isalgo.dev-blue)](https://docs.isalgo.dev/mirpy/)
 
 **mirpy v3** turns T-/B-cell receptor sequences into fixed-length numeric vectors you can
 cluster, visualize, and feed to ML models. It implements **TCREMP** — embedding each receptor
