@@ -3,11 +3,17 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## Unreleased
+## 3.9.0 — 2026-08-03
 
 **A code-review pass, and what it found.** Twenty findings across the library, all fixed, each with
 a regression test that fails without the fix. Coverage 87% → 93%. Three of them changed answers
 rather than crashing, which is the reason for the detail below.
+
+A **minor** bump rather than a patch, because several fixes change *measured numbers* — the DBSCAN
+`eps` curve, `exact_ceiling`, ANN background counts and `rarefy_embedding`'s `n_eff` all move — and
+because new public API landed (`train_val_test_split`, `depth_report`'s `residual_dof`, per-locus
+`--mmd` paths). Re-derive any recorded `eps` / `eps_factor` baseline rather than comparing across
+this release.
 
 *Silently wrong answers*
 
