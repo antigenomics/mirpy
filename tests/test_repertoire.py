@@ -804,14 +804,29 @@ def test_chunked_rff_reductions_match_the_single_shot_expression(space):
 
 
 def test_density_space_transform_is_chunked_and_unchanged(space):
-    """DensitySpace.transform now batches; small frames must stay bit-identical to one shot."""
+    """DensitySpace.transform now batches; the result must not depend on the batching.
+
+    A frame at or under chunk_size takes one pass, so it is bit-identical to the single-shot
+    expression. Across MANY batches only float32 agreement is guaranteed, not bit-identity:
+    BLAS picks a different blocking for a (150, 6000) matmul than for seven (23, 6000) ones,
+    and the two round differently in the last ulp. (Learned the hard way -- asserting
+    array_equal here passed on one machine's BLAS and failed on CI's.)
+    """
     df = _sample(_clonotypes(150))
     full = space.transform_clonotypes(df)
     assert full.dtype == np.float32                       # contract preserved for callers
+
+    # one pass: bit-identical to computing it in a single shot
+    from mir.density import _embed
+
+    single = space.clono.pca.transform(
+        space.clono.scaler.transform(_embed(space.clono.model, df, space.clono.space)))
+    assert np.array_equal(full, single.astype(np.float32))
 
     space.clono.chunk_size = 23                            # force many batches
     try:
         chunked = space.transform_clonotypes(df)
     finally:
         space.clono.chunk_size = 200_000
-    assert np.array_equal(full, chunked)
+    assert chunked.dtype == np.float32
+    assert np.allclose(full, chunked, rtol=1e-5, atol=1e-6)

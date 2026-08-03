@@ -346,12 +346,20 @@ def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
         # most frequent one. `1 - collision_rate` instead charged for *every* member of a group,
         # so a single colliding pair among 10 sequences reported a ceiling of 0.8 against a true
         # 0.9. Groups are connected components of the within-eps graph (confusability chains
-        # through a shared neighbour).
+        # through a shared neighbour). Pairs come from cKDTree rather than sklearn's
+        # radius_neighbors_graph: the latter's boundary handling has moved between versions, and
+        # this must not depend on that.
+        from scipy.sparse import coo_matrix
         from scipy.sparse.csgraph import connected_components
-        from sklearn.neighbors import radius_neighbors_graph
+        from scipy.spatial import cKDTree
 
-        n_groups, labels = connected_components(
-            radius_neighbors_graph(C, eps, mode="connectivity"), directed=False)
+        pairs = cKDTree(C).query_pairs(eps, output_type="ndarray")
+        graph = coo_matrix(
+            (np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])) if len(pairs)
+            else (np.empty(0), (np.empty(0, int), np.empty(0, int))),
+            shape=(n_unique, n_unique),
+        )
+        n_groups, labels = connected_components(graph, directed=False)
         recoverable = int(sum(mult[labels == k].max() for k in range(n_groups)))
     else:
         collision_rate, nn_median, nn_min = 0.0, float("nan"), float("nan")

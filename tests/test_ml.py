@@ -120,6 +120,8 @@ def test_train_val_test_split_refuses_an_empty_validation_or_train_split():
     import numpy as np
     import pytest
 
+    # the helper is pure numpy, but mir.ml.train imports torch at module scope
+    pytest.importorskip("torch")
     from mir.ml.train import train_val_test_split
 
     with pytest.raises(ValueError, match="validation"):
