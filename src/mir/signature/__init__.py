@@ -6,6 +6,7 @@ rather than two that can drift apart. This package supplies the ``rsig`` blocks:
 the prototype-sum measure ``Φ(S) = Σ_σ w_σ z_σ``, each a linear functional, a norm, or a
 mixture coefficient of it.
 """
+from .assemble import rsig, signature, signature_cohort
 from .blocks import (
     BANDS,
     CHUNK,
@@ -19,9 +20,17 @@ from .blocks import (
     slots,
     weights,
 )
+from .reference import (
+    DEFAULT_PATH,
+    LocusReference,
+    SignatureReference,
+    load_reference,
+    self_test,
+)
 
 __all__ = [
     "BANDS",
+    "DEFAULT_PATH",
     "CHUNK",
     "ISOTYPE_BANDS",
     "WEIGHTS",
@@ -31,5 +40,12 @@ __all__ = [
     "isotype_shares",
     "prototype_sum",
     "slots",
+    "LocusReference",
+    "SignatureReference",
+    "load_reference",
+    "rsig",
+    "self_test",
+    "signature",
+    "signature_cohort",
     "weights",
 ]

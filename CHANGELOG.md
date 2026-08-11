@@ -31,6 +31,23 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
   correction defaults on, because the self-pair bias is of order `1/n_eff` and effective size both
   varies by orders of magnitude across samples and correlates with phenotype.
 
+- **`mir.signature.reference` / `mir.signature.assemble`** — loading the frozen basis, and the
+  assembled vector itself. `signature()` returns **both halves concatenated** (716 columns at
+  standard: 188 `vsig` + 528 `rsig`), positional and in layout order, so column *i* means the
+  same thing in every matrix anyone computes. `signature_cohort()` does a whole cohort.
+  Measured: 0.26 s/sample on a real cohort.
+
+  `verify()` refuses a basis whose prototype hash does not match the installed panel, because the
+  failure it prevents is silent — a mismatched panel still yields a full, plausible vector, in
+  coordinates nobody else shares.
+
+  **The identity blocks centre on `naive`, not `mu_phi`**, and this was measured rather than
+  assumed. Both are fit-free, but they average different things: `naive` is a sample-level `Φ`
+  (an unselected repertoire), while `mu_phi` averages the prototype panel. Between-donor cosine
+  spread on two real cohorts — raw 0.0105 / 0.0010, `mu_phi` 0.4008 / 0.0785, `naive` 1.2660 /
+  1.6148, oracle (each cohort's own mean) 1.9031 / 1.9088. `naive` recovers 67–85% of the oracle,
+  `mu_phi` only 4–21%, because `‖mu_phi − sample mean‖` is 5–7× the between-donor spread.
+
 - **`mir/resources/signature/rsig_v1.npz`** — the fit-free artifact: per-locus slot rotations,
   cloud location/scale, and a naive reference, for all 7 loci in 882 KB. Built by `build_rsig.py`
   from bundled resources with **no sample read**, and **bit-identical on rebuild** (verified
