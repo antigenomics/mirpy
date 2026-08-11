@@ -158,14 +158,25 @@ class TestConstantsGuard:
             "junction_aa": ["C" + "".join(rng.choice(aa, 12)) + "F" for _ in range(n)],
             "duplicate_count": counts.tolist()})
 
-    def test_refuses_input_with_no_singletons(self):
-        """A top-N cut removes the singleton tail, and coverage is 1 - f1/n — so it reads 1.0.
+    def test_drops_a_locus_with_no_singletons(self):
+        """A top-N cut removes the singleton tail, and coverage is 1 - f1/n — so it reads ~1.0.
 
         Freezing cstar from that would put every honest, untruncated sample into extrapolation.
+        Dropped per locus rather than raised, so one pre-collapsed arm does not cost the others
+        their reference.
         """
         draw = [(f"s{i}", {"TRB": self._rep(300, singletons=False, seed=i)}) for i in range(5)]
-        with pytest.raises(ValueError, match="no singletons were observed"):
-            S.measure_constants(draw, n_pgen=50)
+        with pytest.warns(RuntimeWarning, match="no singletons observed"):
+            cstar, q05 = S.measure_constants(draw, n_pgen=50)
+        assert "TRB" not in cstar, "a locus with no singleton tail must get no coverage level"
+        assert "TRB" in q05, "Pgen is still measurable there"
+
+    def test_one_bad_locus_does_not_cost_the_others(self):
+        draw = [(f"s{i}", {"TRB": self._rep(400, singletons=True, seed=i),
+                           "TRA": self._rep(300, singletons=False, seed=i)}) for i in range(5)]
+        with pytest.warns(RuntimeWarning):
+            cstar, _ = S.measure_constants(draw, n_pgen=50)
+        assert "TRB" in cstar and "TRA" not in cstar
 
     def test_accepts_an_untruncated_repertoire(self):
         draw = [(f"s{i}", {"TRB": self._rep(500, singletons=True, seed=i)}) for i in range(5)]

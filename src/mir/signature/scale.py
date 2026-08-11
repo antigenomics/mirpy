@@ -47,6 +47,10 @@ MIN_N_OBS = 1000
 #: every sample into extrapolation, where diversity inflates roughly tenfold.
 CSTAR_QUANTILE = 0.10
 
+#: Attained coverage at or above this is treated as "no singleton tail", not as deep sequencing.
+#: Real repertoires reach 0.24-0.58; a value here means the input was truncated or pre-collapsed.
+COVERAGE_CEILING = 0.99
+
 
 @dataclass(frozen=True)
 class ScaleReference:
@@ -204,18 +208,27 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
     cstar = {k: float(np.quantile(v, cstar_quantile)) for k, v in cov.items() if v}
     q05 = {k: float(np.quantile(v, 0.05)) for k, v in pg.items() if v}
 
-    # A coverage of 1.0 means no clonotype was seen exactly once, which essentially never happens
-    # in a real repertoire and almost always means the input was TRUNCATED — a top-N cut removes
-    # the singleton tail, and Good-Turing coverage is 1 - f1/n, so it reads as perfect coverage.
-    # Freezing cstar from truncated input would put every honest sample into extrapolation, so
-    # this refuses rather than bakes it in.
-    truncated = [k for k, v in cstar.items() if v >= 0.999]
-    if truncated:
-        raise ValueError(
-            f"attained coverage is ~1.0 for {truncated}, i.e. no singletons were observed. That "
-            "is a hallmark of top-N truncated input, not of deep sequencing — reload the "
-            "reference draw without a `top=` cut, since coverage cannot be estimated once the "
-            "singleton tail is gone.")
+    # Coverage near 1.0 means essentially no clonotype was seen exactly once. That is not deep
+    # sequencing — it is the signature of input whose singleton tail is already gone, either from
+    # a top-N cut or from upstream collapsing. Good-Turing coverage is 1 - f1/n, so f1 ~ 0 reads
+    # as perfect coverage, and freezing cstar from it would put every honest sample into
+    # extrapolation, the regime measured to inflate diversity roughly tenfold.
+    #
+    # Dropped **per locus**, not raised globally: one pre-collapsed arm of a cohort should not
+    # cost the other six their reference. A locus with no cstar simply gets no coverage-
+    # standardised diversity, which the `estimable` mask already reports honestly.
+    collapsed = sorted(k for k, v in cstar.items() if v >= COVERAGE_CEILING)
+    for k in collapsed:
+        del cstar[k]
+    if collapsed:
+        import warnings
+
+        warnings.warn(
+            f"no singletons observed for {collapsed} (attained coverage >= {COVERAGE_CEILING}), "
+            "so no coverage level could be established there — these loci will have no "
+            "standardised diversity. Usually means the input was top-N truncated or collapsed "
+            "upstream; reload without a `top=` cut if that is the cause.",
+            RuntimeWarning, stacklevel=2)
     return cstar, q05
 
 

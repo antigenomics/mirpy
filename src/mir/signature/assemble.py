@@ -24,6 +24,11 @@ from . import blocks as B
 #: Widths come from the layout, so the contract has exactly one home.
 _SLOT_OF = {"phiv": "V", "phij": "J", "phic": "C"}
 
+#: Stand-in coverage level for a locus where none could be established. Deliberately
+#: unreachable, so the diversity block fails its own estimability check and masks out instead of
+#: reporting an extrapolation as a measurement.
+_UNREACHABLE_COVERAGE = 1.0
+
 
 def _locus_frames(sample) -> dict[str, pl.DataFrame]:
     """Accept ``{locus: frame}`` or a single frame carrying a ``locus`` column."""
@@ -226,9 +231,20 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
     # The measured constants live with the scale reference, so a caller gets them by default
     # rather than having to know that a hand-picked coverage level would put every sample into
     # extrapolation.
+    #
+    # The dict must cover EVERY locus. measure_constants deliberately omits a locus whose
+    # reference draw had no singleton tail, and a partial dict is indexed positionally
+    # downstream — so a missing key is a KeyError rather than a graceful skip. Filling the gaps
+    # with an unreachable level is the honest completion: that locus's diversity then fails its
+    # own estimability check and masks out, which is exactly what "we could not establish a
+    # coverage level here" should look like.
     if sref is not None:
-        vsig_kw.setdefault("cstar", sref.cstar or 0.20)
         vsig_kw.setdefault("pgen_q05", sref.pgen_q05 or None)
+        if sref.cstar:
+            from vdjtools.signature.layout import LOCI
+
+            vsig_kw.setdefault(
+                "cstar", {loc: sref.cstar.get(loc, _UNREACHABLE_COVERAGE) for loc in LOCI})
 
     frames = _locus_frames(sample)
     if sanitise:
