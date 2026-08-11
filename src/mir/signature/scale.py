@@ -165,6 +165,19 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
 
     cov: dict[str, list[float]] = {}
     pg: dict[str, list[float]] = {}
+    # Load and collapse each recombination model ONCE. It is the expensive step here by a wide
+    # margin — pgen over 2,000 junctions takes ~0.15 s, while building the model takes seconds —
+    # so calling it per sample turns a two-minute measurement into an unbounded one.
+    models: dict[str, object] = {}
+
+    def model_for(locus: str):
+        if locus not in models:
+            try:
+                models[locus] = load_bundled(locus)
+            except Exception:
+                models[locus] = None
+        return models[locus]
+
     for _sid, sample in samples:
         for locus, df in sample.items():
             if loci and locus not in loci:
@@ -176,10 +189,12 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
                 cov.setdefault(locus, []).append(float(sample_coverage(counts)))
             except Exception:
                 pass
+            model = model_for(locus)
+            if model is None:
+                continue
             juncs = df["junction_aa"].to_list()[:n_pgen]
             try:
-                p = np.asarray(pgen_aa_batch(load_bundled(locus), juncs, v=None, j=None),
-                               dtype=float)
+                p = np.asarray(pgen_aa_batch(model, juncs, v=None, j=None), dtype=float)
                 p = p[np.isfinite(p) & (p > 0)]
                 if p.size:
                     pg.setdefault(locus, []).extend(np.log10(p).tolist())
@@ -188,6 +203,19 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
 
     cstar = {k: float(np.quantile(v, cstar_quantile)) for k, v in cov.items() if v}
     q05 = {k: float(np.quantile(v, 0.05)) for k, v in pg.items() if v}
+
+    # A coverage of 1.0 means no clonotype was seen exactly once, which essentially never happens
+    # in a real repertoire and almost always means the input was TRUNCATED — a top-N cut removes
+    # the singleton tail, and Good-Turing coverage is 1 - f1/n, so it reads as perfect coverage.
+    # Freezing cstar from truncated input would put every honest sample into extrapolation, so
+    # this refuses rather than bakes it in.
+    truncated = [k for k, v in cstar.items() if v >= 0.999]
+    if truncated:
+        raise ValueError(
+            f"attained coverage is ~1.0 for {truncated}, i.e. no singletons were observed. That "
+            "is a hallmark of top-N truncated input, not of deep sequencing — reload the "
+            "reference draw without a `top=` cut, since coverage cannot be estimated once the "
+            "singleton tail is gone.")
     return cstar, q05
 
 

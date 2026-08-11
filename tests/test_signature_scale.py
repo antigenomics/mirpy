@@ -142,3 +142,33 @@ class TestStandardizeWiring:
 
         with pytest.raises(ValueError, match="standardize must be"):
             signature({"TRB": pl.DataFrame()}, standardize="yes-please")
+
+
+class TestConstantsGuard:
+    """Truncated input must not be allowed to freeze a nonsense coverage level."""
+
+    @staticmethod
+    def _rep(n, singletons=True, seed=0):
+        rng = np.random.default_rng(seed)
+        aa = list("ACDEFGHIKLMNPQRSTVWY")
+        counts = (np.ceil(rng.zipf(1.6, n).clip(1, 500)).astype(int) if singletons
+                  else rng.integers(5, 500, n))
+        return pl.DataFrame({
+            "v_call": ["TRBV20-1"] * n, "j_call": ["TRBJ2-2"] * n,
+            "junction_aa": ["C" + "".join(rng.choice(aa, 12)) + "F" for _ in range(n)],
+            "duplicate_count": counts.tolist()})
+
+    def test_refuses_input_with_no_singletons(self):
+        """A top-N cut removes the singleton tail, and coverage is 1 - f1/n — so it reads 1.0.
+
+        Freezing cstar from that would put every honest, untruncated sample into extrapolation.
+        """
+        draw = [(f"s{i}", {"TRB": self._rep(300, singletons=False, seed=i)}) for i in range(5)]
+        with pytest.raises(ValueError, match="no singletons were observed"):
+            S.measure_constants(draw, n_pgen=50)
+
+    def test_accepts_an_untruncated_repertoire(self):
+        draw = [(f"s{i}", {"TRB": self._rep(500, singletons=True, seed=i)}) for i in range(5)]
+        cstar, q05 = S.measure_constants(draw, n_pgen=50)
+        assert 0.0 < cstar["TRB"] < 0.999
+        assert q05["TRB"] < 0
