@@ -24,21 +24,18 @@ Sign convention: eigenvector signs are arbitrary and not reproducible across BLA
 component is flipped to make its largest-magnitude coordinate positive. Deterministic given the
 matrix, unlike a coordinate-sum rule, which flips whenever the sum sits near zero.
 
-**Reproducibility, measured, and one caveat.** Rebuilding under a different thread count leaves
-``R_*``, ``mu_phi`` and ``sd_phi`` **bit-identical** — verified 1-thread against 8-thread, with
-zero sign flips. ``naive`` is not bit-identical, because ``vdjtools.model.generate.generate``
-does not reproduce across *processes* even with a fixed seed: it is deterministic within one
-process, but two processes given ``seed=1`` draw different sequences, and neither
-``PYTHONHASHSEED`` nor ``maintain_order=True`` on the grouped tables changes that (all its
-randomness does go through the seeded generator, so the divergence is in the order of the
-prepared probability tables). Filed as a vdjtools issue.
+**Reproducibility: every array is bit-identical on rebuild**, verified 1-thread against
+8-thread, with zero eigenvector sign flips.
 
-What that costs here is bounded and was measured rather than assumed: across independent draws
-the naive vector moves by ~1e-4 relative, falling as ``1/sqrt(n)`` (max coordinate spread 3.11 at
-n=5,000, 2.07 at 20,000, 1.25 at 80,000). Since the artifact **ships as a file**, every user gets
-the identical vector and portability is unaffected; only a *rebuild* differs, and only at that
-tolerance. ``verify()`` therefore checksums the fit-free arrays exactly and checks ``naive``
-against a tolerance, rather than pretending to a bit-exactness that does not hold.
+That took fixing a real bug rather than tolerating it. ``naive`` was initially irreproducible,
+because ``generate(model, n, seed=1)`` drew different sequences in every *process* — determinis-
+tic within one, so a same-process round trip could not see it. The cause was upstream of the
+generator: ``collapse_alleles`` aggregated the model's marginal tables with polars ``group_by``
+calls that lacked ``maintain_order=True``, and polars leaves group order unspecified without it.
+``tables["v_choice"]`` therefore came out in a different row order per process, the cumulative
+distributions were built over those rows, and the same random stream selected different alleles.
+Fixed in ``vdjtools.model.collapse``, with a cross-process regression test, so this file no
+longer has to trade reproducibility for a tolerance.
 
 The corpus-fitted half — per-column location and scale — is *not* here; see
 ``fit_signature_reference.py``. Keeping them apart is what makes the claim auditable: the
@@ -123,9 +120,9 @@ def build_locus(locus: str, *, species: str = "human", n_cloud: int = N_CLOUD,
     gen = gen.filter(gen["junction_aa"].str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$"))
     Zn = model.embed(gen).astype(np.float64)
     out["naive"] = Zn.mean(0)
-    # The Monte Carlo error on that mean, so verify() can check a rebuild against a tolerance it
-    # measured rather than one somebody guessed. Standard error of the mean per coordinate; the
-    # observed between-draw spread runs a few multiples of its maximum.
+    # Standard error of that mean. The rebuild is bit-identical, so this is not a reproducibility
+    # tolerance — it is how tightly n_naive draws pin the reference, which is what says whether
+    # a contrast is a deviation from the naive repertoire or from sampling noise in the estimate.
     out["naive_sem"] = Zn.std(0, ddof=1) / np.sqrt(max(Zn.shape[0], 1))
     out["prototype_hash"] = np.array(prototype_hash(species, locus, K, 0))
     out["n_naive_used"] = np.array(Zn.shape[0])

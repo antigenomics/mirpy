@@ -3,6 +3,50 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+### Added
+
+- **`mir.signature`** — the geometry half of a portable repertoire signature: a fixed-width,
+  name-addressed per-sample vector meant to be handed to a collaborator, on a scale their model
+  can consume without fitting a scaler. The column contract and the statistics half live in
+  `vdjtools.signature`, which mirpy already depends on, so there is one layout and one transform
+  registry rather than two that drift apart.
+
+  Every `rsig` column is a linear functional, a norm, or a mixture coefficient of the prototype-sum
+  measure `Φ(S) = Σ w_σ z_σ`, which is **fit-free** — `z_σ` is a distance vector to the bundled
+  prototype panel, so no basis is estimated from anybody's cohort. Blocks: `depth` (`n_eff`,
+  retained `mass`), `div` (Rao dispersion), `band` (compartment and isotype shares), `contrast`
+  (`Ψ = mass·(Φ − naive)`), `phiv`/`phij`/`phic`.
+
+  Compartment shares are closed form rather than NNLS: `Φ` is linear in the clone-weight measure
+  and the bands here are a genuine partition, so a share of `Φ` is exactly a share of the weight.
+  (`repertoire.band_frames`' default bands overlap by design, and an NNLS over overlapping parts
+  is not a composition — its weights need not sum to one.)
+
+- **`mir.repertoire.rao_dispersion`** — Rao's quadratic entropy in a Euclidean embedding, the
+  companion to `rao_q` where there is no kernel to lean on. For squared distance the double sum
+  telescopes to `2(Σw‖u‖² − ‖Φ‖²)`, so it rides along in the same chunked pass and never needs an
+  `n × n` Gram; verified against an explicit Gram to ten decimals. The `n_eff/(n_eff−1)`
+  correction defaults on, because the self-pair bias is of order `1/n_eff` and effective size both
+  varies by orders of magnitude across samples and correlates with phenotype.
+
+- **`mir/resources/signature/rsig_v1.npz`** — the fit-free artifact: per-locus slot rotations,
+  cloud location/scale, and a naive reference, for all 7 loci in 882 KB. Built by `build_rsig.py`
+  from bundled resources with **no sample read**, and **bit-identical on rebuild** (verified
+  1-thread against 8-thread, zero eigenvector sign flips).
+
+  Widths were set by measurement, not taste: the rotation is the PCA of the prototype cloud, and
+  gate B1a checks how much *sample-level* variance that retains against a rotation fitted to the
+  samples themselves. Two of three first-pass widths passed on one cohort and failed on another,
+  which is why the gate runs on two. Shipped: `phiv` 16/24, `phij` 6/12, `phic` 32/48
+  (standard/full).
+
+  `Φ` must be centred against the frozen `mu_phi` before it carries information — every prototype
+  distance is large and positive, so raw between-donor cosine spans ~0.001 while the shared offset
+  is 55× the between-donor signal; centred, the same donors span 1.48. A test pins this so it
+  cannot silently regress.
+
 ## 3.9.0 — 2026-08-03
 
 **A code-review pass, and what it found.** Twenty findings across the library, all fixed, each with

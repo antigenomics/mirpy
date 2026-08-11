@@ -108,6 +108,49 @@ origin rather than being deleted by a minimum-clonotype floor. Never add such a 
 blood rule, not a tissue rule. `missing_mass` requires integer counts and rejects a frequency
 column rather than silently returning 0.
 
+`rao_dispersion(U, w)` is the Euclidean companion to `rao_q`, for the fit-free prototype-sum
+representation where there is no kernel to lean on. For squared distance the double sum
+telescopes to `2(Σw‖u‖² − ‖Φ‖²)`, so functional diversity rides along in the same chunked pass
+and never needs an `n × n` Gram. The `n_eff/(n_eff−1)` correction is on by default: the self-pair
+bias is of order `1/n_eff`, which varies by orders of magnitude across samples *and* correlates
+with phenotype.
+
+### `mir.signature` — the portable signature (geometry half)
+
+A **fixed-width, name-addressed per-sample vector meant to be handed to someone else**, on a
+scale their model can consume without fitting a scaler. The column contract lives in
+`vdjtools.signature` (which mirpy already depends on, so there is one layout and one transform
+registry rather than two that drift); this package supplies the `rsig` blocks, `vdjtools.signature`
+supplies the `vsig` ones, and the two concatenate on `sample_id`.
+
+| | `vsig` — statistics | `rsig` — geometry |
+|---|---|---|
+| blocks | `depth` `div` `clon` `len` `iso` `shm` `pair` `aa` `pchem` `pgen` (+`usage` `pub` pending) | `depth` `div` `band` `contrast` `phiv` `phij` `phic` |
+| each column is | a defined statistic of the clone-size vector or the germline vocabulary | a linear functional, a norm, or a mixture coefficient of `Φ = Σ w_σ z_σ` |
+
+`depth` and `div` appear under **both** on purpose — the count-native and embedding-native
+readings of the same idea are different objects (`n_eff = 1/Σw²` is a Hill number of the weights
+the geometry actually uses), and their head-to-head is a result. The `sig` prefix keeps them apart.
+
+The geometry is **fit-free**: `z_σ` is a distance vector to the bundled prototype panel and the
+rotation is the PCA of the *prototype cloud*, fitted to no samples at all, so nothing drifts when
+a reference is re-fit. Measured (gate B1a, two cohorts): it retains ≥0.98 of a sample-fitted
+rotation at the shipped widths, whereas a *fitted* junction basis has split-half column agreement
+of 0.23 — its coordinates do not survive splitting one cohort in half.
+
+`Φ` **must be centred** against the frozen `mu_phi` or the block is nearly blank: every prototype
+distance is large and positive, so raw between-donor cosine spans ~0.001 while the shared offset
+is 55× the between-donor signal. Centred, the same donors span 1.48. Same reason `contrast`
+subtracts a naive reference instead of reporting `Φ`.
+
+Compartment shares are **closed form, not NNLS**: `Φ` is linear in the clone-weight measure and
+the bands are a genuine partition, so a compartment's share of `Φ` is exactly its share of the
+weight. (`repertoire.band_frames`' default bands overlap — `top ⊂ expanded` — so an NNLS over
+them is not a composition at all and its shares can exceed 1.)
+
+Artifact: `mir/resources/signature/rsig_v1.npz` — 7 loci, 882 KB, **bit-identical on rebuild**,
+built by `build_rsig.py` from bundled resources with no sample read.
+
 ### `mir.cohort` — the digital donor
 
 `fit_donor_embeddings` → `DonorCohort`: per-chain identity (kernel mean, cross-sample
