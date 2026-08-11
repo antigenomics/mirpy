@@ -177,33 +177,67 @@ def _model(species: str, locus: str, n_prototypes: int):
 
 
 def signature(sample, *, tier: str = "standard", species: str = "human", weight: str = "log2p1",
-              reference=None, sanitise: bool = True, **vsig_kw) -> dict[str, float]:
+              reference=None, scale=None, standardize: str = "reference", clip: float = 8.0,
+              sanitise: bool = True, **vsig_kw) -> dict[str, float]:
     """Both halves of one sample's signature, concatenated — the hand-off object.
+
+    With ``standardize="reference"`` (the default) every column is rescaled against the frozen
+    reference, so the result is dimensionless and on a common scale and a downstream model needs
+    no scaler of its own. That is the entire point: a collaborator's matrix and ours are directly
+    comparable, rather than each being internally consistent and mutually meaningless.
 
     Args:
         sample: ``{locus: clonotype frame}`` or one frame with a ``locus`` column.
         tier: ``"core"``, ``"standard"`` or ``"full"``.
         species: Prototype panel species.
         weight: Clone-size weight ``g``, shared by both halves so they describe one measure.
-        reference: Frozen reference, or ``None`` for the bundled one.
+        reference: Frozen geometry reference, or ``None`` for the bundled one.
+        scale: A :class:`~mir.signature.scale.ScaleReference`, or ``None`` for the bundled one.
+        standardize: ``"reference"`` to rescale against it, ``"none"`` for raw values. Asking for
+            ``"reference"`` when none is installed raises rather than silently handing back raw
+            numbers that look standardised.
+        clip: Bound in robust standard deviations when standardising.
         sanitise: Drop unusable clonotypes first. Leave this on: malformed junctions do **not**
             raise in the embedder — a stop codon or an ambiguity code returns a finite, meaningless
             distance — so skipping it contaminates the geometry silently.
         **vsig_kw: Forwarded to ``vdjtools.signature.vsig`` (``cstar``, ``pgen_q05``, ``strict``…).
+            ``cstar`` and ``pgen_q05`` default to the measured values in the scale reference.
 
     Returns:
         ``{column: value}`` for ``vsig`` then ``rsig``, in layout order.
+
+    Raises:
+        ValueError: If ``standardize`` is unknown, or is ``"reference"`` with none available.
     """
     from vdjtools.signature import blocks as VB
     from vdjtools.signature import vsig
+
+    from .scale import load_scale
+
+    if standardize not in ("reference", "none"):
+        raise ValueError(f"standardize must be 'reference' or 'none'; got {standardize!r}")
+    sref = scale if scale is not None else load_scale()
+    if standardize == "reference" and sref is None:
+        raise ValueError(
+            "standardize='reference' but no scale reference is installed. Fit one with "
+            "mir.signature.scale.fit_scale over a reference cohort, or pass standardize='none' "
+            "to get raw values — which are usable, but not comparable to anyone else's.")
+
+    # The measured constants live with the scale reference, so a caller gets them by default
+    # rather than having to know that a hand-picked coverage level would put every sample into
+    # extrapolation.
+    if sref is not None:
+        vsig_kw.setdefault("cstar", sref.cstar or 0.20)
+        vsig_kw.setdefault("pgen_q05", sref.pgen_q05 or None)
 
     frames = _locus_frames(sample)
     if sanitise:
         frames = {k: VB.sanitise(v)[0] for k, v in frames.items()}
         frames = {k: v for k, v in frames.items() if v.height}
     # vsig sanitises internally and needs the raw frames to report the dropped fraction honestly
-    return {**vsig(sample, tier=tier, weight=weight, **vsig_kw),
-            **rsig(frames, tier=tier, species=species, weight=weight, reference=reference)}
+    out = {**vsig(sample, tier=tier, weight=weight, **vsig_kw),
+           **rsig(frames, tier=tier, species=species, weight=weight, reference=reference)}
+    return sref.apply(out, clip=clip) if standardize == "reference" else out
 
 
 def signature_cohort(samples, *, tier: str = "standard", **kw) -> pl.DataFrame:

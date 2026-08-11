@@ -148,8 +148,25 @@ the bands are a genuine partition, so a compartment's share of `Φ` is exactly i
 weight. (`repertoire.band_frames`' default bands overlap — `top ⊂ expanded` — so an NNLS over
 them is not a composition at all and its shares can exceed 1.)
 
-Artifact: `mir/resources/signature/rsig_v1.npz` — 7 loci, 882 KB, **bit-identical on rebuild**,
-built by `build_rsig.py` from bundled resources with no sample read.
+**Two artifacts, and the split is the point.** `rsig_v1.npz` (7 loci, 882 KB, **bit-identical on
+rebuild**) holds the geometry and is built from bundled resources with no sample read.
+`rsig_scale_v1.npz` holds the one thing that *must* come from data — per-column location and
+scale — plus the measured `cstar` and `pgen_q05`. Fitting a scale is a different statistical
+problem from fitting a basis: a rotation over p=256 is not identified at a thousand samples,
+while a median and MAD are identified at any n and converge as `1/sqrt(n)`. That is why the
+re-fit story is safe.
+
+```python
+from mir.signature import signature, signature_cohort
+v = signature({"TRB": df})                 # 716 named columns, standardized, ~0.26 s/sample
+F = signature_cohort(samples)              # one row per sample, positional
+signature(sample, standardize="none")      # raw values
+```
+
+`fit_scale` refuses a column the corpus barely saw (`min_n_obs`) rather than shipping a
+confident-looking number from nine samples; statistics come from observed entries only, before
+any imputation, since filling first deflates the scale in proportion to sparsity and lets the
+least-observed locus dominate. A hole stays `nan` — never centred, never zero-filled.
 
 ### `mir.cohort` — the digital donor
 

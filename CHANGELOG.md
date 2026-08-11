@@ -48,6 +48,18 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
   1.6148, oracle (each cohort's own mean) 1.9031 / 1.9088. `naive` recovers 67–85% of the oracle,
   `mu_phi` only 4–21%, because `‖mu_phi − sample mean‖` is 5–7× the between-donor spread.
 
+- **`mir.signature.scale`** — the corpus-fitted half of the reference, and the last thing between
+  a set of components and a hand-off object. `signature(standardize="reference")` now returns
+  dimensionless columns on a common scale, so a downstream model needs no scaler of its own.
+
+  Robust (median, `1.4826·MAD`), computed from observed entries only *before* any imputation, and
+  refusing any column seen fewer than `min_n_obs` times — each because the alternative silently
+  corrupts something: moments let a handful of pathological repertoires set everyone's scale;
+  imputing first deflates a sparse column's scale until the least-observed locus dominates every
+  distance; and a location fitted on nine samples is not a reference. `measure_constants` also
+  fixes the per-locus `cstar` and `pgen_q05` as quantiles of what the corpus attains, rather than
+  the hand-picked values the blocks previously defaulted to.
+
 - **`mir/resources/signature/rsig_v1.npz`** — the fit-free artifact: per-locus slot rotations,
   cloud location/scale, and a naive reference, for all 7 loci in 882 KB. Built by `build_rsig.py`
   from bundled resources with **no sample read**, and **bit-identical on rebuild** (verified

@@ -141,23 +141,24 @@ class TestRsig:
 class TestCombinedSignature:
     def test_both_halves_in_layout_order(self, sample):
         from vdjtools.signature import layout as L
-        assert list(assemble.signature(sample)) == L.columns("standard")
+        assert list(assemble.signature(sample, standardize="none")) == L.columns("standard")
 
     def test_width_is_the_sum_of_the_halves(self, sample):
         from vdjtools.signature import layout as L
-        assert (len(assemble.signature(sample))
+        assert (len(assemble.signature(sample, standardize="none"))
                 == len(L.columns("standard", "vsig")) + len(L.columns("standard", "rsig")))
 
     def test_a_trb_only_user_gets_a_full_width_vector(self):
         from vdjtools.signature import layout as L
-        v = assemble.signature({"TRB": frame(900, seed=5)})
+        v = assemble.signature({"TRB": frame(900, seed=5)}, standardize="none")
         assert list(v) == L.columns("standard")
         assert np.isfinite(v["rsig:phic:TRB:PC01"])
         assert np.isnan(v["rsig:phic:IGH:PC01"])
 
     def test_cohort_frame_is_positional(self, sample):
         from vdjtools.signature import layout as L
-        F = assemble.signature_cohort({"a": sample, "b": {"TRB": frame(700, seed=6)}})
+        F = assemble.signature_cohort({"a": sample, "b": {"TRB": frame(700, seed=6)}},
+                                          standardize="none")
         assert F.columns == ["sample_id", *L.columns("standard")]
         assert F.height == 2
 
@@ -169,6 +170,31 @@ class TestCombinedSignature:
         junk = frame(400, seed=7).with_columns(
             pl.when(pl.int_range(pl.len()) < 200).then(pl.lit("CASS*RSSYEQYF"))
               .otherwise(pl.col("junction_aa")).alias("junction_aa"))
-        clean = assemble.signature({"TRB": junk})
+        clean = assemble.signature({"TRB": junk}, standardize="none")
         assert np.isfinite(clean["rsig:phic:TRB:PC01"])
         assert clean["vsig:qc:TRB:nonstd_aa_frac"] > -5, "the dropped fraction was not reported"
+
+
+class TestStandardizeContract:
+    """Standardisation is opt-out, and its absence is stated rather than silently ignored."""
+
+    def test_reference_standardisation_uses_a_supplied_scale(self, sample):
+        import polars as pl
+
+        from mir.signature.scale import fit_scale
+
+        raw = assemble.signature(sample, standardize="none")
+        cols = [c for c in raw if np.isfinite(raw[c])][:5]
+        rng = np.random.default_rng(0)
+        fake = pl.DataFrame({"sample_id": [f"s{i}" for i in range(50)],
+                             **{c: rng.normal(raw[c], 1.0, 50) for c in cols}})
+        sc = fit_scale(fake, min_n_obs=10)
+        out = assemble.signature(sample, standardize="reference", scale=sc)
+        assert set(out) == set(raw), "standardising changed the key set"
+        assert abs(out[cols[0]]) < 8.0
+
+    def test_missing_scale_is_an_error_not_a_silent_passthrough(self, sample, monkeypatch):
+        """Raw values that look standardised are worse than a refusal."""
+        monkeypatch.setattr("mir.signature.scale.load_scale", lambda *a, **k: None)
+        with pytest.raises(ValueError, match="no scale reference is installed"):
+            assemble.signature(sample, standardize="reference")

@@ -20,6 +20,14 @@ from .blocks import (
     slots,
     weights,
 )
+from .scale import (
+    MIN_N_OBS,
+    ScaleReference,
+    fit_scale,
+    load_scale,
+    measure_constants,
+    save_scale,
+)
 from .reference import (
     DEFAULT_PATH,
     LocusReference,
@@ -40,7 +48,13 @@ __all__ = [
     "isotype_shares",
     "prototype_sum",
     "slots",
+    "MIN_N_OBS",
     "LocusReference",
+    "ScaleReference",
+    "fit_scale",
+    "load_scale",
+    "measure_constants",
+    "save_scale",
     "SignatureReference",
     "load_reference",
     "rsig",
