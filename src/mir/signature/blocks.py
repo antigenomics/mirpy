@@ -27,10 +27,13 @@ distance is large and positive, so every repertoire's ``Φ`` sits in almost the 
 measured on eight unrelated donors, the cosine between *different* people's raw ``Φ`` spans
 0.9989–0.9999, and the shared offset is about **55×** the between-donor signal in norm. Subtract
 the reference mean and the same eight span −0.81 to +0.66 — roughly a thousandfold more
-discriminative. So ``mu_phi`` is not a tidying step and the rotation is not fit on raw ``Φ``:
-without the centring, the leading component is the constant everyone shares and the identity
-block is nearly blank. The same argument is why :func:`contrast` subtracts a naive reference
-rather than reporting ``Φ`` directly.
+discriminative. So centring is not a tidying step: without it the leading component is the
+constant everyone shares and the identity block is nearly blank.
+
+The centre is the **naive reference**, not the prototype-cloud mean — both are fit-free, but
+they average different things, and only one is where repertoires live. See
+:meth:`mir.signature.reference.LocusReference.standardize` for the measurement. The same
+argument is why :func:`contrast` subtracts that reference rather than reporting ``Φ`` directly.
 """
 from __future__ import annotations
 
@@ -57,6 +60,17 @@ WEIGHTS = {
 #: ``mir.repertoire.band_frames``, whose ``top`` is deliberately a subset of ``expanded``. The
 #: mixture identity is only exact for a partition, and an NNLS over overlapping parts is not a
 #: composition at all: its weights need not sum to one and an individual share can exceed it.
+#: **These are depth-fragile, and deliberately not corrected.** An abundance compartment's share
+#: genuinely moves with sequencing depth: the singleton fraction grows as rarer clones are
+#: sampled, and a 1% quantile selects 20 clonotypes in a 2,000-clonotype sample against 1,000 in
+#: a 100,000-clonotype one. Measured on one repertoire across a 67x depth range, ``band:top``
+#: spans about 6.9 in log-ratio coordinates. Bounding the quantile to a clonotype count (as
+#: ``mir.repertoire.band_frames``' ``top_clip`` does) was tried and merely relocated the
+#: discontinuity, so it was reverted rather than shipped as a fix.
+#:
+#: The signature's answer to a depth-fragile column is not to correct it but to carry the
+#: covariate: ``vsig:depth:*`` and ``rsig:depth:*`` are in every tier precisely so a downstream
+#: model can adjust. ``vsig:clon:*:clr_f1`` is documented the same way for the same reason.
 BANDS: dict[str, "callable"] = {
     "singleton": lambda a: a == 1,
     "middle": lambda a: (a > 1) & (a < np.maximum(np.quantile(a, 0.99), 2)),
