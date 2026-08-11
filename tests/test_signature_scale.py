@@ -183,3 +183,31 @@ class TestConstantsGuard:
         cstar, q05 = S.measure_constants(draw, n_pgen=50)
         assert 0.0 < cstar["TRB"] < 0.999
         assert q05["TRB"] < 0
+
+
+class TestPartialCstar:
+    """measure_constants omits loci it cannot establish, so a partial dict is the normal case."""
+
+    @staticmethod
+    def _frame(n=500, seed=0):
+        rng = np.random.default_rng(seed)
+        aa = list("ACDEFGHIKLMNPQRSTVWY")
+        return pl.DataFrame({
+            "v_call": ["TRBV20-1"] * n, "j_call": ["TRBJ2-2"] * n,
+            "junction_aa": ["C" + "".join(rng.choice(aa, 12)) + "F" for _ in range(n)],
+            "duplicate_count": np.ceil(rng.zipf(1.5, n).clip(1, 400)).astype(int).tolist()})
+
+    def test_a_partial_dict_passed_explicitly_does_not_crash(self):
+        """The path that broke the first real fit: cstar handed straight from measure_constants."""
+        from mir.signature import signature
+
+        v = signature({"TRB": self._frame()}, standardize="none", cstar={"TRB": 0.3})
+        assert np.isfinite(v["vsig:div:TRB:1D_c"])
+
+    def test_a_locus_without_a_level_masks_out_rather_than_borrowing_one(self):
+        from mir.signature import signature
+
+        v = signature({"TRB": self._frame()}, standardize="none", cstar={"TRA": 0.3})
+        assert v["vsig:mask:TRB:estimable"] == 0.0
+        assert np.isnan(v["vsig:div:TRB:1D_c"])
+        assert np.isfinite(v["vsig:depth:TRB:reads"]), "depth is still measurable"

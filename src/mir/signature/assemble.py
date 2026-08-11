@@ -241,10 +241,15 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
     if sref is not None:
         vsig_kw.setdefault("pgen_q05", sref.pgen_q05 or None)
         if sref.cstar:
-            from vdjtools.signature.layout import LOCI
+            vsig_kw.setdefault("cstar", sref.cstar)
 
-            vsig_kw.setdefault(
-                "cstar", {loc: sref.cstar.get(loc, _UNREACHABLE_COVERAGE) for loc in LOCI})
+    # Complete the dict AFTER the defaults, and unconditionally — a caller may pass a partial one
+    # straight from measure_constants, which is the common case when fitting a reference.
+    if isinstance(vsig_kw.get("cstar"), dict):
+        from vdjtools.signature.layout import LOCI
+
+        given = vsig_kw["cstar"]
+        vsig_kw["cstar"] = {loc: given.get(loc, _UNREACHABLE_COVERAGE) for loc in LOCI}
 
     frames = _locus_frames(sample)
     if sanitise:
