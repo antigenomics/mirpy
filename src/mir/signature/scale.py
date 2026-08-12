@@ -167,7 +167,11 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
         labels = np.asarray(frame[group].to_list() if isinstance(group, str) else list(group))
         if labels.size != frame.height:
             raise ValueError(f"group has {labels.size} labels for {frame.height} samples")
-    cols = [c for c in frame.columns if c != "sample_id" and c != group]
+    # Only a *column name* names a column to exclude. Comparing against ``group`` itself would
+    # broadcast when a caller passes the sequence the signature also accepts, and ``and`` on the
+    # resulting array raises before any of this is reached.
+    drop = {"sample_id", group} if isinstance(group, str) else {"sample_id"}
+    cols = [c for c in frame.columns if c not in drop]
     if not cols:
         raise ValueError("frame carries no signature columns")
     X = frame.select(cols).to_numpy().astype(float)

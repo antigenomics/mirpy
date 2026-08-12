@@ -211,3 +211,31 @@ class TestPartialCstar:
         assert v["vsig:mask:TRB:estimable"] == 0.0
         assert np.isnan(v["vsig:div:TRB:1D_c"])
         assert np.isfinite(v["vsig:depth:TRB:reads"]), "depth is still measurable"
+
+
+class TestGroupArgumentForms:
+    """``group=`` is documented as "a column name in ``frame``, or a sequence" — so both must work."""
+
+    @staticmethod
+    def _frame(n: int = 400):
+        rng = np.random.default_rng(0)
+        return pl.DataFrame({"sample_id": [f"s{i}" for i in range(n)],
+                             **{f"vsig:depth:TRB:c{i}": rng.normal(size=n) for i in range(5)}})
+
+    @pytest.mark.parametrize("as_list", [False, True])
+    def test_a_sequence_of_labels_is_accepted(self, as_list):
+        """The column filter used to compare each name against ``group`` itself.
+
+        With a sequence that broadcasts to an array, and ``and`` on an array raises before the fit
+        starts — so the documented sequence form crashed while only the column-name form worked.
+        """
+        g = np.array(["A"] * 200 + ["B"] * 200)
+        ref = S.fit_scale(self._frame(), group=list(g) if as_list else g)
+        assert len(ref.columns) == 5
+
+    def test_a_column_name_is_excluded_from_the_signature_columns(self):
+        g = np.array(["A"] * 200 + ["B"] * 200)
+        frame = self._frame().with_columns(pl.Series("study_group", g))
+        ref = S.fit_scale(frame, group="study_group")
+        assert "study_group" not in ref.columns
+        assert len(ref.columns) == 5
