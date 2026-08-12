@@ -239,3 +239,60 @@ class TestGroupArgumentForms:
         ref = S.fit_scale(frame, group="study_group")
         assert "study_group" not in ref.columns
         assert len(ref.columns) == 5
+
+
+class TestBlockPolicy:
+    """``exempt`` and ``magnitude`` are layout *contract*; the scaler has to honour them.
+
+    Both flags were declared, documented and asserted in the layout tests from the start, and
+    nothing on the emission path read either — so ``rsig:contrast:*`` shipped median-centred in
+    ``rsig_scale_v2.npz`` (66 columns, ``loc = 7.04`` on ``contrast:TRA:norm``). That inverts the
+    block's stated meaning: an immune desert is ``Ψ = 0``, which centring maps to ``-87`` robust
+    deviations and clips onto the far tail beside the most deviant samples in the corpus.
+    """
+
+    @staticmethod
+    def _frame(n: int = 2000):
+        rng = np.random.default_rng(0)
+        return pl.DataFrame({
+            "sample_id": [f"s{i}" for i in range(n)],
+            "vsig:mask:TRB:present": rng.integers(0, 2, n).astype(float),
+            "rsig:contrast:TRB:norm": 7.0 + rng.normal(0, 0.08, n),
+            "rsig:contrast:TRB:PC01": -2.0 + rng.normal(0, 0.5, n),
+            "rsig:contrast:TRB:PC02": 0.5 + rng.normal(0, 0.13, n),
+            "vsig:depth:TRB:reads": 5.0 + rng.normal(0, 0.3, n),
+        })
+
+    def test_a_null_contrast_stays_at_the_origin(self):
+        ref = S.fit_scale(self._frame(), min_n_obs=100)
+        out = ref.apply({"rsig:contrast:TRB:PC01": 0.0, "rsig:contrast:TRB:PC02": 0.0})
+        assert out == {"rsig:contrast:TRB:PC01": 0.0, "rsig:contrast:TRB:PC02": 0.0}
+
+    def test_contrast_coordinates_share_one_scale_per_locus(self):
+        """One uncentred number for the block, not a per-column z.
+
+        Per-column scaling forces every coordinate to unit spread, which erases the *relative*
+        sizes the contrast direction is made of.
+        """
+        ref = S.fit_scale(self._frame(), min_n_obs=100)
+        i = ref.columns.index("rsig:contrast:TRB:PC01")
+        j = ref.columns.index("rsig:contrast:TRB:PC02")
+        assert ref.scale[i] == ref.scale[j] > 0
+
+    def test_the_norm_keeps_ordinary_reference_z(self):
+        """It is a log1p of a length, not a magnitude — sharing the coordinates' RMS would
+        divide a value near 7 by the same constant as one near 0."""
+        ref = S.fit_scale(self._frame(), min_n_obs=100)
+        i = ref.columns.index("rsig:contrast:TRB:norm")
+        assert abs(ref.loc[i] - 7.0) < 0.05 and 0 < ref.scale[i] < 0.2
+
+    def test_a_mask_is_not_standardised(self):
+        ref = S.fit_scale(self._frame(), min_n_obs=100)
+        i = ref.columns.index("vsig:mask:TRB:present")
+        assert ref.loc[i] == 0.0 and ref.scale[i] == 0.0
+        assert ref.apply({"vsig:mask:TRB:present": 1.0}) == {"vsig:mask:TRB:present": 1.0}
+
+    def test_an_ordinary_column_is_still_centred_and_scaled(self):
+        ref = S.fit_scale(self._frame(), min_n_obs=100)
+        i = ref.columns.index("vsig:depth:TRB:reads")
+        assert abs(ref.loc[i] - 5.0) < 0.05 and ref.scale[i] > 0

@@ -199,9 +199,13 @@ def isotype_shares(df: pl.DataFrame, w: np.ndarray, *,
     statistics half reports — the two answer different questions and the signature carries both
     rather than picking the flattering one.
     """
+    from vdjtools.io.schema import strip_allele
+
     if "c_call" not in df.columns:
         return {}
-    calls = df["c_call"].to_list()
+    # Allele-stripped: the classes are gene names matched by equality, so ``IGHG1*01`` would match
+    # nothing and the whole repertoire would come back uncalled — a composition, not an error.
+    calls = df.select(strip_allele(pl.col("c_call").cast(pl.Utf8)).alias("c"))["c"].to_list()
     out: dict[str, float] = {}
     claimed = 0.0
     for name, prefixes in ISOTYPE_BANDS.items():

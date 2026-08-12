@@ -191,6 +191,7 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
             if scale[j] <= 0:                 # observed but constant: nothing to divide by
                 scale[j] = 0.0
 
+    _block_policy(cols, X, observed, loc, scale)
     batch = _batch_ratio(X, observed, loc, scale, labels) if labels is not None else None
     return ScaleReference(columns=cols, loc=loc, scale=scale, n_obs=n_obs.astype(np.int64),
                           cstar=dict(cstar or {}), pgen_q05=dict(pgen_q05 or {}),
@@ -198,6 +199,48 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
                           meta={"min_n_obs": min_n_obs, "n_samples": int(X.shape[0]),
                                 "groups": sorted(set(labels.tolist())) if labels is not None
                                 else None, **(meta or {})})
+
+
+def _block_policy(cols, X, observed, loc, scale) -> None:
+    """Honour the layout's ``exempt`` and ``magnitude`` flags, which are contract, not decoration.
+
+    Both were declared, documented and unit-tested from the start, and until this ran nothing on
+    the emission path consulted either — every column got the same median/MAD treatment.
+
+    * ``exempt`` (masks) is already 0/1 and has nothing to standardise.
+    * ``magnitude`` (the contrast) carries its meaning in its size. Median-centring it sends
+      ``Ψ = 0`` — an immune desert, the one state the block exists to express — to
+      minus-the-median, which on the fitted reference is ``-7.04/0.081 ≈ -87`` robust deviations
+      and clips to the far tail, landing on top of the most violently deviant samples in the
+      corpus. So the block is divided by **one uncentred number per locus**: the origin stays the
+      origin, and the coordinates keep their sizes relative to each other.
+
+    A column too thinly observed to have earned a scale above keeps none; it is excluded from the
+    shared estimate rather than diluting it.
+    """
+    from vdjtools.signature import layout as L
+
+    blk = {(b.sig, b.name): b for b in L.registry() if b.exempt or b.magnitude}
+    groups: dict[tuple, list[int]] = {}
+    for j, c in enumerate(cols):
+        sig, block, locus, feature = L.parse(c)
+        b = blk.get((sig, block))
+        if b is None:
+            continue
+        if b.exempt:
+            loc[j] = scale[j] = 0.0
+        # Only the *coordinates* of a magnitude block are magnitudes. A summary the layout already
+        # declares a transform for — `contrast:norm` is log1p of a length — has been stabilised
+        # into a different kind of number, and sharing the coordinates' raw RMS would divide a
+        # value near 7 by the same constant as one near 0. It keeps ordinary reference-z.
+        elif b.transform(feature) == "none":
+            loc[j] = 0.0
+            if scale[j] > 0:
+                groups.setdefault((sig, block, locus), []).append(j)
+    for js in groups.values():
+        good = X[:, js][observed[:, js]]
+        rms = float(np.sqrt(np.median(good ** 2)))
+        scale[js] = rms if rms > 0 else 0.0
 
 
 def _batch_ratio(X, observed, loc, scale, labels, min_per_group: int = 100) -> np.ndarray:
