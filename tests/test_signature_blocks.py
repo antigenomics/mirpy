@@ -209,3 +209,37 @@ class TestDepthBlock:
     def test_mass_at_the_midpoint_is_zero_for_any_depth(self):
         for n in (10, 1000):
             assert B.depth_block(np.ones(n), B.weights(np.ones(n)), 0.5)["mass"] == 0.0
+
+
+class TestPortability:
+    def test_the_signature_computes_without_scikit_learn(self, monkeypatch):
+        """``mir.signature`` must not need the ML extra.
+
+        The signature is the one part of the library meant to run anywhere from a plain install,
+        and the import that broke this sat two modules away: ``assemble`` reaches ``missing_mass``
+        in ``mir.repertoire``, which imported ``mir.density``, which imported sklearn at module
+        scope. Nothing failed until a sample was actually assembled, so a cluster run computed
+        every block for 4,000 samples and then emitted zero rows. Blocking the import is the only
+        check that would have caught it -- sklearn is installed in every dev environment.
+        """
+        import builtins
+
+        real = builtins.__import__
+
+        def guard(name, *args, **kwargs):
+            if name == "sklearn" or name.startswith("sklearn."):
+                raise ModuleNotFoundError("No module named 'sklearn'")
+            return real(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", guard)
+
+        from mir.signature import signature
+
+        rng = np.random.default_rng(0)
+        aa = ["CASS" + "".join(rng.choice(list("ACDEFGHIKLMNPQRSTVWY"), 8)) + "F"
+              for _ in range(60)]
+        df = pl.DataFrame({"junction_aa": aa, "v_call": ["TRBV5-1*01"] * 60,
+                           "j_call": ["TRBJ2-7*01"] * 60,
+                           "duplicate_count": rng.integers(1, 50, 60)})
+        v = signature({"TRB": df}, tier="full", standardize="none", threads=1)
+        assert any(np.isfinite(x) for x in v.values() if isinstance(x, float))

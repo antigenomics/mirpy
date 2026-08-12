@@ -57,15 +57,26 @@ Typical usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 from scipy import stats
-from sklearn.decomposition import PCA
-from sklearn.neighbors import BallTree
-from sklearn.preprocessing import StandardScaler
 
 from mir.distances.junction import junction_distance_matrix
+
+if TYPE_CHECKING:
+    # scikit-learn is imported *inside* the three functions that use it, never at module scope.
+    # ``mir.repertoire`` imports this module eagerly, and ``mir.signature`` reaches
+    # ``missing_mass`` through it, so a top-level import here makes the portable signature —
+    # the one thing meant to run anywhere from a plain install — refuse to compute without the
+    # ML extra installed. It cost a 141-minute cluster run that emitted zero rows before the
+    # failure surfaced, because the import is only reached after every block is computed.
+    # ``from __future__ import annotations`` above makes the dataclass fields below strings, so
+    # nothing here is needed at runtime.
+    from sklearn.decomposition import PCA
+    from sklearn.neighbors import BallTree
+    from sklearn.preprocessing import StandardScaler
 
 _REQUIRED_COLS = ("v_call", "j_call", "junction_aa")
 _AA = "ACDEFGHIKLMNPQRSTVWY"
@@ -255,6 +266,9 @@ def fit_density_space(
     else:
         fit_rows = np.vstack([obs, bg])
 
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+
     scaler = StandardScaler().fit(fit_rows)
     k = min(n_components, fit_rows.shape[0], n_feat)
     pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
@@ -286,6 +300,9 @@ def _fit_density_space_chunked(
         ])
     else:
         fit_rows = np.vstack([_embed(model, obs_df, space), _embed(model, bg_df, space)])
+
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
 
     scaler = StandardScaler().fit(fit_rows)
     k = min(n_components, fit_rows.shape[0], fit_rows.shape[1])
@@ -512,6 +529,8 @@ def neighbor_enrichment(
         )
 
     if backend == "exact":
+        from sklearn.neighbors import BallTree
+
         obs_tree, bg_tree = BallTree(obs), BallTree(bg)
         if radius is None:  # balloon: fix expected background occupancy at lambda0
             k = int(round(lambda0 * n_bg_total / n_ref))
