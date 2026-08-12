@@ -273,7 +273,7 @@ def _batch_ratio(X, observed, loc, scale, labels, min_per_group: int = 100) -> n
 
 
 def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANTILE,
-                      n_pgen: int = 2000) -> tuple[dict, dict]:
+                      n_pgen: int = 2000, threads: int = 0) -> tuple[dict, dict]:
     """Measure ``cstar`` and ``pgen_q05`` per locus from a reference draw.
 
     ``cstar`` is a **low quantile of attained** Good–Turing coverage, so most samples interpolate
@@ -285,6 +285,10 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
         loci: Restrict to these loci; ``None`` measures whatever appears.
         cstar_quantile: Quantile of attained coverage to freeze.
         n_pgen: Junctions sampled per repertoire for the Pgen pool.
+        threads: Worker threads for the Pgen batch; 0 = auto. Pgen is essentially the whole cost
+            of this function — coverage is a one-line reduction, and the models load once — so
+            leaving this unplumbed pins a reference fit to whatever the library defaults to
+            regardless of the machine it was given. ``vsig``'s ``pgen_block`` has always taken it.
 
     Returns:
         ``(cstar, pgen_q05)``, each ``{locus: value}``.
@@ -324,7 +328,8 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
                 continue
             juncs = df["junction_aa"].to_list()[:n_pgen]
             try:
-                p = np.asarray(pgen_aa_batch(model, juncs, v=None, j=None), dtype=float)
+                p = np.asarray(pgen_aa_batch(model, juncs, v=None, j=None, threads=threads),
+                               dtype=float)
                 p = p[np.isfinite(p) & (p > 0)]
                 if p.size:
                     pg.setdefault(locus, []).extend(np.log10(p).tolist())

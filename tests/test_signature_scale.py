@@ -296,3 +296,34 @@ class TestBlockPolicy:
         ref = S.fit_scale(self._frame(), min_n_obs=100)
         i = ref.columns.index("vsig:depth:TRB:reads")
         assert abs(ref.loc[i] - 5.0) < 0.05 and ref.scale[i] > 0
+
+
+def test_measure_constants_plumbs_threads_to_the_pgen_batch():
+    """Pgen is the whole cost of a reference fit; unplumbed, the machine's cores go unused.
+
+    Measured: a 400-sample seven-locus draw sat at 2 cores for 17 minutes because this argument
+    stopped at the function boundary. ``vsig``'s ``pgen_block`` has always taken it.
+    """
+    import inspect
+
+    from vdjtools.model.native import pgen_aa_batch
+
+    assert "threads" in inspect.signature(S.measure_constants).parameters
+    assert "threads" in inspect.signature(pgen_aa_batch).parameters
+
+    seen = {}
+    df = pl.DataFrame({"junction_aa": ["CASSLGQAYEQYF"] * 4, "duplicate_count": [3, 2, 1, 1],
+                       "v_call": ["TRBV20-1"] * 4, "j_call": ["TRBJ2-2"] * 4})
+
+    def spy(model, seqs, *, v=None, j=None, threads=0, **kw):
+        seen["threads"] = threads
+        return [1e-9] * len(seqs)
+
+    import vdjtools.model.native as native
+    real = native.pgen_aa_batch
+    native.pgen_aa_batch = spy
+    try:
+        S.measure_constants([("s0", {"TRB": df})], loci=("TRB",), threads=7)
+    finally:
+        native.pgen_aa_batch = real
+    assert seen.get("threads") == 7, "threads stopped at the function boundary"
