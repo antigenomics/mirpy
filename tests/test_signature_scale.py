@@ -327,3 +327,31 @@ def test_measure_constants_plumbs_threads_to_the_pgen_batch():
     finally:
         native.pgen_aa_batch = real
     assert seen.get("threads") == 7, "threads stopped at the function boundary"
+
+
+class TestBatchRatioIsReportedHonestly:
+    """``batch_dominated`` is all-False both when the reference is clean and when nothing could
+    be measured. Those are opposite statements and the report has to tell them apart.
+
+    The case is not hypothetical: a task-disjoint reference draws a handful of samples per study
+    on purpose, so every group falls under ``_batch_ratio``'s floor and the ratio is NaN
+    throughout — which would print ``batch_dominated: 0`` and read as a clean bill of health.
+    """
+
+    @staticmethod
+    def _frame(n: int, per_group: int):
+        rng = np.random.default_rng(0)
+        g = [f"study{i // per_group}" for i in range(n)]
+        return pl.DataFrame({"sample_id": [f"s{i}" for i in range(n)], "study_group": g,
+                             **{f"vsig:depth:TRB:c{i}": rng.normal(size=n) for i in range(4)}})
+
+    def test_groups_too_small_to_measure_are_not_reported_as_clean(self):
+        ref = S.fit_scale(self._frame(400, per_group=8), group="study_group", min_n_obs=100)
+        rep = ref.report()
+        assert rep["batch_measured"] == 0, "nothing was measurable at 8 samples per group"
+        assert rep["batch_dominated"] == 0
+        assert np.isnan(ref.batch_ratio).all()
+
+    def test_groups_large_enough_are_measured(self):
+        ref = S.fit_scale(self._frame(400, per_group=200), group="study_group", min_n_obs=100)
+        assert ref.report()["batch_measured"] == 4

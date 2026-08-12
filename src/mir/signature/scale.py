@@ -120,6 +120,12 @@ class ScaleReference:
                "median_n_obs": int(np.median(self.n_obs)),
                "loci_with_cstar": sorted(self.cstar), "min_n_obs": self.meta.get("min_n_obs")}
         if self.batch_ratio is not None:
+            # Both counts, always. `batch_dominated` is all-False when the ratio could not be
+            # measured at all — every group below the floor, which is what a reference drawn a
+            # handful of samples per study looks like — and 0-of-0 reads exactly like 0-of-1403,
+            # i.e. "we checked and this reference is clean". Reporting the denominator is the
+            # difference between a measurement and a silence.
+            out["batch_measured"] = int(np.isfinite(self.batch_ratio).sum())
             out["batch_dominated"] = int(self.batch_dominated.sum())
         return out
 
