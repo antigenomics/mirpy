@@ -203,6 +203,42 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
     _write(out, a.output)
 
 
+def cmd_signature(a: argparse.Namespace) -> None:
+    from mir.signature import assemble, columns, describe
+
+    if a.describe:
+        _write(describe(a.tier), a.output)
+        return
+
+    # A sample is one file, or several files sharing a sample id — a donor sequenced on TRA and
+    # TRB is one signature with both loci filled, not two half-empty ones.
+    from collections import defaultdict
+
+    samples: dict[str, dict[str, pl.DataFrame]] = defaultdict(dict)
+    for path in a.input:
+        df = _with_locus(_read(path))
+        sid = _sample_id(path)
+        for locus in [x for x in df["locus"].unique().to_list() if x]:
+            sub = df.filter(pl.col("locus") == locus)
+            if sub.height:
+                samples[sid][locus] = sub
+
+    if not samples:
+        raise SystemExit("no samples to sign (check inputs)")
+
+    scale = None
+    if a.standardize == "reference" and a.scale:
+        from mir.signature.scale import load_scale
+        scale = load_scale(a.scale)
+
+    out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
+                                    standardize=a.standardize, scale=scale)
+    n_cols = len(columns(a.tier))
+    print(f"[mir] {out.height} samples x {n_cols} columns ({a.tier} tier, "
+          f"standardize={a.standardize})", file=sys.stderr)
+    _write(out, a.output)
+
+
 # --- parser ----------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     """Return the ``mir`` argument parser (``embed clonotypes`` / ``embed repertoires``)."""
@@ -256,6 +292,28 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--threads", type=int, default=0, help="0 = all cores")
     r.add_argument("--seed", type=int, default=0)
     r.set_defaults(func=cmd_repertoires)
+
+    s = sub.add_parser("signature",
+                       help="clonotype tables → the portable repertoire signature (one row/sample)")
+    s.add_argument("input", nargs="*",
+                   help="one or more clonotype files; files sharing a sample id (the name up to "
+                        "the first dot) are joined into one multi-locus sample")
+    s.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
+    s.add_argument("--tier", default="standard", choices=("core", "standard", "full"),
+                   help="column set; the narrower tiers are exact index subsets of the wider ones")
+    s.add_argument("--species", default="human")
+    s.add_argument("--weight", default="log2p1",
+                   choices=("log2p1", "duplicate_count", "distinct", "log1p", "anscombe"),
+                   help="clone-size weight g (default log2p1)")
+    s.add_argument("--standardize", default="reference", choices=("reference", "none"),
+                   help="'reference' rescales every column against the bundled reference so the "
+                        "vector is comparable with anyone else's (default); 'none' emits raw "
+                        "block values")
+    s.add_argument("--scale", default=None,
+                   help="path to an alternative scale artifact (default: the bundled one)")
+    s.add_argument("--describe", action="store_true",
+                   help="print the column dictionary for --tier and exit; reads no input")
+    s.set_defaults(func=cmd_signature)
 
     return p
 

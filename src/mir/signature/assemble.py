@@ -144,8 +144,13 @@ def _clr_shares(shares: dict, keys, m: int, T) -> dict[str, float]:
     The CLR is taken over the *whole* composition — including the residual or uncalled part —
     before any coordinate is selected, so a tier shipping two of three parts still divides by the
     three-part geometric mean and stays a slice of the wider tier.
+
+    Fewer than two parts is a hole, not an error. A shallow repertoire can put every compartment
+    below its clonotype floor, leaving only the residual; a log-ratio needs something to take a
+    ratio *against*, so there is nothing to report — and reporting nothing is the contract, while
+    raising would take the whole sample down with it.
     """
-    if not shares or all(v <= 0 for v in shares.values()):
+    if len(shares) < 2 or all(v <= 0 for v in shares.values()):
         return dict.fromkeys(keys, np.nan)
     coords = T.clr(shares, m=max(m, 1))
     return {k: float(coords[k]) if k in coords else np.nan for k in keys}

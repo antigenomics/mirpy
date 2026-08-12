@@ -8,9 +8,11 @@ operation that turns a raw prototype-sum into signature coordinates::
 
 The centring is not cosmetic. Every prototype distance is large and positive, so all repertoires
 sit in nearly the same place: across unrelated donors the raw between-donor cosine spans about
-0.001, while the shared offset is ~55× the between-donor signal. Rotate without subtracting
-``mu_phi`` and the leading component is the constant everyone shares, so the identity block comes
-out nearly blank. Centred, the same donors span 1.48.
+0.001, while the shared offset is ~55× the between-donor signal. Rotate without subtracting a
+centre and the leading component is the constant everyone shares, so the identity block comes out
+nearly blank. Centred, the same donors span 1.48. The centre is ``naive`` rather than the
+prototype cloud's own ``mu_phi``, which is a measured distinction — see
+:meth:`LocusReference.standardize`.
 
 **Comparability is checked, not assumed.** The artifact records the prototype hash it was built
 against, and :meth:`SignatureReference.verify` refuses a mismatch rather than silently producing
@@ -28,7 +30,7 @@ import numpy as np
 
 #: Where the bundled artifact lives. Alongside the germline distance matrices and the prototype
 #: panels, since it is the same kind of object: a versioned, baked resource.
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature" / "rsig_v1.npz"
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature" / "rsig_v2.npz"
 
 #: Slot name in the artifact -> the layout block it feeds, and its stride in ``Φ``.
 SLOTS: dict[str, tuple[str, int]] = {"V": ("phiv", 0), "J": ("phij", 1), "C": ("phic", 2)}
@@ -44,10 +46,31 @@ class LocusReference:
     naive_sem: np.ndarray              # (3K,) standard error of that mean
     rotations: dict[str, np.ndarray]   # slot -> (p, k)
     prototype_hash: str
+    #: slot -> (k,) relative eigenvalue gap to the next component. See :meth:`exchangeable`.
+    gaps: dict[str, np.ndarray] | None = None
 
     @property
     def n_prototypes(self) -> int:
         return self.mu_phi.size // 3
+
+    def exchangeable(self, slot: str, *, tol: float = 0.02) -> np.ndarray:
+        """Indices of components whose neighbour sits within ``tol`` relative eigenvalue.
+
+        Such a pair spans a well-determined plane, but *which* of the two is the earlier
+        coordinate is determined by nothing: rebuild the artifact against a different panel size
+        or a different LAPACK and they exchange. Measured on the junction slot, components
+        matched by ``|cos|`` between a 5,000-prototype rotation and the whole-panel one drop to
+        0.01 exactly at the near-degenerate pairs while their neighbours stay above 0.95.
+
+        The shipped artifact is frozen, so nothing exchanges in practice. It matters for what a
+        *coordinate* is allowed to mean: a linear model spanning the plane is unaffected, a
+        per-coordinate feature-importance read-out on one of the pair is not interpretable.
+
+        Returns an empty array if the artifact predates the stored gaps.
+        """
+        if not self.gaps or slot not in self.gaps:
+            return np.empty(0, dtype=int)
+        return np.flatnonzero(self.gaps[slot] < tol)
 
     def standardize(self, phi: np.ndarray) -> np.ndarray:
         """``(Φ − naive)/sd_phi`` — centre on an unselected repertoire, then scale.
@@ -186,6 +209,8 @@ def load_reference(path: "str | Path | None" = None) -> SignatureReference:
             mu_phi=d[f"{locus}/mu_phi"], sd_phi=d[f"{locus}/sd_phi"],
             naive=d[f"{locus}/naive"], naive_sem=d[f"{locus}/naive_sem"],
             rotations={s: d[f"{locus}/R_{s}"] for s in SLOTS},
+            gaps=({s: d[f"{locus}/gap_{s}"] for s in SLOTS}
+                  if f"{locus}/gap_V" in d.files else None),
             prototype_hash=str(d[f"{locus}/prototype_hash"]),
         )
     return SignatureReference(loci=loci, meta=meta, path=p)

@@ -74,6 +74,10 @@ mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
 # a dataset of repertoires  ->  one fingerprint Φ(S) per sample, per chain (phi0…), on one
 # shared basis so the rows are mutually comparable; --mmd also writes the pairwise MMD matrix
 mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
+
+# the portable signature  ->  one fixed, named, standardised feature vector per sample
+mir signature cohort/*.tsv.gz -o sig.parquet --tier standard
+mir signature --describe --tier standard          # the column dictionary; reads no input
 ```
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
@@ -385,6 +389,47 @@ embedding and nothing has to be bolted on beside it. Renormalising to mass 1 del
 so coverage and richness are unrecoverable from `Φ` **by construction**; the deficient measure should
 win that question as a design consequence. It sits beside `mir.cohort.missingness_report` as the
 other "is this object honest" check.
+
+## The portable signature (`mir.signature`)
+
+`Φ(S)` is a fingerprint, but not one you can hand over: its basis is fitted on *your* cohort, so two
+collaborators get incomparable vectors. The **signature** is the hand-off object — a fixed-width,
+name-addressed, already-standardised vector that anyone who `pip install mirpy-lib` can compute from
+their own AIRR files and drop into PCA, logistic regression, boosting or an MLP with no scaler of
+their own.
+
+```python
+from mir.signature import signature, signature_cohort, describe
+
+v = signature({"TRB": df})                # 688 named columns (standard tier), ~0.3 s/sample
+F = signature_cohort(samples)             # one row per sample, positional
+describe("standard")                      # column, sig, block, locus, feature, transform, flags
+```
+
+Two halves, concatenated on `sample_id` and namespaced so they never collide: `vsig` (statistics of
+the clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig`
+(geometry — every column a linear functional, a norm, or a mixture coefficient of `Φ`). Tiers
+`core ⊂ standard ⊂ full` are exact **index subsets** of one frozen column order.
+
+Three properties are what make it portable, and each was measured rather than assumed
+(numbers in the analysis repo's `benchmarks/SIGNATURE_SCALING.md`):
+
+- **The basis is fit-free.** The rotation reducing `Φ` to coordinates is the PCA of the *bundled
+  prototype panel* — no samples, nothing to re-fit, so nobody's coordinates move when a reference
+  is refreshed. A basis fitted on a corpus instead is not merely worse but unusable at the sizes
+  anyone has: split-half column agreement of a fitted junction basis is **0.23**.
+- **Only location and scale come from data**, and they converge. Median and `1.4826·MAD` reach
+  0.992 of columns within tolerance at **N = 1,000** reference samples; mean and sd never get there
+  (0.841 at N = 2,000), because the columns are heavy-tailed — 0.4–27% of samples sit beyond five
+  robust deviations, against the 6·10⁻⁷ a normal gives.
+- **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, a
+  statistic the sample is too shallow to estimate — each is `nan` plus a `mask:` column, because a
+  model that reads "absent" as "zero" reads an unsequenced chain as biology.
+
+What it does *not* fix is batch. Fitted on one cohort and applied to another the spread transfers
+(robust sd of z = 1.008) and the offset does not (1.34 robust deviations); `fit_scale(...,
+group=...)` records which columns are batch channels so you are handed the list rather than left to
+find it. The geometry blocks are the cleanest on that measure and the depth summaries the worst.
 
 ## Exposure trajectory, generative loop, digital twin
 

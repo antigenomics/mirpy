@@ -9,9 +9,15 @@ Per locus it emits:
 
 ``R_{V,J,C}``
     The rotation for each prototype slot: the top principal components of the **centred**
-    prototype cloud, ``n_cloud`` bundled prototypes embedded against ``K`` of their own kind.
-    Centred, because every prototype distance is large and positive and the leading component of
-    the uncentred cloud is the constant everything shares.
+    prototype cloud — the *whole* bundled panel embedded against ``K`` of its own kind. Centred,
+    because every prototype distance is large and positive and the leading component of the
+    uncentred cloud is the constant everything shares. Whole rather than a draw, because a draw
+    makes the rotation a random variable in ``n_cloud`` and the junction slot is measurably still
+    moving at 4,000 (see ``N_CLOUD``).
+``gap_{V,J,C}``
+    Relative eigenvalue gap to the next component. Near zero, the pair spans a stable plane but
+    the individual coordinates are exchangeable — fine for a model that spans the plane, not fine
+    for a per-coordinate importance read-out.
 ``mu_phi`` / ``sd_phi``
     Location and scale of the cloud's own coordinates, used to standardise ``Φ`` before rotating.
     These are cloud statistics, not corpus statistics: they say what a *typical receptor* looks
@@ -41,7 +47,7 @@ The corpus-fitted half — per-column location and scale — is *not* here; see
 ``fit_signature_reference.py``. Keeping them apart is what makes the claim auditable: the
 geometry never sees a sample, so re-fitting the reference cannot move a coordinate.
 
-Run:  python build_rsig.py [--out rsig_v1.npz] [--loci TRB,IGH] [--n-cloud 4000] [--n-naive 20000]
+Run:  python build_rsig.py [--out rsig_v2.npz] [--loci TRB,IGH] [--n-cloud 0] [--n-naive 20000]
 """
 from __future__ import annotations
 
@@ -57,10 +63,17 @@ import numpy as np
 #: slot, and 256 already exceeds the numerical rank of the germline slots.
 K = 256
 
-#: Prototypes embedded to define the rotation. Must exceed K comfortably so the cloud covariance
-#: is well determined — 4000 against p=256 per slot is gamma ~ 0.06, far from the p>n regime that
-#: makes a sample-fitted rotation unusable.
-N_CLOUD = 4000
+#: Prototypes embedded to define the rotation. ``None`` means **the whole bundled panel** (10,000
+#: for the diverse chains), and that is deliberate: with a draw, the rotation is a random variable
+#: in ``n_cloud``, and the junction slot's trailing coordinates are measurably still moving at
+#: 4,000. Against the whole panel, components matched by ``|cos|``: V 23/24 stable at n=4,000 and
+#: 24/24 at 5,000, J 12/12 throughout — but C only 5/48 at 4,000 and 14/48 at 5,000, with the
+#: unstable ones exactly the near-degenerate pairs (relative eigenvalue gap < 2% at C15, C35, C38,
+#: C41-43, C46), which *swap* rather than drift. Taking the whole panel removes the draw: the
+#: rotation becomes a deterministic function of a fixed bundled resource, so there is nothing left
+#: to converge to. It costs nothing — retention on two real cohorts is unchanged (V 0.9988/0.9983,
+#: C 0.9873/0.9898 against 0.9988/0.9981, 0.9870/0.9899 at 4,000) and the embedding is instant.
+N_CLOUD = None
 
 #: Synthetic recombinations behind the naive reference.
 N_NAIVE = 20_000
@@ -86,7 +99,7 @@ def _fix_signs(V: np.ndarray) -> np.ndarray:
     return V * signs[:, None]
 
 
-def build_locus(locus: str, *, species: str = "human", n_cloud: int = N_CLOUD,
+def build_locus(locus: str, *, species: str = "human", n_cloud: int | None = N_CLOUD,
                 n_naive: int = N_NAIVE, seed: int = SEED) -> dict:
     """The fit-free arrays for one locus."""
     from mir.embedding.prototypes import load_prototypes
@@ -102,13 +115,21 @@ def build_locus(locus: str, *, species: str = "human", n_cloud: int = N_CLOUD,
     sd[sd <= 0] = 1.0                     # a constant coordinate carries nothing; do not divide
     Zs = (cloud - mu) / sd
 
-    out: dict[str, np.ndarray] = {"mu_phi": mu, "sd_phi": sd}
+    out: dict[str, np.ndarray] = {"mu_phi": mu, "sd_phi": sd, "n_cloud": np.array(cloud.shape[0])}
     widths = {"V": PC_DIMS["phiv"]["full"], "J": PC_DIMS["phij"]["full"],
               "C": PC_DIMS["phic"]["full"]}
     for name, off in SLOTS.items():
         S = Zs[:, off::3]
-        _, _, vt = np.linalg.svd(S - S.mean(0), full_matrices=False)
+        _, sv, vt = np.linalg.svd(S - S.mean(0), full_matrices=False)
         out[f"R_{name}"] = _fix_signs(vt[: widths[name]]).T      # (p, k)
+        # Relative eigenvalue gap to the next component. Where it is near zero the two components
+        # span a stable plane but which of them is which is determined by nothing — a rebuild
+        # under a different BLAS or a different panel size exchanges them. A linear model spanning
+        # the plane is unaffected; a per-coordinate importance read-out is not, so the number ships
+        # rather than being left for someone to rediscover.
+        ev = sv ** 2 / (sv ** 2).sum()
+        gap = np.diff(ev) / np.maximum(ev[:-1], 1e-300)
+        out[f"gap_{name}"] = np.abs(gap[: widths[name]])
 
     # where an unselected repertoire sits, weighted uniformly: a generated multiset has no
     # abundances, and inventing some would put a shape into the reference that recombination
@@ -129,11 +150,18 @@ def build_locus(locus: str, *, species: str = "human", n_cloud: int = N_CLOUD,
     return out
 
 
-def main(out_path: str, loci: list[str], n_cloud: int, n_naive: int, seed: int) -> int:
+def main(out_path: str, loci: list[str], n_cloud: int | None, n_naive: int, seed: int) -> int:
+    import vdjtools
+
     t0 = time.perf_counter()
     arrays: dict[str, np.ndarray] = {}
-    meta: dict[str, object] = {"K": K, "n_cloud": n_cloud, "n_naive": n_naive, "seed": seed,
-                               "loci": loci, "signature_version": "RSIG-v1"}
+    # The vdjtools version is provenance, not decoration: `naive` is drawn from that release's
+    # bundled recombination models, and retraining them moves it (0.1-1.6% per locus between 3.2
+    # and 3.6). Nothing else in this file depends on it — the rotations are bit-identical across
+    # the same change — but a reference whose origin cannot be named is not a reference.
+    meta: dict[str, object] = {"K": K, "n_cloud": n_cloud or "all", "n_naive": n_naive,
+                               "seed": seed, "loci": loci, "signature_version": "RSIG-v2",
+                               "vdjtools_version": vdjtools.__version__}
     for locus in loci:
         t = time.perf_counter()
         try:
@@ -162,11 +190,12 @@ if __name__ == "__main__":
     from vdjtools.signature.layout import LOCI
 
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default=str(Path(__file__).parent / "rsig_v1.npz"))
+    p.add_argument("--out", default=str(Path(__file__).parent / "rsig_v2.npz"))
     p.add_argument("--loci", default=",".join(LOCI))
-    p.add_argument("--n-cloud", type=int, default=N_CLOUD)
+    p.add_argument("--n-cloud", type=int, default=N_CLOUD,
+                   help="0 or omitted = the whole bundled panel")
     p.add_argument("--n-naive", type=int, default=N_NAIVE)
     p.add_argument("--seed", type=int, default=SEED)
     a = p.parse_args()
     raise SystemExit(main(a.out, [x.strip() for x in a.loci.split(",") if x.strip()],
-                          a.n_cloud, a.n_naive, a.seed))
+                          a.n_cloud or None, a.n_naive, a.seed))

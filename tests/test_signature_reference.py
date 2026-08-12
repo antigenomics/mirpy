@@ -39,7 +39,7 @@ def sample():
 class TestReference:
     def test_covers_every_locus(self, ref):
         assert set(ref.loci) == {"TRA", "TRB", "TRG", "TRD", "IGH", "IGK", "IGL"}
-        assert ref.version == "RSIG-v1"
+        assert ref.version == "RSIG-v2"
 
     def test_hashes_match_the_installed_panel(self, ref):
         assert len(ref.verify()) == 7
@@ -89,7 +89,7 @@ class TestReference:
 
     def test_self_test_passes(self):
         out = reference.self_test()
-        assert out["version"] == "RSIG-v1" and out["n_prototypes"] == 256
+        assert out["version"] == "RSIG-v2" and out["n_prototypes"] == 256
         assert out["centring_gain"] > 5
 
     def test_missing_artifact_says_how_to_rebuild(self):
@@ -122,6 +122,21 @@ class TestRsig:
 
     def test_isotype_shares_resolve_for_igh(self, sample):
         assert np.isfinite(assemble.rsig(sample)["rsig:band:IGH:IgM"])
+
+    def test_a_one_part_composition_is_a_hole_not_a_crash(self):
+        """Found on a real corpus: 4,000 samples aborted on one shallow repertoire.
+
+        A repertoire whose clone sizes split into a few singletons and a few large clones puts
+        every band below its clonotype floor at once, so ``band_shares`` returns only
+        ``_residual`` — a composition of one. A log-ratio needs something to divide by; the answer
+        is a hole for that block, not an exception that takes the sample, and the emission of
+        every other sample behind it, down.
+        """
+        flat = frame(8, seed=11).with_columns(
+            pl.Series("duplicate_count", [1, 1, 1, 1, 100, 100, 100, 100]))
+        r = assemble.rsig({"TRB": flat})
+        assert np.isnan(r["rsig:band:TRB:singleton"]) and np.isnan(r["rsig:band:TRB:top"])
+        assert np.isfinite(r["rsig:phic:TRB:PC01"]), "the rest of the sample must survive"
 
     def test_an_empty_sample_is_all_holes(self):
         r = assemble.rsig({"TRB": frame(5).head(0)})

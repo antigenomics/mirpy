@@ -1,0 +1,50 @@
+{
+  "min_n_obs": 1000,
+  "n_samples": 4080,
+  "groups": [
+    "ankspond",
+    "covid19",
+    "covid19_vacc",
+    "covid19_witheld",
+    "flu_vac",
+    "tbev_vac",
+    "yfv19"
+  ],
+  "corpora": [
+    "ankspond",
+    "covid19",
+    "covid19_vacc",
+    "covid19_witheld",
+    "flu_vac",
+    "tbev_vac",
+    "yfv19"
+  ],
+  "estimator": "med_mad",
+  "n_per_corpus": {
+    "ankspond": 68,
+    "covid19": 1260,
+    "covid19_vacc": 2088,
+    "covid19_witheld": 348,
+    "flu_vac": 17,
+    "tbev_vac": 287,
+    "yfv19": 12
+  },
+  "seed": 20260812,
+  "cstar": {
+    "TRA": 0.545149038825316,
+    "TRB": 0.40802314161594233
+  },
+  "pgen_q05": {
+    "TRA": -10.919215072190369,
+    "TRB": -16.34976976301328
+  },
+  "columns": 1403,
+  "scaled": 394,
+  "unscaled": 1009,
+  "median_n_obs": 0,
+  "loci_with_cstar": [
+    "TRA",
+    "TRB"
+  ],
+  "batch_dominated": 140
+}

@@ -36,7 +36,7 @@ from pathlib import Path
 import numpy as np
 
 #: Bundled alongside the geometry artifact.
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature" / "rsig_scale_v1.npz"
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature" / "rsig_scale_v2.npz"
 
 #: A column observed fewer times than this ships unscaled. A reference is a claim about a
 #: population; a hundred samples cannot support one for 716 columns.
@@ -63,6 +63,11 @@ class ScaleReference:
     cstar: dict[str, float]
     pgen_q05: dict[str, float]
     meta: dict
+    #: Between-corpus spread of the column's median over within-corpus spread, measured on the
+    #: reference draw. Above 1 the column separates *cohorts* better than it separates donors
+    #: within one. Diagnostic only — nothing here divides by it — but it is the number that says
+    #: which columns a cross-cohort model should treat as nuisance. ``nan`` where unmeasured.
+    batch_ratio: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         # Built once here rather than cached on the method: the dataclass holds a list, so it is
@@ -96,23 +101,59 @@ class ScaleReference:
             out[k] = float(np.clip((v - self.loc[i]) / self.scale[i], -clip, clip))
         return out
 
+    @property
+    def batch_dominated(self) -> np.ndarray:
+        """Mask of columns that separate reference corpora better than donors within one.
+
+        Not a defect of the scaling — a property of the feature. Standardising cannot remove a
+        batch effect, and a cross-cohort model should treat these as nuisance or residualise them.
+        All ``False`` when no grouping was supplied at fit time.
+        """
+        if self.batch_ratio is None:
+            return np.zeros(len(self.columns), dtype=bool)
+        return np.nan_to_num(self.batch_ratio, nan=0.0) > 1.0
+
     def report(self) -> dict:
         """What this reference can and cannot standardise."""
-        return {"columns": len(self.columns), "scaled": int(self.scaled.sum()),
-                "unscaled": int((~self.scaled).sum()),
-                "median_n_obs": int(np.median(self.n_obs)),
-                "loci_with_cstar": sorted(self.cstar), "min_n_obs": self.meta.get("min_n_obs")}
+        out = {"columns": len(self.columns), "scaled": int(self.scaled.sum()),
+               "unscaled": int((~self.scaled).sum()),
+               "median_n_obs": int(np.median(self.n_obs)),
+               "loci_with_cstar": sorted(self.cstar), "min_n_obs": self.meta.get("min_n_obs")}
+        if self.batch_ratio is not None:
+            out["batch_dominated"] = int(self.batch_dominated.sum())
+        return out
 
 
 def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
-              pgen_q05: dict | None = None, meta: dict | None = None) -> ScaleReference:
+              pgen_q05: dict | None = None, group=None,
+              meta: dict | None = None) -> ScaleReference:
     """Fit location and scale from an assembled cohort matrix.
+
+    The estimator is the median and ``1.4826·MAD``, and that is a measured choice rather than a
+    stylistic one. Against the full-corpus fit on 4,080 real samples, the fraction of columns whose
+    location lands within 0.10 scales *and* whose scale lands within ±10%:
+
+    ===========  =======  =======  =======  =======
+    estimator      N=250    N=500   N=1000   N=2000
+    ===========  =======  =======  =======  =======
+    mean / sd      0.362    0.386    0.576    0.841
+    median / MAD   0.669    0.908    0.992    0.999
+    ===========  =======  =======  =======  =======
+
+    The moment estimator never gets there, and the half that fails is the *scale*: the columns are
+    heavy-tailed after their block transform (excess kurtosis 0.6-207, and 0.4-3% of samples beyond
+    five robust deviations against the 6e-7 a normal would give), so a standard deviation is set by
+    a handful of samples and moves when they do. Median/MAD converges at N=1000, which is what puts
+    the "re-fittable from 1,000-5,000 samples" claim on a footing.
 
     Args:
         frame: A ``pl.DataFrame`` from :func:`mir.signature.signature_cohort` — one row per
             sample, ``sample_id`` plus signature columns.
         min_n_obs: Columns observed fewer times than this get no scale.
         cstar / pgen_q05: Measured constants to carry alongside (see :func:`measure_constants`).
+        group: Optional per-sample corpus/batch label (a column name in ``frame``, or a sequence).
+            Supplying it records ``batch_ratio`` per column — diagnostic only, nothing divides by
+            it — so a downstream user can see which columns separate cohorts rather than donors.
         meta: Provenance recorded into the artifact.
 
     Returns:
@@ -121,7 +162,12 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
     Raises:
         ValueError: If the frame has no signature columns.
     """
-    cols = [c for c in frame.columns if c != "sample_id"]
+    labels = None
+    if group is not None:
+        labels = np.asarray(frame[group].to_list() if isinstance(group, str) else list(group))
+        if labels.size != frame.height:
+            raise ValueError(f"group has {labels.size} labels for {frame.height} samples")
+    cols = [c for c in frame.columns if c != "sample_id" and c != group]
     if not cols:
         raise ValueError("frame carries no signature columns")
     X = frame.select(cols).to_numpy().astype(float)
@@ -140,10 +186,43 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
             scale[j] = mad * 1.4826
             if scale[j] <= 0:                 # observed but constant: nothing to divide by
                 scale[j] = 0.0
+
+    batch = _batch_ratio(X, observed, loc, scale, labels) if labels is not None else None
     return ScaleReference(columns=cols, loc=loc, scale=scale, n_obs=n_obs.astype(np.int64),
                           cstar=dict(cstar or {}), pgen_q05=dict(pgen_q05 or {}),
+                          batch_ratio=batch,
                           meta={"min_n_obs": min_n_obs, "n_samples": int(X.shape[0]),
-                                **(meta or {})})
+                                "groups": sorted(set(labels.tolist())) if labels is not None
+                                else None, **(meta or {})})
+
+
+def _batch_ratio(X, observed, loc, scale, labels, min_per_group: int = 100) -> np.ndarray:
+    """Between-group spread of a column's centre over its typical within-group spread.
+
+    Both measured on the standardised column, so the ratio is dimensionless and comparable across
+    blocks. Above 1 the column tells you more about which cohort a sample came from than about the
+    donor — which is a fact about the feature, not about the scaling, and cannot be fixed by
+    rescaling. Groups smaller than ``min_per_group`` are skipped: a median over twenty samples is
+    not a group centre.
+    """
+    groups = [g for g in sorted(set(labels.tolist())) if (labels == g).sum() >= min_per_group]
+    out = np.full(X.shape[1], np.nan)
+    if len(groups) < 2:
+        return out
+    for j in range(X.shape[1]):
+        if scale[j] <= 0:
+            continue
+        centres, spreads = [], []
+        for g in groups:
+            x = X[(labels == g) & observed[:, j], j]
+            if x.size < min_per_group:
+                continue
+            c = float(np.median(x))
+            centres.append((c - loc[j]) / scale[j])
+            spreads.append(float(np.median(np.abs(x - c))) * 1.4826 / scale[j])
+        if len(centres) >= 2 and np.median(spreads) > 0:
+            out[j] = float(np.std(centres) / np.median(spreads))
+    return out
 
 
 def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANTILE,
@@ -235,8 +314,9 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
 def save_scale(ref: ScaleReference, path: "str | Path" = DEFAULT_PATH) -> Path:
     """Write the scale artifact (and its json sidecar)."""
     p = Path(path)
+    extra = {} if ref.batch_ratio is None else {"batch_ratio": ref.batch_ratio}
     np.savez_compressed(p, columns=np.array(ref.columns), loc=ref.loc, scale=ref.scale,
-                        n_obs=ref.n_obs,
+                        n_obs=ref.n_obs, **extra,
                         cstar_loci=np.array(sorted(ref.cstar)),
                         cstar_vals=np.array([ref.cstar[k] for k in sorted(ref.cstar)]),
                         pgen_loci=np.array(sorted(ref.pgen_q05)),
@@ -262,6 +342,7 @@ def load_scale(path: "str | Path | None" = None) -> "ScaleReference | None":
     return ScaleReference(
         columns=[str(c) for c in d["columns"]], loc=d["loc"], scale=d["scale"],
         n_obs=d["n_obs"],
+        batch_ratio=d["batch_ratio"] if "batch_ratio" in d.files else None,
         cstar={str(k): float(v) for k, v in zip(d["cstar_loci"], d["cstar_vals"])},
         pgen_q05={str(k): float(v) for k, v in zip(d["pgen_loci"], d["pgen_vals"])},
         meta=meta)

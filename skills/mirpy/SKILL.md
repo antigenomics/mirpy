@@ -47,6 +47,8 @@ pip install "mirpy-lib[build]"            # BioPython + arda: regenerate baked r
 ```bash
 mir embed clonotypes  SAMPLE  -o out.parquet      # per-clonotype table (e0…)
 mir embed repertoires S1 S2 … -o phi.tsv --mmd mmd.tsv   # one Φ(S) per sample per chain (phi0…)
+mir signature S1 S2 …         -o sig.parquet --tier standard   # the portable signature
+mir signature --describe --tier standard          # the column dictionary; reads no input
 ```
 
 - Reads anything `vdjtools.io.read` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ, parquet).
@@ -138,30 +140,62 @@ a reference is re-fit. Measured (gate B1a, two cohorts): it retains ≥0.98 of a
 rotation at the shipped widths, whereas a *fitted* junction basis has split-half column agreement
 of 0.23 — its coordinates do not survive splitting one cohort in half.
 
-`Φ` **must be centred** against the frozen `mu_phi` or the block is nearly blank: every prototype
-distance is large and positive, so raw between-donor cosine spans ~0.001 while the shared offset
-is 55× the between-donor signal. Centred, the same donors span 1.48. Same reason `contrast`
-subtracts a naive reference instead of reporting `Φ`.
+`Φ` **must be centred** or the block is nearly blank: every prototype distance is large and
+positive, so raw between-donor cosine spans ~0.001 while the shared offset is 55× the
+between-donor signal. Centred, the same donors span 1.48. **The centre is `naive`** — `Φ` of a
+large synthetic unselected repertoire — not `mu_phi`, the prototype cloud's own mean: measured on
+two cohorts `naive` recovers 67–85% of an oracle centring and `mu_phi` only 4–21%, because the
+panel sits 5–7 between-donor spreads from where repertoires actually are. `mu_phi` still ships —
+it is the centre the *rotation* was fitted against, and reproducing the artifact needs it. Same
+reason `contrast` subtracts a naive reference instead of reporting `Φ`.
 
 Compartment shares are **closed form, not NNLS**: `Φ` is linear in the clone-weight measure and
 the bands are a genuine partition, so a compartment's share of `Φ` is exactly its share of the
 weight. (`repertoire.band_frames`' default bands overlap — `top ⊂ expanded` — so an NNLS over
 them is not a composition at all and its shares can exceed 1.)
 
-**Two artifacts, and the split is the point.** `rsig_v1.npz` (7 loci, 882 KB, **bit-identical on
+**Two artifacts, and the split is the point.** `rsig_v2.npz` (7 loci, 896 KB, **bit-identical on
 rebuild**) holds the geometry and is built from bundled resources with no sample read.
-`rsig_scale_v1.npz` holds the one thing that *must* come from data — per-column location and
+`rsig_scale_v2.npz` holds the one thing that *must* come from data — per-column location and
 scale — plus the measured `cstar` and `pgen_q05`. Fitting a scale is a different statistical
 problem from fitting a basis: a rotation over p=256 is not identified at a thousand samples,
 while a median and MAD are identified at any n and converge as `1/sqrt(n)`. That is why the
 re-fit story is safe.
 
+The rotation is built on the **whole** bundled prototype panel, not a draw — with a draw it is a
+random variable in `n_cloud`, and the junction slot had not converged at 4,000 (C: 5/48 components
+matched by `|cos|` against the whole panel; V: 23/24; J: 12/12). The unstable ones are exactly the
+near-degenerate pairs, which *swap* rather than drift, so the gaps ship and
+`LocusReference.exchangeable(slot)` names them: a linear model spanning the plane is fine, a
+per-coordinate importance read-out on one of the pair is not interpretable.
+
 ```python
 from mir.signature import signature, signature_cohort
-v = signature({"TRB": df})                 # 716 named columns, standardized, ~0.26 s/sample
+v = signature({"TRB": df})                 # 688 named columns, standardized, ~0.3 s/sample
 F = signature_cohort(samples)              # one row per sample, positional
 signature(sample, standardize="none")      # raw values
 ```
+```bash
+mir signature cohort/*.tsv.gz -o sig.parquet --tier standard
+mir signature --describe --tier standard   # the column dictionary; reads no input
+```
+
+**Scaling, measured on 4,080 real samples** (analysis repo, `benchmarks/SIGNATURE_SCALING.md`):
+
+- Nothing is normal after the block transforms — excess kurtosis −3 to 423, and **0.4–27% of
+  samples beyond five robust deviations** where a normal gives 6e-7. The failure mode is the tail,
+  not skew (only 13 of 392 columns are bimodal).
+- **Median/MAD converges at N=1,000** (0.992 of columns within 0.10 scales *and* ±10% of scale);
+  **mean/sd never does** (0.576 at N=1,000, 0.841 at N=2,000), and the half that fails is the
+  scale. Huber's edge over median/MAD is 0.002 — noise.
+- **No Yeo-Johnson ships.** It halves Anderson–Darling in-corpus for the scalar blocks, but held
+  out it gains ≤0.7% on the 875 columns that dominate the width, its λ ranges 3.2–6.1 across
+  corpora exactly where it helps, and on `clon` a transferred λ makes 57% of columns *less* normal.
+- Fitting on one cohort and applying to another, **the spread transfers (robust sd of z = 1.008)
+  and the offset does not** (1.34 robust deviations). That is batch, and rescaling cannot fix it.
+  `fit_scale(..., group=...)` records `batch_ratio` per column and `batch_dominated` exposes it —
+  136 of 390 usable columns are batch-dominated, worst `pair` 3.43 and `depth` 2.19, **cleanest the
+  geometry blocks** (`contrast` 0.65, `phic` 0.71).
 
 `fit_scale` refuses a column the corpus barely saw (`min_n_obs`) rather than shipping a
 confident-looking number from nine samples; statistics come from observed entries only, before

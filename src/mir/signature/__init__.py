@@ -6,6 +6,10 @@ rather than two that can drift apart. This package supplies the ``rsig`` blocks:
 the prototype-sum measure ``Φ(S) = Σ_σ w_σ z_σ``, each a linear functional, a norm, or a
 mixture coefficient of it.
 """
+# Re-exported so a caller of ``mir.signature`` never has to know the contract is implemented in
+# vdjtools. One layout, two import paths — not two layouts.
+from vdjtools.signature.layout import LOCI, TIERS, columns, describe, index, parse
+
 from .assemble import rsig, signature, signature_cohort
 from .blocks import (
     BANDS,
@@ -40,6 +44,12 @@ __all__ = [
     "BANDS",
     "DEFAULT_PATH",
     "CHUNK",
+    "LOCI",
+    "TIERS",
+    "columns",
+    "describe",
+    "index",
+    "parse",
     "ISOTYPE_BANDS",
     "WEIGHTS",
     "band_shares",
