@@ -3,6 +3,30 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.9.1 — 2026-08-14
+
+Audit pass. No library behaviour changes.
+
+- **The test suite did not run from the repo root.** A stale `mir/` directory sat next to `src/`,
+  holding nothing but `__pycache__`, two `build_gene_library` logs and a `.DS_Store` — but Python
+  resolves it as a namespace package, so `import mir` bound to an empty tree ahead of the installed
+  `src/mir`. Every `pytest tests/` invocation from the repo root died at collection with
+  `ModuleNotFoundError: No module named 'mir.generate'` (20 errors). The directory is gone; the fast
+  tier is 246 passed / 1 skipped again. Nothing was wrong with the library.
+  (The `.venv` editable install also pointed at a deleted worktree and was re-pointed at `master`.)
+- `track._demo` unpacked an unused `p`; `cohort._demo` used a comma import. Unused `os` imports
+  dropped from `tests/test_bench.py` and `tests/test_density.py`.
+- `[tool.ruff]` added (line length 100, target py311) with `E702`/`E741`/`E402` ignored — the
+  paired-short-statement style and the guarded post-skip imports in the torch tests are deliberate.
+  `ruff check .` is green.
+- Repo cleanup: 1.3 GB of regenerable artifacts removed (a stale `venv/` superseded by `.venv`, the
+  local `airr_benchmark/` copy of the HF dataset, `build/`, `docs/_build/`, tool caches, `.DS_Store`,
+  and cache/`.npy` dumps under `tmp/` — PDFs, scripts and result tables kept), plus two worktrees
+  whose branches were already fully merged into `master`.
+
+Verified at this commit: `pytest -m "not integration and not benchmark"` 246 passed / 1 skipped;
+`sphinx-build -W` clean.
+
 ## 3.9.0 — 2026-08-03
 
 **A code-review pass, and what it found.** Twenty findings across the library, all fixed, each with

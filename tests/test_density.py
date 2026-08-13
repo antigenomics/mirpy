@@ -4,7 +4,6 @@ All self-contained on bundled resources (no network, no torch): the OLGA backgro
 sample ``tests/assets/olga_humanTRB_1000.txt.gz`` and the committed TRB prototypes.
 """
 
-import os
 
 import numpy as np
 import polars as pl

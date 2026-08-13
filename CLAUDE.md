@@ -1,405 +1,140 @@
 # CLAUDE.md — mirpy v3
 
 ## What this is
-`mirpy` (PyPI `mirpy-lib`, import `mir`) v3 is the antigenomics group's **ML / embedding
-library** for immune receptors (TCR/BCR). A greenfield, slim rewrite: prototype embeddings
-(TCREMP) now, neural codecs + density methods next (Part 2). The classical v1.x/v2 toolkit is
-frozen on branch **`legacy-v2`** (`mirpy-lib` 2.x) — do not develop there.
+`mirpy` (PyPI `mirpy-lib`, import `mir`) v3 is the antigenomics group's **ML / embedding library**
+for immune receptors (TCR/BCR): prototype embeddings, density methods, repertoire-level embeddings,
+neural codecs. Greenfield slim rewrite — the classical v1.x/v2 toolkit is frozen on branch
+**`legacy-v2`** (`mirpy-lib` 2.x); do not develop there.
+
+**API surface lives in [`skills/mirpy/SKILL.md`](skills/mirpy/SKILL.md), not here.** Module-by-module
+detail and the completed-work narrative are archived in
+`~/vcs/projects/2026-mirpy-analysis/benchmarks/LIBRARY_LOG.md`.
+
+## ⛔ Provenance rule (user, 2026-08-02)
+**Quote the numbers, never the source** — no corpus size, no dataset / programme / cohort names
+anywhere in this repo. (Pre-dating files still violate this: `README.md`, `CHANGELOG.md`,
+`SOURCES.md`, `src/mir/{generate,cohort}.py`.)
 
 ## Repo split (2026-07-16) — three homes
-This repo is now **the library + its CI/test data only**. Analysis and manuscript live elsewhere:
-- **`~/vcs/code/mirpy`** (here): **src-layout** — the library is `src/mir/` (import `mir`); unit +
-  fast/slow CI tests (`tests/`, on slim bundled data), runnable `examples/` (marimo), docs. As of the
-  3.4.x cleanup the result/plan markdown moved out: **`THEORY.md` → the manuscript repo**;
-  **`BENCHMARKS.md`, `REPERTOIRE_{EMBEDDING,LESSONS}.md`, `SQRT_D_MIGRATION.md`, `ROADMAP.md` →
-  `2026-mirpy-analysis/benchmarks/`**. Only `README`/`CHANGELOG`/`CLAUDE`/`SOURCES` stay at the root.
-  Benchmark *scripts* and the theory *appendix* had already moved out (below).
-- **`~/vcs/projects/2026-mirpy-analysis`**: all **benchmark scripts** (`benchmarks/` — local + aldan3),
-  full result docs (BENCHMARKS/THEORY/…), figures, run outputs, dataset catalog. Run the mirpy library
-  from here; refresh numbers-of-record here.
-- **`~/vcs/manuscripts/2026-mirpy-ms`**: the **theory appendix** (`appendix/tcremp_theory.tex`) + the paper
-  (`manuscript-latex/`). (Earlier this appendix lived here in the code repo; it migrated on 2026-07-16.)
+- **`~/vcs/code/mirpy`** (here): library only — src-layout `src/mir/`, `tests/`, `examples/`
+  (marimo), `docs/`. Only `README`/`CHANGELOG`/`CLAUDE`/`SOURCES` at the root.
+- **`~/vcs/projects/2026-mirpy-analysis`**: benchmark scripts (`benchmarks/`, local + aldan3), result
+  docs (`BENCHMARKS.md`, `THEORY.md`, `ROADMAP.md`, `REPERTOIRE_*.md`, `LIBRARY_LOG.md`), figures,
+  run outputs, dataset catalog. **Run the library from here; numbers of record are refreshed here.**
+- **`~/vcs/manuscripts/2026-mirpy-ms`**: theory appendix (`appendix/tcremp_theory.tex`) + paper.
 
-Compute: heavy benchmarks run on the **aldan3** cluster (env `mirpy`, `sbatch`); light jobs local. See the
-analysis repo.
+Heavy benchmarks run on **aldan3** (env `mirpy`, `sbatch`); light jobs local.
 
-## Worktrees — REQUIRED for Claude sessions
-**Work in a git worktree for this repo, never directly on the main checkout.** Multiple Claude sessions
-edit mirpy concurrently (the 2026-07-16 split was done across parallel sessions and hit collisions), so at
-the start of any session that will modify this repo, call **`EnterWorktree`** (isolated worktree under
-`.claude/worktrees/`, fresh branch off `origin/master`); commit + push from there; merge via PR/fast-forward.
-This keeps concurrent sessions from clobbering each other's working trees. The same applies to the sibling
-repos (`2026-mirpy-analysis`, `2026-mirpy-ms`).
+## ⛔ Worktrees — REQUIRED
+Multiple Claude sessions edit mirpy concurrently (the 2026-07-16 split hit real collisions across
+parallel sessions). **Never work directly on the main checkout** — call `EnterWorktree` at session
+start (worktree under `.claude/worktrees/`, fresh branch off `origin/master`), commit and push from
+there, merge via PR/fast-forward. Same for `2026-mirpy-analysis` and `2026-mirpy-ms`.
 
 ## Reuse, don't duplicate — the ecosystem
-mirpy v3 has **no AIRR data-model layer of its own**; it works on `vdjtools` polars frames and
-delegates:
-- **seqtree** — alignment. Junction/CDR3 distance = `seqtree.gapblock.score_matrix` (BLOSUM62
-  Gram penalty, gap placements `(3,4,-4,-3)`). Replaces the old C++ scorer entirely.
-- **vdjtools** (core dep) — AIRR schema + IO (`vdjtools.io`), germline reference
-  (`vdjtools.model.reference`), Pgen + synthetic sampling (`vdjtools.model.{load_bundled,
-  native.pgen_aa_batch, generate.generate}`).
+mirpy has **no AIRR data-model layer of its own**. It works on `vdjtools` polars frames and delegates:
+- **seqtree** — alignment; junction/CDR3 distance = `seqtree.gapblock.score_matrix` (BLOSUM62 Gram
+  penalty, gaps `(3,4,-4,-3)`). Replaced the old C++ scorer entirely.
+- **vdjtools** (core dep) — AIRR schema + IO, germline reference, Pgen + synthetic sampling.
 - **vdjmatch** (`[annotate]`) — VDJdb annotation / E-values.
-- **arda** (`[build]`) — build-time germline region annotation. **arda is the single germline
-  source of truth**: prototypes, germline-distance matrices, and all query data share one arda IMGT
-  allele namespace. Needs `ARDA_HOME` at build time (`arda-mapper` wheel; no cmake build for
-  germline reading, but `arda rnaseq map` fetches mmseqs2).
+- **arda** (`[build]`) — build-time germline region annotation. **arda is the single germline source
+  of truth**: prototypes, germline-distance matrices, and all query data share one arda IMGT allele
+  namespace. Needs `ARDA_HOME` at build time.
 
-The reference/prototype coordinate system is **arda-native** (2026-07): `mir/resources/germline_dist`
-is baked from arda germline (`build_region_annotations.py` → arda `markup.aa.tsv`); prototypes
-(`generate_prototypes.py`) come from **arda-annotated real repertoires** (`isalgo/airr_model_read`
-functional reads → `arda rnaseq map`), giving arda names + a real junction manifold. NB: arda-native
-generative models via `vdjtools.model.from_arda` exist (EM-learned, used as the density P_gen
-background) but their synthetic junctions embed *worse* than real repertoires (degenerate lengths,
-negative S2) — so prototypes use real reads, not model generation.
+The coordinate system is **arda-native** (2026-07): `resources/germline_dist` is baked from arda
+germline; prototypes come from **arda-annotated real repertoires**, giving arda names and a real
+junction manifold. NB arda-native generative models (`vdjtools.model.from_arda`) exist and back the
+density P_gen null, but their **synthetic junctions embed worse than real repertoires** (degenerate
+lengths, negative S2) — so prototypes use real reads, never model generation.
 
-mirpy is normally read-only to the sibling repos; the `from_arda` builder + a tandem-D generation
-fix were added to `vdjtools` under the owner's direction (this is that owner's ecosystem).
+mirpy is normally **read-only to the sibling repos**; the `from_arda` builder and a tandem-D fix were
+added to `vdjtools` under the owner's direction.
 
-## Layout (`src/mir/`)
-- `aliases.py`, `alleles.py` — species/locus + allele normalization.
-- `distances/junction.py` — `junction_distance_matrix` (seqtree.gapblock). Coordinate knobs (all
-  default to the published space, threaded through `TCREmp`): `metric="squared"` (=`d`, default) |
-  `"sqrt"` (metric `ρ=√d`, benchmarked a wash — `SQRT_D_MIGRATION.md`); `matrix=` a custom
-  `seqtree.SubstitutionMatrix` (pam250/structural/from_similarity); `alignment="gapblock"` (default)
-  | `"sw"` (paper-exact Smith-Waterman, lazy BioPython, validation-only). `distances/germline.py`
-  — resource-backed V/J/CDR1/CDR2 lookup with allele cascade.
-- `embedding/prototypes.py` — bundled prototype loader. `embedding/tcremp.py` — `TCREmp` /
-  `PairedTCREmp` (polars frame in → `(N,3K)` float32). `embedding/pca.py` — PCA denoise (T3).
-  `embedding/presets.py` — per-chain `n_prototypes` + PC recommendations (`get_preset`);
-  `from_defaults(n_prototypes=None)` uses them. Compact chains (IGK/IGL/TRG) 1000 protos / ~20
-  PCs; diverse chains (IGH/TR*) 2000 / ~65 PCs (95%), ~220–300 PCs (99%, for codec reconstruction).
-- `bench/` — `vdjdb.py` (loader), `metrics.py` (`cluster(method=…)` DBSCAN default | HDBSCAN | OPTICS,
-  kneedle eps, F1/retention), `theory.py` (S1–S3 + T5 + T6 `tcrnet_convergence` + `codec_losslessness`).
-  Needs `[bench]`. Clustering is a precision/coverage trade-off (`benchmarks/benchmark_clustering.py`):
-  DBSCAN tightest/purest (paper regime), HDBSCAN ~3× coverage at lower F1 (variable-density), OPTICS
-  dominated, KMeans no noise-rejection.
-- `density.py` — continuous-density TCRNET/ALICE (T6): `fit_density_space` (one shared PCA basis),
-  `neighbor_enrichment` (balloon adaptive-radius Poisson/binomial + water-level calibration;
-  `backend=` **exact** BallTree default | **kdtree** exact scipy cKDTree 5–9× faster | **ann**
-  pynndescent ~30× at ≥1e5, recall<1 conservative — `benchmarks/benchmark_ann.py`),
-  `enriched_mask`, `denoise_and_cluster`, `generate_background` (vdjtools P_gen, lazy). Torch-free
-  (scipy/sklearn). Prefer a **biological control** as background (differential) over P_gen.
-  **Abundance-aware** (T6 sec:dens-abund): pass `abundance=` (clone sizes) + `weight="log1p"`/`anscombe`
-  to swap the distinct in-ball count for the variance-stabilised mass `S=Σg(a_j)` (compound-Poisson
-  Gamma tail, dispersion `φ=E[g²]/E[g]`) plus a per-clonotype orphan/depth channel `P(A≥a_j)` Fisher-
-  combined with breadth. Default `abundance=None` = distinct count (unchanged, `g≡1`).
-- `repertoire.py` — sample-level (repertoire) embedding (T.7): `fit_repertoire_space` (one shared
-  clonotype-cloud PCA + RFF basis, prototype-hash-verified `RepertoireSpace`), `sample_embedding`
-  (`Φ(S)` = RFF kernel mean ‖ coverage-standardized Hill ‖ second-moment Fisher; `n_eff=(Σw²)⁻¹`),
-  `mmd_distance`/`mmd_matrix`/`hla_stratified_mmd`, `class_witness` (supervised MMD motif finder). Torch-free.
-  Opt-in `fit_repertoire_space(n_eigs=r)` swaps the second-moment block's full `D₂(D₂+1)/2` upper-triangle
-  for its top-`r` eigenvalues (rotation-invariant spectrum; default `None` = upper-tri, unchanged — but
-  lossy for the *directional* HLA imprint, so the full triangle stays the recommended block; `benchmark_repertoire_spectral.py`).
-  Also `fit_repertoire_spaces` (one basis **per locus** — the multi-chain fit), `centroid_atypicality`
-  (per-sample cosine distance to a group centroid — a Φ-geometry op feeding the digital-donor atypicality channel),
-  and `correct_batch` (Harmony-like cluster-aware batch correction on a stacked Φ matrix; reduces to
-  `cohort.residualize` at `n_clusters=1`/`theta=0` — `prop:batch`; test in `test_repertoire.py`).
-  **Sub-probability tier** (2026-08-02): `Φ` normalised to mass 1 is a
-  lie at RNA-seq depth (median tissue TRB = 21 clonotypes), so `missing_mass(counts, "turing"|"chao")`
-  estimates the never-drawn mass `M₀` (bias-corrected Chao1 `f1(f1-1)/(2(f2+1))` — the classical
-  `f1²/2f2` is undefined when `f2=0`, which is the common case), `sample_embedding(missing_mass=…)`
-  records `SampleEmbedding.mass = 1−M₀` (default `"none"` ⇒ blocks bit-identical), `naive_reference`
-  gives the unseen a germline location (**not** the corpus centroid — measured worse; germline drops
-  R²(PC1,depth) 0.259→0.001 blood TRB), and `contrast_embedding` = `mass·(Φ−naive)` — signed, so an
-  immune desert lands at the **origin** instead of being deleted by a min-clonotype floor (never add
-  one: it's a blood rule, not a tissue rule). Sub-probability, never a *negative* measure: MMD and
-  convex-combination-is-a-real-repertoire are what `mir.twin`/trajectories rest on.
-  **Measure-algebra tier** (same date): `rao_q` = `1−‖Φ₁‖²` is Rao's quadratic entropy *exactly* (the
-  norm of Φ₁ IS a functional diversity — the one Hill numbers can't express, since they're invariant to
-  permuting which receptor carries which abundance; valid only **uncentred**); `depth_threshold` fits
-  `‖Φ−Φ̄‖² ≈ τ²+σ²/n` → `κ=σ²/τ²` (measured 40–70 clonotypes; the estimable replacement for a floor);
-  `sample_statistics`/`cohort_statistics` = the sampling fingerprint (also `recovery_report`'s `stats=`);
-  `band_frames`/`band_embeddings`/`mixture_weights` = compartment decomposition through the **same frozen
-  space** + NNLS shares, exploiting mixture linearity (exact arithmetic; float32 ⇒ ~1e-5) (IgG carries π=0.070 of Φ₁(IGH) — the
-  dilution factor, and a power calc: π≈0.001 ⇒ use the witness, not an aggregate distance; bands were a
-  survival null but confirmed the mixture argument and won kNN entropy in tissue IGH);
-  `rarefy_embedding` = the only depth correction preserving MMD/Rao/mixture exactly, with
-  `Rao(Φ̄)=mean_r Rao(Φ_r)+v_rep` giving a free per-sample noise estimate (not a default).
-- `cohort.py` — **the digital donor** (T.7): `fit_donor_embeddings`/`DonorCohort` fuse per-chain identity
-  (kernel-mean, cross-sample PCA-reduced) ‖ diversity ‖ coverage across loci through **one `ChannelBuilder`**,
-  with an `extra_channels` hook for the analysis's own tissue/clinical blocks; comparability bites twice
-  (per-locus `prototype_hash` **and** the stored identity PCA) so `save`/`load` verify every hash and
-  `transform` is the only held-out path. Plus `residualize` (batch cookbook), `cluster_samples`
-  (MMD→precomputed-metric cluster), `incidence_biomarkers` (subject-incidence Fisher, delegating to
-  `vdjtools.biomarker.fisher`). Generalizes the analysis-repo `_tcga_embedding.build_embedding` glue.
-  Also `residualize(..., shrink=True)` — positive-part James–Stein on the batch offset, because plain
-  per-group centring made batch **easier** to read out-of-sample (AUC 0.863→0.985; ComBat 0.978; JS
-  0.889): `‖µ̂−µ‖≈√(σ²d/n)`≈16 vs a true offset of 7–24, so it injects as much as it removes and only an
-  out-of-sample eval sees it. And `depth_report` (R² of leading PCs on the sampling fingerprint, +
-  trusted-subset arm) — read beside `explained_variance` to tell a *different* direction from a
-  collapsed one.
-- `bench/eval.py` — the scorers `channel_report` consumes (kept out of `explain.py` so it stays scorer-free):
-  `cv_auc` / `held_out_auc` (classification), `cv_cindex` / `km_logrank` (Cox survival, `[bench]`→lifelines),
-  `kmer_matrix` (baseline). Plus `recovery_report(X, stats, groups)` (re-exported as
-  `mir.bench.recovery_report`) — grouped-CV ridge R² from the embedding's PCs back to each basic
-  repertoire statistic. The criterion is **recoverability, not competition**: mass-1 renormalisation
-  makes coverage/richness unrecoverable from Φ by construction, so the deficient measure wins it by
-  design. Beside `cohort.missingness_report` as the other "is this object honest" check.
-- `explain.py` — **explainable readouts over any feature matrix** (T7). `ChannelSpec`/`ChannelBuilder`/
-  `stack_embeddings` attach the name→column map `Φ.vector` does not carry (per-chain blocks merge by
-  name); `channel_report(X, spec, scorer, base=, mode="in"|"out"|"both", n_permutations=)` ablates each
-  channel under a **caller-supplied** scorer — the library never sees `y` and ships no scorers, so a Cox
-  C-index and a CV AUC both plug in. `mode="in"` (default) is marginal, because the scorers reduce their
-  input and leave-one-*out* is near-blind to narrow channels; `"both"` adds the conditional half, and
-  high `delta` + `delta_out≈0` is the **redundancy** signature. `channel_drivers` hops channel→clonotypes
-  via `class_witness`, but **only** for a channel declared `attributable` (a kernel mean); a Hill number
-  has no clonotype pre-image and it raises. Depends one-way on `repertoire.py`; nothing there changed.
-  `add(..., preserve_magnitude=True)` = **one global scalar** (pooled RMS, no centring, holes→0) for a
-  block whose *magnitude* is the signal (a `contrast_embedding` sub-probability block); per-column
-  z-scoring deletes exactly that deficiency (it cost one experiment a bogus 0.6481-vs-0.6179 result).
-  `stack_embeddings` warns on `mass < 1` inputs — `Φ.vector` does not carry the mass.
-- `track.py` — **exposure trajectory** (repertoire-level exposure detection, complementing
-  `density.py`'s clone-level TCRNET/ALICE): `fit_exposure_trajectory(X, covariates, ...)`, a
-  PhenoPath-style (Campbell & Yau 2018) covariate-disentangled latent factor model —
-  `Y[n,g] = c_g + alpha_g.x_n + (kappa_g + gamma_g.x_n)*tau_n + eps` — fit by alternating closed-form
-  per-channel ridge regression and a GLS trajectory update (a simplified, non-CAVI approximation to
-  PhenoPath's inference; ARD-style iteratively-reweighted shrinkage on `gamma`, the covariate x
-  trajectory interaction). `TrajectoryFit.top_interactions()` ranks channels. Fills the
-  analysis-repo ROADMAP's Phase 5 (embedding trajectory). Torch-free.
-- `generate.py` — the **generative loop, mechanical half** (ROADMAP Phase 2): `DescriptorDensity`
-  (optionally class-conditional Gaussian, Ledoit-Wolf shrinkage) over `RepertoireDescriptor` vectors;
-  `sample` draws new synthetic donor states, `evolve` perturbs one coordinate and propagates the
-  coupled shift via the fitted covariance's conditional mean — promotes the ad-hoc
-  `benchmark_repertoire_tcga_insilico.py` `np.cov`-slope pattern into a reusable library object.
-  Torch-free.
-- `twin.py` — the **digital twin**: `DonorTwin`/`make_twins` glue one donor's `RepertoireDescriptor`
-  + an optional `track.py` trajectory position + covariate into one object; `.perturb()` (via
-  `generate.evolve`) and `.simulate()` (via `generate.DescriptorDensity` or `ml.diffusion.DiffusionModel`
-  — both share the `sample(n, condition=, seed=)` shape, so either drops in). Torch-free itself.
-- `ml/` — Part 2 (torch), neural codecs + `set_encoder.py` (learned repertoire track: Set-Transformer/DeepRC
-  attention pooling + `SetEncoderBundle`) + `diffusion.py` (**generative loop, research half**: compact
-  conditional DDPM/DDIM with classifier-free guidance over a compact descriptor/code space, standardized
-  internally with `x0`-clipping for DDIM stability; `DiffusionModel.save`/`load` mirrors `CodecBundle`).
-- `cli.py` — the `mir` console script (argparse, stdlib): `embed clonotypes` (TCREmp table) /
-  `embed repertoires` (per-locus `fit_repertoire_space`→`sample_embedding` Φ(S), optional `--mmd`).
-  Reads via `vdjtools.io.read`; writes TSV/parquet.
-- `resources/` — `prototypes/` (TSVs + manifest), `gene_library/` (region_annotations.txt),
-  `germline_dist/` (baked `.npz`, from `build_germline_dist.py`).
+## Layout (`src/mir/`) — one line each; details in SKILL.md
+`aliases`/`alleles` (species/locus + allele normalization) · `distances/` (junction via gapblock,
+germline lookup with allele cascade) · `embedding/` (`TCREmp`/`PairedTCREmp`, prototypes, PCA denoise,
+per-chain presets) · `density` (continuous TCRNET/ALICE, balloon enrichment, abundance-aware) ·
+`repertoire` (`Φ(S)`, MMD, witness, sub-probability + measure-algebra tiers) · `cohort` (the digital
+donor, residualize, biomarkers) · `explain` (channel ablation over any feature matrix) · `bench/`
+(vdjdb loader, clustering metrics, theory S1–S3/T5/T6, `eval.py` scorers) · `track` (exposure
+trajectory) · `generate` + `twin` (generative loop, mechanical half) · `ml/` (torch: codecs,
+set encoder, diffusion) · `cli` (the `mir` console script) · `resources/`.
+
+Coordinate knobs default to the published space: `metric="squared"`, `alignment="gapblock"`,
+`backend="kdtree"` for density (flipped in Phase 0 — **re-verify any recorded balloon-mode baseline**,
+±1 boundary counts).
 
 ## Build / test / run
-- **Repo-local `.venv` via uv** (Python 3.12; conda retired 2026-07-18). `bash setup.sh`
-  (bash/zsh; `--dev-parents` editable-installs `../seqtree ../vdjtools ../vdjmatch`, `--docs`,
-  `--tests`), or `uv pip install -e ".[dev,bench]"`. Pure-Python hatchling; no C build for `mir`
-  itself. Extras: `[bench] [ann] [annotate] [build] [ml] [docs] [dev] [examples]` (`[ann]` =
-  pynndescent, split out of `[bench]` so `[bench]` stays numba-free / clean to resolve).
-- CLI: `mir embed clonotypes SAMPLE` (→ clonotype embedding table) / `mir embed repertoires
-  SAMPLE… ` (→ per-sample-per-chain Φ(S)); `mir/cli.py`, `tests/test_cli.py`.
-- Tests: `python -m pytest tests/ -q` (`-m "not integration and not benchmark"` for the fast tier;
-  torch/pynndescent tests skip unless `[ml]`/`[ann]` installed). All self-contained on bundled resources.
-- Experiments: `python benchmarks/reproduce_supplementary.py` (theory S1–S3),
-  `python benchmarks/benchmark_vdjdb.py` (Table S1). Analyses: `analyze_prototype_counts.py`
-  (geometry saturates by K≈100 — T.1/S4), `analyze_pc_decomposition.py` (V/J η² ≈0.44/0.49,
-  CDR3-length η² 0.13 & R²=0.95; germline low-rank ~13 PCs — T.4). See `THEORY.md`.
+Repo-local **`.venv` via uv**, Python 3.12 (conda retired 2026-07-18). `bash setup.sh`
+(`--dev-parents` editable-installs `../seqtree ../vdjtools ../vdjmatch`; `--docs`, `--tests`) or
+`uv pip install -e ".[dev,bench]"`. Pure-Python hatchling, no C build for `mir` itself. Extras:
+`[bench] [ann] [annotate] [build] [ml] [docs] [dev] [examples]` — `[ann]` (pynndescent) is split out
+so `[bench]` stays numba-free.
+
+```sh
+python -m pytest tests/ -q -m "not integration and not benchmark"   # fast tier, bundled resources
+mir embed clonotypes SAMPLE   |   mir embed repertoires SAMPLE…     # CLI
+```
+
+**If collection fails with `No module named 'mir.<anything>'`, check for a stray `mir/` at the repo
+root** — Python resolves it as a namespace package ahead of the installed `src/mir`, and every
+`pytest` run from the root then dies at import. One appeared from a `build_gene_library.py` run with
+the repo root as cwd (v3.9.1). Also confirm the editable install points at *this* checkout and not a
+removed worktree: `python -c "import mir; print(mir.__file__)"`.
+`ruff check .` is green as of v3.9.1; `ruff format` is NOT the house style (it would rewrite 56
+files) — do not run it.
 
 ## Conventions
 - AIRR polars frames in/out, keyed by `vdjtools.io.schema` names (`v_call, j_call, junction_aa,
-  locus`). No `Clonotype` class.
-- v3 embeddings are a **new, versioned coordinate system** (gapblock ≠ the v2 BioPython junction
-  scorer) — any model trained on v2 embeddings must be retrained.
-- Baked `germline_dist/*.npz` are versioned artifacts; regenerate whenever the gene library /
-  `region_annotations.txt` changes (`build_germline_dist.py`, needs `[build]` BioPython).
-- **Parallelism / hardware** (see README "Performance & parallelism"): embedding is all-core by
-  default (`TCREmp(threads=0)`, C++ gapblock, GIL-released); density `backend="kdtree"` = exact
-  multicore (`workers=-1`), `"ann"` = pynndescent auto-all-core (default `"exact"` BallTree is
-  1-core); `cluster(n_jobs=-1)` forwards to sklearn; PCA/RFF ride BLAS (cap via `OMP_NUM_THREADS`).
-  GPU only in `mir.ml`: `pick_device()` = **CUDA → MPS → CPU** auto, override `device=`/`MIR_DEVICE`.
+  locus`). **No `Clonotype` class.**
+- v3 embeddings are a **new versioned coordinate system** (gapblock ≠ the v2 BioPython scorer) — any
+  model trained on v2 embeddings must be retrained.
+- **Embeddings are comparable only if prototypes + PCA rotation match.** Ship any trained codec as a
+  `CodecBundle` (serializes PCA transform + prototype hash), never bare weights; `load` refuses a
+  hash mismatch. Same check guards `RepertoireSpace`/`DonorCohort` save/load.
+- Baked `germline_dist/*.npz` are versioned artifacts — regenerate whenever the gene library or
+  `region_annotations.txt` changes (`build_germline_dist.py`, needs `[build]`).
+- **Parallelism**: embedding all-core by default (`TCREmp(threads=0)`, GIL-released C++); density
+  `backend="kdtree"` = exact multicore, `"ann"` = auto-all-core; `cluster(n_jobs=-1)`; PCA/RFF ride
+  BLAS (cap via `OMP_NUM_THREADS`). GPU only in `mir.ml`: `pick_device()` = **CUDA → MPS → CPU**,
+  override via `device=`/`MIR_DEVICE`.
+
+## Interpretation rules that cost real experiments
+- **A P_gen background over-flags** — real repertoires are pervasively convergent (~40% of clones).
+  Use a *biological control* (differential) for specificity, and process the **full** repertoire;
+  subsampling dilutes sparse antigen clusters.
+- **Variance retention is chain-adaptive**: 95% preserves geometry, **99% is needed for
+  reconstruction** on the compact arda prototypes — for every chain, not just IGH/TRD.
+- **Never add a min-clonotype floor** — that's a blood rule, not a tissue rule. Use
+  `contrast_embedding`, which sends an immune desert to the origin instead of deleting it.
+- **Mass-1 renormalisation makes coverage/richness unrecoverable from Φ by construction** — a
+  deficient measure wins those by design, so read `recovery_report` as recoverability, not competition.
+- **Per-column z-scoring deletes a magnitude signal** — a sub-probability block needs
+  `add(..., preserve_magnitude=True)` (one global scalar). This cost one experiment a bogus result.
+- **Plain per-group centring can make batch *easier* to read out-of-sample** (the offset estimate
+  injects as much as it removes) — use `residualize(shrink=True)`, and only an out-of-sample eval
+  sees the difference.
+- Eigenvalue (spectral) summaries are **rotation-invariant and lossy for directional signal** — keep
+  the full second-moment upper triangle; `n_eigs=r` stays opt-in.
+- Single-split AUCs mislead; **CI-overlapping is not a separation.** Two over-claims were caught
+  adversarially this way, and one spike-in result was circular until the select/detect metrics were
+  split.
 
 ## Open loops / next steps
-- **Embedding-tier roadmap** (`2026-mirpy-analysis/benchmarks/ROADMAP.md`, moved out in the 3.4.x
-  cleanup) — the "vdjtools at the embedding level" audit +
-  plan (three verbs: make / measure / generate-decode). **Phase 0** (robustness + optimization quick wins)
-  and **Phase 1** (cohort tier: `bench/eval.py`, `repertoire.{fit_repertoire_spaces,centroid_atypicality}`,
-  `cohort.py` digital donor) are **DONE**. **Phase 2 (generative loop, mechanical half) — DONE**:
-  `generate.py` `DescriptorDensity` (`sample`/`evolve`) ships, promoting the ad-hoc
-  `benchmark_repertoire_tcga_insilico.py` `np.cov`-slope pattern; `CodecBundle.from_unified/from_decoder`
-  is still open. **Phase 5 (embedding trajectory) — partially addressed**: `track.py`
-  `fit_exposure_trajectory` (a PhenoPath-style covariate-disentangled latent trajectory, Campbell &
-  Yau 2018) fills this rather than the originally-sketched `track.repertoire_trajectory`
-  Φ-velocity idea — a different, arguably more principled approach to the same phase; `clonotype_flux`
-  (differential enrichment) is still open. Also new: `mir.ml.diffusion` (generative loop, **research
-  half** — conditional DDPM/DDIM, complementing the linear `DescriptorDensity`) and `twin.py`
-  (`DonorTwin`/`make_twins` — glues descriptor + trajectory + generator into one perturb/simulate
-  object). Next: Phase 3 (embedding inversion / generation), Phase 4 (multimodal encoders).
-  **Analysis-repo follow-up:** refactor `_tcga_embedding.build_embedding` onto
-  `cohort.fit_donor_embeddings` (+ `extra_channels` for isotype/composition/atypicality) and re-verify the
-  pan-cancer ΔC numbers. NB Phase 0 flipped the density default to `backend="kdtree"` — re-verify any
-  recorded balloon-mode baselines (±1 boundary counts).
+- **Roadmap** (`2026-mirpy-analysis/benchmarks/ROADMAP.md`): Phases 0, 1, 2 done; Phase 5 partially
+  (via `track.fit_exposure_trajectory`). **Next: Phase 3 (embedding inversion/generation), Phase 4
+  (multimodal encoders)**; still open — `CodecBundle.from_unified/from_decoder`, `clonotype_flux`.
+- **Analysis-repo follow-up**: refactor `_tcga_embedding.build_embedding` onto
+  `cohort.fit_donor_embeddings` (+ `extra_channels`) and re-verify the pan-cancer ΔC numbers. Of its
+  four jobs, (b)+(d) are promoted into `mir.explain`, (c) is correctly analysis-local; **(a)
+  "fit one `RepertoireSpace` per locus over a cohort" still belongs in `mir.repertoire`.**
 - **v3.0 remaining**: 10X paired benchmark; docs (Sphinx theory section + notebooks); CI; publish
   `py3-none-any` wheel; regenerate `generate_prototypes.py` via `vdjtools.model.generate`.
-- **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper
-  regime (Fig 1's dataset-specific factor). Exact Table S1 F1 needs the paper's VDJdb release.
-- **Part 2 (v3.1+)** — `mir.ml` (torch, `[ml]` extra), absorbing `irrm-codec`. Codec targets the
-  **PCA-compacted junction embedding** (T3: 1000-D junction → ~51 PCs @95% var on arda coords,
-  99% for reconstruction), fit train-only.
-  V/J stay exact germline lookups (nothing to learn); the codec's job is the junction part.
-  Results on M3 MPS (`benchmarks/train_{forward_encoder,inverse_decoder,pgen_regressor}.py`),
-  **re-pinned on the arda-native coords** (2026-07-13):
-  - **DONE forward codec** (`tokenize,encoder,train`): seq → compact code, reconstruction
-    cosine **0.9984** (n=8k; paper 0.887). DNN inference is K-independent. Geometry is fine at
-    95% (51 PCs) — only *reconstruction* is compaction-sensitive (below).
-  - **DONE inverse codec** (`decoder`, `train.train_inverse_decoder`): 284-PC code (99% var) →
-    seq, exact-match **0.40**, token-acc 0.97 (irrm-codec 0.50 from the *full* embedding). **NB:
-    the arda-real prototypes are lower-rank, so TRB 95%-var is only 51 PCs → exact 0.08
-    (over-compacted); 99% (284 PCs) restores 0.40.** The T5 chain-adaptive lesson now bites TRB
-    too, not just IGH/TRD — the decoder default is 99%.
-  - **DONE Pgen regressor** (`train.train_pgen_regressor`): seq → log10 Pgen(1mm), r **0.967**,
-    **~190× faster** than the native DP. Breakdown (`benchmarks/benchmark_pgen_variants.py`):
-    r ranks marginalized > J > V > V&J (a CDR3-only regressor best predicts the pure-CDR3
-    marginalized Pgen; V&J-conditional depends on unseen genes) and 1mm > exact (smoother ball).
-  - **DONE unified codec** (`codec.py`): jointly train encoder+decoder with a geometry-anchor
-    term (`lambda_embed`) — code stays ≈ the true embedding (distances preserved) while
-    round-tripping seq→code→seq; encoder+decoder co-adapt (roundtrip_exact > decode_true_exact).
-  - **DONE smart shipping** (`bundle.py`): **embeddings are only comparable if prototypes + PCA
-    rotation match.** `CodecBundle` serializes the PCA transform + a prototype hash + weights;
-    `load` refuses a prototype-hash mismatch so incomparable embeddings can't be mixed. Any
-    trained codec MUST be shipped as a bundle, never bare weights.
-  - Per-chain/species breakdown: `benchmarks/benchmark_codec_chains.py` (forward cos 0.997–0.999
-    universal; inverse chain-dependent — short κ/λ/γ/mouse easy, IGH/TRD hard).
-  - **DONE lossless-recon depth/K/data sweep** (`benchmarks/benchmark_lossless_{depth,kpc}.py`,
-    real held-out TRB from `isalgo/airr_control` vs arda landmarks): exact-match is **training-data-
-    limited, not architecture-limited** — the old "~0.40 ceiling" was n≈8k starvation. Same one-shot
-    decoder: n=20k→50k→100k drives exact **0.885→0.941→0.958** (token 0.996→0.998) at K=2000/PC=400,
-    crossing 95% at n≈100k, peak RSS 11 GB. **Optimal (K,PC)=(2000, 300–500)**: K saturates ~2000–5000
-    (K=10000 *regresses* 89.4→88.8 and doubles cost); PC is the stronger lever below ~300 (PC 50→300
-    ⇒ exact 0.67→0.89). Cost: K linear (matrix N·K·4 B, ~5 µs/query @K=2000; K=10000 = 32 µs/query,
-    0.8 GB @n=20k), PC cheap. Levers to 95%+ exact, in order: **more data (free)** > PC→~99% var >
-    K→~2000 > (last %) autoregressive decoder + widen `FIXED_LEN` for the ~0.1% long real-IGH tail.
-    Frame is lossless iff `len(junction)≤40` (100% on bundled protos; ~99.9% on real IGH). The
-    distance-to-prototypes code is an **expansion** (10 kbit code vs ~63 bit seq) — for archival
-    losslessness *store the string*; the codec inverse is for ML/generation. Fine (1-residue) diffs
-    survive 99%-var compaction (0/500 collisions, 99.6% variants nearest-to-parent).
-  - **C gene / isotype**: absent from the embedding (prototypes are v/j/junction only; germline_dist
-    is V/J/CDR1/CDR2). Isotype is a low-cardinality categorical (~9 IGH classes ≈ 3 bits) *independent*
-    of V/J/CDR3 ⇒ not reconstructable ⇒ **carry `c_call` as an exact stored column, never embed it**
-    (same as v_call/j_call metadata). No codec change.
-  - **DONE T5 (SHM/IGH)** (`bench.theory.shm_embedding_drift`, `benchmarks/benchmark_igh_shm.py`):
-    SHM embedding drift is ~linear/sublinear in mutation load (bounded; IGH 104/mut < TRB 128/mut
-    — IGH lowest slope, robust to SHM). IGH's hard reconstruction is **over-compaction, not the
-    frame**: on arda coords 95% code (95 PCs) → exact 0.115, 99% (422 PCs) → 0.356 (> old 0.152;
-    real IGH prototypes reconstruct better). ⇒ variance retention should be **chain-adaptive**
-    (95% preserves geometry; 99% needed for reconstruction on the compact arda prototypes — TRB
-    and IGH/TRD alike); the bundle already ships per-codec.
-  - **DONE T6 (continuous-density TCRNET/ALICE)** (`mir/density.py`): graph-free balloon
-    enrichment `E(z)=f_obs/f_gen` in embedding space; Poisson (ALICE, P_gen bg) or binomial
-    (TCRNET, control bg) + BH q; water-level calibration for the naive regime. Theory
-    `tcrnet_convergence` confirms the r→0 graph limit (ρ 0.37→−0.05 as radius grows). Benchmarks
-    `benchmarks/benchmark_density_{yfv,ankspond,tcrnet,vdjdb}.py` on HF
-    `isalgo/airr_{yfv19,ankspond,benchmark,control}` + VDJdb slim.
-    **Key lesson**: real repertoires are pervasively convergent, so a P_gen background flags ~40% of
-    clones — use a *biological control* (differential: day15-vs-day0, B27±, CMV-vs-control) for
-    specificity, and process the **full repertoire** (subsampling dilutes the sparse antigen clusters).
-    `benchmark_density_vdjdb.py` makes this quantitative: VDJdb TRB ridges bystander-filtered by
-    `reference.id` (≥2 PMIDs) + admixed `airr_control` noise; under P_gen the noise over-flags 43%
-    vs 1% under a control bg (46× signal:noise lift), and it counts mountains/epitope (GILGFVFTL 32,
-    NLVPMVATV 4 — polyclonality tracks precursor freq, Pogorelyy 2018).
-  - **TODO**: epitope/MHC; scale codec on HF `airr_benchmark` (10–100M).
-- **Sample-level (repertoire) embedding (v3.x) — DONE** (`mir/repertoire.py` + `mir/ml/set_encoder.py`,
-  appendix §T.7 `sec:sample`, `THEORY.md` T7). `Φ(S)` = RFF **kernel mean** (depth-robust `n_eff^{-1/2}`,
-  codebook-free) ‖ coverage-standardized **Hill profile** ‖ **second-moment** Fisher; distance = MMD /
-  HLA-stratified; `class_witness` = supervised MMD motif finder; learned co-equal Set-Transformer/DeepRC in
-  `mir.ml.set_encoder`. Reuse: `TCREmp.embed`, `density.{_WEIGHTS,fit_density_space,calibrate_radius}`,
-  `vdjtools.stats.inext`, `preprocess.downsample`, `ml.bundle` hashing. Tests
-  `tests/test_{repertoire,set_encoder}.py`; benchmarks `benchmarks/benchmark_repertoire_{aging,depth,cmvhla,hla}.py`
-  (shared `_cohort.py`; `airr_benchmark` aging 79, `airr_hip` Emerson 2017 786). **Key empirical lesson**
-  (`THEORY.md` T7; **all adversarially verified — two over-claims caught & corrected**): depth-robustness holds
-  (`prop:kme`, slope −0.55) but is a **generic KME/MMD Monte-Carlo rate**, not embedding-specific. **Age & CMV
-  are clone-size (diversity) phenomena** — a Hill/coverage summary dominates (CMV AUC **0.83±0.05** 50-fold CV
-  n=240 vs Φ blocks 0.59–0.63), real memory-inflation clonality not an age confound (age-matched age-only 0.45);
-  Φ₁ discards clone size *by design* so this isn't an embedding defeat. **HLA-A\*02**: diversity 0.45=chance,
-  clonotype blocks modestly higher (second-moment **0.535±0.08**) — *direction* favors clonotype-identity but
-  **CIs overlap, not decisively separated** (the earlier single-split 0.64 was noise). **Spike-in** (VDJdb
-  NLVPMVATV into shallow P_gen): **~50% recall at RNA-seq depth, FPR ~1.2%**, cross-metric (Hamming-select /
-  embedding-detect; an earlier same-embedding version was circular, 72%→50%). `class_witness` surfaces coherent
-  `CASS…EQYF` motifs; YF real-data witness marginal (0.57). Net: CI-backed value = **depth-robustness + fixed
-  modality**; clonotype-identity payoff real-but-weak, in the 2nd moment / witness / density not the first moment.
-  Verification workflow: `wf_06465c6e`. Spec: `REPERTOIRE_EMBEDDING.md`. **TODO**: larger HIP cohort/depth to
-  establish the weak HLA signal; biological-control FPR for spike-in; HLA-allele panel; epitope/MHC; scale.
-- **Sample-level — 2026-07-14 additions** (`airr_covid19` = Vlasova 2026, paired TRB+TRA, 9 real batches,
-  4-digit HLA class I+II; `_covid.py` local loader + `benchmark_repertoire_{covidbatch,covidhla,covidstatus,
-  covidpaired}.py`; `THEORY.md` T7):
-  - **Unbiased MMD** (`mir/repertoire.py` `mmd_distance/mmd_matrix(unbiased=True)`): biased V-stat's `1/n_eff`
-    self-term inflates low-diversity samples → fakes divergence. **Age-divergence** re-tested deep (500k, not
-    the misleading 40k): real & strong (overlap ρ0.70) but **diversity-coupled, not an independent axis**
-    (partial ρ(age,div|¹D)≈0.07 n.s.); overlap-F sign is −0.68 (clonal expansion, not richness).
-  - **Batch cookbook (`prop:batch`) — PASS**: batch OvR AUC 0.78 → **0.03** after residualization; HLA (⟂batch)
-    survives, COVID status (⟂̸batch) collapses 0.66→0.41 (naive rode the confound). detect→quantify→correct→verify.
-  - **HLA imprint**: 15/17 alleles class I+II, class II 8/9 (DRB1\*07:01 0.76 top). **TRA > TRB** for HLA
-    (DRB1\*15 α 0.81 vs β 0.75); paired concat dilutes (noisier β) → use α for HLA.
-  - **COVID biomarker = honest negative**: chance after batch correction (0.49–0.52); witness doesn't rediscover
-    the paper's clones (0.37β/0.45α, GT is 87% α). Long-past exposure has no batch-robust bulk signal at RNA-seq depth.
-  - **Parallelism/GPU documented** (README "Performance & parallelism"): `TCREmp(threads=0)` all-core; density
-    `backend="kdtree"` multicore exact; `pick_device` **CUDA→MPS→CPU** (was MPS-only) + `MIR_DEVICE`.
-- **Sample-level refinements + TCGA — 2026-07-14 (pm)** (`BENCHMARKS.md` "2026-07-14 (pm)"; all numbers recorded):
-  - **WS1 spectral block** (`fit_repertoire_space(n_eigs=r)`, `benchmark_repertoire_spectral.py`): opt-in top-`r`
-    eigenvalues of the second-moment covariance. **Lossy for HLA** — HLA-A\*02 lives in *which* clones co-occur
-    (directional), eigenvalues are rotation-invariant → top-r ≤0.55 while full upper-tri reaches **0.593** (D₂=512).
-    Default `None` = upper-tri (unchanged); keep the full triangle. Test `test_spectral_second_block_top_r_eigvals`.
-  - **WS2 COVID witness** (`benchmark_repertoire_covidwitness.py`, vdjtools `biomarker.fisher_association`): answers
-    "Fisher passes but embedding vanishes — why?" → **breadth, not depth**. Genome-wide Fisher passes 0 clones at
-    150–300 donors (any depth 20k/120k); full ~1137-donor cohort passes 39β/4α (user tmp scan). Sample-level lever
-    is **batch control** (β witness whole 0.51 → mixed-batch **0.75**); per-allele HLA-stratification adds noise
-    (median≈whole). HLA+α+β is not the key — breadth is.
-  - **WS2b COVID motif recovery** (`benchmark_repertoire_covidmotif.py`, full 1137-donor incidence Fisher, both
-    chains): the *breadth-powered* way to find motifs. **α genome-wide recovers 4 GT-true clones = a coherent
-    public family CAG·NYGGSQGNLIF (paper cluster 31)**; β recovers 0 (rarer/HLA-restricted). **HLA restriction
-    adds 0** — the recoverable α clones are already public. **WS1 (2026-07-15) closed the α/β loop and REFUTED
-    the "β is depth/HLA-limited" guess**: β at full *native* depth genome-wide, and `native_beta` across 12
-    class-II/B carrier strata at native depth, both recover **0** GT-β. β's GT clones are short **public
-    bystanders** (`CASSx…YEQYF` TRBJ2-7, present in COVID *and* healthy; 253/256 present, median incidence 9),
-    so they don't discriminate status by *incidence* — the α/β split is **status-enriched vs public-bystander,
-    not depth/breadth/HLA**. (Untested caveat: an abundance/size-based test could still catch β clones enriched
-    in *magnitude* not *breadth*.)
-  - **WS3 UMAP** (`plot_sample_umap.py {covid,aging,hip}`): faceted UMAP of Φ₁ (=MMD geometry) by age/HLA/batch/
-    COVID/CMV → `benchmarks/figures/`. covid19 visibly clusters by **batch** in raw Φ₁, dissolves after
-    `residualize` (the `prop:batch` story made visual).
-  - **WS4 TCGA** (`_tcga.py` local-first loader, untars once; `benchmark_repertoire_tcga.py`; `lifelines` in
-    `[bench]`): 9591 samples, 7 chains, OS survival. **Tumor-type separation is depth-dependent** — deepest chain
-    **IGK 0.67** ≫ shallow TRB 0.52 / IGH 0.50 (IG light chains carry tissue signal). **Survival = honest negative**:
-    ΔC-index ≈0 for every chain over a clinical Cox (age+sex+stage+log reads, base C 0.66–0.73) — the tumour-
-    infiltrating repertoire adds no prognostic value at RNA-seq depth. No grade column (used stage); PFS empty.
-  - **WS4b TCGA survival via biology features** (`_tcga_features.py` isotype/infiltration/atypicality/clonality;
-    `benchmark_repertoire_tcga_survival.py`) — the prognosis the *identity embedding* misses lives in interpretable
-    axes (modelled on an internal AIRR-tissue EDA). **Infiltration (hot/cold Z-axis) stratifies survival in 5/8
-    cancers** (KIRC/SKCM/KIRP/OV/LGG log-rank p<0.05) and adds C-index in melanoma (+0.036) / KIRP (+0.030);
-    **IgA isotype** stratifies bladder (mucosal, p=0.010) + melanoma; **atypicality** stratifies glioma (p=0.001)
-    — all matching known immunobiology. Isotype/atypicality show via KM stratification, not linear C-index. Net:
-    tissue prognosis = infiltration magnitude + isotype + typicality, **not clonotype identity**.
-  - **REFRAME → TME-aware repertoire embedding, pan-cancer** (`_tcga_embedding.py` = per-chain identity ‖
-    diversity ‖ coverage/infiltration ‖ isotype ‖ composition ‖ atypicality — the biology axes recast as Φ(S)
-    channels; `benchmark_repertoire_tcga_{pancancer,tme}.py`; THEORY.md T7 "Repertoire embeddings for the TME",
-    BENCHMARKS.md "Repertoire embedding for TME & survival"). One Φ over 9425 OS samples (78-dim, 5 embeddable
-    chains + all 7 via composition). **Robustly prognostic** (LR p<0.05 & CV ΔC>0) in **SKCM +0.039 / BLCA
-    +0.025 / HNSC +0.022 / LGG +0.016**; effect-size positives SARC (isotype) / KIRP (atypicality). Top channel
-    = **coverage/atypicality/composition, ~never identity**; immune-cold cohorts overfit → pan-cancer mean ΔC≈0
-    masks the immune-hot wins. **Paradigm lesson (T7 #6): the same Φ(S) that reads infection/HLA in blood via
-    its identity channels stratifies the TME + survival in tissue via its non-identity channels.** Unsupervised
-    Φ clustering → TME states (`benchmark_repertoire_tcga_tme.py`, UMAP `benchmarks/figures/umap_tcga_tme`).
-  - **Derivable descriptor + in-silico evolution** (`mir.repertoire.sample_descriptor`/`RepertoireDescriptor`/
-    `decode_metrics`; `benchmark_repertoire_tcga_insilico.py`; THEORY.md T7 lesson 7): **mass-preserving** smooth
-    descriptor — infiltration=log-mass, diversity=log n_eff, clonality=Σw², identity=kernel mean are all smooth
-    coordinates (keeps the mass Φ normalises away). The cohort coordinate distribution = a generative manifold;
-    perturbing infiltration + conditioning (Gaussian) = **in-silico evolution**: hotter ⇒ diversity +0.84 /
-    switch +0.52 / T-vs-B −0.63; CoxPH "make hotter" protective 12/20 cancers, adverse in glioma (LGG +1.19) —
-    learned couplings match immunobiology. Test `test_descriptor_metrics_derivable_smooth_and_decodable`.
-    **TODO**: per-cancer n_pc; Thorsson immune-subtype validation; a learned (flow/VAE) generative manifold for
-    full sequence-level simulation. "Promote the multi-chain descriptor" is **partially done** (2026-07-17):
-    `build_embedding` was four things — (a) per-locus space fitting, (b) channel assembly + registry,
-    (c) TME feature engineering, (d) impute/z-score. `mir.explain` promotes **(b)+(d)**; **(c)** is correctly
-    analysis-local (isotype/composition/atypicality are tissue features, not library concerns — though
-    atypicality, being a Φ-geometry op, would belong in `repertoire.py` as `centroid_atypicality` if ever
-    wanted). **Remaining**: (a) — "fit one `RepertoireSpace` per locus over a cohort" is construction, so it
-    belongs in `mir.repertoire` as a separate, smaller follow-up.
-- **Docs math section** (`docs/math.rst`, 2026-08-02) — the library-facing derivation of everything:
-  prototype embedding + Lipschitz bound, the measure quotient (order *and* length), Bochner/RFF +
-  empirical CF, MMD biased/unbiased, Hill vs Rao, the Good–Turing/Chao missing-mass derivation
-  (including *why the units work*), mixture algebra (bands, NNLS, rarefaction + the exact Rao gap),
-  balloon density ratio + its two nulls, channel ablation + witness, the batch-offset estimation
-  problem, trajectory + Gaussian-conditional evolution, codec geometry anchor — plus the
-  **"which transformation preserves what"** table (MMD / Rao / mixture linearity), which is the contract
-  for anything applied to Φ. MathJax + `sphinx.ext.graphviz` (no LaTeX in the build; docs CI installs
-  `graphviz`). Cross-refs use the manuscript appendix's labels (`prop:kme`, `eq:rff`, …) so docstrings,
-  docs and appendix name the same results.
-- **Provenance rule for measured numbers** (user, 2026-08-02): quote the numbers, never the source —
-  no corpus size, no dataset/programme/cohort names anywhere in this repo.
-- Full plan: `~/.claude/plans/i-want-to-completely-crystalline-lake.md`.
+- **Codec**: exact-match is **training-data-limited, not architecture-limited** — levers in order are
+  more data (free) > PC→99% var > K→~2000 > autoregressive decoder + wider `FIXED_LEN` for the long
+  real-IGH tail. Scale on the large HF corpus. **Never embed `c_call`** — isotype is ~3 bits
+  independent of V/J/CDR3, so carry it as an exact stored column.
+- **Bench tuning**: raw kneedle eps over-merges; `cluster(eps_factor=0.4)` recovers the paper regime.
+  Exact Table S1 F1 needs the paper's VDJdb release.
+- **Open questions**: epitope/MHC tier; larger cohort/depth for the weak HLA signal; biological-control
+  FPR for spike-in; per-cancer `n_pc`; a learned (flow/VAE) manifold for sequence-level simulation.

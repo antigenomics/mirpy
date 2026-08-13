@@ -89,6 +89,15 @@ exclude = [
   "*.log",
 ]
 
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Paired short statements (`a = f(); a /= a.sum()`) and `l`/`O` as loop-local scalars are house
+# style; E402 covers the guarded imports in tests that skip before importing torch.
+ignore = ["E702", "E741", "E402"]
+
 [tool.pytest.ini_options]
 markers = [
   "benchmark: performance-oriented tests excluded from the default test run",

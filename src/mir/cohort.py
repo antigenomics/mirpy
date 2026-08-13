@@ -856,7 +856,8 @@ def _demo() -> None:
     assert rep.best == "identity", rep.frame()
 
     # transform held-out donors + serialize with hash verification
-    import tempfile, os
+    import os
+    import tempfile
     held = donor_frames[:4]
     Xt = coh.transform(held, extra={"atypicality": np.zeros(4)})
     assert Xt.shape == (4, coh.X.shape[1])

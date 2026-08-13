@@ -302,7 +302,7 @@ def fit_exposure_trajectory_from_samples(
 def _demo() -> None:
     """Self-check on synthetic data: a channel with a planted interaction is recovered as top-ranked."""
     rng = np.random.default_rng(0)
-    n, g, p = 80, 12, 1
+    n, g = 80, 12
     tau_true = rng.standard_normal(n)
     x = rng.integers(0, 2, size=n).astype(np.float64)          # binary covariate (e.g. HLA carrier)
 
