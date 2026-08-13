@@ -81,14 +81,14 @@ class LocusReference:
         *prototype panel*, which is a differently-constituted set. Real repertoires live near the
         former. Measured on two cohorts, between-donor cosine spread after centring:
 
-        ==========================  ========  =======
-        centre                      cohort A  cohort B
-        ==========================  ========  =======
-        none (raw)                    0.0105   0.0010
-        ``mu_phi`` (prototype cloud)  0.4008   0.0785
-        ``naive`` (unselected)        1.2660   1.6148
-        own sample mean (oracle)      1.9031   1.9088
-        ==========================  ========  =======
+        ============================  ========  ========
+        centre                        cohort A  cohort B
+        ============================  ========  ========
+        none (raw)                    0.0105    0.0010
+        ``mu_phi`` (prototype cloud)  0.4008    0.0785
+        ``naive`` (unselected)        1.2660    1.6148
+        own sample mean (oracle)      1.9031    1.9088
+        ============================  ========  ========
 
         ``naive`` recovers 67–85% of what an oracle centred on the cohort's own mean achieves;
         ``mu_phi`` recovers 4–21%. The residual offset explains it: ``‖mu_phi − sample mean‖`` is

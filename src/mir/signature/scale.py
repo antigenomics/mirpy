@@ -139,12 +139,12 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
     stylistic one. Against the full-corpus fit on 4,080 real samples, the fraction of columns whose
     location lands within 0.10 scales *and* whose scale lands within ±10%:
 
-    ===========  =======  =======  =======  =======
-    estimator      N=250    N=500   N=1000   N=2000
-    ===========  =======  =======  =======  =======
-    mean / sd      0.362    0.386    0.576    0.841
-    median / MAD   0.669    0.908    0.992    0.999
-    ===========  =======  =======  =======  =======
+    ============  =====  =====  ======  ======
+    estimator     N=250  N=500  N=1000  N=2000
+    ============  =====  =====  ======  ======
+    mean / sd     0.362  0.386  0.576   0.841
+    median / MAD  0.669  0.908  0.992   0.999
+    ============  =====  =====  ======  ======
 
     The moment estimator never gets there, and the half that fails is the *scale*: the columns are
     heavy-tailed after their block transform (excess kurtosis 0.6-207, and 0.4-3% of samples beyond
