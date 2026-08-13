@@ -6,23 +6,39 @@ running the file by hand, so CI never executed them and they showed up as the la
 blocks in the library. Running them here makes them real tests: each is a few hundred
 milliseconds and self-contained on bundled resources.
 
-``mir.aliases`` is absent from the list on purpose: its self-check is inlined in the ``__main__``
-block rather than a ``_demo`` function, and the module is already fully covered.
+The list is **discovered**, not written down. It used to be a hard-coded tuple, and within one
+session a newly added module with a working ``_demo`` was silently not run by it — which is the
+failure mode a self-check list can least afford, since nothing about it looks broken. A module
+that cannot be imported (an optional dependency) is skipped with its reason rather than failing:
+this test exists to run self-checks, not to assert the extras are installed.
 """
 
 import importlib
+import pkgutil
 
 import pytest
 
-_WITH_DEMO = [
-    "mir.bench.eval",
-    "mir.cohort",
-    "mir.explain",
-    "mir.generate",
-    "mir.repertoire",
-    "mir.track",
-    "mir.twin",
-]
+import mir
+
+
+def _modules_with_demo():
+    found = []
+    for m in pkgutil.walk_packages(mir.__path__, prefix="mir."):
+        try:
+            mod = importlib.import_module(m.name)
+        except Exception:
+            continue
+        if callable(getattr(mod, "_demo", None)):
+            found.append(m.name)
+    return sorted(found)
+
+
+_WITH_DEMO = _modules_with_demo()
+
+
+def test_discovery_found_the_demos():
+    """A discovery bug would silently turn this whole file into zero tests."""
+    assert len(_WITH_DEMO) >= 7, _WITH_DEMO
 
 
 @pytest.mark.parametrize("module", _WITH_DEMO)
