@@ -410,12 +410,26 @@ def save_scale(ref: ScaleReference, path: "str | Path" = DEFAULT_PATH) -> Path:
 def load_scale(path: "str | Path | None" = None) -> "ScaleReference | None":
     """Load the scale artifact, or ``None`` if none is installed.
 
-    ``None`` rather than an exception: a signature without a scale reference is still a perfectly
-    usable raw feature vector, and the caller is told which it got via ``standardize=``.
+    ``None`` rather than an exception **only for the default path**: a signature without a scale
+    reference is still a perfectly usable raw feature vector, and the caller is told which it got
+    via ``standardize=``.
+
+    An explicitly supplied path that does not exist RAISES. Returning ``None`` there conflates
+    "you did not ask for a reference" with "the reference you named is missing" -- so a typo in
+    ``--scale`` would silently produce an unstandardised matrix that looks exactly like a
+    standardised one, and the caller has already said they want a specific artifact.
+
+    Raises:
+        FileNotFoundError: If ``path`` was given and does not exist.
     """
-    p = Path(path) if path is not None else DEFAULT_PATH
-    if not p.exists():
-        return None
+    if path is not None:
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"no scale reference at {p}")
+    else:
+        p = DEFAULT_PATH
+        if not p.exists():
+            return None
     d = np.load(p, allow_pickle=False)
     meta_path = p.with_suffix(".json")
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}

@@ -119,10 +119,17 @@ class TestRoundTrip:
         assert back.pgen_q05 == {"TRB": -12.5}
         assert np.array_equal(back.n_obs, ref.n_obs)
 
-    def test_missing_artifact_returns_none_rather_than_raising(self, tmp_path):
-        """A signature without a scale is still a usable raw vector."""
+    def test_a_missing_default_artifact_returns_none_rather_than_raising(self, tmp_path,
+                                                                          monkeypatch):
+        """A signature without a scale is still a usable raw vector -- for the DEFAULT path.
+
+        Narrowed from "any missing path returns None". That contract could not tell "you did not
+        ask for a reference" from "the reference you named is missing", so a typo in --scale
+        produced an unstandardised matrix indistinguishable from a standardised one.
+        """
         S.load_scale.cache_clear()
-        assert S.load_scale(tmp_path / "absent.npz") is None
+        monkeypatch.setattr(S, "DEFAULT_PATH", tmp_path / "absent.npz")
+        assert S.load_scale() is None
 
 
 class TestStandardizeWiring:
@@ -394,3 +401,17 @@ class TestSignatureColumnsAreSelectedByTheContract:
     def test_a_frame_of_only_metadata_is_refused(self):
         with pytest.raises(ValueError, match="no signature columns"):
             S.fit_scale(pl.DataFrame({"sample_id": ["a"], "age": [1.0]}))
+
+
+class TestLoadScaleDistinguishesAbsentFromMisnamed:
+    def test_an_explicit_missing_path_raises(self, tmp_path):
+        """A typo in --scale must not quietly yield an unstandardised matrix."""
+        S.load_scale.cache_clear()
+        with pytest.raises(FileNotFoundError, match="no scale reference"):
+            S.load_scale(tmp_path / "typo.npz")
+
+    def test_an_explicit_present_path_loads(self, tmp_path):
+        S.load_scale.cache_clear()
+        ref = S.fit_scale(cohort(n=80))
+        S.save_scale(ref, tmp_path / "s.npz")
+        assert S.load_scale(tmp_path / "s.npz").columns == ref.columns
