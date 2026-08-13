@@ -76,6 +76,143 @@ On top of that every column is rescaled against a frozen reference (median and
 :math:`1.4826\cdot\mathrm{MAD}`, clipped), which is what makes two people's matrices comparable
 rather than each being internally consistent and mutually meaningless.
 
+Geometry is not transformed, and that is not an oversight
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The two halves of the signature end up with almost opposite transform tables, because they hold
+almost opposite kinds of object:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * -
+     - ``vsig`` — statistics
+     - ``rsig`` — geometry
+   * - dominant transform
+     - ``arcsine`` ×20, ``clr`` ×7, ``logit`` ×7, ``log10`` ×6
+     - ``none`` ×116
+   * - support
+     - :math:`[0,1]` or :math:`[0,\infty)`, bounded, discrete
+     - :math:`\mathbb{R}`, signed, continuous
+   * - mean–variance coupling
+     - yes — binomial or Poisson; variance is a function of the mean
+     - no — :math:`\operatorname{Var} \approx \sigma^2 / n_{\text{eff}}`, independent of the value
+
+A coordinate of :math:`\Phi = \sum_\sigma w_\sigma z_\sigma` is a linear functional of a weighted
+mean of *fixed* embedding vectors. It is signed and roughly symmetric, there is no boundary to
+compress against, and its variance does not depend on its own value — exactly the condition under
+which a variance-stabilising transform buys nothing. Applying one would not merely be useless:
+``log``, ``logit`` and ``arcsine`` all require a non-negative or :math:`[0,1]` domain, and these
+coordinates go negative. What they need instead is location–scale rescaling against the frozen
+reference, which is what they get.
+
+The exceptions prove the rule. ``rsig`` transforms exactly where the quantity stops being a
+coordinate: the block **norms** (:math:`\lVert\Phi\rVert`, Rao dispersion) are non-negative,
+right-skewed magnitudes on :math:`[0,\infty)`, so they take ``log1p``; ``band`` is a genuine closed
+composition, so it takes ``clr``.
+
+One block breaks the pattern deliberately
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``contrast`` — :math:`\Psi = \mathrm{mass}\cdot(\Phi - \mathrm{naive})` — is flagged
+``magnitude=True``: it is divided by **one frozen scalar RMS for the whole block, and is never
+centred**. Per-column z-scoring would force every coordinate to unit variance, which makes a sample
+sitting near zero — an immune desert, a repertoire that has barely moved from naive — look
+identical to a typical one. How far a repertoire is from naive *is* what that block exists to
+carry, so rescaling it away would delete precisely the feature. This is the opposite policy from
+every other column in the matrix, and it is a property of the block, not of the sample.
+
+How many components should you keep
+------------------------------------
+
+Not "enough for 90% of the variance". In a repertoire matrix the leading variance is sequencing
+depth, batch and V-gene usage, so a variance-ranked criterion ranks nuisance first.
+
+Measured on the emitted signature matrix — 14,553 samples × 1,369 columns across 182 studies,
+robust median/MAD scaling with clipping (``benchmark_signature_dimension.py``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 46 14 40
+
+   * - criterion
+     - components
+     - what it actually measures
+   * - 90% cumulative variance
+     - 394
+     - how much of *this* corpus you reproduce
+   * - Horn parallel analysis
+     - 241
+     - how many exceed a column-permuted null
+   * - participation ratio (effective rank)
+     - 144
+     - how spread the eigenvalue mass is
+   * - per-component :math:`|r| \ge 0.95` across a study-disjoint refit
+     - **1**
+     - which individual axes are identified at all
+   * - per-component :math:`|r| \ge 0.90`
+     - 1
+     -
+
+The gap between 394 and 1 is the finding, not a contradiction. Split-half correlation per component
+was 0.949 for PC1, 0.614 for PC2 and 0.15–0.32 from PC3 onward, while eigenvalues 2–12 sit at
+73, 56, 51, 48, 44, 42, 38, 34, 32, 31, 30 — near-degenerate. Components of nearly equal eigenvalue
+**swap order** between two refits, so a per-component correlation punishes a labelling artifact
+rather than a stability failure. That is why the same script also reports the rotation-invariant
+subspace overlap :math:`\lVert V_a V_b^\top\rVert_F^2 / k`: the *subspace* can be stable where the
+*axes* are not.
+
+So what number do you actually use? Ask the only criterion that knows what the components are
+*for*. Mean AUC over the four largest tasks (2,199–8,016 samples, 21–70 studies), study-disjoint
+folds, rotation refit inside every fold:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 14 14 14 14 15 15
+
+   * - components
+     - 8
+     - 16
+     - 64
+     - 256
+     - 512
+     - all 1,369
+   * - mean AUC
+     - 0.575
+     - 0.581
+     - 0.589
+     - **0.591**
+     - 0.584
+     - 0.555
+
+The curve is flat from 16 to 256 and then falls off a cliff: **the full 1,369-column matrix scores
+worse than 16 components**. That is the curse of dimensionality, located. Per task the effect is
+large — ``l3_covid`` reads 0.727 at :math:`k = 64` against 0.582 on all columns; ``l1_infection``
+0.659 against 0.577.
+
+**The recommendation: 16–64 components.** 16 buys 98% of the achievable AUC at a quarter of the
+width; 64 is the plateau; beyond 256 you are paying for noise. Keep the full matrix only when the
+learner is regularised for it (L1, gradient boosting) or when you are hunting a rare, sparse signal
+that a rotation would average away.
+
+Practical rules that follow:
+
+- **Never interpret an individual PC beyond the first** as though it were a named feature. It is a
+  coordinate of the corpus that fitted it.
+- **Select rank by out-of-study reproducibility**, not by explained variance — and prefer the
+  subspace-overlap criterion to the per-component one, which fails on degeneracy alone.
+- **Refit the rotation inside every cross-validation fold.** Fitting it once on the whole task and
+  cross-validating only the classifier lets the components see the test studies' covariance.
+- **Report a permutation null for anything chosen by looking at the labels.** A maximum over 64
+  components reached AUC 0.84 by chance on a 26-vs-7 contrast (p = 0.20).
+- For a **rare, discriminative** signal, do not project at all — keep sparse columns and an L1
+  model. The SVD optimises for variance, and a motif carried by a handful of donors has none.
+
+This is also why no corpus-fitted rotation ships in the artifact: the ``phiv`` / ``phij`` / ``phic``
+bases come from the prototype cloud, which involves zero samples and so has no corpus to be
+unstable with respect to.
+
 Holes are never zeros
 ---------------------
 
@@ -134,6 +271,34 @@ A frozen reference removes the *scaling* difference between two cohorts. It does
 batch effect, and nothing in this vector should be read as if it did — sequencing protocol, depth
 and sample handling all move real columns. Use the ``depth:`` columns as covariates, and check a
 batch label before believing a between-cohort contrast.
+
+How strong is that warning? On a clonal-density read-out, the flagged fraction fell from **19.4% to
+0.9%** when the background was drawn from within the same study instead of across studies. Nearly
+all of it was batch.
+
+Regenerating these numbers
+--------------------------
+
+Every measured table on this page comes from a script in the companion
+`2026-mirpy-analysis <https://github.com/antigenomics>`_ repo, so it can be re-measured rather than
+believed:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 44 56
+
+   * - script
+     - what it re-measures
+   * - ``benchmark_signature_dimension.py``
+     - variance / Horn / effective rank / split-half rank criteria, both scaling arms
+   * - ``benchmark_signature_scale_convergence.py``
+     - how many samples a frozen median and MAD need
+   * - ``benchmark_signature_rotation.py``
+     - prototype-cloud rotation vs a corpus-fitted one
+   * - ``benchmark_density_ankspond.py``
+     - the within-study vs cross-study background comparison
+
+*Measurements on this page were last taken 2026-08-13.*
 
 API
 ---
