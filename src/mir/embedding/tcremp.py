@@ -80,6 +80,7 @@ class TCREmp:
         matrix=None,
         alignment: str = "gapblock",
         replicate: int = 0,
+        shm_scale: float = 1.0,
     ):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
@@ -99,6 +100,11 @@ class TCREmp:
         self._matrix = matrix
         self._alignment = alignment
         self._germline = germline
+        # How hard somatic mutation pushes a clonotype away from its germline V. 1.0 puts the SHM
+        # penalty on the same footing as the germline-to-germline distance, both being BLOSUM62
+        # squared distances over the same alphabet; 0.0 reproduces the T-cell behaviour exactly,
+        # which is what makes this safe to leave on.
+        self.shm_scale = shm_scale
         self._proto_v = prototypes["v_call"].to_list()
         self._proto_j = prototypes["j_call"].to_list()
         self._proto_junction = prototypes["junction_aa"].to_list()
@@ -171,6 +177,27 @@ class TCREmp:
     def n_features(self) -> int:
         return 3 * self.n_prototypes
 
+    def _shm_penalties(self, clonotypes: pl.DataFrame):
+        """Per-clonotype SHM penalty, or ``None`` when the frame carries no mutation evidence.
+
+        Reads ``v_mutations`` (a mutation spec like ``"A23V,S31N"``) in preference to
+        ``v_identity`` (a scalar), because it is the better evidence. Returns ``None`` rather
+        than a zero vector when neither is present: a zero vector asserts every cell is germline,
+        which for a BCR sample is a claim, not a default.
+
+        Wrapping happens here rather than in the constructor so that the same ``TCREmp`` handles
+        a frame with mutation data and one without -- a cohort mixes them.
+        """
+        from mir.distances.shm import MutatedGermlineDistances, shm_penalty_batch
+
+        muts = clonotypes["v_mutations"].to_list() if "v_mutations" in clonotypes.columns else None
+        iden = clonotypes["v_identity"].to_list() if "v_identity" in clonotypes.columns else None
+        if muts is None and iden is None:
+            return None
+        if not isinstance(self._germline, MutatedGermlineDistances):
+            self._germline = MutatedGermlineDistances(self._germline, scale=self.shm_scale)
+        return shm_penalty_batch(muts, iden)
+
     def _junction_distances(self, junctions: list[str]) -> np.ndarray:
         # squared d always; embed() applies the sqrt metric uniformly across all three blocks
         return junction_distance_matrix(
@@ -211,9 +238,15 @@ class TCREmp:
         n = clonotypes.height
         out = np.empty((n, 3 * self.n_prototypes), dtype=np.float32)
 
+        # A B-cell frame may carry its somatic mutation load, and where it does the V slot must
+        # use it: otherwise a hypermutated IGHV3-23 and a germline IGHV3-23 resolve to the same
+        # allele row and embed to identical V coordinates, discarding the whole germinal-centre
+        # signal. Opt-in by the column being present, so T-cell embeddings are unchanged.
+        shm = self._shm_penalties(clonotypes)
         for slot, (comp, gene_col, proto_attr) in enumerate(_MODE_SPEC[self.mode]):
+            kw = {"shm": shm} if (shm is not None and comp == "V") else {}
             out[:, slot::3] = self._germline.matrix(
-                comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr)
+                comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr), **kw
             )
         out[:, 2::3] = self._junction_distances(clonotypes["junction_aa"].to_list())
         if self.metric == "sqrt":
