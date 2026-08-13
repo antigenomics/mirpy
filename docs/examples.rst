@@ -1,7 +1,7 @@
 Examples
 ========
 
-mirpy ships five runnable `marimo <https://marimo.io>`_ notebooks under ``examples/``. They are
+mirpy ships six runnable `marimo <https://marimo.io>`_ notebooks under ``examples/``. They are
 self-contained (they run on the bundled prototypes / test assets — no downloads) and double as
 living documentation for the three tiers. Install the extra and open one:
 
@@ -34,6 +34,11 @@ living documentation for the three tiers. Install the extra and open one:
        planted severity axis, fit a generative density over ``RepertoireDescriptor`` vectors
        (``mir.generate``), perturb one donor ("what if hotter") and draw new synthetic donor states
        via the digital-twin glue (``mir.twin``).
+   * - ``examples/feature_vectors.py``
+     - **Start here to turn repertoires into a model-ready table.** Pick a ranked preset, see
+       exactly what it contains and why, run it over a whole dataset in parallel, and check the
+       result against the ``nuisance`` control — if a model on depth/masks/QC alone scores as well,
+       the real model is reading library prep.
    * - ``examples/signature.py``
      - The portable signature's geometry half: the live transform table read from the registry,
        why ``rsig`` coordinates take ``transform="none"`` where ``vsig`` proportions take arcsine

@@ -76,8 +76,12 @@ mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
 mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
+# BOTH halves: vdjtools statistics + mirpy embedding geometry, in one vector.
+mir presets                                       # the named feature sets, ranked
+mir presets transfer                              # what one preset is, and when to use it
+mir signature cohort/*.tsv.gz --preset classify --threads 0 -o sig.parquet   # 0 = every core
 mir signature cohort/*.tsv.gz -o sig.parquet --tier standard
-mir signature --describe --tier standard          # the column dictionary; reads no input
+mir signature --describe --preset compact         # the column dictionary; reads no input
 ```
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,

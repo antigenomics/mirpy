@@ -204,10 +204,25 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 
 
 def cmd_signature(a: argparse.Namespace) -> None:
+    from vdjtools.signature import presets as P
+
     from mir.signature import assemble, columns, describe
 
+    # --preset picks BOTH the tier and the column subset. mirpy is where the two halves meet, so
+    # unlike `vdjtools signature` every preset resolves here in full.
+    keep = None
+    if getattr(a, "preset", None):
+        try:
+            spec = P.get(a.preset)
+        except KeyError as e:
+            raise SystemExit(str(e)) from None
+        a.tier, keep = spec.tier, spec.columns()
+        print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} columns, "
+              f"suggested scaling {spec.scaling}", file=sys.stderr)
+
     if a.describe:
-        _write(describe(a.tier), a.output)
+        d = describe(a.tier)
+        _write(d.filter(pl.col("column").is_in(keep)) if keep else d, a.output)
         return
 
     # A sample is one file, or several files sharing a sample id — a donor sequenced on TRA and
@@ -232,11 +247,38 @@ def cmd_signature(a: argparse.Namespace) -> None:
         scale = load_scale(a.scale)
 
     out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
-                                    standardize=a.standardize, scale=scale)
-    n_cols = len(columns(a.tier))
-    print(f"[mir] {out.height} samples x {n_cols} columns ({a.tier} tier, "
-          f"standardize={a.standardize})", file=sys.stderr)
+                                    standardize=a.standardize, scale=scale,
+                                    n_jobs=a.threads, columns=keep)
+    n_cols = len(keep) if keep else len(columns(a.tier))
+    print(f"[mir] {out.height} samples x {n_cols} columns "
+          f"({a.preset or a.tier}, standardize={a.standardize})", file=sys.stderr)
     _write(out, a.output)
+
+
+def cmd_presets(a: argparse.Namespace) -> None:
+    """List the feature presets, or explain one.
+
+    `recommended` — use unless you have a reason not to. `specific` — correct for a stated purpose
+    and wrong outside it. `avoid` — a control or a measured dead end, named so that picking it is
+    deliberate rather than accidental.
+    """
+    from vdjtools.signature import presets as P
+
+    if not a.name:
+        _write(P.table().select("preset", "rank", "columns", "halves", "scaling", "summary"),
+               a.output)
+        return
+    try:
+        spec = P.get(a.name)
+    except KeyError as e:
+        raise SystemExit(str(e)) from None
+    print(f"{spec.name}  [{spec.rank}]  {spec.n_columns} columns  tier={spec.tier}  "
+          f"halves={'+'.join(spec.sig)}  scaling={spec.scaling}\n")
+    for label, text in (("summary", spec.summary), ("features", spec.features),
+                        ("how it is computed", spec.how), ("use cases", spec.use_cases),
+                        ("notes", spec.notes)):
+        if text:
+            print(f"{label}:\n  {text}\n")
 
 
 # --- parser ----------------------------------------------------------------
@@ -311,9 +353,19 @@ def build_parser() -> argparse.ArgumentParser:
                         "block values")
     s.add_argument("--scale", default=None,
                    help="path to an alternative scale artifact (default: the bundled one)")
+    s.add_argument("--preset", default=None,
+                   help="named feature set; overrides --tier (see `mir presets`)")
+    s.add_argument("--threads", type=int, default=1,
+                   help="worker processes over samples; 0 = every core (default 1)")
     s.add_argument("--describe", action="store_true",
-                   help="print the column dictionary for --tier and exit; reads no input")
+                   help="print the column dictionary for --tier/--preset and exit; reads no input")
     s.set_defaults(func=cmd_signature)
+
+    q = sub.add_parser("presets",
+                       help="list the named feature sets with their rankings")
+    q.add_argument("name", nargs="?", help="show one preset in full")
+    q.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
+    q.set_defaults(func=cmd_presets)
 
     return p
 

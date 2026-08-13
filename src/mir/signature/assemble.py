@@ -16,6 +16,8 @@ frozen reference — each yields ``nan`` and a mask column, because a model that
 from __future__ import annotations
 
 import numpy as np
+import warnings
+
 import polars as pl
 
 from . import blocks as B
@@ -274,15 +276,56 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
     return sref.apply(out, clip=clip) if standardize == "reference" else out
 
 
-def signature_cohort(samples, *, tier: str = "standard", **kw) -> pl.DataFrame:
-    """Assemble a cohort: one row per sample, ``sample_id`` plus every signature column."""
+def _one(item, tier, kw):
+    sid, s = item
+    return {"sample_id": sid, **signature(s, tier=tier, **kw)}
+
+
+def signature_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
+                     columns: list[str] | None = None, **kw) -> pl.DataFrame:
+    """Assemble a cohort: one row per sample, ``sample_id`` plus every signature column.
+
+    Args:
+        samples: ``{sample_id: {locus: frame}}`` or an iterable of ``(sample_id, frames)``.
+        tier: Column tier.
+        n_jobs: Worker processes. ``1`` runs in-process; ``0`` uses every core. A cohort is
+            embarrassingly parallel over samples -- each is independent and the frozen artifacts
+            are read-only -- and per-sample cost runs from milliseconds on shallow blood to
+            minutes on a deep tissue biopsy, so this is the difference between minutes and hours.
+        columns: Explicit column subset (e.g. from a preset). Defaults to the whole tier.
+
+    Returns:
+        One row per sample, ``sample_id`` first, then the requested columns in layout order.
+    """
     from vdjtools.signature import layout as L
 
-    items = samples.items() if isinstance(samples, dict) else samples
-    rows = [{"sample_id": sid, **signature(s, tier=tier, **kw)} for sid, s in items]
+    items = list(samples.items() if isinstance(samples, dict) else samples)
+    if n_jobs == 1 or len(items) < 2:
+        rows = [_one(it, tier, kw) for it in items]
+    else:
+        import os
+        from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
+        from functools import partial
+        workers = n_jobs if n_jobs > 0 else (os.cpu_count() or 1)
+        try:
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                rows = list(ex.map(partial(_one, tier=tier, kw=kw), items))
+        except (BrokenExecutor, RuntimeError) as e:
+            # On macOS and Windows the workers SPAWN, which re-imports the caller's module. A
+            # script that calls this at module level therefore re-runs itself in every worker and
+            # the pool dies with an error that says nothing about the cause. Falling back keeps
+            # the result correct and says what to change -- the alternative is a collaborator's
+            # first script failing with `BrokenProcessPool` and no route forward.
+            warnings.warn(
+                f"parallel assembly failed ({type(e).__name__}); falling back to one process. "
+                "If you called signature_cohort at module level in a script, guard it with "
+                "`if __name__ == '__main__':` and n_jobs will work.",
+                RuntimeWarning, stacklevel=2)
+            rows = [_one(it, tier, kw) for it in items]
     if not rows:
         return pl.DataFrame(schema={"sample_id": pl.Utf8})
-    return pl.DataFrame(rows).select(["sample_id", *L.columns(tier)])
+    want = columns if columns is not None else L.columns(tier)
+    return pl.DataFrame(rows).select(["sample_id", *want])
 
 
 def _demo() -> None:

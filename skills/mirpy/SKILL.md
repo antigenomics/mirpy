@@ -47,6 +47,8 @@ pip install "mirpy-lib[build]"            # BioPython + arda: regenerate baked r
 ```bash
 mir embed clonotypes  SAMPLE  -o out.parquet      # per-clonotype table (e0…)
 mir embed repertoires S1 S2 … -o phi.tsv --mmd mmd.tsv   # one Φ(S) per sample per chain (phi0…)
+mir presets                                       # named feature sets, ranked
+mir signature S1 S2 … --preset classify --threads 0 -o sig.parquet  # 0 = every core
 mir signature S1 S2 …         -o sig.parquet --tier standard   # the portable signature
 mir signature --describe --tier standard          # the column dictionary; reads no input
 ```
@@ -118,6 +120,29 @@ bias is of order `1/n_eff`, which varies by orders of magnitude across samples *
 with phenotype.
 
 ### `mir.signature` — the portable signature (geometry half)
+
+**Feature presets — the entry point to recommend to a collaborator.** `vdjtools.signature.presets` names
+and ranks the useful column subsets so nobody picks columns by hand:
+
+| preset | rank | columns | use it for |
+|---|---|---|---|
+| `compact` | recommended | 152 | first look; small cohorts; features must stay well under n |
+| `transfer` | recommended | 550 | the model must run on another lab's samples |
+| `classify` | recommended | 615 | general supervised work when train/test share a protocol |
+| `statistics` | specific | 101 | no embedding available; textbook-defined features only |
+| `bcell` | specific | 286 | BCR work — Ig loci with SHM and isotype |
+| `geometry` | specific | 514 | batch is the adversary; blood↔tissue comparisons |
+| `full` | specific | 1403 | feature selection, NOT fitting — measured worse than a good subset |
+| `nuisance` | **avoid** | 73 | a control: depth/mask/QC only. If your model matches it, it reads library prep |
+
+```bash
+mir presets                 # the table, with rankings
+mir presets transfer        # one preset in full: features, how computed, use cases, caveats
+```
+
+Presets resolve from the frozen layout alone — no corpus, no fitted artifact — so two people
+selecting the same preset get identical columns in identical order.
+
 
 A **fixed-width, name-addressed per-sample vector meant to be handed to someone else**, on a
 scale their model can consume without fitting a scaler. The column contract lives in
