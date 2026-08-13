@@ -33,28 +33,23 @@ constant everyone shares and the identity block is nearly blank.
 The centre is the **naive reference**, not the prototype-cloud mean — both are fit-free, but
 they average different things, and only one is where repertoires live. See
 :meth:`mir.signature.reference.LocusReference.standardize` for the measurement. The same
-argument is why :func:`contrast` subtracts that reference rather than reporting ``Φ`` directly.
+argument is why :meth:`~mir.signature.reference.LocusReference.contrast` subtracts that reference
+rather than reporting ``Φ`` directly — it lives there, with the ``naive`` it needs, not here.
 """
 from __future__ import annotations
 
 import numpy as np
 import polars as pl
 
+#: Clone-size weights ``g`` — re-exported from the shared dependency, not redefined. ``vsig`` and
+#: ``rsig`` have to weight the same repertoire identically or the two halves are not describing one
+#: measure, and a second copy that drifted would raise nowhere: it would just make them disagree.
+from vdjtools.signature.blocks import WEIGHTS
+
 #: Rows embedded per chunk. The embedding itself is cheap — measured 0.01 s for 2,000
 #: clonotypes at K=512 — so this exists to bound *memory*, not time: the full matrix for a
 #: 500,000-clonotype sample would be 3 GB at K=512, while the accumulators are 1536 floats.
 CHUNK = 50_000
-
-#: Clone-size weights ``g``. Concave by default: raw read weighting lets one dominant clone be
-#: the entire profile, presence weighting throws the expansion signal away, and ``log2(1+a)``
-#: sits between. Mirrors ``mir.density._WEIGHTS``.
-WEIGHTS = {
-    "log2p1": lambda a: np.log2(1.0 + a),
-    "log1p": np.log1p,
-    "anscombe": lambda a: np.sqrt(a + 0.375),
-    "duplicate_count": lambda a: a.astype(float),
-    "distinct": np.ones_like,
-}
 
 #: Abundance compartments, as row predicates over the clone-size vector. A *partition* — unlike
 #: ``mir.repertoire.band_frames``, whose ``top`` is deliberately a subset of ``expanded``. The
@@ -153,9 +148,8 @@ def depth_block(counts: np.ndarray, w: np.ndarray, mass: float) -> dict[str, flo
     return {"n_eff": T.log10(n_eff), "mass": T.logit(np.clip(mass, 0.0, 1.0), counts.size)}
 
 
-def band_shares(df: pl.DataFrame, model, w: np.ndarray, phi: np.ndarray, *,
-                bands: dict | None = None, min_clonotypes: int = 5,
-                chunk: int = CHUNK) -> dict[str, float]:
+def band_shares(df: pl.DataFrame, w: np.ndarray, *,
+                bands: dict | None = None, min_clonotypes: int = 5) -> dict[str, float]:
     """Compartment shares of ``Φ``, in closed form rather than by NNLS.
 
     Because ``Φ`` is linear in the clone-weight measure and the compartments partition the
@@ -171,12 +165,14 @@ def band_shares(df: pl.DataFrame, model, w: np.ndarray, phi: np.ndarray, *,
     A compartment below ``min_clonotypes`` is recorded **absent** (its share is dropped from the
     composition) rather than set to zero. Zero is a measurement; absent is not.
 
+    Takes no embedder and no ``Φ``: by the identity above the shares are a property of the weights
+    alone, so asking for either would be asking the caller to compute something this cannot use.
+
     Returns:
         ``{band: share}`` over the bands that cleared the floor, plus ``_residual`` for whatever
         no compartment owned. Shares are raw, un-transformed; the caller closes them into
         log-ratio coordinates.
     """
-    del model, phi, chunk                # shares need only the weights; Φ is implied by linearity
     a = df["duplicate_count"].to_numpy()
     out: dict[str, float] = {}
     claimed = 0.0
@@ -218,21 +214,10 @@ def isotype_shares(df: pl.DataFrame, w: np.ndarray, *,
     return out
 
 
-def contrast(phi: np.ndarray, naive: np.ndarray, mass: float) -> np.ndarray:
-    """``Ψ = mass·(Φ − naive)`` — the signed deviation from unselected V(D)J output.
-
-    Two things are encoded in one vector. The *direction* says how this repertoire's receptors
-    differ from what recombination alone would produce; the *magnitude* says how confident that
-    statement is, because a sample that saw almost none of its repertoire is scaled toward the
-    origin rather than being dropped.
-
-    That is why the block is magnitude-scaled and never centred downstream. An immune desert
-    must land at the origin; per-column standardisation would move it to minus-the-median and
-    make it indistinguishable from a typical sample — which is exactly the deficiency the
-    contrast exists to carry.
-    """
-    return float(np.clip(mass, 0.0, 1.0)) * (np.asarray(phi, dtype=np.float64)
-                                             - np.asarray(naive, dtype=np.float64))
+# Ψ = mass·(Φ − naive) is NOT defined here. It needs the frozen `naive` to subtract, so it belongs
+# to the reference that carries it: :meth:`mir.signature.reference.LocusReference.contrast`. A copy
+# taking `naive` as an argument used to sit here, called by nothing but its own self-check — two
+# spellings of one formula, of which only one can be kept honest against the artifact.
 
 
 def _demo() -> None:
@@ -273,7 +258,7 @@ def _demo() -> None:
                       rao_dispersion(z, w, correct=False))
 
     # the mixture identity: shares of a partition are shares of the weight, and they close
-    shares = band_shares(df, model, w, phi, min_clonotypes=1)
+    shares = band_shares(df, w, min_clonotypes=1)
     assert abs(sum(shares.values()) - 1.0) < 1e-12, "compartment shares do not close"
 
     # contrast sends an unobserved repertoire to the origin instead of somewhere confident

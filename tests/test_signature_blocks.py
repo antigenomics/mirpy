@@ -14,6 +14,7 @@ import pytest
 from mir.embedding.tcremp import TCREmp
 from mir.repertoire import rao_dispersion
 from mir.signature import blocks as B
+from mir.signature import reference as R
 
 AA = list("ACDEFGHIKLMNPQRSTVWY")
 
@@ -105,7 +106,7 @@ class TestShares:
         df = repertoire(400, seed=2)
         w = B.weights(df["duplicate_count"].to_numpy())
         phi, _ = B.prototype_sum(df, model, w)
-        shares = B.band_shares(df, model, w, phi, min_clonotypes=1)
+        shares = B.band_shares(df, w, min_clonotypes=1)
         assert sum(shares.values()) == pytest.approx(1.0)
 
     def test_a_small_compartment_is_absent_not_zero(self, model):
@@ -113,7 +114,7 @@ class TestShares:
         df = repertoire(400, seed=2)
         w = B.weights(df["duplicate_count"].to_numpy())
         phi, _ = B.prototype_sum(df, model, w)
-        shares = B.band_shares(df, model, w, phi, min_clonotypes=10_000)
+        shares = B.band_shares(df, w, min_clonotypes=10_000)
         assert set(shares) == {"_residual"}
         assert shares["_residual"] == pytest.approx(1.0)
 
@@ -133,19 +134,33 @@ class TestShares:
 
 
 class TestContrast:
-    def test_an_unobserved_repertoire_lands_at_the_origin(self, model):
+    """Psi is a method of the reference, not a free function.
+
+    It needs the frozen ``naive`` to subtract, so it belongs to the object that carries one. A
+    second copy taking ``naive`` as an argument used to live in ``blocks``, called by nothing but
+    its own self-check -- two spellings of one formula, only one of which can be kept honest
+    against the artifact.
+    """
+
+    @staticmethod
+    def _ref(naive):
+        return R.LocusReference(
+            mu_phi=np.zeros_like(naive), sd_phi=np.ones_like(naive), naive=np.asarray(naive,
+            dtype=float), naive_sem=np.zeros_like(naive), rotations={}, prototype_hash="test")
+
+    def test_an_unobserved_repertoire_lands_at_the_origin(self):
         """Not at minus-the-median: that is the whole reason the block is magnitude-scaled."""
         phi = np.arange(12, dtype=float)
-        assert np.allclose(B.contrast(phi, np.zeros(12), mass=0.0), 0.0)
+        assert np.allclose(self._ref(np.zeros(12)).contrast(phi, mass=0.0), 0.0)
 
     def test_a_repertoire_matching_the_naive_reference_is_at_the_origin(self):
         phi = np.arange(12, dtype=float)
-        assert np.allclose(B.contrast(phi, phi, mass=1.0), 0.0)
+        assert np.allclose(self._ref(phi).contrast(phi, mass=1.0), 0.0)
 
     def test_magnitude_scales_with_retained_mass(self):
-        phi, naive = np.ones(12), np.zeros(12)
-        assert np.linalg.norm(B.contrast(phi, naive, 1.0)) == pytest.approx(
-            2 * np.linalg.norm(B.contrast(phi, naive, 0.5)))
+        phi, ref = np.ones(12), self._ref(np.zeros(12))
+        assert np.linalg.norm(ref.contrast(phi, 1.0)) == pytest.approx(
+            2 * np.linalg.norm(ref.contrast(phi, 0.5)))
 
 
 class TestCentring:
@@ -243,3 +258,37 @@ class TestPortability:
                            "duplicate_count": rng.integers(1, 50, 60)})
         v = signature({"TRB": df}, tier="full", standardize="none", threads=1)
         assert any(np.isfinite(x) for x in v.values() if isinstance(x, float))
+
+
+class TestMissingMassIsNotSwallowed:
+    """A frequency column must raise, not silently become "we observed everything".
+
+    ``missing_mass`` raises a ValueError when handed values in (0, 1] that are not whole numbers,
+    specifically so a shallow sample is not declared a complete probability measure. The assembler
+    used to catch it and substitute 0.0 -- mass = 1.0 -- reaching the exact outcome the guard
+    exists to prevent, on every sample, with the contrast block then scaled at full magnitude.
+    """
+
+    @staticmethod
+    def _sample(counts):
+        n = len(counts)
+        r = np.random.default_rng(3)
+        aa = list("ACDEFGHIKLMNPQRSTVWY")
+        return {"TRB": pl.DataFrame({
+            "v_call": ["TRBV20-1"] * n, "j_call": ["TRBJ2-2"] * n, "c_call": [None] * n,
+            "junction_aa": ["C" + "".join(r.choice(aa, 12)) + "F" for _ in range(n)],
+            "duplicate_count": list(counts)}, schema_overrides={"c_call": pl.Utf8})}
+
+    def test_a_frequency_column_raises(self):
+        from mir.signature import rsig
+
+        freqs = list(np.full(200, 1.0 / 200))
+        with pytest.raises(ValueError, match="integer clonotype counts"):
+            rsig(self._sample(freqs), tier="core")
+
+    def test_honest_counts_still_compute(self):
+        from mir.signature import rsig
+
+        out = rsig(self._sample(np.random.default_rng(0).integers(1, 60, 200).tolist()),
+                   tier="core")
+        assert np.isfinite(out["rsig:depth:TRB:mass"])

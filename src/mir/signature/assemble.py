@@ -92,8 +92,7 @@ def rsig(sample, *, tier: str = "standard", species: str = "human", weight: str 
         # depth and diversity, read off the geometry rather than off the counts
         n_eff = 1.0 / float(w @ w)
         mass = 1.0 - _missing_mass(counts)
-        _put(out, f"rsig:depth:{locus}", {"n_eff": T.log10(n_eff),
-                                          "mass": T.logit(np.clip(mass, 0.0, 1.0), counts.size)})
+        _put(out, f"rsig:depth:{locus}", B.depth_block(counts, w, mass))
         rao = 2.0 * (mean_sq - float(phi @ phi))
         if n_eff > 1.0:
             rao *= n_eff / (n_eff - 1.0)        # self-pair bias is O(1/n_eff) and tracks depth
@@ -114,7 +113,7 @@ def rsig(sample, *, tier: str = "standard", species: str = "human", weight: str 
 
         if tier in ("standard", "full"):
             _put(out, f"rsig:band:{locus}",
-                 _clr_shares(B.band_shares(df, model, w, phi, min_clonotypes=min_clonotypes),
+                 _clr_shares(B.band_shares(df, w, min_clonotypes=min_clonotypes),
                              ("singleton", "top"), df.height, T))
             if locus == "IGH":
                 _put(out, "rsig:band:IGH",
@@ -164,13 +163,22 @@ def _put(out: dict, prefix: str, values: dict) -> None:
 
 
 def _missing_mass(counts: np.ndarray) -> float:
-    """Chao's estimate of the never-drawn mass, guarded for a sample with no singletons."""
+    """Chao's estimate of the never-drawn mass.
+
+    Deliberately unguarded. ``missing_mass`` is arithmetically total — its Chao form adds 1 to the
+    denominator so it cannot divide by zero, and a zero total is handled — so the only things it
+    raises are an unknown method and *being handed frequencies where counts belong*. That second
+    ValueError exists, in its own words, to stop a shallow sample being "silently declar[ed] a
+    complete probability measure".
+
+    This used to sit behind ``except Exception: return 0.0``, i.e. mass = 1.0 — which is exactly
+    the outcome the guard was written to prevent, reached by catching the guard. A caller passing
+    a frequency column got a confident "we observed this entire repertoire" for every sample, and
+    the contrast block scaled at full magnitude on it. Better to raise where the mistake is.
+    """
     from mir.repertoire import missing_mass
 
-    try:
-        return float(missing_mass(counts, "chao"))
-    except Exception:
-        return 0.0
+    return float(missing_mass(counts, "chao"))
 
 
 _MODELS: dict[tuple, object] = {}
