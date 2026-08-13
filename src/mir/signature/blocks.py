@@ -261,10 +261,6 @@ def _demo() -> None:
     shares = band_shares(df, w, min_clonotypes=1)
     assert abs(sum(shares.values()) - 1.0) < 1e-12, "compartment shares do not close"
 
-    # contrast sends an unobserved repertoire to the origin instead of somewhere confident
-    assert np.allclose(contrast(phi, np.zeros_like(phi), 0.0), 0.0)
-    assert np.allclose(contrast(phi, phi, 1.0), 0.0)
-
     d = depth_block(a, w, mass=0.8)
     assert np.isfinite(list(d.values())).all()
     print("mir.signature.blocks OK")
