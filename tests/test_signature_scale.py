@@ -415,3 +415,24 @@ class TestLoadScaleDistinguishesAbsentFromMisnamed:
         ref = S.fit_scale(cohort(n=80))
         S.save_scale(ref, tmp_path / "s.npz")
         assert S.load_scale(tmp_path / "s.npz").columns == ref.columns
+
+
+def test_measure_constants_pools_the_same_draw_the_block_scores():
+    """The reference and the statistic compared to it must come off one distribution.
+
+    ``pgen_block`` scores a random draw of junctions; ``measure_constants`` fits the q05 those
+    scores are compared against. Head-slicing the reference instead shifted pooled q05 by -0.185
+    log10 -- a fixed offset in every sample's ``frac_atypical``, landing in a wholly plausible
+    range with nothing to flag it. Both sides must call the one shared draw.
+
+    Lives here rather than in vdjtools: ``measure_constants`` is mirpy's, and mirpy may import
+    vdjtools while the reverse would invert the dependency.
+    """
+    import inspect
+
+    from vdjtools.signature.blocks import pgen_junctions
+
+    src = inspect.getsource(S.measure_constants)
+    assert "pgen_junctions(df, locus, n_pgen)" in src, "the reference draws its own pool"
+    assert "to_list()[:n_pgen]" not in src, "the reference head-slices a sorted frame"
+    assert callable(pgen_junctions)
