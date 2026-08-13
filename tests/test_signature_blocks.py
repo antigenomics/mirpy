@@ -292,3 +292,17 @@ class TestMissingMassIsNotSwallowed:
         out = rsig(self._sample(np.random.default_rng(0).integers(1, 60, 200).tolist()),
                    tier="core")
         assert np.isfinite(out["rsig:depth:TRB:mass"])
+
+
+def test_every_signature_module_self_check_runs():
+    """`_demo` is the check each module leaves behind; nothing else executes it.
+
+    `mir.signature.blocks._demo` spent this branch asserting on a `contrast` that had been
+    deleted, and the suite stayed green throughout -- a self-check nobody runs is not a check.
+    """
+    import importlib
+
+    for name in ("mir.signature.blocks", "mir.signature.scale", "mir.signature.assemble"):
+        demo = getattr(importlib.import_module(name), "_demo", None)
+        assert demo is not None, f"{name} has no _demo"
+        demo()
