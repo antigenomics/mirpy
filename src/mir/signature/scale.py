@@ -290,7 +290,12 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
         samples: Iterable of ``(sample_id, {locus: frame})``.
         loci: Restrict to these loci; ``None`` measures whatever appears.
         cstar_quantile: Quantile of attained coverage to freeze.
-        n_pgen: Junctions sampled per repertoire for the Pgen pool.
+        n_pgen: Junctions sampled per repertoire for the Pgen pool, via the same
+            :func:`~vdjtools.signature.blocks.pgen_junctions` draw the per-sample block uses. This
+            can be far smaller than the per-sample ``n_max``: the pool is one percentile over the
+            whole corpus, so 400 samples at 2,000 each is 800,000 junctions to place a single q05
+            that ~20,000 already pins. Lower it to make a reference fit cheap -- Pgen is ~all of
+            the cost, and IGH alone is ~80% of it at 1.5 ms/junction against 0.0-0.2 elsewhere.
         threads: Worker threads for the Pgen batch; 0 = auto. Pgen is essentially the whole cost
             of this function — coverage is a one-line reduction, and the models load once — so
             leaving this unplumbed pins a reference fit to whatever the library defaults to
@@ -301,6 +306,7 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
     """
     from vdjtools.model.bundled import load_bundled
     from vdjtools.model.native import pgen_aa_batch
+    from vdjtools.signature.blocks import pgen_junctions
     from vdjtools.stats.inext import sample_coverage
 
     cov: dict[str, list[float]] = {}
@@ -332,7 +338,7 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
             model = model_for(locus)
             if model is None:
                 continue
-            juncs = df["junction_aa"].to_list()[:n_pgen]
+            juncs = pgen_junctions(df, locus, n_pgen)
             try:
                 p = np.asarray(pgen_aa_batch(model, juncs, v=None, j=None, threads=threads),
                                dtype=float)
