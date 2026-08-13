@@ -12,6 +12,7 @@ import polars as pl
 import pytest
 
 from mir.signature import scale as S
+from vdjtools.signature import layout as LAYOUT
 
 COLS = ["vsig:depth:TRB:reads", "vsig:div:TRB:1D_c", "rsig:phic:TRB:PC01"]
 
@@ -355,3 +356,41 @@ class TestBatchRatioIsReportedHonestly:
     def test_groups_large_enough_are_measured(self):
         ref = S.fit_scale(self._frame(400, per_group=200), group="study_group", min_n_obs=100)
         assert ref.report()["batch_measured"] == 4
+
+
+class TestSignatureColumnsAreSelectedByTheContract:
+    """A frame carries more than its signature. Only parseable names may be fitted."""
+
+    @staticmethod
+    def _frame(extra: dict) -> pl.DataFrame:
+        cols = LAYOUT.columns("core")
+        rng = np.random.default_rng(0)
+        d = {c: rng.normal(size=64) for c in cols}
+        d["sample_id"] = [f"s{i}" for i in range(64)]
+        d.update(extra)
+        return pl.DataFrame(d)
+
+    def test_a_string_metadata_column_does_not_break_the_fit(self):
+        ref = S.fit_scale(self._frame({"loci": ["TRA+TRB"] * 64}))
+        assert "loci" not in ref.columns
+        assert set(ref.columns) == set(LAYOUT.columns("core"))
+
+    def test_a_numeric_metadata_column_is_not_silently_fitted(self):
+        """The one that hides: it never raises, it just joins the frozen artifact.
+
+        `age` has a finite median and MAD, so a deny-list based selection gives it a loc/scale,
+        writes it into the npz, and rescales it on every future sample -- under a name
+        `layout.parse` cannot read, so nothing downstream can even name what went wrong.
+        """
+        ref = S.fit_scale(self._frame({"age": np.arange(64, dtype=float)}))
+        assert "age" not in ref.columns
+        assert len(ref.columns) == len(LAYOUT.columns("core"))
+
+    def test_the_group_column_is_still_excluded(self):
+        ref = S.fit_scale(self._frame({"study": ["a", "b"] * 32}), group="study")
+        assert "study" not in ref.columns
+        assert ref.batch_ratio.size == len(LAYOUT.columns("core"))
+
+    def test_a_frame_of_only_metadata_is_refused(self):
+        with pytest.raises(ValueError, match="no signature columns"):
+            S.fit_scale(pl.DataFrame({"sample_id": ["a"], "age": [1.0]}))

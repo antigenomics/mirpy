@@ -173,11 +173,27 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
         labels = np.asarray(frame[group].to_list() if isinstance(group, str) else list(group))
         if labels.size != frame.height:
             raise ValueError(f"group has {labels.size} labels for {frame.height} samples")
-    # Only a *column name* names a column to exclude. Comparing against ``group`` itself would
-    # broadcast when a caller passes the sequence the signature also accepts, and ``and`` on the
-    # resulting array raises before any of this is reached.
-    drop = {"sample_id", group} if isinstance(group, str) else {"sample_id"}
-    cols = [c for c in frame.columns if c not in drop]
+    # Select by the column contract, not by excluding the names we happen to know about. An
+    # emitted frame carries `dataset`, `loci` and whatever else the caller joined on; a
+    # deny-list keeps every one of them. A *string* column then dies in `.astype(float)`, which
+    # is the lucky outcome -- a numeric one (age, n_reads, year) is silently fitted a loc/scale,
+    # frozen into the artifact under a name the layout cannot parse, and applied forever after.
+    #
+    # `L.parse` is the definition of a signature column, so ask it.
+    from vdjtools.signature import layout as L
+
+    drop = {group} if isinstance(group, str) else set()
+
+    def is_signature(c: str) -> bool:
+        if c in drop:
+            return False
+        try:
+            L.parse(c)
+        except ValueError:
+            return False
+        return True
+
+    cols = [c for c in frame.columns if is_signature(c)]
     if not cols:
         raise ValueError("frame carries no signature columns")
     X = frame.select(cols).to_numpy().astype(float)
