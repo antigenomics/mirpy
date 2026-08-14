@@ -3,6 +3,38 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.10.1 — 2026-08-14
+
+Audit pass. Requires **vdjtools >= 3.7.1**, which is where the reader change lives.
+
+### Fixed — a `v_identity` column silently moved the geometry into a different coordinate system
+
+`TCREmp.embed` switches the V slot onto SHM-aware distances whenever the frame carries
+`v_identity` or `v_mutations`, opting in by column presence. That is the right embedding for a
+B-cell study and the wrong one for `rsig`, whose entire claim is that it matches a frozen
+reference fitted on germline V coordinates. One IGH repertoire embedded both ways differs by a
+third in `rsig:contrast:IGH:norm` (11.7 against 15.4) — with no mask, no warning, and nothing in
+the vector to say which coordinate system it is in. The same file read by a pipeline that keeps
+the column and one that drops it would produce two incomparable signatures.
+
+`rsig` now drops both columns before embedding, so the geometry is a function of the repertoire
+rather than of which fields its file happened to carry. The SHM load is still reported — by the
+statistics half, as `vsig:shm:IGH:mean_v_identity`, which is where it belongs. An SHM-aware
+`rsig` remains available by calling `TCREmp` directly, and would need its own refitted reference.
+
+### Fixed — `mir signature` could not compute the SHM block at all
+
+`_read` dropped `v_identity` before anything saw it, so `vsig:shm:IGH:mean_v_identity` was `nan`
+on every CLI run, including on files that carried it. It is now kept by name (vdjtools 3.7.1
+plumbs `keep=` through `io.read`).
+
+### Fixed — the contrast block carried a second copy of its own width
+
+`_contrast_features` hard-coded `{core: 0, standard: 12, full: 32}` beside the layout that
+declares the same numbers. Widening the contract would not have raised: `_put` drops what it does
+not recognise and leaves what it never received as `nan`, so the block would have shipped a short
+vector padded with holes. The width now comes from the registered block, like every other one.
+
 ## 3.10.0 — 2026-08-14
 
 ### Added — `mir signature`, documented as the command you send someone

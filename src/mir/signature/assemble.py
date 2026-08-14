@@ -31,6 +31,14 @@ _SLOT_OF = {"phiv": "V", "phij": "J", "phic": "C"}
 #: reporting an extrapolation as a measurement.
 _UNREACHABLE_COVERAGE = 1.0
 
+#: Columns that switch :meth:`mir.embedding.tcremp.TCREmp.embed` onto SHM-aware V distances, by
+#: being present. That is the right embedding for a B-cell study and the wrong one here: the
+#: frozen ``rsig`` reference was fitted on germline V coordinates, so a frame that happens to
+#: carry ``v_identity`` would otherwise land in a different coordinate system than the same frame
+#: without it — silently, with no mask to say so. The SHM load is still reported, by the
+#: statistics half, as ``vsig:shm:IGH:mean_v_identity``.
+_SHM_COLUMNS = ("v_identity", "v_mutations")
+
 
 def _locus_frames(sample) -> dict[str, pl.DataFrame]:
     """Accept ``{locus: frame}`` or a single frame carrying a ``locus`` column."""
@@ -89,7 +97,7 @@ def rsig(sample, *, tier: str = "standard", species: str = "human", weight: str 
             w = B.weights(counts, weight)
         except ValueError:                      # every clone weight zero — nothing to embed
             continue
-        phi, mean_sq = B.prototype_sum(df, model, w, chunk=chunk)
+        phi, mean_sq = B.prototype_sum(df.drop(*_SHM_COLUMNS, strict=False), model, w, chunk=chunk)
 
         # depth and diversity, read off the geometry rather than off the counts
         n_eff = 1.0 / float(w @ w)
@@ -126,8 +134,15 @@ def rsig(sample, *, tier: str = "standard", species: str = "human", weight: str 
 
 
 def _contrast_features(psi: np.ndarray, lref, tier: str, L) -> dict[str, float]:
-    """``norm`` plus the rotated contrast coordinates the tier asks for."""
-    n_pc = {"core": 0, "standard": 12, "full": 32}[tier]
+    """``norm`` plus the rotated contrast coordinates the tier asks for.
+
+    The width comes from the layout, like every other block's. A second copy of ``{standard: 12,
+    full: 32}`` here would not raise if the contract widened — ``_put`` drops what it does not
+    recognise and leaves what it never got as ``nan`` — so the block would quietly ship a
+    short vector padded with holes.
+    """
+    blk = next(b for b in L.registry("rsig") if b.name == "contrast")
+    n_pc = len([c for c in blk.columns(tier) if ":PC" in c]) // len(blk.emitted_loci)
     feats = {"norm": float(np.log1p(np.linalg.norm(psi)))}
     if n_pc:
         # Rotate through the junction basis: the contrast lives in the same space as Phi, and

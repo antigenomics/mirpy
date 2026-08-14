@@ -260,6 +260,32 @@ class TestPortability:
         assert any(np.isfinite(x) for x in v.values() if isinstance(x, float))
 
 
+class TestFrozenCoordinatesIgnoreSHM:
+    """A ``v_identity`` column must not move the geometry.
+
+    ``TCREmp.embed`` switches the V slot onto SHM-aware distances when the frame carries
+    ``v_identity``/``v_mutations`` — right for a B-cell study, wrong for a vector whose whole
+    claim is that it matches a frozen reference. Since the readers now keep ``v_identity`` (the
+    statistics half needs it for the SHM block), the same repertoire would otherwise land in two
+    different coordinate systems depending on which columns its file happened to carry, silently
+    and with no mask to say so.
+    """
+
+    def test_v_identity_does_not_change_rsig(self):
+        from mir.signature.assemble import rsig
+
+        df = repertoire(120, locus="IGH")
+        rng = np.random.default_rng(3)
+        mutated = df.with_columns(pl.Series("v_identity", rng.uniform(0.75, 1.0, df.height)))
+
+        bare = rsig({"IGH": df}, tier="standard")
+        with_shm = rsig({"IGH": mutated}, tier="standard")
+        assert list(bare) == list(with_shm)
+        for k in bare:
+            a, b = bare[k], with_shm[k]
+            assert (a == b) or (np.isnan(a) and np.isnan(b)), k
+
+
 class TestMissingMassIsNotSwallowed:
     """A frequency column must raise, not silently become "we observed everything".
 

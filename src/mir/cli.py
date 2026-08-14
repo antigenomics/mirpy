@@ -26,10 +26,15 @@ import mir
 
 # --- IO helpers ------------------------------------------------------------
 def _read(path: str) -> pl.DataFrame:
-    """Read a clonotype file into a normalized AIRR frame (any format vdjtools sniffs)."""
+    """Read a clonotype file into a normalized AIRR frame (any format vdjtools sniffs).
+
+    ``v_identity`` is kept by name: it is the one field the signature needs that the canonical
+    schema does not carry, so without it ``vsig:shm:IGH:mean_v_identity`` is not merely absent
+    but uncomputable, and ships as a nan column on files that do have it.
+    """
     from vdjtools import io
 
-    return io.read(path)
+    return io.read(path, keep=("v_identity",))
 
 
 def _with_locus(df: pl.DataFrame) -> pl.DataFrame:

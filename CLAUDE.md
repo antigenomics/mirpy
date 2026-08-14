@@ -121,6 +121,13 @@ files) — do not run it.
   split.
 
 ## Open loops / next steps
+- **The bundled `rsig_scale_v2` carries `cstar` for TRA and TRB only** (0.545 / 0.408). The other
+  five loci fall back to `_UNREACHABLE_COVERAGE = 1.0` and emit an all-`nan` `div` block, silently;
+  and both shipped values are ~4x the attained coverage of the reference corpus, so TRA/TRB samples
+  are pushed into extrapolation (measured to inflate diversity ~10x). Measured 7-locus `cstar` now
+  exists — `2026-mirpy-analysis/SOURCES.md`, `/projects/immunestatus/code/sig/constants.json`, 400
+  samples, 2026-08-13. Re-freezing it is a **data** decision, not a code one: the `pgen_q05` in that
+  same table is superseded (fitted on the head of a sorted frame) and must be re-measured first.
 - **Roadmap** (`2026-mirpy-analysis/benchmarks/ROADMAP.md`): Phases 0, 1, 2 done; Phase 5 partially
   (via `track.fit_exposure_trajectory`). **Next: Phase 3 (embedding inversion/generation), Phase 4
   (multimodal encoders)**; still open — `CodecBundle.from_unified/from_decoder`, `clonotype_flux`.
