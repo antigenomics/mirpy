@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 from scipy.spatial.distance import pdist
+from seqtree.distance import hamming_matrix, levenshtein
 
 from mir.distances.junction import junction_distance_matrix
 
@@ -189,24 +190,21 @@ def prototype_source_correlation(
     return {"pearson": float(np.corrcoef(Dr, Dm)[0, 1]), "n_pairs": Dr.size}
 
 
-def _hamming1_counts(seqs) -> np.ndarray:
+def _hamming1_counts(seqs, threads: int = 0) -> np.ndarray:
     """Discrete Hamming-1 neighbour count per sequence (equal-length, exactly one mismatch)."""
     seqs = list(seqs)
+    by_len: dict[int, list[int]] = {}
+    for i, s in enumerate(seqs):
+        by_len.setdefault(len(s), []).append(i)
     out = np.zeros(len(seqs), dtype=np.int64)
-    for i, a in enumerate(seqs):
-        la, c = len(a), 0
-        for j, b in enumerate(seqs):
-            if i == j or len(b) != la:
-                continue
-            m = 0
-            for x, y in zip(a, b):
-                if x != y:
-                    m += 1
-                    if m > 1:
-                        break
-            if m == 1:
-                c += 1
-        out[i] = c
+    # Blocked by length because ``hamming_matrix`` rejects unequal-length pairs -- and such a
+    # pair is never a Hamming-1 neighbour anyway. The diagonal is 0, so ``== 1`` excludes self.
+    # ponytail: materializes an n_L x n_L int32 block per length; fine at benchmark scale
+    # (thousands), chunk the rows if this is ever pointed at a full repertoire.
+    for idx in by_len.values():
+        block = [seqs[i] for i in idx]
+        d = np.asarray(hamming_matrix(block, block, threads=threads))
+        out[idx] = (d == 1).sum(axis=1)
     return out
 
 
@@ -256,7 +254,7 @@ def tcrnet_convergence(
         junction_distance_matrix(mut, prototypes, threads=threads).astype(np.float64)))
     r1 = float(np.median(np.linalg.norm(obs_emb - mut_emb, axis=1)))
 
-    discrete = _hamming1_counts(obs_cdr3s)
+    discrete = _hamming1_counts(obs_cdr3s, threads=threads)
     tree = BallTree(obs_emb)
     corr = {}
     for f in scales:
@@ -273,21 +271,6 @@ def tcrnet_convergence(
 # ---------------------------------------------------------------------------
 # Codec losslessness (appendix draft codec_losslessness.tex): the three-level hierarchy
 # ---------------------------------------------------------------------------
-
-
-def _levenshtein(a: str, b: str) -> int:
-    """Levenshtein edit distance (iterative two-row DP)."""
-    if a == b:
-        return 0
-    if not a or not b:
-        return len(a) or len(b)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
 
 
 def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
@@ -376,7 +359,7 @@ def codec_losslessness(codes, seqs, recon=None, *, eps: float = 1e-6) -> dict:
 
     recon = list(recon)
     exact = float(np.mean([r == s for r, s in zip(recon, seqs)]))
-    mean_edit = float(np.mean([_levenshtein(r, s) for r, s in zip(recon, seqs)]))
+    mean_edit = float(np.mean([levenshtein(r, s) for r, s in zip(recon, seqs)]))
     pos_acc = (encode_indices(seqs) == encode_indices(recon)).mean(axis=0)  # (40,)
     anchor = np.zeros(FIXED_LEN, dtype=bool)
     anchor[:_LEFT_ANCHOR] = anchor[FIXED_LEN - _RIGHT_ANCHOR:] = True
