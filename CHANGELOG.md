@@ -3,6 +3,180 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.10.0 — 2026-08-14
+
+### Added — `mir signature`, documented as the command you send someone
+
+The whole point of the signature is that a collaborator can compute it on their own samples without
+writing Python, so `--help` is the primary documentation:
+
+```bash
+pip install mirpy-lib
+
+mir signature --preset classify cohort/*.tsv.gz -o sig.parquet
+mir signature --preset classify --describe    # the columns, reading no input
+mir presets                                   # the named feature sets, ranked
+```
+
+`mir signature --help` and `mir presets --help` carry worked examples, the three `recommended`
+presets and when each applies, the note that every preset resolves here in full (unlike
+`vdjtools signature`, which serves the `vsig` half only), and the CDR3-vs-junction trap — the
+reader prefers AIRR `junction_aa` (anchors included) over IMGT `cdr3_aa` (anchors excluded), so a
+file carrying only `cdr3_aa` is two residues short everywhere, which shifts the length, k-mer and
+Pgen features. `docs/signature.rst` opens with the same quickstart, and the README leads with
+`--preset classify`.
+
+Requires **vdjtools >= 3.7.0**, which ships the shared column contract and the `vsig` half.
+
+Measured end-to-end on two real AIRR samples: `--preset classify` gives 615 columns
+(101 `vsig` + 514 `rsig`), one row per sample.
+
+### Added
+
+- **`mir.signature`** — the geometry half of a portable repertoire signature: a fixed-width,
+  name-addressed per-sample vector meant to be handed to a collaborator, on a scale their model
+  can consume without fitting a scaler. The column contract and the statistics half live in
+  `vdjtools.signature`, which mirpy already depends on, so there is one layout and one transform
+  registry rather than two that drift apart.
+
+  Every `rsig` column is a linear functional, a norm, or a mixture coefficient of the prototype-sum
+  measure `Φ(S) = Σ w_σ z_σ`, which is **fit-free** — `z_σ` is a distance vector to the bundled
+  prototype panel, so no basis is estimated from anybody's cohort. Blocks: `depth` (`n_eff`,
+  retained `mass`), `div` (Rao dispersion), `band` (compartment and isotype shares), `contrast`
+  (`Ψ = mass·(Φ − naive)`), `phiv`/`phij`/`phic`.
+
+  Compartment shares are closed form rather than NNLS: `Φ` is linear in the clone-weight measure
+  and the bands here are a genuine partition, so a share of `Φ` is exactly a share of the weight.
+  (`repertoire.band_frames`' default bands overlap by design, and an NNLS over overlapping parts
+  is not a composition — its weights need not sum to one.)
+
+- **`mir.repertoire.rao_dispersion`** — Rao's quadratic entropy in a Euclidean embedding, the
+  companion to `rao_q` where there is no kernel to lean on. For squared distance the double sum
+  telescopes to `2(Σw‖u‖² − ‖Φ‖²)`, so it rides along in the same chunked pass and never needs an
+  `n × n` Gram; verified against an explicit Gram to ten decimals. The `n_eff/(n_eff−1)`
+  correction defaults on, because the self-pair bias is of order `1/n_eff` and effective size both
+  varies by orders of magnitude across samples and correlates with phenotype.
+
+- **`mir.signature.reference` / `mir.signature.assemble`** — loading the frozen basis, and the
+  assembled vector itself. `signature()` returns **both halves concatenated** (688 columns at
+  standard: 160 `vsig` + 528 `rsig`), positional and in layout order, so column *i* means the
+  same thing in every matrix anyone computes. `signature_cohort()` does a whole cohort.
+  Measured: 0.26 s/sample on a real cohort.
+
+  `verify()` refuses a basis whose prototype hash does not match the installed panel, because the
+  failure it prevents is silent — a mismatched panel still yields a full, plausible vector, in
+  coordinates nobody else shares.
+
+  **The identity blocks centre on `naive`, not `mu_phi`**, and this was measured rather than
+  assumed. Both are fit-free, but they average different things: `naive` is a sample-level `Φ`
+  (an unselected repertoire), while `mu_phi` averages the prototype panel. Between-donor cosine
+  spread on two real cohorts — raw 0.0105 / 0.0010, `mu_phi` 0.4008 / 0.0785, `naive` 1.2660 /
+  1.6148, oracle (each cohort's own mean) 1.9031 / 1.9088. `naive` recovers 67–85% of the oracle,
+  `mu_phi` only 4–21%, because `‖mu_phi − sample mean‖` is 5–7× the between-donor spread.
+
+- **`mir.signature.scale`** — the corpus-fitted half of the reference, and the last thing between
+  a set of components and a hand-off object. `signature(standardize="reference")` now returns
+  dimensionless columns on a common scale, so a downstream model needs no scaler of its own.
+
+  Robust (median, `1.4826·MAD`), computed from observed entries only *before* any imputation, and
+  refusing any column seen fewer than `min_n_obs` times — each because the alternative silently
+  corrupts something: moments let a handful of pathological repertoires set everyone's scale;
+  imputing first deflates a sparse column's scale until the least-observed locus dominates every
+  distance; and a location fitted on nine samples is not a reference. `measure_constants` also
+  fixes the per-locus `cstar` and `pgen_q05` as quantiles of what the corpus attains, rather than
+  the hand-picked values the blocks previously defaulted to.
+
+- **`mir/resources/signature/rsig_v2.npz`** — the fit-free artifact: per-locus slot rotations,
+  cloud location/scale, per-slot eigenvalue gaps, and a naive reference, for all 7 loci in 896 KB.
+  Built by `build_rsig.py` from bundled resources with **no sample read**, and **bit-identical on
+  rebuild** (verified 1-thread against 8-thread, zero eigenvector sign flips).
+
+  Widths were set by measurement, not taste: the rotation is the PCA of the prototype cloud, and
+  gate B1a checks how much *sample-level* variance that retains against a rotation fitted to the
+  samples themselves. Two of three first-pass widths passed on one cohort and failed on another,
+  which is why the gate runs on two. Shipped: `phiv` 16/24, `phij` 6/12, `phic` 32/48
+  (standard/full).
+
+  `Φ` must be centred before it carries information — every prototype distance is large and
+  positive, so raw between-donor cosine spans ~0.001 while the shared offset is 55× the
+  between-donor signal; centred, the same donors span 1.48. A test pins this so it cannot silently
+  regress.
+
+- **`mir signature`** on the CLI — `mir signature cohort/*.tsv.gz -o sig.parquet --tier standard`,
+  and `mir signature --describe` for the column dictionary without reading any input. Files sharing
+  a sample id are joined into one multi-locus sample, because a donor sequenced on TRA and TRB is
+  one signature with both loci filled, not two half-empty ones. `mir.signature` also re-exports
+  `columns` / `describe` / `LOCI` / `TIERS` so a caller never has to know the contract is
+  implemented in vdjtools.
+
+### Changed — RSIG-v2, and the scaling decisions behind it
+
+Measured on **4,080 real samples** across seven corpora (see the analysis repo's
+`benchmarks/SIGNATURE_SCALING.md`). The question was what each of twelve feature families needs
+before a learner sees it, and whether that choice survives being handed to someone else.
+
+- **The rotation is now built on the whole bundled prototype panel**, not a 4,000-prototype draw.
+  With a draw the rotation is a random variable in `n_cloud`, and the junction slot had not
+  converged: matched against the whole-panel rotation by `|cos|`, the V slot is stable in 23/24
+  components at n=4,000 and 24/24 at 5,000, and J in 12/12 throughout — but C in only 5/48 and
+  14/48. The unstable components are exactly the near-degenerate pairs (relative eigenvalue gap
+  < 2% at C15, C35, C38, C41–43, C46), which **swap** rather than drift: the plane is determined,
+  the labelling of its two axes is not. Taking the whole panel removes the draw, and costs nothing
+  — retention on two real cohorts is unchanged (V 0.9988/0.9983, C 0.9873/0.9898) and the panel is
+  already cached.
+
+- **Eigenvalue gaps ship**, with `LocusReference.exchangeable(slot)`. The property outlives the
+  fix: a linear model spanning a degenerate plane is unaffected, a per-coordinate feature-importance
+  read-out on one of the pair is not interpretable.
+
+- **`naive` recomputed against vdjtools 3.7.0's retrained models**, and `vdjtools_version` is now
+  recorded in the artifact metadata. That upgrade moved `naive` by 0.13–1.6% relative per locus
+  (TRG bit-identical) and moved **nothing else**: the rotations, `mu_phi` and `sd_phi` are
+  bit-identical across it, because the geometry depends only on the prototype panel and the
+  recombination models enter only through the naive reference.
+
+- **Median/MAD stays, now for a measured reason.** Against the full-corpus fit, the fraction of
+  columns whose location lands within 0.10 scales *and* whose scale lands within ±10%:
+
+  | estimator | N=250 | N=500 | N=1000 | N=2000 |
+  |---|---:|---:|---:|---:|
+  | mean / sd | 0.362 | 0.386 | 0.576 | 0.841 |
+  | median / MAD | 0.669 | 0.908 | **0.992** | 0.999 |
+  | Huber M | 0.682 | 0.893 | 0.994 | 1.000 |
+
+  The moment estimator never gets there, and the half that fails is the *scale*. The columns are
+  heavy-tailed after their block transform — excess kurtosis −3 to 423, and 0.4–27% of samples
+  beyond five robust deviations against the 6·10⁻⁷ a normal gives — so a standard deviation is set
+  by a handful of samples. Huber's edge is 0.002, inside the noise of five draws. **N=1,000 is
+  where it converges**, which is what the re-fit requirement rests on.
+
+- **No power transform ships.** Yeo-Johnson halves the Anderson–Darling statistic of several blocks
+  *in-corpus*, but the artifact would be a λ somebody else applies to their own data. Held out:
+  the 875 columns of `phic`/`contrast`/`pchem`/`phij`/`aa` gain between −0.1% and +0.7%; where it
+  does help, λ ranges 3.2–6.1 across corpora and those are the batch-dominated blocks, so it is
+  fitting sequencing depth rather than shape; and on `clon` a transferred λ makes **57%** of columns
+  *less* normal. Recorded rather than silently skipped.
+
+- **`fit_scale(..., group=...)` records a per-column `batch_ratio`**, exposed as
+  `ScaleReference.batch_dominated`. Diagnostic only — nothing divides by it — but 136 of 390 usable
+  columns have more between-cohort than within-cohort spread, and a collaborator should be handed
+  that list rather than left to rediscover it. The ordering is the useful part: the geometry blocks
+  are the cleanest (`contrast` 0.65, `phic` 0.71) and the nuisance blocks the worst (`pair` 3.43,
+  `depth` 2.19).
+
+- **The `pub` block is out of every shipped tier** until its frozen public-clonotype panel exists.
+  Declared in `standard` it contributed 28 permanently-`nan` columns to a 4,080-sample emission —
+  indistinguishable, downstream, from 28 columns a sample was too shallow to support. Tier widths
+  are now 152 / 688 / 1,403 (core / standard / full). A test now fails if any tier declares a block
+  nothing computes.
+
+### Fixed
+
+- **A one-part composition took the whole sample down.** A repertoire whose clone sizes split into
+  a few singletons and a few large clones puts every band below its clonotype floor at once, so
+  `band_shares` returns only `_residual` and the CLR raised. Found by emitting a real corpus: one
+  shallow repertoire aborted 4,000 good ones. It is a hole for that block now.
+
 ## 3.9.1 — 2026-08-14
 
 Audit pass. No library behaviour changes.

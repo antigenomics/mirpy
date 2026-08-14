@@ -112,6 +112,7 @@ Every formula, derivation and invariant behind these is collected in
 
    self
    usage
+   signature
    math
    examples
    api

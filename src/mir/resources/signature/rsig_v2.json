@@ -1,0 +1,25 @@
+{
+  "K": 256,
+  "n_cloud": "all",
+  "n_naive": 20000,
+  "seed": 20260811,
+  "loci": [
+    "TRA",
+    "TRB",
+    "TRG",
+    "TRD",
+    "IGH",
+    "IGK",
+    "IGL"
+  ],
+  "signature_version": "RSIG-v2",
+  "vdjtools_version": "3.7.0",
+  "TRA/prototype_hash": "7ebc3a141316f2e4",
+  "TRB/prototype_hash": "5d449988852b1270",
+  "TRG/prototype_hash": "20fff05c07582c22",
+  "TRD/prototype_hash": "577c77f02b904616",
+  "IGH/prototype_hash": "244bd0bc774cc02e",
+  "IGK/prototype_hash": "a0934cfba51b4e99",
+  "IGL/prototype_hash": "4ee37abb548243ff",
+  "bytes": 917895
+}

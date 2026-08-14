@@ -634,6 +634,59 @@ def rao_q(emb: SampleEmbedding) -> float:
     return float(1.0 - m @ m)
 
 
+def rao_dispersion(U: np.ndarray, w: np.ndarray, *, correct: bool = True) -> float:
+    """Rao's quadratic entropy in a **Euclidean** embedding, from two running accumulators.
+
+    The companion to :func:`rao_q` for a fit-free prototype-sum representation, where there is no
+    kernel and hence no ``k(z,z)=1`` to lean on. For squared-Euclidean dissimilarity
+    ``d(σ,τ) = ‖u_σ − u_τ‖²`` the double sum telescopes exactly::
+
+        Q = Σ_{σ,τ} w_σ w_τ ‖u_σ − u_τ‖²  =  2·(Σ_σ w_σ‖u_σ‖² − ‖Σ_σ w_σ u_σ‖²)
+
+    — the weighted mean squared norm minus the squared norm of the weighted mean. Two running
+    sums over the rows, never an ``n × n`` Gram matrix, which is what lets it ride along in the
+    same single chunked pass that produces the mean itself.
+
+    Like :func:`rao_q` this is a *functional* diversity. Every Hill number is a functional of the
+    clone-size distribution alone, so it is blind to which receptor carries which abundance;
+    this weights every pair by how different the receptors actually are.
+
+    Args:
+        U: ``(n, p)`` embedding rows, uncentred.
+        w: ``(n,)`` non-negative weights; normalised here if they do not already sum to 1.
+        correct: Apply the ``n_eff/(n_eff − 1)`` correction, with ``n_eff = 1/Σw²``. The plug-in
+            estimator carries a self-pair bias of order ``1/n_eff``, and effective size varies
+            by orders of magnitude across samples *and* correlates with phenotype — so leaving
+            the bias in would manufacture a difference between deep and shallow repertoires that
+            has nothing to do with their receptors.
+
+    Returns:
+        ``Q ≥ 0``; 0 when all the weight sits on one clonotype.
+
+    Raises:
+        ValueError: If the shapes disagree, or the weights are negative or sum to zero.
+    """
+    U = np.asarray(U, dtype=np.float64)
+    w = np.asarray(w, dtype=np.float64)
+    if U.ndim != 2 or w.ndim != 1 or U.shape[0] != w.shape[0]:
+        raise ValueError(f"U must be (n, p) and w must be (n,); got {U.shape} and {w.shape}")
+    if np.any(w < 0):
+        raise ValueError("weights must be non-negative")
+    s = w.sum()
+    if s <= 0:
+        raise ValueError("weights sum to zero — no clonotype carries any weight")
+    w = w / s
+
+    mu = w @ U
+    q = 2.0 * (float(w @ np.einsum("ij,ij->i", U, U)) - float(mu @ mu))
+    q = max(q, 0.0)                  # floating point can undershoot 0 on a single-clone sample
+    if correct:
+        n_eff = 1.0 / float(w @ w)
+        if n_eff > 1.0:
+            q *= n_eff / (n_eff - 1.0)
+    return q
+
+
 @dataclass
 class DepthThreshold:
     """Where sampling noise stops being smaller than between-sample signal (see :func:`depth_threshold`)."""

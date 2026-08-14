@@ -203,6 +203,84 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
     _write(out, a.output)
 
 
+def cmd_signature(a: argparse.Namespace) -> None:
+    from vdjtools.signature import presets as P
+
+    from mir.signature import assemble, columns, describe
+
+    # --preset picks BOTH the tier and the column subset. mirpy is where the two halves meet, so
+    # unlike `vdjtools signature` every preset resolves here in full.
+    keep = None
+    if getattr(a, "preset", None):
+        try:
+            spec = P.get(a.preset)
+        except KeyError as e:
+            raise SystemExit(str(e)) from None
+        a.tier, keep = spec.tier, spec.columns()
+        print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} columns, "
+              f"suggested scaling {spec.scaling}", file=sys.stderr)
+
+    if a.describe:
+        d = describe(a.tier)
+        _write(d.filter(pl.col("column").is_in(keep)) if keep else d, a.output)
+        return
+
+    # A sample is one file, or several files sharing a sample id — a donor sequenced on TRA and
+    # TRB is one signature with both loci filled, not two half-empty ones.
+    from collections import defaultdict
+
+    samples: dict[str, dict[str, pl.DataFrame]] = defaultdict(dict)
+    for path in a.input:
+        df = _with_locus(_read(path))
+        sid = _sample_id(path)
+        for locus in [x for x in df["locus"].unique().to_list() if x]:
+            sub = df.filter(pl.col("locus") == locus)
+            if sub.height:
+                samples[sid][locus] = sub
+
+    if not samples:
+        raise SystemExit("no samples to sign (check inputs)")
+
+    scale = None
+    if a.standardize == "reference" and a.scale:
+        from mir.signature.scale import load_scale
+        scale = load_scale(a.scale)
+
+    out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
+                                    standardize=a.standardize, scale=scale,
+                                    n_jobs=a.threads, columns=keep)
+    n_cols = len(keep) if keep else len(columns(a.tier))
+    print(f"[mir] {out.height} samples x {n_cols} columns "
+          f"({a.preset or a.tier}, standardize={a.standardize})", file=sys.stderr)
+    _write(out, a.output)
+
+
+def cmd_presets(a: argparse.Namespace) -> None:
+    """List the feature presets, or explain one.
+
+    `recommended` — use unless you have a reason not to. `specific` — correct for a stated purpose
+    and wrong outside it. `avoid` — a control or a measured dead end, named so that picking it is
+    deliberate rather than accidental.
+    """
+    from vdjtools.signature import presets as P
+
+    if not a.name:
+        _write(P.table().select("preset", "rank", "columns", "halves", "scaling", "summary"),
+               a.output)
+        return
+    try:
+        spec = P.get(a.name)
+    except KeyError as e:
+        raise SystemExit(str(e)) from None
+    print(f"{spec.name}  [{spec.rank}]  {spec.n_columns} columns  tier={spec.tier}  "
+          f"halves={'+'.join(spec.sig)}  scaling={spec.scaling}\n")
+    for label, text in (("summary", spec.summary), ("features", spec.features),
+                        ("how it is computed", spec.how), ("use cases", spec.use_cases),
+                        ("notes", spec.notes)):
+        if text:
+            print(f"{label}:\n  {text}\n")
+
+
 # --- parser ----------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     """Return the ``mir`` argument parser (``embed clonotypes`` / ``embed repertoires``)."""
@@ -256,6 +334,103 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--threads", type=int, default=0, help="0 = all cores")
     r.add_argument("--seed", type=int, default=0)
     r.set_defaults(func=cmd_repertoires)
+
+    s = sub.add_parser(
+        "signature",
+        help="clonotype tables → the portable repertoire signature (one row/sample)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "One repertoire in, one row of named features out - ready for a classifier.\n"
+            "\n"
+            "Emits BOTH halves of the portable repertoire signature as one vector: the\n"
+            "`vsig` statistics (from vdjtools) and the `rsig` embedding geometry (here).\n"
+            "Fixed, named and positional, so column i means the same thing in every\n"
+            "matrix anyone computes - this is the object you hand a collaborator.\n"
+            "Reads AIRR Rearrangement, native vdjtools, Parquet and the usual\n"
+            "third-party exports, auto-detected. Writes TSV, or Parquet if -o ends\n"
+            "in .parquet.\n"
+        ),
+        epilog=(
+            "START HERE\n"
+            "  # a cohort; files sharing a sample id join into one multi-locus sample\n"
+            "  mir signature --preset classify cohort/*.tsv.gz -o sig.parquet\n"
+            "\n"
+            "  # which columns am I about to get? reads no input at all\n"
+            "  mir signature --preset classify --describe\n"
+            "\n"
+            "  # all cores, one process per sample\n"
+            "  mir signature --preset classify --threads 0 cohort/*.tsv.gz -o sig.parquet\n"
+            "\n"
+            "PICK A PRESET rather than columns by hand (`mir presets` lists all):\n"
+            "  compact    smallest vector that still describes a repertoire (n >= 50)\n"
+            "  classify   general-purpose; the usual random-forest / boosting input\n"
+            "  transfer   for a model that must work on ANOTHER LAB's samples\n"
+            "\n"
+            "--preset overrides --tier; with neither you get all of --tier (standard).\n"
+            "Unlike `vdjtools signature`, every preset resolves here in full, because\n"
+            "mirpy is where the two halves meet.\n"
+            "\n"
+            "GOTCHAS\n"
+            "  * CDR3 vs junction. The reader prefers AIRR `junction_aa` (anchors\n"
+            "    INCLUDED) and falls back to IMGT `cdr3_aa` (anchors excluded), so a\n"
+            "    file carrying only `cdr3_aa` is two residues short everywhere --\n"
+            "    shifting the length, k-mer and Pgen features. Check your headers.\n"
+            "  * Do not PCA-project the result. Plain scaling beat projection at\n"
+            "    every rank tested.\n"
+            "  * --standardize reference (the default) is what makes your vector\n"
+            "    comparable with someone else's. Use 'none' only to inspect raw\n"
+            "    block values.\n"
+        ),
+    )
+    s.add_argument("input", nargs="*",
+                   help="one or more clonotype files; files sharing a sample id (the name up to "
+                        "the first dot) are joined into one multi-locus sample")
+    s.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
+    s.add_argument("--tier", default="standard", choices=("core", "standard", "full"),
+                   help="column set; the narrower tiers are exact index subsets of the wider ones")
+    s.add_argument("--species", default="human")
+    s.add_argument("--weight", default="log2p1",
+                   choices=("log2p1", "duplicate_count", "distinct", "log1p", "anscombe"),
+                   help="clone-size weight g (default log2p1)")
+    s.add_argument("--standardize", default="reference", choices=("reference", "none"),
+                   help="'reference' rescales every column against the bundled reference so the "
+                        "vector is comparable with anyone else's (default); 'none' emits raw "
+                        "block values")
+    s.add_argument("--scale", default=None,
+                   help="path to an alternative scale artifact (default: the bundled one)")
+    s.add_argument("--preset", default=None,
+                   help="named feature set; overrides --tier (see `mir presets`)")
+    s.add_argument("--threads", type=int, default=1,
+                   help="worker processes over samples; 0 = every core (default 1)")
+    s.add_argument("--describe", action="store_true",
+                   help="print the column dictionary for --tier/--preset and exit; reads no input")
+    s.set_defaults(func=cmd_signature)
+
+    q = sub.add_parser(
+        "presets",
+        help="list the named feature sets with their rankings",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "List the named feature sets for `mir signature`, with their rankings.\n"
+        ),
+        epilog=(
+            "  mir presets            # the table: name, rank, width, halves, scaling\n"
+            "  mir presets classify   # one preset in full: what, how, when, caveats\n"
+            "\n"
+            "Ranks tell you how much to trust a choice:\n"
+            "  recommended  use one of these unless you have a reason not to\n"
+            "  specific     correct for a stated purpose and wrong outside it\n"
+            "  avoid        a control or a measured dead end, named so that picking\n"
+            "               it is deliberate\n"
+            "\n"
+            "The `halves` column says whether a preset needs `vsig` (statistics),\n"
+            "`rsig` (embedding geometry), or both. `mir signature` serves all three;\n"
+            "`vdjtools signature` emits only the `vsig:` columns.\n"
+        ),
+    )
+    q.add_argument("name", nargs="?", help="show one preset in full")
+    q.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
+    q.set_defaults(func=cmd_presets)
 
     return p
 
