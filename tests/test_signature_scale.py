@@ -238,13 +238,13 @@ class TestGroupArgumentForms:
         starts — so the documented sequence form crashed while only the column-name form worked.
         """
         g = np.array(["A"] * 200 + ["B"] * 200)
-        ref = S.fit_scale(self._frame(), group=list(g) if as_list else g)
+        ref = S.fit_scale(self._frame(), group=list(g) if as_list else g, min_n_groups=0)
         assert len(ref.columns) == 5
 
     def test_a_column_name_is_excluded_from_the_signature_columns(self):
         g = np.array(["A"] * 200 + ["B"] * 200)
         frame = self._frame().with_columns(pl.Series("study_group", g))
-        ref = S.fit_scale(frame, group="study_group")
+        ref = S.fit_scale(frame, group="study_group", min_n_groups=0)
         assert "study_group" not in ref.columns
         assert len(ref.columns) == 5
 
@@ -337,6 +337,76 @@ def test_measure_constants_plumbs_threads_to_the_pgen_batch():
     assert seen.get("threads") == 7, "threads stopped at the function boundary"
 
 
+class TestTheStudyCountIsAFloorOfItsOwn:
+    """Samples inside a study are not independent observations of the population.
+
+    A column seen a thousand times across three studies is a claim about three studies, and
+    ``min_n_obs`` alone cannot see the difference. Drawing whole studies from the 947-group blood
+    reference, 20 studies put 0.16 of columns inside the acceptance gate and 40 put 0.25
+    (analysis repo, ``benchmarks/SIGNATURE_SCALE_N.md``), so a corpus below that floor produces a
+    reference worse than none.
+    """
+
+    @staticmethod
+    def _frame(groups: int, per_group: int = 40, thin_col: bool = False):
+        rng = np.random.default_rng(0)
+        n = groups * per_group
+        g = [f"study{i // per_group}" for i in range(n)]
+        cols = {f"vsig:depth:TRB:c{i}": rng.normal(size=n) for i in range(3)}
+        if thin_col:                                   # observed in one study only
+            v = np.full(n, np.nan)
+            v[:per_group] = rng.normal(size=per_group)
+            cols["vsig:depth:TRB:thin"] = v
+        return pl.DataFrame({"sample_id": [f"s{i}" for i in range(n)], "study_group": g, **cols})
+
+    def test_a_corpus_of_too_few_studies_is_refused(self):
+        with pytest.raises(ValueError, match="min_n_groups"):
+            S.fit_scale(self._frame(6), group="study_group", min_n_obs=10)
+
+    def test_the_floor_is_opt_outable(self):
+        ref = S.fit_scale(self._frame(6), group="study_group", min_n_obs=10, min_n_groups=0)
+        assert ref.scaled.all()
+
+    def test_a_column_seen_in_too_few_studies_stays_unscaled(self):
+        ref = S.fit_scale(self._frame(30, thin_col=True), group="study_group", min_n_obs=10)
+        i = list(ref.columns).index("vsig:depth:TRB:thin")
+        assert not ref.scaled[i], "one study cannot support a scale, however many samples it has"
+        assert ref.scaled.sum() == 3
+        assert ref.meta["n_groups"] == 30
+
+    def test_without_group_nothing_changes(self):
+        frame = self._frame(6).drop("study_group")
+        assert S.fit_scale(frame, min_n_obs=10).scaled.all()
+
+
+class TestTheConstantsAreQuantilesToo:
+    """``cstar`` and ``pgen_q05`` are corpus quantiles, so they inherit the same voting problem.
+
+    ``pgen_q05`` inherits it twice over: it pools ``n_pgen`` junctions *per sample*, so a large
+    study contributes both more samples and, through them, proportionally more junctions.
+    """
+
+    def test_one_dominant_group_sets_the_unweighted_quantile(self):
+        chunks = [np.array([0.9])] * 100 + [np.array([0.1])] * 5     # 100 deep, 5 shallow
+        labels = ["big"] * 100 + [f"s{i}" for i in range(5)]
+        assert S._quantile_by_group(chunks, labels, 0.10, weighted=False) == 0.9
+        assert S._quantile_by_group(chunks, labels, 0.10, weighted=True) == 0.1
+
+    def test_a_deeply_drawn_sample_does_not_outvote_a_shallow_one(self):
+        # same two studies, but one sample contributed 2,000 junctions and the other 10
+        chunks = [np.full(2000, -6.0), np.full(10, -12.0)]
+        labels = ["studyA", "studyB"]
+        assert S._quantile_by_group(chunks, labels, 0.05, weighted=False) == -6.0
+        assert S._quantile_by_group(chunks, labels, 0.05, weighted=True) == -12.0
+
+    def test_unweighted_matches_numpy(self):
+        rng = np.random.default_rng(0)
+        v = rng.normal(size=500)
+        chunks = [np.array([x]) for x in v]
+        got = S._quantile_by_group(chunks, ["a"] * 500, 0.10, weighted=False)
+        assert got == pytest.approx(float(np.quantile(v, 0.10)))
+
+
 class TestBatchRatioIsReportedHonestly:
     """``batch_dominated`` is all-False both when the reference is clean and when nothing could
     be measured. Those are opposite statements and the report has to tell them apart.
@@ -361,8 +431,34 @@ class TestBatchRatioIsReportedHonestly:
         assert np.isnan(ref.batch_ratio).all()
 
     def test_groups_large_enough_are_measured(self):
-        ref = S.fit_scale(self._frame(400, per_group=200), group="study_group", min_n_obs=100)
+        ref = S.fit_scale(self._frame(400, per_group=200), group="study_group", min_n_obs=100,
+                          min_n_groups=0)
         assert ref.report()["batch_measured"] == 4
+
+    def test_the_report_says_how_many_groups_voted(self):
+        """"266 dominated" means one thing over 40 studies and another over 238."""
+        ref = S.fit_scale(self._frame(400, per_group=50), group="study_group", min_n_obs=100,
+                          min_n_groups=0)
+        assert ref.report()["batch_groups"] == 8         # 400/50, all clearing MIN_PER_GROUP=25
+        thin = S.fit_scale(self._frame(400, per_group=8), group="study_group", min_n_obs=100,
+                           min_n_groups=0)
+        assert thin.report()["batch_groups"] == 0
+
+    def test_sampling_noise_in_a_group_centre_is_not_counted_as_batch(self):
+        """Groups drawn from ONE distribution have no batch effect, however noisy their centres.
+
+        Without the moment correction the ratio is ~1/sqrt(n_g) per group and rises as the floor
+        drops, which is what forced the old floor of 100 and cost 6/7 of the corpus its vote.
+        """
+        rng = np.random.default_rng(0)
+        n, per = 3000, 30                                # 100 groups of 30 — all i.i.d. N(0,1)
+        frame = pl.DataFrame({"sample_id": [f"s{i}" for i in range(n)],
+                              "study_group": [f"g{i // per}" for i in range(n)],
+                              "vsig:depth:TRB:reads": rng.normal(size=n)})
+        ref = S.fit_scale(frame, group="study_group", min_n_obs=100, min_n_groups=0)
+        # uncorrected this same draw reads 0.234; corrected, 0.063. The truth is 0.
+        assert ref.batch_ratio[0] < 0.12, (
+            f"pure sampling noise read as batch: ratio {ref.batch_ratio[0]:.3f}")
 
 
 class TestSignatureColumnsAreSelectedByTheContract:
@@ -394,7 +490,7 @@ class TestSignatureColumnsAreSelectedByTheContract:
         assert len(ref.columns) == len(LAYOUT.columns("core"))
 
     def test_the_group_column_is_still_excluded(self):
-        ref = S.fit_scale(self._frame({"study": ["a", "b"] * 32}), group="study")
+        ref = S.fit_scale(self._frame({"study": ["a", "b"] * 32}), group="study", min_n_groups=0)
         assert "study" not in ref.columns
         assert ref.batch_ratio.size == len(LAYOUT.columns("core"))
 

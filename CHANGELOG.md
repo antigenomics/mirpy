@@ -3,6 +3,111 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.11.0 — 2026-08-14
+
+### Changed — `fit_scale` gives each study one vote, not each sample
+
+`fit_scale(frame, group=...)` used `group` only to record the diagnostic `batch_ratio`; the
+location and scale themselves were an unweighted median/MAD over samples. Samples inside a study
+share a protocol, a batch and a donor pool, so whichever studies happened to be large were setting
+the reference for everyone.
+
+Measured on 23,234 blood samples across 947 SRA study groups, six independent 70/30 **study**
+splits, each fit scored against a fit on the held-out studies:
+
+| weighting  | pass rate | sd over splits | scale swing | IQR log-ratio |
+|------------|----------:|---------------:|------------:|--------------:|
+| per sample |     0.630 |          0.064 |       0.063 | 0.092 ± 0.020 |
+| per study  | **0.792** |          0.089 |   **0.044** | **0.079 ± 0.005** |
+
+A column passes when its location lands within 0.10 held-out scales and its scale within ±10%.
+"Scale swing" is the sd across splits of the median fitted/held-out scale ratio — the reference is
+only identified up to a global multiplicative factor, and which studies it saw moves that factor.
+One vote per study shrinks the swing by a third and makes the per-column scatter four times more
+reproducible across splits.
+
+`weight_by_group=False` reproduces the old estimator. Without `group=` nothing changes. The
+artifact records `weighted_by_group` in its metadata, so a reference cannot be mistaken for the
+other kind. **A reference refitted with this release will not equal one fitted before it** — hence
+the minor bump.
+
+### Fixed — `batch_ratio` was measured on the largest 40 studies, and counted their noise as batch
+
+`_batch_ratio` skipped groups under `min_per_group=100`. On the 947-study blood reference that
+admitted **40 studies** — the largest 40, which are also the most protocol-homogeneous — so the
+diagnostic that says "this column separates cohorts, not donors" was measured on 4% of the corpus.
+
+The floor was high because a group centre is itself an estimate: `var(centres)` carries the median's
+sampling variance, so small groups inflate the ratio. Subtracting the mean sampling variance — the
+usual moment correction — removes that, and a pure-noise draw of 100 groups × 30 samples reads
+**0.063** corrected against **0.234** raw, where the truth is 0.
+
+| `min_per_group` | corrected | studies | dominated | median ratio |
+|---:|---|---:|---:|---:|
+| 100 | no (old) | 40 | 268 | 0.611 |
+| 100 | yes | 40 | 264 | 0.591 |
+| 25 | no | 238 | 412 | 0.746 |
+| **25** | **yes (new)** | **238** | **356** | **0.651** |
+
+The new setting flags **102 columns the old one missed** and clears 15 it flagged wrongly; the two
+rank columns at `corr(log ratio) = 0.44`, so this is a different answer, not a refinement. More
+studies find *more* batch loading even after the correction, because the 40 largest understate how
+much a column moves between cohorts.
+
+`report()` now also carries `batch_groups` — how many groups actually voted. "266 dominated" means
+one thing over 40 studies and another over 238, and the report used to give only the numerator.
+
+### Changed — `measure_constants` takes `group=` too, because `cstar` and `pgen_q05` are quantiles
+
+Both constants are quantiles over the corpus, so both had `fit_scale`'s problem, and `pgen_q05` had
+it twice: it pools `n_pgen` junctions **per sample**, so a 500-sample study puts a million junctions
+into a pool a 5-sample study contributes ten thousand to. `group={sample_id: label}` gives each
+label one vote, spread over its samples and over their junctions.
+
+Measured on the 23,234-sample / 947-group blood reference, the shift in `cstar`:
+
+| locus | per sample | per study | Δ |
+|---|---:|---:|---:|
+| TRA | 0.1477 | 0.1290 | −0.019 |
+| TRB | 0.1509 | 0.1256 | −0.025 |
+| TRG | 0.2351 | 0.2216 | −0.014 |
+| TRD | 0.1818 | 0.1954 | +0.014 |
+| IGH | 0.1931 | 0.1706 | −0.023 |
+| IGK | 0.3659 | 0.3197 | −0.046 |
+| IGL | 0.3517 | 0.3117 | −0.040 |
+
+11–17% relative on TRA/TRB/IGH/IGK/IGL, and downward on six of seven loci because the large studies
+are the deep ones. Lower is the safer direction — `cstar` is the depth every Hill number is compared
+at, and a value above what a sample attains puts it into extrapolation, the regime measured to
+inflate diversity roughly tenfold.
+
+### Added — `min_n_groups`, because `min_n_obs` counts the wrong thing
+
+`min_n_obs=1000` refuses a column the corpus barely saw, counted in samples. Under one vote per
+study the effective n is the number of *studies* that contributed an observation, and a column seen
+a thousand times across three studies is a claim about three studies. `fit_scale` now also refuses a
+column observed in fewer than `min_n_groups=20` groups, and refuses a corpus with fewer than that
+many groups outright rather than returning a reference that standardises nothing.
+
+The floor is calibrated to the measurement, not to taste: drawing whole studies from the 947-group
+blood reference, 20 studies put 0.16 of columns inside the acceptance gate and 40 put 0.25. It costs
+nothing on a broad corpus — every column of that reference that clears `min_n_obs` is supported by
+at least 566 study groups (median 926) — and only bites on a narrow one, which is the case that used
+to pass silently. Ignored without `group=`; `min_n_groups=0` fits a narrow corpus deliberately.
+
+Note this makes the **shipped `rsig_scale_v2` a narrow fit by its own library's standard**: it was
+fitted on seven cohorts, so every one of its 394 scaled columns rests on seven groups.
+
+### Fixed — the convergence claim in `fit_scale`'s docstring is withdrawn
+
+It quoted "median/MAD converges at N = 1,000", from a benchmark that drew samples IID and scored
+them against *the same corpus's own* full fit. That measures the estimator's noise around a target
+it is guaranteed to reach, not what a new corpus needs. Scored against held-out studies instead,
+the unweighted estimator does not converge at any sample count: it plateaus at 0.54 by 2,000
+samples and is still at 0.54 with the whole 14,833-sample pool. The unit that binds is the study.
+Drawing whole studies, weighted: 80 studies (~2,000 samples) is where every column clears
+`min_n_obs`; 160 (~3,800) reaches 0.66, 320 (~7,000) 0.74, 640 (~14,500) 0.85.
+
 ## 3.10.1 — 2026-08-14
 
 Audit pass. Requires **vdjtools >= 3.7.1**, which is where the reader change lives.

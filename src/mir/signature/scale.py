@@ -42,6 +42,19 @@ DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature
 #: population; a hundred samples cannot support one for 716 columns.
 MIN_N_OBS = 1000
 
+#: …and a claim about a population is not supportable from a handful of studies either, however
+#: many samples they hold. Only checked when ``group=`` is given. 20 is where the measured
+#: acceptance rate is still 0.16 (benchmarks/SIGNATURE_SCALE_N.md), i.e. the floor below which a
+#: reference is worse than none; the 947-group blood corpus clears it on every column with room to
+#: spare (minimum 566 groups behind any scaled column), so this costs nothing on a broad corpus and
+#: only bites on a narrow one — which is exactly the case that used to pass silently.
+MIN_N_GROUPS = 20
+
+#: Samples a group needs before its centre counts towards ``batch_ratio``. 25, not 100: the higher
+#: floor admitted 40 of the blood reference's 947 studies — the largest 40, which are also the most
+#: protocol-homogeneous — and missed 102 batch-loaded columns. See :func:`_batch_ratio`.
+MIN_PER_GROUP = 25
+
 #: Coverage level, as a quantile of what the reference corpus attains. Low on purpose: real
 #: repertoires reach Good-Turing coverage 0.24-0.58, so anything near the textbook 0.95 forces
 #: every sample into extrapolation, where diversity inflates roughly tenfold.
@@ -127,39 +140,61 @@ class ScaleReference:
             # difference between a measurement and a silence.
             out["batch_measured"] = int(np.isfinite(self.batch_ratio).sum())
             out["batch_dominated"] = int(self.batch_dominated.sum())
+            # …over how many groups. The count above is meaningless without this one.
+            out["batch_groups"] = self.meta.get("batch_groups")
         return out
 
 
-def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
-              pgen_q05: dict | None = None, group=None,
-              meta: dict | None = None) -> ScaleReference:
+def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, min_n_groups: int = MIN_N_GROUPS,
+              cstar: dict | None = None, pgen_q05: dict | None = None, group=None,
+              weight_by_group: bool = True, meta: dict | None = None) -> ScaleReference:
     """Fit location and scale from an assembled cohort matrix.
 
     The estimator is the median and ``1.4826·MAD``, and that is a measured choice rather than a
-    stylistic one. Against the full-corpus fit on 4,080 real samples, the fraction of columns whose
-    location lands within 0.10 scales *and* whose scale lands within ±10%:
+    stylistic one: the columns are heavy-tailed after their block transform (excess kurtosis
+    0.6-207, and 0.4-3% of samples beyond five robust deviations against the 6e-7 a normal would
+    give), so a standard deviation is set by a handful of samples and moves when they do. Against
+    a fit on held-out studies, the moment estimator never reaches the robust one.
 
-    ============  =====  =====  ======  ======
-    estimator     N=250  N=500  N=1000  N=2000
-    ============  =====  =====  ======  ======
-    mean / sd     0.362  0.386  0.576   0.841
-    median / MAD  0.669  0.908  0.992   0.999
-    ============  =====  =====  ======  ======
+    **One vote per study, not one per sample** (``weight_by_group``, on by default when ``group``
+    is given). Samples inside a study share a protocol, a batch and a donor pool, so an unweighted
+    fit lets whichever studies happen to be large set the reference. Measured on 23,234 blood
+    samples over 947 SRA study groups, six independent 70/30 study splits, scoring the fit against
+    a fit on the held-out studies — the fraction of columns whose location lands within 0.10 scales
+    *and* whose scale lands within ±10%:
 
-    The moment estimator never gets there, and the half that fails is the *scale*: the columns are
-    heavy-tailed after their block transform (excess kurtosis 0.6-207, and 0.4-3% of samples beyond
-    five robust deviations against the 6e-7 a normal would give), so a standard deviation is set by
-    a handful of samples and moves when they do. Median/MAD converges at N=1000, which is what puts
-    the "re-fittable from 1,000-5,000 samples" claim on a footing.
+    ==================  ==========  ===================  ==============
+    weighting           pass rate   sd over splits       scale swing
+    ==================  ==========  ===================  ==============
+    per sample          0.630       0.064                0.063
+    per study           0.792       0.089                0.044
+    ==================  ==========  ===================  ==============
+
+    "Scale swing" is the sd across splits of the median pool/target scale ratio: the reference is
+    only defined up to a global multiplicative factor, and which studies you fit on moves it. One
+    vote per study shrinks that by a third and tightens the per-column scatter four-fold (IQR of
+    the log ratio 0.092±0.020 to 0.079±0.005).
+
+    The unit that has to converge is therefore the **study**, and the sample count follows from it.
+    On the same corpus, drawing whole studies: 80 studies (~2,000 samples) is where every column
+    clears ``min_n_obs``; 160 studies (~3,800) reaches 0.66, 320 (~7,000) 0.74 and 640 (~14,500)
+    0.85. An earlier revision of this docstring quoted "median/MAD converges at N=1000" from a
+    benchmark that drew samples IID and scored them against *the same corpus's* own fit; that
+    measures the estimator's own noise, not what a new corpus needs, and is withdrawn.
 
     Args:
         frame: A ``pl.DataFrame`` from :func:`mir.signature.signature_cohort` — one row per
             sample, ``sample_id`` plus signature columns.
         min_n_obs: Columns observed fewer times than this get no scale.
+        min_n_groups: Columns observed in fewer ``group`` values than this get no scale, and a
+            corpus with fewer groups than this in total is refused outright. Ignored without
+            ``group``. Pass 0 to fit a narrow corpus deliberately.
         cstar / pgen_q05: Measured constants to carry alongside (see :func:`measure_constants`).
         group: Optional per-sample corpus/batch label (a column name in ``frame``, or a sequence).
             Supplying it records ``batch_ratio`` per column — diagnostic only, nothing divides by
-            it — so a downstream user can see which columns separate cohorts rather than donors.
+            it — and, unless ``weight_by_group=False``, weights the fit itself.
+        weight_by_group: Give each ``group`` one vote, spread over its samples. No effect without
+            ``group``. Pass ``False`` to reproduce a pre-3.11 artifact.
         meta: Provenance recorded into the artifact.
 
     Returns:
@@ -202,13 +237,35 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
     n_obs = observed.sum(0)
     loc = np.zeros(len(cols))
     scale = np.zeros(len(cols))
+    weights = None
+    codes = None
+    if labels is not None:
+        uniq, codes = np.unique(labels, return_inverse=True)
+        if min_n_groups and uniq.size < min_n_groups:
+            raise ValueError(
+                f"the corpus has {uniq.size} groups and min_n_groups={min_n_groups}. A scale fitted "
+                f"on fewer studies is not a reference: drawing whole studies from a 947-group "
+                f"corpus, 20 studies put 0.16 of columns inside the acceptance gate and 40 put "
+                f"0.25 (benchmarks/SIGNATURE_SCALE_N.md). Pass min_n_groups=0 to fit anyway.")
+        if weight_by_group:
+            counts = np.bincount(codes)
+            weights = 1.0 / counts[codes]
+    n_groups = (np.array([np.unique(codes[observed[:, j]]).size for j in range(len(cols))])
+                if codes is not None else None)
     for j in range(len(cols)):
-        good = X[observed[:, j], j]
+        obs = observed[:, j]
+        good = X[obs, j]
         if good.size == 0:
             continue
-        loc[j] = float(np.median(good))
+        w = None if weights is None else weights[obs]
+        loc[j] = float(np.median(good)) if w is None else _wmedian(good, w)
+        # A column seen a thousand times in three studies is a claim about three studies. Under one
+        # vote per study the effective n IS the study count, so both floors have to hold.
+        if n_groups is not None and n_groups[j] < min_n_groups:
+            continue
         if good.size >= min_n_obs:
-            mad = float(np.median(np.abs(good - loc[j])))
+            dev = np.abs(good - loc[j])
+            mad = float(np.median(dev)) if w is None else _wmedian(dev, w)
             scale[j] = mad * 1.4826
             if scale[j] <= 0:                 # observed but constant: nothing to divide by
                 scale[j] = 0.0
@@ -219,8 +276,50 @@ def fit_scale(frame, *, min_n_obs: int = MIN_N_OBS, cstar: dict | None = None,
                           cstar=dict(cstar or {}), pgen_q05=dict(pgen_q05 or {}),
                           batch_ratio=batch,
                           meta={"min_n_obs": min_n_obs, "n_samples": int(X.shape[0]),
+                                "min_n_groups": min_n_groups if labels is not None else None,
+                                "n_groups": int(np.unique(labels).size) if labels is not None
+                                else None,
+                                # how many groups actually voted in batch_ratio: "266 dominated"
+                                # means one thing over 40 studies and another over 238
+                                "batch_groups": int((np.unique(labels, return_counts=True)[1]
+                                                     >= MIN_PER_GROUP).sum())
+                                if labels is not None else None,
+                                "weighted_by_group": bool(weights is not None),
                                 "groups": sorted(set(labels.tolist())) if labels is not None
                                 else None, **(meta or {})})
+
+
+def _wquantile(v: np.ndarray, w: np.ndarray, q: float) -> float:
+    """Weighted quantile: the value at which fraction ``q`` of the weight lies below.
+
+    Interpolation-free on purpose — the columns are heavy-tailed and some are discrete, and the
+    lower weighted order statistic is the one the MAD is defined against.
+    """
+    o = np.argsort(v, kind="stable")
+    c = np.cumsum(w[o])
+    return float(v[o][min(int(np.searchsorted(c, q * c[-1])), v.size - 1)])
+
+
+def _wmedian(v: np.ndarray, w: np.ndarray) -> float:
+    return _wquantile(v, w, 0.5)
+
+
+def _quantile_by_group(chunks: list, labels: list, q: float, weighted: bool) -> float:
+    """Quantile over per-sample chunks, optionally one vote per label.
+
+    One chunk per sample — a single coverage value, or a sample's whole Pgen draw. Weighted, a
+    sample's chunk carries ``1/n_samples_in_its_label`` however many items it holds, so neither a
+    large study nor a deeply-drawn sample outvotes the rest.
+    """
+    v = np.concatenate(chunks)
+    if not weighted:
+        return float(np.quantile(v, q))
+    counts: dict = {}
+    for g in labels:
+        counts[g] = counts.get(g, 0) + 1
+    w = np.concatenate([np.full(a.size, 1.0 / (counts[g] * a.size))
+                        for a, g in zip(chunks, labels)])
+    return _wquantile(v, w, q)
 
 
 def _block_policy(cols, X, observed, loc, scale) -> None:
@@ -265,36 +364,67 @@ def _block_policy(cols, X, observed, loc, scale) -> None:
         scale[js] = rms if rms > 0 else 0.0
 
 
-def _batch_ratio(X, observed, loc, scale, labels, min_per_group: int = 100) -> np.ndarray:
+def _batch_ratio(X, observed, loc, scale, labels, min_per_group: int = MIN_PER_GROUP) -> np.ndarray:
     """Between-group spread of a column's centre over its typical within-group spread.
 
     Both measured on the standardised column, so the ratio is dimensionless and comparable across
     blocks. Above 1 the column tells you more about which cohort a sample came from than about the
     donor — which is a fact about the feature, not about the scaling, and cannot be fixed by
-    rescaling. Groups smaller than ``min_per_group`` are skipped: a median over twenty samples is
-    not a group centre.
+    rescaling.
+
+    A group centre is itself an estimate, with a median's standard error of ``1.2533·σ_g/√n_g``, so
+    the raw ``var(centres)`` carries that noise and small groups inflate the ratio. Subtracting the
+    mean sampling variance — the usual moment correction for a random-effects spread — is what makes
+    a low ``min_per_group`` usable, and the floor is what decides how much of the corpus votes at
+    all. Measured on the 947-study blood reference:
+
+    ==========  ===========  ========  ===========  ============
+    min_group   corrected    studies   dominated    median ratio
+    ==========  ===========  ========  ===========  ============
+    100         no                 40         268          0.611
+    100         yes                40         264          0.591
+    25          no                238         412          0.746
+    25          yes               238         356          0.651
+    ==========  ===========  ========  ===========  ============
+
+    A floor of 100 admits **40 of 947** studies, and they are the largest 40 — a narrow, mostly
+    single-protocol slice that understates how much a column moves between cohorts. Dropping to 25
+    (238 studies) with the correction flags 102 columns the old setting missed and clears 15 it
+    flagged wrongly; the two rank columns at ``corr(log ratio) = 0.44``, so this is a different
+    answer, not a refinement of the old one.
     """
-    groups = [g for g in sorted(set(labels.tolist())) if (labels == g).sum() >= min_per_group]
+    uniq, inv, counts = np.unique(labels, return_inverse=True, return_counts=True)
+    keep = np.where(counts >= min_per_group)[0]
     out = np.full(X.shape[1], np.nan)
-    if len(groups) < 2:
+    if keep.size < 2:
         return out
+    rows_of = [np.where(inv == i)[0] for i in keep]      # once, not once per column
     for j in range(X.shape[1]):
         if scale[j] <= 0:
             continue
-        centres, spreads = [], []
-        for g in groups:
-            x = X[(labels == g) & observed[:, j], j]
+        centres, spreads, ns = [], [], []
+        for rows in rows_of:
+            x = X[rows, j]
+            x = x[np.isfinite(x)]
             if x.size < min_per_group:
                 continue
             c = float(np.median(x))
             centres.append((c - loc[j]) / scale[j])
             spreads.append(float(np.median(np.abs(x - c))) * 1.4826 / scale[j])
-        if len(centres) >= 2 and np.median(spreads) > 0:
-            out[j] = float(np.std(centres) / np.median(spreads))
+            ns.append(x.size)
+        if len(centres) < 2:
+            continue
+        centres, spreads, ns = np.array(centres), np.array(spreads), np.array(ns, dtype=float)
+        med_s = float(np.median(spreads))
+        if med_s <= 0:
+            continue
+        var_b = max(float(np.var(centres, ddof=1))
+                    - float(np.mean((1.2533 * spreads) ** 2 / ns)), 0.0)
+        out[j] = float(np.sqrt(var_b) / med_s)
     return out
 
 
-def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANTILE,
+def measure_constants(samples, *, loci=None, group=None, cstar_quantile: float = CSTAR_QUANTILE,
                       n_pgen: int = 2000, threads: int = 0) -> tuple[dict, dict]:
     """Measure ``cstar`` and ``pgen_q05`` per locus from a reference draw.
 
@@ -302,9 +432,21 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
     rather than extrapolate; ``pgen_q05`` is the 5th percentile of ``log10 Pgen`` pooled over the
     draw, which is what "atypically improbable" is measured against.
 
+    Both are quantiles over the corpus, so both inherit :func:`fit_scale`'s problem: unweighted,
+    a 500-sample study casts 500 votes and a 5-sample study 5, and `pgen_q05` is worse — it pools
+    ``n_pgen`` junctions *per sample*, so the same study puts a million junctions into a pool the
+    small one contributes ten thousand to. Pass ``group`` to give each study one vote. Measured on
+    the 23,234-sample / 947-group blood reference, the shift in ``cstar`` is −0.019 (TRA), −0.025
+    (TRB), −0.023 (IGH), −0.046 (IGK), −0.040 (IGL), −0.014 (TRG), +0.014 (TRD) — 11–17% relative
+    on the T-cell and IGK/IGL loci, and downward, because the large studies are the deep ones.
+    Lower is the safer direction: fewer samples pushed into extrapolation.
+
     Args:
         samples: Iterable of ``(sample_id, {locus: frame})``.
         loci: Restrict to these loci; ``None`` measures whatever appears.
+        group: Optional ``{sample_id: label}`` mapping. Given, each label gets one vote, spread
+            over its samples (and over their junctions, for ``pgen_q05``). Samples with no entry
+            fall into a shared ``None`` group rather than being dropped.
         cstar_quantile: Quantile of attained coverage to freeze.
         n_pgen: Junctions sampled per repertoire for the Pgen pool, via the same
             :func:`~vdjtools.signature.blocks.pgen_junctions` draw the per-sample block uses. This
@@ -325,8 +467,13 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
     from vdjtools.signature.blocks import pgen_junctions
     from vdjtools.stats.inext import sample_coverage
 
+    # Values are carried with the label that produced them, so the weighting is applied once at the
+    # end from the group sizes actually observed — `samples` may be a generator, and counting it up
+    # front would consume it.
     cov: dict[str, list[float]] = {}
-    pg: dict[str, list[float]] = {}
+    cov_g: dict[str, list] = {}
+    pg: dict[str, list[np.ndarray]] = {}
+    pg_g: dict[str, list] = {}
     # Load and collapse each recombination model ONCE. It is the expensive step here by a wide
     # margin — pgen over 2,000 junctions takes ~0.15 s, while building the model takes seconds —
     # so calling it per sample turns a two-minute measurement into an unbounded one.
@@ -341,6 +488,7 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
         return models[locus]
 
     for _sid, sample in samples:
+        label = None if group is None else group.get(_sid)
         for locus, df in sample.items():
             if loci and locus not in loci:
                 continue
@@ -349,6 +497,7 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
             counts = df["duplicate_count"].to_numpy().astype(np.int64)
             try:
                 cov.setdefault(locus, []).append(float(sample_coverage(counts)))
+                cov_g.setdefault(locus, []).append(label)
             except Exception:
                 pass
             model = model_for(locus)
@@ -360,12 +509,15 @@ def measure_constants(samples, *, loci=None, cstar_quantile: float = CSTAR_QUANT
                                dtype=float)
                 p = p[np.isfinite(p) & (p > 0)]
                 if p.size:
-                    pg.setdefault(locus, []).extend(np.log10(p).tolist())
+                    pg.setdefault(locus, []).append(np.log10(p))
+                    pg_g.setdefault(locus, []).append(label)
             except Exception:
                 pass
 
-    cstar = {k: float(np.quantile(v, cstar_quantile)) for k, v in cov.items() if v}
-    q05 = {k: float(np.quantile(v, 0.05)) for k, v in pg.items() if v}
+    weighted = group is not None
+    cstar = {k: _quantile_by_group([np.array([x]) for x in v], cov_g[k], cstar_quantile, weighted)
+             for k, v in cov.items() if v}
+    q05 = {k: _quantile_by_group(v, pg_g[k], 0.05, weighted) for k, v in pg.items() if v}
 
     # Coverage near 1.0 means essentially no clonotype was seen exactly once. That is not deep
     # sequencing — it is the signature of input whose singleton tail is already gone, either from
@@ -477,6 +629,33 @@ def _demo() -> None:
     assert all(abs(v) < 1e-9 for v in ref.apply(med).values())
 
     assert ref.report()["scaled"] == 3
+
+    # one vote per study: a big study with a shifted location must not drag the reference to it
+    big, small = 200, 10
+    Y = np.concatenate([rng.normal(10.0, 1.0, size=(big, 1)),      # one dominant study, offset
+                        rng.normal(0.0, 1.0, size=(small * 5, 1))])  # five small ones, at zero
+    lab = ["big"] * big + [f"s{i // small}" for i in range(small * 5)]
+    fr2 = pl.DataFrame({"sample_id": [f"t{i}" for i in range(Y.shape[0])],
+                        "study": lab, "rsig:phic:TRB:PC01": Y[:, 0]})
+    unw = fit_scale(fr2, min_n_obs=10, min_n_groups=0, group="study", weight_by_group=False)
+    wgt = fit_scale(fr2, min_n_obs=10, min_n_groups=0, group="study")
+    assert unw.loc[0] > 9.0, "unweighted follows the dominant study, as it always did"
+    assert wgt.loc[0] < 1.0, f"one vote per study should land near the five small ones, got {wgt.loc[0]}"
+    assert wgt.meta["weighted_by_group"] and not unw.meta["weighted_by_group"]
+
+    # six studies is not a reference corpus, and saying so beats shipping a confident number
+    try:
+        fit_scale(fr2, min_n_obs=10, group="study")
+        raise AssertionError("a 6-group corpus should be refused at the default floor")
+    except ValueError as e:
+        assert "min_n_groups" in str(e)
+    # per-column: a column only two studies ever observed stays unscaled even in a wide corpus
+    thin_col = np.full(Y.shape[0], np.nan)
+    thin_col[:big] = Y[:big, 0]                       # observed in "big" only
+    fr3 = fr2.with_columns(**{"rsig:phic:TRB:PC02": pl.Series(thin_col)})
+    ref3 = fit_scale(fr3, min_n_obs=10, min_n_groups=3, group="study")
+    assert not ref3.scaled[list(ref3.columns).index("rsig:phic:TRB:PC02")]
+
     print(f"scale OK — {ref.report()}")
 
 
