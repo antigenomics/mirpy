@@ -25,16 +25,52 @@ import mir
 
 
 # --- IO helpers ------------------------------------------------------------
-def _read(path: str) -> pl.DataFrame:
-    """Read a clonotype file into a normalized AIRR frame (any format vdjtools sniffs).
+def _read(path: str, *, productive_only: bool = True,
+          recompute_frequencies: bool = True) -> pl.DataFrame:
+    """Read a clonotype file into a normalized AIRR frame, **productive rearrangements only**.
 
     ``v_identity`` is kept by name: it is the one field the signature needs that the canonical
     schema does not carry, so without it ``vsig:shm:IGH:mean_v_identity`` is not merely absent
     but uncomputable, and ships as a nan column on files that do have it.
+
+    **Non-productive rearrangements are removed on every read, and that cannot be turned off.**
+    This is where mirpy deliberately differs from vdjtools, where the same filter is optional. The
+    reason is specific: a stop codon is *in* seqtree's amino-acid alphabet, so an unfiltered frame
+    does not crash the distance code -- it returns a finite, meaningless number and contaminates
+    the geometry silently. mirpy cannot embed a non-productive sequence *meaningfully*, which is a
+    stronger and more useful statement than cannot embed it at all.
+
+    Use ``vdjtools`` if you want the non-productive fraction: ``vdjtools filter --nonproductive``,
+    or :func:`vdjtools.preprocess.filter_productive` in Python.
+
+    Args:
+        path: Clonotype file, any format vdjtools sniffs.
+        productive_only: Must stay ``True``. Present so that passing ``False`` raises with an
+            explanation rather than silently doing the wrong thing.
+        recompute_frequencies: Renormalise ``frequency`` over the surviving rearrangements.
+
+    Raises:
+        ValueError: If ``productive_only`` is ``False``.
     """
     from vdjtools import io
+    from vdjtools.preprocess import filter_productive, productive_mask
 
-    return io.read(path, keep=("v_identity",))
+    if not productive_only:
+        raise ValueError(
+            "mirpy cannot embed non-productive rearrangements meaningfully: a stop codon is in "
+            "seqtree's alphabet, so it does not raise in the distance code -- it returns a finite, "
+            "meaningless value and contaminates the geometry silently. productive_only=False is "
+            "therefore refused here, unlike in vdjtools where the same filter is optional. Use "
+            "`vdjtools filter --nonproductive` or vdjtools.preprocess.filter_productive() if the "
+            "non-productive fraction is what you want.")
+    df = io.read(path, keep=("v_identity",))
+    n0 = df.height
+    _, src = productive_mask(df)
+    df = filter_productive(df, recompute_frequencies=recompute_frequencies)
+    if df.height < n0:
+        print(f"[mir] dropped {n0 - df.height} non-productive rearrangement(s) of {n0} "
+              f"(productivity read from {src}); mirpy always does this", file=sys.stderr)
+    return df
 
 
 def _with_locus(df: pl.DataFrame) -> pl.DataFrame:
@@ -103,21 +139,38 @@ def _pick_locus(df: pl.DataFrame, requested: str | None) -> str:
     )
 
 
-def _apply_functional_filter(sub: pl.DataFrame, enabled: bool) -> pl.DataFrame:
-    """Drop non-coding clonotypes (stop codon / out-of-frame ``junction_aa``) unless disabled.
-
-    Defends against exactly what crashes or silently corrupts embedding otherwise: a stop codon
-    (``*``) or legacy out-of-frame marker (e.g. ``_``) in ``junction_aa``.
-    """
+def _require_productive(enabled: bool) -> None:
+    """mirpy has no --no-filter-functional. Refuse it, and say where to go instead."""
     if not enabled:
-        return sub
-    from vdjtools.preprocess import filter_functional
+        raise SystemExit(
+            "[mir] --no-filter-functional is not available in mirpy. A stop codon is in seqtree's "
+            "alphabet, so an unfiltered frame does not crash -- it embeds to a finite, meaningless "
+            "distance and contaminates the geometry silently. Use `vdjtools filter "
+            "--nonproductive` if the non-productive fraction is what you want.")
+
+
+def _apply_functional_filter(sub: pl.DataFrame, enabled: bool) -> pl.DataFrame:
+    """Drop unusable clonotypes unless disabled.
+
+    Uses ``vdjtools.signature.blocks.sanitise``, NOT ``preprocess.filter_functional``. The two are
+    not the same predicate and the difference matters here: ``filter_functional`` is a denylist
+    (``[*atgc#~_?]``) and keeps the ambiguity codes ``X``/``B``/``Z``, while ``sanitise`` is an
+    anchored allowlist of the 20 standard amino acids and drops them. ``TCREmp.embed`` refuses
+    exactly what ``sanitise`` drops, so filtering with the weaker predicate here would leave rows
+    the embedder then rejects -- the default path has to clear its own guard.
+
+    Neither predicate filters on LENGTH. A two-residue junction and a sixty-residue one both
+    survive; the question asked is only whether the string is a plain amino-acid string.
+    """
+    _require_productive(enabled)
+    from vdjtools.signature.blocks import sanitise
 
     n0 = sub.height
-    sub = filter_functional(sub)
+    sub, dropped = sanitise(sub)
     if sub.height < n0:
-        print(f"[mir] filtered {n0 - sub.height} non-coding clonotype(s) "
-              "(stop codon / out-of-frame junction_aa)", file=sys.stderr)
+        print(f"[mir] filtered {n0 - sub.height} unusable clonotype(s) "
+              f"({100 * dropped:.2f}% of reads: stop codon, out-of-frame marker, ambiguity code "
+              "or non-positive count)", file=sys.stderr)
     return sub
 
 

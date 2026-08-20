@@ -3,6 +3,85 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.12.0 — 2026-08-20
+
+### Changed — non-productive rearrangements are removed on every read, with no opt-out
+
+This is where mirpy deliberately parts company with vdjtools, where the same filter is optional.
+
+The reason is specific to embedding: a stop codon is **in** seqtree's amino-acid alphabet, so an
+unfiltered frame does not crash — it returns a finite, entirely meaningless distance which then
+flows into Φ, into every principal component, and into whatever model is fitted downstream. Nothing
+raises and nothing warns. That is strictly worse than crashing, because a crash gets noticed.
+
+So mirpy's contract is that it **cannot embed a non-productive rearrangement meaningfully**, which
+is a stronger and more useful claim than cannot embed it at all. It can. That is the problem.
+
+`_read()` now applies `vdjtools.preprocess.filter_productive` on every dataset read and reports
+what it dropped and which evidence it used. `productive_only=False` raises, and
+`mir embed --no-filter-functional` exits with a pointer to `vdjtools filter --nonproductive`, which
+is where the non-productive fraction belongs.
+
+**`allow_nonstandard` is removed from `TCREmp.embed`.** It was added one release ago as an opt-in
+for exactly this, and that was the wrong call: a guard you can switch off is not a guard against
+something that fails silently. Requires `vdjtools >= 3.10.0`.
+
+### Added — a `Data pre-processing` documentation page
+
+What mirpy filters, why it cannot be turned off, and where everything else lives (vdjtools —
+mirpy reimplements none of it). Includes the three-axis hierarchy and the note that IMGT gene
+functionality is *not* mandated: a pseudogene V that rearranged in frame embeds perfectly well, and
+whether it belongs in an analysis is a biological question rather than a numerical one.
+
+### Changed — `TCREmp.embed` refuses a junction it cannot embed meaningfully
+
+`embed()` raised on a null `junction_aa` and on `_` (not in seqtree's alphabet, crashes
+`gapblock`). But a **stop codon `*` and the ambiguity codes `X`/`B`/`Z` are in that alphabet**, so
+they did not crash — they returned a finite, meaningless distance and contaminated `Φ` silently.
+That is strictly worse than crashing, and it was asserted as intended behaviour by a test named
+`test_stop_codon_still_embeds_unchanged`.
+
+The guard is now three-way, matching what the data actually contains:
+
+| junction | default | `allow_nonstandard=True` | why |
+|---|---|---|---|
+| `null` | raises | raises | dies in seqtree without naming the column |
+| outside `[ACDEFGHIKLMNPQRSTVWY*_]` | **raises** | **raises** | a damaged file, not a kind of receptor |
+| `_` out-of-frame marker | raises | raises | crashes `gapblock` |
+| `*` stop codon | raises | embedded | real biology, and the only legitimate opt-in |
+
+`allow_nonstandard` covers stop codons and nothing else. A guard against a crash, and a guard
+against a corrupt table, cannot be switched off; only the guard against a silently-wrong number has
+an opt-out, and taking it has to be written down.
+
+Measured across the **6,047,716 rows** of one project's clinical AIRR store: 5,600,475 plain
+20-amino-acid junctions, 447,241 with a stop codon, **zero** `_`, and **zero** anything else. So
+the strict default costs nothing on well-formed data. Neither predicate filters on length — a
+two-residue junction and a sixty-residue one both pass.
+
+### Changed — `mir embed` filters with the strict predicate
+
+`_apply_functional_filter` used `vdjtools.preprocess.filter_functional`, a denylist
+(`[*atgc#~_?]`) that **keeps** `X`/`B`/`Z`. It now uses `vdjtools.signature.blocks.sanitise`, the
+anchored allowlist the embedder actually enforces — otherwise the default CLI path would leave rows
+the new guard rejects. `--no-filter-functional` threads `allow_nonstandard=True` as the explicit
+opt-in.
+
+The error message pointing users at `filter_functional` was also wrong for the same reason, and now
+names the strict predicate.
+
+### Added — `signature(..., prefiltered=True)`
+
+A collaborator who removes non-functional rearrangements upstream gets a vector that differs from
+ours in **exactly one column per locus**, `vsig:qc:<locus>:nonstd_aa_frac` — because `sanitise`
+reports the weight fraction it dropped, and a pre-filtered frame has nothing left to drop.
+Measured on 1,168 blood samples from a clinical AIRR cohort at `tier="standard"`: of 688 columns, **7 move** and 681 are
+bit-identical, including **all 528 `rsig` geometry columns**, which do not move because `rsig` is
+handed sanitised frames either way. Under every `recommended` preset, **zero** columns move.
+
+`prefiltered=True` forwards to `vsig` and reports a hole rather than a confident floor value. See
+that package's 3.10.0 entry for the detection rule and why it is a parameter rather than inferred.
+
 ## 3.11.0 — 2026-08-14
 
 ### Changed — `fit_scale` gives each study one vote, not each sample

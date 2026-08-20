@@ -259,6 +259,54 @@ statistic the sample is too shallow to estimate — each yields ``nan`` and a ``
 model that reads "absent" as "zero" reads an unsequenced chain as a biological finding. Most
 learners take ``nan`` natively; those that do not should impute *and* keep the mask.
 
+The signature filters for you — do not pre-filter
+-------------------------------------------------
+
+:func:`~mir.signature.signature` sanitises before it embeds, and ``sanitise=True`` is the default.
+Leave it there. The reason is specific to the geometry: **a stop codon does not raise in the
+distance code**. ``*`` is in seqtree's alphabet, so an unfiltered frame used to return a finite,
+meaningless distance and contaminate ``Φ`` silently — which is strictly worse than crashing.
+
+Since 3.12.0 :meth:`~mir.embedding.tcremp.TCREmp.embed` refuses it instead:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 34 34
+
+   * - junction
+     - default
+     - ``allow_nonstandard=True``
+   * - ``null``
+     - raises
+     - raises
+   * - outside ``[ACDEFGHIKLMNPQRSTVWY*_]``
+     - raises — a **corrupt table**
+     - raises
+   * - ``_`` (out-of-frame marker)
+     - raises — crashes ``gapblock``
+     - raises
+   * - ``*`` (stop codon)
+     - raises
+     - embedded
+
+``allow_nonstandard`` covers stop codons and nothing else. A guard against a crash, and a guard
+against a damaged file, cannot be switched off; only the guard against a silently-wrong number has
+an opt-out, and taking it has to be written down. Measured over 6,047,716 rows of real clinical
+AIRR: zero corrupt characters and zero ``_``, so the strict default costs nothing on well-formed
+data.
+
+Neither predicate filters on **length** — a two-residue junction and a sixty-residue one both pass.
+The question asked is only whether the string is a plain amino-acid string.
+
+**What pre-filtering actually changes.** Exactly one column per locus,
+``vsig:qc:<locus>:nonstd_aa_frac``, because ``sanitise`` reports the weight fraction it dropped and
+a pre-filtered frame has nothing left to drop. Measured on 1,168 blood samples from a clinical AIRR cohort at
+``tier="standard"``: of 688 columns, **7 move** and 681 are bit-identical — including all 528
+``rsig`` geometry columns, which do not move because ``rsig`` is handed sanitised frames either
+way. Under ``compact``, ``transfer`` or ``classify`` — every ``recommended`` preset — **zero
+columns move**, because they drop the ``qc`` block. If you want the column honest on a pre-filtered
+corpus, pass ``signature(..., prefiltered=True)`` and it reports a hole rather than a floor.
+
 Tiers
 -----
 

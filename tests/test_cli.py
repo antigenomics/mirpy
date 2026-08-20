@@ -69,11 +69,32 @@ def test_embed_clonotypes_filters_non_coding_by_default(tmp_path):
     assert got.height == len(TRB)          # both non-coding rows dropped, no crash
 
 
-def test_embed_clonotypes_no_filter_functional_crashes_on_underscore(tmp_path):
+def test_embed_clonotypes_no_filter_functional_still_raises_on_underscore(tmp_path):
+    # --no-filter-functional is the "I want non-functional receptors" opt-in and reaches the
+    # embedder with allow_nonstandard=True -- but '_' crashes seqtree, so it raises regardless.
     src = tmp_path / "S.tsv"
     _write(src, TRB + [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3)])
-    with pytest.raises(ValueError, match="filter_functional"):
+    with pytest.raises(ValueError, match="out-of-frame"):
         main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "--no-filter-functional"])
+
+
+def test_embed_clonotypes_no_filter_functional_embeds_stop_codons(tmp_path):
+    # the opt-in does what it says for the one case that is a real receptor category
+    src = tmp_path / "S.tsv"
+    out = tmp_path / "emb.tsv"
+    _write(src, TRB + [("TRBV20-1*01", "TRBJ1-2*01", "CSARVSG*YGYTF", 2)])
+    main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "-o", str(out),
+          "--no-filter-functional"])
+    assert pl.read_csv(out, separator="\t").height == len(TRB) + 1
+
+
+def test_embed_clonotypes_rejects_a_corrupt_table(tmp_path):
+    # an ambiguity code is a damaged file, not a kind of receptor -- the opt-in must not hide it
+    src = tmp_path / "S.tsv"
+    _write(src, TRB + [("TRBV20-1*01", "TRBJ1-2*01", "CSARVSGXYGYTF", 2)])
+    with pytest.raises(ValueError, match="CORRUPT"):
+        main(["embed", "clonotypes", str(src), "--n-prototypes", "300",
+              "--no-filter-functional"])
 
 
 def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):

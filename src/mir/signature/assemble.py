@@ -213,7 +213,7 @@ def _model(species: str, locus: str, n_prototypes: int):
 
 def signature(sample, *, tier: str = "standard", species: str = "human", weight: str = "log2p1",
               reference=None, scale=None, standardize: str = "reference", clip: float = 8.0,
-              sanitise: bool = True, **vsig_kw) -> dict[str, float]:
+              sanitise: bool = True, prefiltered: bool = False, **vsig_kw) -> dict[str, float]:
     """Both halves of one sample's signature, concatenated — the hand-off object.
 
     With ``standardize="reference"`` (the default) every column is rescaled against the frozen
@@ -232,9 +232,19 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
             ``"reference"`` when none is installed raises rather than silently handing back raw
             numbers that look standardised.
         clip: Bound in robust standard deviations when standardising.
-        sanitise: Drop unusable clonotypes first. Leave this on: malformed junctions do **not**
-            raise in the embedder — a stop codon or an ambiguity code returns a finite, meaningless
-            distance — so skipping it contaminates the geometry silently.
+        sanitise: Drop unusable clonotypes first. Leave this on. Turning it off no longer
+            contaminates the geometry silently — ``TCREmp.embed`` now refuses a junction outside
+            the 20 standard amino acids — but it does mean the call raises rather than returning
+            a vector, which is the intended outcome and not a reason to reach for
+            ``allow_nonstandard``.
+        prefiltered: Say ``True`` when non-functional rearrangements were already removed
+            upstream. ``vsig:qc:*:nonstd_aa_frac`` then reports ``nan`` rather than a confident
+            floor value, because on a pre-filtered input there is nothing left to measure. This
+            is the ONLY part of the vector that pre-filtering affects: every other column is
+            computed on the rows that survive ``sanitise``, and pre-filtering does not change
+            which rows those are. If you do not want the column at all, drop it with a preset
+            (``classify``, ``transfer`` and ``compact`` all do) — that is exact, whereas
+            filtering the repertoire is not.
         **vsig_kw: Forwarded to ``vdjtools.signature.vsig`` (``cstar``, ``pgen_q05``, ``strict``…).
             ``cstar`` and ``pgen_q05`` default to the measured values in the scale reference.
 
@@ -286,7 +296,7 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
         frames = {k: VB.sanitise(v)[0] for k, v in frames.items()}
         frames = {k: v for k, v in frames.items() if v.height}
     # vsig sanitises internally and needs the raw frames to report the dropped fraction honestly
-    out = {**vsig(sample, tier=tier, weight=weight, **vsig_kw),
+    out = {**vsig(sample, tier=tier, weight=weight, prefiltered=prefiltered, **vsig_kw),
            **rsig(frames, tier=tier, species=species, weight=weight, reference=reference)}
     return sref.apply(out, clip=clip) if standardize == "reference" else out
 

@@ -30,7 +30,7 @@ dependencies = [
   "seqtree>=0.3.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  "vdjtools>=3.7.1",
+  "vdjtools>=3.10.0",
 ]
 license = { text = "GPL-3.0-or-later" }
 
@@ -40,7 +40,7 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
-build = ["vdjtools[model]>=3.7.1", "biopython"]
+build = ["vdjtools[model]>=3.10.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +

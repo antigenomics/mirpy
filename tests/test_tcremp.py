@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import polars as pl
 import pytest
@@ -67,18 +69,47 @@ def test_null_junction_raises_by_name():
 
 def test_out_of_frame_underscore_raises_clear_error_instead_of_crashing():
     # '_' isn't in seqtree's amino-acid alphabet and otherwise crashes with an opaque error;
-    # TCREmp.embed catches it first with a message pointing at filter_functional.
+    # TCREmp.embed catches it first with a message naming the filter to use.
     m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
     df = _df().with_columns(pl.Series("junction_aa", ["CASSIRSSYEQYF", "CAS_YEQYF"]))
-    with pytest.raises(ValueError, match="filter_functional"):
+    with pytest.raises(ValueError, match="out-of-frame"):
         m.embed(df)
 
 
-def test_stop_codon_still_embeds_unchanged():
-    # '*' (stop codon) is in seqtree's alphabet and doesn't crash -- only '_' gets the safeguard.
-    # Silently embedding a stop codon is still possible; filter it with filter_functional if unwanted.
+def test_stop_codon_refused_with_no_opt_out():
+    # '*' is in seqtree's alphabet, so it does not crash -- it returns a finite, meaningless
+    # distance, which is strictly worse. mirpy refuses it, and unlike vdjtools there is no way
+    # to ask for it: the library's contract is that it cannot embed non-productive meaningfully.
     m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
     df = _df().with_columns(pl.Series("junction_aa", ["CASSIRSSYEQYF", "CASS*YEQYF"]))
+    with pytest.raises(ValueError, match="non-productive"):
+        m.embed(df)
+    assert "allow_nonstandard" not in inspect.signature(m.embed).parameters
+
+
+@pytest.mark.parametrize("junction", ["CASSXRSSYEQYF", "CASSBRSSYEQYF", "CASSZRSSYEQYF",
+                                      "casslrssyeqyf", "CASS1RSSYEQYF", ""])
+def test_corrupt_junction_always_raises(junction):
+    # Not a category of receptor: a well-formed AIRR table carries only the 20 amino acids plus
+    # '*' and '_'. Measured on 6,047,716 rows of real clinical AIRR: zero violations. So this is
+    # a damaged file, and allow_nonstandard must NOT suppress it.
+    m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
+    df = _df().with_columns(pl.Series("junction_aa", ["CASSIRSSYEQYF", junction]))
+    with pytest.raises(ValueError, match="UNPARSEABLE"):
+        m.embed(df)
+
+
+def test_a_productive_frame_embeds_normally():
+    m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
+    X = m.embed(_df())
+    assert X.shape == (2, m.n_features)
+    assert np.isfinite(X).all()
+
+
+def test_clean_frame_is_unaffected_by_the_guard():
+    # The guard must not filter on length: a short and a long junction both pass.
+    m = TCREmp.from_defaults("human", "TRB", n_prototypes=8)
+    df = _df().with_columns(pl.Series("junction_aa", ["CF", "C" + "A" * 60 + "F"]))
     X = m.embed(df)
     assert X.shape == (2, m.n_features)
     assert np.isfinite(X).all()

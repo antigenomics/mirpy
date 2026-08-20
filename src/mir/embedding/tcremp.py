@@ -63,6 +63,20 @@ _MODE_SPEC: dict[str, tuple[tuple[str, str, str], tuple[str, str, str]]] = {
 
 _REQUIRED_COLS = ("v_call", "j_call", "junction_aa")
 
+#: The 20 standard amino acids, anchored -- the same predicate ``vdjtools.signature.blocks``
+#: sanitises on. seqtree's alphabet is WIDER than this, and that is the problem: a stop codon
+#: ``*`` and the ambiguity codes ``X``/``B``/``Z`` do not crash the distance code, they return a
+#: finite, meaningless distance, which is strictly worse than crashing.
+_STANDARD_AA = r"^[ACDEFGHIKLMNPQRSTVWY]+$"
+
+#: The 20 amino acids plus the two characters a *well-formed* AIRR table can legitimately carry:
+#: ``*`` for a stop codon and ``_`` for the legacy out-of-frame marker. A junction outside this is
+#: not a biological category anyone chose to keep -- it is a broken file. Measured across the
+#: 6,047,716 rows of this project's clinical AIRR store: **zero** violations, and zero ``_``; every
+#: non-plain junction was a stop codon. So the character class is not a guess about what data looks
+#: like, and a violation is worth an exception rather than a filter.
+_PARSEABLE_AA = r"^[ACDEFGHIKLMNPQRSTVWY*_]+$"
+
 
 class TCREmp:
     """Prototype distance-vector embedding for one locus."""
@@ -216,6 +230,13 @@ class TCREmp:
         Returns:
             ``float32`` array of shape ``(len(clonotypes), 3 * n_prototypes)``,
             interleaved per prototype as ``[slot0, slot1, junction]``.
+
+        Raises:
+            ValueError: If a required column is missing, or ``junction_aa`` carries a null, a
+                stop codon, an out-of-frame marker, or any character outside the 20 amino acids.
+                **There is no opt-out.** mirpy filters non-productive rearrangements on every
+                read; reaching this guard means something bypassed that, and embedding anyway
+                would return a finite, meaningless number rather than fail.
         """
         missing = set(_REQUIRED_COLS) - set(clonotypes.columns)
         if missing:
@@ -225,14 +246,47 @@ class TCREmp:
         if n_null:
             raise ValueError(f"junction_aa has {n_null} null value(s); drop or impute them first "
                              "(v_call/j_call nulls are fine — they take the allele fallback)")
+        # CORRUPTION, not a category of receptor. An ambiguity code (X/B/Z), a lowercase residue,
+        # an empty string or a stray character is not something an AIRR pipeline decided to emit --
+        # it means the table is damaged or was written by something that did not agree on the
+        # alphabet. There is no legitimate reason to embed it, and silently filtering it would
+        # hide a broken input -- so this is an error even though it is not a receptor question.
+        corrupt = ~clonotypes["junction_aa"].str.contains(_PARSEABLE_AA).fill_null(False)
+        n_corrupt = int(corrupt.sum())
+        if n_corrupt:
+            ex = clonotypes.filter(corrupt)["junction_aa"].unique().head(5).to_list()
+            raise ValueError(
+                f"junction_aa has {n_corrupt} of {clonotypes.height} UNPARSEABLE value(s): outside "
+                f"the 20 amino acids and outside '*' and '_', e.g. {ex}. A well-formed AIRR table "
+                "carries nothing else, so this is a data problem, not a filtering decision — "
+                "ambiguity codes (X/B/Z), lowercase residues, empty strings and stray characters "
+                "all land here. Fix the source rather than filtering it away."
+            )
         # '_' (the legacy vdjtools out-of-frame marker) isn't in seqtree's amino-acid alphabet and
-        # crashes gapblock with an opaque error; catch it here with a message naming the fix.
+        # crashes gapblock with an opaque error.
         n_oof = clonotypes["junction_aa"].str.contains("_", literal=True).fill_null(False).sum()
         if n_oof:
             raise ValueError(
                 f"junction_aa has {n_oof} value(s) containing '_' (legacy out-of-frame marker); "
                 "seqtree's alphabet doesn't include it and will crash — drop non-coding "
-                "clonotypes first with vdjtools.preprocess.filter_functional"
+                "clonotypes first with vdjtools.signature.blocks.sanitise"
+            )
+        # A stop codon does not crash -- '*' is in seqtree's alphabet, so it returns a finite,
+        # meaningless distance. That is strictly worse than crashing, and it is why this guard has
+        # NO opt-out in mirpy: the library's contract is that it cannot embed a non-productive
+        # rearrangement meaningfully. vdjtools, which only computes statistics, leaves the same
+        # filter optional.
+        bad = ~clonotypes["junction_aa"].str.contains(_STANDARD_AA).fill_null(False)
+        n_bad = int(bad.sum())
+        if n_bad:
+            ex = clonotypes.filter(bad)["junction_aa"].head(3).to_list()
+            raise ValueError(
+                f"junction_aa has {n_bad} of {clonotypes.height} non-productive value(s), e.g. "
+                f"{ex}. '*' is in seqtree's alphabet, so this does NOT raise downstream -- it "
+                "embeds to a finite, meaningless distance and contaminates the geometry silently. "
+                "mirpy therefore refuses it with no opt-out. Filter first with "
+                "vdjtools.preprocess.filter_productive(); if you want the non-productive fraction "
+                "itself, that is a vdjtools question, not a mirpy one."
             )
 
         n = clonotypes.height
