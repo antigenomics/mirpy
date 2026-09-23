@@ -140,55 +140,10 @@ that reads "absent" as "zero" reads an unsequenced chain as biology.
 zero samples, so nobody's coordinates move when a reference is refreshed, and it covers all seven
 loci. Only location and scale come from data. See :doc:`signature` for which scale reference to use.
 
-.. automodule:: mir.signature
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-``mir.signature.assemble``
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``rsig`` (the geometry half), ``signature`` (both halves, standardised) and ``signature_cohort``
-(one row per sample, positional).
-
-.. automodule:: mir.signature.assemble
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-``mir.signature.blocks``
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-The feature families: prototype-sum ``Φ``, slot strides, depth (``n_eff``, ``mass``), Rao's ``Q``,
-and the band / isotype mixture coefficients.
-
-.. automodule:: mir.signature.blocks
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-``mir.signature.reference``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The frozen geometry: per-locus rotations, the naive centre, eigenvalue gaps and
-``exchangeable()`` — which components sit in a near-degenerate pair and therefore must be read as a
-block rather than individually.
-
-.. automodule:: mir.signature.reference
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-``mir.signature.scale``
-~~~~~~~~~~~~~~~~~~~~~~~
-
-The corpus-fitted half: per-column median and ``1.4826·MAD``, the coverage level ``cstar`` and the
-Pgen quantile ``pgen_q05``. ``fit_scale`` gives each **study** one vote, not each sample.
-
-.. automodule:: mir.signature.scale
-   :members:
-   :undoc-members:
-   :show-inheritance:
+**The full API for this package is on its own page** — see :doc:`signature`, which documents
+``mir.signature``, ``mir.signature.assemble``, ``mir.signature.blocks``, ``mir.signature.reference``
+and ``mir.signature.scale`` alongside the measurements behind each design choice. It is not repeated
+here so that every symbol has one canonical entry.
 
 Explainable readouts (``mir.explain``)
 --------------------------------------
