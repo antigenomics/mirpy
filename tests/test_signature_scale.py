@@ -569,3 +569,36 @@ class TestNamedModels:
 
         with pytest.raises(ValueError, match="unknown scale reference"):
             load_scale("bloood")
+
+
+class TestBloodV3:
+    """`blood-v3` covers the five loci the bundled amplicon reference does not.
+
+    The shipped `deep-tcr` reference was fitted on targeted TCR libraries, so it carries `cstar`
+    for TRA and TRB and nothing else, and every coverage-standardised diversity column on the
+    other five loci comes back nan. `blood-v3` is the 947-study bulk-blood fit; it has the SAME
+    column order, so it is a drop-in -- no coordinate moves, only holes get filled.
+    """
+
+    def test_it_covers_all_seven_loci(self):
+        from mir.signature.scale import load_scale
+
+        ref = load_scale("blood-v3")
+        assert set(ref.cstar) == {"IGH", "IGK", "IGL", "TRA", "TRB", "TRD", "TRG"}
+
+    def test_it_scales_far_more_columns_than_the_amplicon_reference(self):
+        import numpy as np
+
+        from mir.signature.scale import load_scale
+
+        deep, blood = load_scale("deep-tcr"), load_scale("blood-v3")
+        n_deep = int(np.asarray(deep.scaled).sum())
+        n_blood = int(np.asarray(blood.scaled).sum())
+        assert n_deep == 394, f"the bundled amplicon fit scales 394 columns, got {n_deep}"
+        assert n_blood >= 1377, f"the blood fit scales >= 1377 columns, got {n_blood}"
+
+    def test_the_column_order_is_identical_so_it_is_a_drop_in(self):
+        """The layout must not move between references, or column i changes meaning."""
+        from mir.signature.scale import load_scale
+
+        assert load_scale("deep-tcr").columns == load_scale("blood-v3").columns

@@ -97,10 +97,12 @@ the five loci the bundled scale reference has no coverage constant for: IGH, IGK
 The remaining eight are ``vsig:pgen:frac_atypical`` on those same five loci, ``vsig:shm`` on IGH and
 ``rsig:band:top`` on two loci.
 
-TRA and TRB have **0** such columns. This is not a defect in your samples: the bundled reference was
-fitted on targeted TCR libraries, so it carries ``cstar`` for TRA and TRB and for nothing else. The
-B-cell and gamma-delta diversity columns come back the moment a reference covering those loci is
-selected -- see :ref:`which-scale-reference`.
+TRA and TRB have **0** such columns. This is not a defect in your samples: the *default* reference
+was fitted on targeted TCR libraries, so it carries ``cstar`` for TRA and TRB and for nothing else.
+
+**The fix is one flag.** ``--scale blood-v3`` selects the 947-study bulk-blood reference, which is
+also bundled, and the same 20 samples then have **3** all-nan columns instead of 28. If your data
+is bulk RNA-seq, use it -- see :ref:`which-scale-reference`.
 
 Raw block values, if you want them
 ----------------------------------
@@ -485,54 +487,88 @@ locus measured one way and a locus measured another is a statement about assay, 
 For the same reason a reference must be fitted on samples where every locus came from the **same
 library**; loci drawn from different samples cannot produce these columns at all.
 
-So a reference is chosen by assay, not by preference. There are **three models**, each a name you
-pass to ``--scale``:
+So a reference is chosen by assay, not by preference:
 
 .. list-table::
    :header-rows: 1
-   :widths: 12 18 18 12 26
+   :widths: 18 18 18 10 24
 
-   * - model
+   * - ``--scale``
      - your data
      - reference corpus
      - loci
-     - notes
+     - state
    * - ``deep-tcr``
      - targeted / amplicon TCR
      - 7 deep cohorts, 4,080 samples
      - TRA, TRB
-     - deep; singleton and rare-clone bands are meaningful
-   * - ``blood``
+     - **ships; the default**
+   * - ``blood-v3``
      - bulk **blood** RNA-seq
-     - 23,234 SRA samples, 947 study groups
+     - 23,234 samples, 947 study groups
      - all 7
-     - shallow per locus; γδ is thin and its bands are depth-fragile
-   * - ``tissue``
+     - **ships**
+   * - ``blood``
+     - bulk blood RNA-seq
+     - same corpus, refitted per-study
+     - all 7
+     - in progress
+   * - ``blood-unweighted``
+     - one large blood study
+     - same corpus, per-sample
+     - all 7
+     - in progress
+   * - ``tissue`` / ``tissue-unweighted``
      - bulk **tissue** RNA-seq
      - SRA tissue population
      - all 7
-     - shallower again — a third of tissue TRB samples carry under 10 clonotypes
+     - in progress
 
 .. code-block:: bash
 
-   mir signature --preset classify --scale deep-tcr samples/*.tsv -o sig.tsv
+   mir signature --preset classify --scale blood-v3 samples/*.tsv -o sig.tsv
 
-**``deep-tcr`` is what ships today and is the default.** ``blood`` and ``tissue`` name artifacts
-that are not in the wheel yet; asking for one raises ``FileNotFoundError`` saying exactly that,
-rather than quietly falling back to a reference fitted on a different assay. ``load_scale()`` takes
-the same names from Python.
+**If your data is bulk RNA-seq, pass** ``--scale blood-v3``. The default is the amplicon fit, and
+on the five loci it does not cover every coverage-standardised diversity column comes back ``nan``.
+Measured on 20 samples of the SRA cohort with ``--preset classify``: **28 of 615 columns are nan
+under the default and 3 under** ``blood-v3`` -- the 25 recovered are
+``vsig:div:{0D_c,1D_c,2D_c,clonality}`` and ``vsig:pgen:frac_atypical`` on IGH, IGK, IGL, TRG and
+TRD.
 
-The **rotation is the same artifact for all three** -- it is fit-free, so no assay and no sample
-enters it -- which is what makes adding a model cheap and what guarantees that a coordinate already
-in your hands does not move when one arrives.
+The two references have **identical column order**, so this is a drop-in: nothing you already
+computed changes position or meaning, holes simply get filled.
 
-.. note::
+Weighted and unweighted
+~~~~~~~~~~~~~~~~~~~~~~~
 
-   **B-cell and γδ coverage in ``deep-tcr`` waits on data that does not exist yet.** The
-   amplicon corpus behind it is TCR α/β only, so there is no deep IG or TRG/TRD stratum to fit.
-   Deep B-cell and γδ references will be added when such libraries are available; until then, bulk
-   samples covering those loci belong on ``blood`` or ``tissue``, and ``--standardize none`` gives
-   raw values on all seven loci today.
+Each RNA-seq corpus ships two fits. ``weight_by_group=True`` gives every **study** one vote;
+unweighted gives every **sample** one vote, so a single 3,000-sample submission would set the
+coordinates for everyone.
+
+Weighted is the default, and it is not a close call. Held-out-study agreement at 640 study groups
+(about 14,500 samples), five seeds:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 24 24
+
+   * - measure
+     - weighted
+     - unweighted
+   * - columns passing on location **and** scale
+     - **0.843 - 0.857**
+     - 0.533 - 0.551
+   * - median \|Δlocation\|
+     - **0.036**
+     - 0.050
+   * - median scale ratio (1.0 is exact)
+     - **0.973**
+     - 0.940
+
+The held-out *design* (by-study vs iid-sample) barely moves either number, so it is the fitting
+weight that carries this, not how the evaluation is split. The unweighted fit ships anyway: it is
+the right reference when your own cohort **is** one large study and you want its scale rather than
+a cross-study consensus.
 
 A name or path that does not resolve **raises** rather than returning ``None``: returning ``None``
 would conflate "you did not ask for a reference" with "the one you named is missing", and a typo
