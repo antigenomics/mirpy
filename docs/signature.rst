@@ -503,40 +503,56 @@ So a reference is chosen by assay, not by preference:
      - 7 deep cohorts, 4,080 samples
      - TRA, TRB
      - **ships; the default**
-   * - ``blood-v3``
+   * - ``blood``
      - bulk **blood** RNA-seq
      - 23,234 samples, 947 study groups
      - all 7
      - **ships**
-   * - ``blood``
-     - bulk blood RNA-seq
-     - same corpus, refitted per-study
-     - all 7
-     - in progress
    * - ``blood-unweighted``
      - one large blood study
-     - same corpus, per-sample
+     - same corpus, one vote per sample
      - all 7
-     - in progress
-   * - ``tissue`` / ``tissue-unweighted``
+     - **ships**
+   * - ``blood-v3``
+     - bulk blood RNA-seq
+     - same corpus, pre-3.11 fit
+     - all 7
+     - **ships** (kept for continuity)
+   * - ``tissue``
      - bulk **tissue** RNA-seq
-     - SRA tissue population
+     - 13,577 samples, 1,024 study groups
      - all 7
-     - in progress
+     - **ships**
+   * - ``tissue-unweighted``
+     - one large tissue study
+     - same corpus, one vote per sample
+     - all 7
+     - **ships**
 
 .. code-block:: bash
 
-   mir signature --preset classify --scale blood-v3 samples/*.tsv -o sig.tsv
+   mir signature --preset classify --scale blood samples/*.tsv -o sig.tsv
 
-**If your data is bulk RNA-seq, pass** ``--scale blood-v3``. The default is the amplicon fit, and
-on the five loci it does not cover every coverage-standardised diversity column comes back ``nan``.
+**If your data is bulk RNA-seq, pass** ``--scale blood`` (or ``--scale tissue``). The default is
+the amplicon fit, and on the five loci it does not cover, every coverage-standardised diversity
+column comes back ``nan``.
 Measured on 20 samples of the SRA cohort with ``--preset classify``: **28 of 615 columns are nan
-under the default and 3 under** ``blood-v3`` -- the 25 recovered are
+under the default and 3 under every RNA-seq reference** -- the 25 recovered are
 ``vsig:div:{0D_c,1D_c,2D_c,clonality}`` and ``vsig:pgen:frac_atypical`` on IGH, IGK, IGL, TRG and
 TRD.
 
-The two references have **identical column order**, so this is a drop-in: nothing you already
-computed changes position or meaning, holes simply get filled.
+**Every reference has identical column order** -- asserted by a test across all six -- so switching
+one is a drop-in: nothing you already computed changes position or meaning, holes simply get
+filled.
+
+Tissue is not blood
+~~~~~~~~~~~~~~~~~~~
+
+Worth one number before you reach for the nearest reference. Comparing the blood and tissue fits
+column by column over the 1,359 columns both establish: the **median scale ratio is 0.721** and the
+largest location difference is **17.2 robust deviations**. Those are not two views of one
+population. A tissue sample read against the blood reference is not slightly off, it is in the
+wrong units, and the ``div`` columns are where it shows first.
 
 Weighted and unweighted
 ~~~~~~~~~~~~~~~~~~~~~~~
