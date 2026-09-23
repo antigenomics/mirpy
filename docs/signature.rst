@@ -46,6 +46,77 @@ Two more things worth knowing: ``--standardize reference`` (the default) is what
 comparable with anyone else's, and you should **not** PCA-project the result — plain scaling beat
 projection at every rank tested.
 
+A folder of AIRR files, and a table you can join
+------------------------------------------------
+
+The complete recipe, end to end. Input: a directory of per-sample AIRR TSVs and your own metadata
+sheet. Output: one TSV with one row per sample, joinable on ``sample_id``.
+
+.. code-block:: bash
+
+   mir signature --preset classify samples/*.tsv -o sig.tsv
+
+``sample_id`` is the file name up to the first dot, so ``samples/SRR8364167.tsv`` becomes
+``SRR8364167``. Name your files after whatever key your metadata already uses and the join needs no
+mapping table:
+
+.. code-block:: python
+
+   import polars as pl
+
+   sig  = pl.read_csv("sig.tsv",  separator="\t")
+   meta = pl.read_csv("meta.tsv", separator="\t")     # your own sheet
+   full = sig.join(meta, left_on="sample_id", right_on="Run", how="left")
+   full.write_csv("signature_with_metadata.tsv", separator="\t")
+
+That is the whole pipeline. Everything after it is your analysis.
+
+Run on the 1,764-sample SRA cohort in |airr_benchmark| this takes roughly 0.6 s per sample on eight
+cores, and a 20-sample subset produced **615 columns with every ``sample_id`` matching its metadata
+row**. See :doc:`notebooks` for the runnable version.
+
+.. |airr_benchmark| raw:: html
+
+   <a href="https://huggingface.co/datasets/isalgo/airr_benchmark">isalgo/airr_benchmark</a>
+
+What ``nan`` means in the output
+--------------------------------
+
+A hole is never filled with zero. ``nan`` means *not estimable for this sample*, and there are two
+distinct reasons, which you separate with the mask columns ``vsig:mask:<locus>:present`` and
+``vsig:mask:<locus>:estimable``:
+
+- **The locus is not in the file.** A TRB-only library has ``nan`` everywhere under ``:IGH:``.
+- **The locus is there but too shallow** for that particular estimator.
+
+There is also a third, which is a property of the shipped artifact rather than of your data, and it
+is worth knowing before you see it. Measured on 20 samples of the SRA cohort with
+``--preset classify``: 28 of 615 columns are ``nan`` for **every** sample, and 20 of those 28 are
+the coverage-standardised diversity block -- ``vsig:div:{0D_c,1D_c,2D_c,clonality}`` -- on exactly
+the five loci the bundled scale reference has no coverage constant for: IGH, IGK, IGL, TRG and TRD.
+The remaining eight are ``vsig:pgen:frac_atypical`` on those same five loci, ``vsig:shm`` on IGH and
+``rsig:band:top`` on two loci.
+
+TRA and TRB have **0** such columns. This is not a defect in your samples: the bundled reference was
+fitted on targeted TCR libraries, so it carries ``cstar`` for TRA and TRB and for nothing else. The
+B-cell and gamma-delta diversity columns come back the moment a reference covering those loci is
+selected -- see :ref:`which-scale-reference`.
+
+Raw block values, if you want them
+----------------------------------
+
+``--standardize none`` emits the same columns **before** any reference rescaling -- raw counts,
+fractions and Hill numbers in their own units rather than standardised against a corpus:
+
+.. code-block:: bash
+
+   mir signature --preset classify --standardize none samples/*.tsv -o raw.tsv
+
+This is the right output when you are building your own within-cohort model and do not need
+cross-cohort comparability, and it is also the answer to "where did my IGH diversity go": raw Hill
+numbers need no ``cstar``, so they are populated on all seven loci. What you give up is exactly what
+standardisation buys -- a column that means the same thing in your matrix and a collaborator's.
+
 The Python API
 --------------
 
@@ -358,6 +429,8 @@ the spectrum, not the sample count — eigenvalues run 182, 73, 56, 51, 48, 44, 
 PC2 on the components are near-degenerate. A degenerate pair has a determined *plane* and an
 undetermined labelling of the two axes inside it, at any :math:`n`. Task performance agrees: AUC is
 flat from :math:`k = 16` to 256 and *falls* when all 1,369 columns are used.
+
+.. _which-scale-reference:
 
 Which scale reference your samples need
 ---------------------------------------
