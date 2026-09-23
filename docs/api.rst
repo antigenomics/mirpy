@@ -109,6 +109,87 @@ Derivations: :doc:`math`.
    :undoc-members:
    :show-inheritance:
 
+The portable signature (``mir.signature``)
+------------------------------------------
+
+The hand-off object: a fixed-width, name-addressed, already-standardised vector that anyone who
+``pip install mirpy-lib`` can compute from their own AIRR files and drop straight into a model.
+``Φ(S)`` above is a fingerprint but not a portable one — its basis is fitted on *your* cohort, so
+two collaborators get incomparable vectors. The signature fixes the basis and the scale.
+
+Two halves, concatenated on ``sample_id`` and namespaced so they never collide:
+
+``vsig``
+   Statistics of the clone-size vector — diversity, clonality, junction length, segment usage,
+   isotype, residue composition, physico-chemistry, Pgen, SHM, locus balance. Computed in
+   :mod:`vdjtools.signature`.
+``rsig``
+   Geometry — every column a linear functional, a norm, or a mixture coefficient of the
+   prototype-sum measure. Computed here.
+
+Both share one frozen column contract, imported from
+:mod:`vdjtools.signature.layout`: a column name is always ``<sig>:<block>:<locus>:<feature>``
+(``-`` for a cross-locus column), and the tiers ``core`` (152) ⊂ ``standard`` (688) ⊂ ``full``
+(1403) are exact **index subsets** of one column order.
+
+**Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
+statistic the sample is too shallow to estimate is ``nan`` plus a ``mask:`` column — because a model
+that reads "absent" as "zero" reads an unsequenced chain as biology.
+
+**The rotation is fit-free.** It is the PCA of the bundled prototype panel embedded against itself —
+zero samples, so nobody's coordinates move when a reference is refreshed, and it covers all seven
+loci. Only location and scale come from data. See :doc:`signature` for which scale reference to use.
+
+.. automodule:: mir.signature
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.signature.assemble``
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``rsig`` (the geometry half), ``signature`` (both halves, standardised) and ``signature_cohort``
+(one row per sample, positional).
+
+.. automodule:: mir.signature.assemble
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.signature.blocks``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The feature families: prototype-sum ``Φ``, slot strides, depth (``n_eff``, ``mass``), Rao's ``Q``,
+and the band / isotype mixture coefficients.
+
+.. automodule:: mir.signature.blocks
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.signature.reference``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The frozen geometry: per-locus rotations, the naive centre, eigenvalue gaps and
+``exchangeable()`` — which components sit in a near-degenerate pair and therefore must be read as a
+block rather than individually.
+
+.. automodule:: mir.signature.reference
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+``mir.signature.scale``
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The corpus-fitted half: per-column median and ``1.4826·MAD``, the coverage level ``cstar`` and the
+Pgen quantile ``pgen_q05``. ``fit_scale`` gives each **study** one vote, not each sample.
+
+.. automodule:: mir.signature.scale
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Explainable readouts (``mir.explain``)
 --------------------------------------
 
@@ -323,8 +404,8 @@ Allele normalisation with default-allele cascade.
 Command-line interface (``mir``)
 --------------------------------
 
-``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with two
-commands, one per embedding scale:
+``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with four
+commands: two embedding scales, plus the portable signature and its column presets.
 
 Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame ``junction_aa``) before
 embedding by default via ``vdjtools.preprocess.filter_functional`` — pass ``--no-filter-functional``
@@ -345,6 +426,25 @@ to disable.
    ``--blocks mean,diversity[,second]``, ``--n-rff``, ``--n-rff-second``, ``--n-components``,
    ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
    ``--filter-functional``/``--no-filter-functional``, ``--threads``, ``--seed``, ``-o``.
+
+``mir signature INPUT...``
+   AIRR clonotype tables → **one fixed-width named feature vector per sample**, standardised
+   against a frozen reference so a downstream model needs no scaler of its own. This is the command
+   to send a collaborator. Flags: ``--tier {core,standard,full}``, ``--preset NAME``,
+   ``--species``, ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``,
+   ``--standardize {reference,none}``, ``--scale PATH`` (an explicit reference; a named-but-missing
+   one raises rather than silently producing an unstandardised matrix), ``--threads`` (0 = every
+   core), ``--describe`` (print the column dictionary and read no input), ``-o``.
+
+   This emits **both halves**. ``vdjtools signature`` emits the ``vsig`` half alone and reports how
+   many ``rsig`` columns it left to this command; the two concatenate on ``sample_id``.
+
+``mir presets [NAME]``
+   The named column subsets and their ranking — ``compact`` (152), ``classify`` (615),
+   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (286), ``full`` (1403),
+   ``nuisance`` (73, ranked *avoid*). With no argument, the whole table; with a name, that preset's
+   column list. A preset resolves from the frozen layout alone, so two people choosing the same
+   name get the same columns in the same order.
 
 .. automodule:: mir.cli
    :members: main, build_parser

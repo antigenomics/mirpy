@@ -344,11 +344,101 @@ Two artifacts ship, and the split is the design.
 
 Fitting a **scale** and fitting a **basis** are different statistical problems, and only one of
 them is safe at the sample sizes anyone actually has. A rotation over :math:`p = 256` coordinates
-per slot is not column-identified at a few thousand samples — measured split-half column agreement
-of a fitted junction basis is 0.23 — whereas a per-column median and MAD converge as
+per slot is not column-identified at the sample sizes anyone has — measured split-half column
+agreement of a fitted junction basis is 0.23 — whereas a per-column median and MAD converge as
 :math:`1/\sqrt{n}`. So the rotation is taken from the **prototype cloud** instead: bundled
 receptors embedded against bundled receptors, zero samples, nothing to re-fit and nothing of any
 corpus in it.
+
+More data does not change that answer, which is the part worth stating plainly. Refitting the
+rotation *inside* study-disjoint folds over **14,553 samples across 182 studies**, not one component
+of 1,369 reproduces at :math:`|r| \ge 0.95` and no subspace reaches an overlap of 0.80; per-component
+split-half agreement is 0.949 for PC1, 0.614 for PC2 and **0.11–0.32 for PC3–PC12**. The cause is
+the spectrum, not the sample count — eigenvalues run 182, 73, 56, 51, 48, 44, 42, 38, 34, … so from
+PC2 on the components are near-degenerate. A degenerate pair has a determined *plane* and an
+undetermined labelling of the two axes inside it, at any :math:`n`. Task performance agrees: AUC is
+flat from :math:`k = 16` to 256 and *falls* when all 1,369 columns are used.
+
+Which scale reference your samples need
+---------------------------------------
+
+The geometry is one artifact for everybody — it covers all seven loci and no assay enters it. The
+**scale** is not: it is fitted on repertoires, and repertoires from a targeted TCR library and from
+bulk RNA-seq do not live on the same scale. Reading a sample against the wrong reference is not a
+small error.
+
+The reference that ships today was fitted on **seven targeted (amplicon) TCR cohorts, 4,080
+samples**, and that has two consequences a user should know before trusting a column:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 16 16 16
+
+   * - locus
+     - columns
+     - with a fitted scale
+     - ``cstar``
+   * - TRA
+     - 198
+     - 197
+     - 0.545
+   * - TRB
+     - 198
+     - 197
+     - 0.408
+   * - TRG / TRD
+     - 198 each
+     - **2 each**
+     - —
+   * - IGH / IGK / IGL
+     - 209 / 198 / 198
+     - **2 each**
+     - —
+
+The two scaled columns on the five uncovered loci are only ``mask:present`` and ``mask:estimable``
+— the hole indicators. **No real content is standardised outside TRA and TRB**, and because a locus
+with no ``cstar`` falls back to a coverage level no finite sample attains, its ``div:`` columns come
+back ``nan``. If you are working with B cells today, that is why.
+
+Why not simply pool one reference over everything: the coverage level ``cstar`` differs by **3.2×**
+between assays on the same locus — TRB sits at 0.408 in an amplicon corpus and 0.126 in bulk blood
+RNA-seq. ``cstar`` is the depth every Hill number is compared at, and a value above what a sample
+attains puts it into extrapolation, which is measured to inflate diversity roughly tenfold. Averaging
+the two assays would put *both* populations in the wrong regime.
+
+It lands hardest on the six cross-locus columns — ``pair:-:log_IGH_TRB``, ``log_TRG_TRB``,
+``log_TRD_TRB``, ``log_TRA_TRB``, ``log_IGK_IGL`` and ``qc:-:n_loci_present``. A ratio between a
+locus measured one way and a locus measured another is a statement about assay, not about biology.
+For the same reason a reference must be fitted on samples where every locus came from the **same
+library**; loci drawn from different samples cannot produce these columns at all.
+
+So a reference is chosen by assay, not by preference:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 22 14 26
+
+   * - your data
+     - reference
+     - loci
+     - notes
+   * - targeted / amplicon TCR
+     - the shipped amplicon fit
+     - TRA, TRB
+     - deep; singleton and rare-clone bands are meaningful
+   * - bulk **blood** RNA-seq
+     - blood reference
+     - all 7
+     - shallow per locus; γδ is thin and its bands are depth-fragile
+   * - bulk **tissue** RNA-seq
+     - tissue reference
+     - all 7
+     - shallower again — a third of tissue TRB samples carry under 10 clonotypes
+
+Pass a reference explicitly with ``--scale`` (or ``load_scale(...)``). A path that does not exist
+**raises** rather than returning ``None``: returning ``None`` would conflate "you did not ask for a
+reference" with "the one you named is missing", and a typo would hand you an unstandardised matrix
+that looks exactly like a standardised one.
 
 Batch is the thing to check first
 ----------------------------------
