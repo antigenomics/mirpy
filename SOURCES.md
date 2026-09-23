@@ -61,6 +61,44 @@ Phenotype-labelled repertoire cohorts for the §T.7 sample-level embedding bench
 | `airr_covid19` | HF `isalgo/airr_covid19` = **Vlasova, Nekrasova, Komkov et al. 2026** (*Genome Med* 18, 20; DNA-multiplex FMBA cohort — cite per the dataset card, ⚠ verify before appendix use) | `metadata.tsv`: `file_name, reads, batch_id, sample_id, COVID_status` (COVID/healthy/precovid/unknown), `COVID_IgG/IgM/PCR`, full **4-digit HLA class I+II both alleles** (`HLA-{A,B,C}_{1,2}`, `HLA-{DPB1,DQB1,DRB1}_{1,2}`, `HLA-DRB{3,4,5}_1`), `donor_id`; **1258 donors**, **paired TRA+TRB**. **9 real sequencing batches** (`2020/09…2021/01_FMBA_NovaSeq*`, 103–185 donors each), partly status-confounded (NovaSeq4≈all-healthy, NovaSeq9=all-precovid; NovaSeq5/6/7 mixed). Ships `covid_associated_clonotypes.csv` (114 CDR3 clusters, `has_covid_association` T/F — COVID ground-truth motifs). **No `age`** (age+sex live in the sibling `isalgo/airr_covid19_vacc`). Files: **local git-LFS checkout** at `~/hf/airr_covid19/<file_name>` (vdjtools cols `count/freq/cdr3aa/v/j`), *not* the HF hub cache — load by local path, not `hf_hub_download` | local `~/hf/airr_covid19/`; `git clone git@hf.co:datasets/isalgo/airr_covid19` (LFS). Downsample per-sample. **Batch is a strong nuisance ⇒ prop:batch test bed**; HLA ⟂ batch (donor genetics) vs COVID-status ⟂̸ batch (confounded) |
 | `airr_tcga` | HF `isalgo/airr_tcga` = **TCGA** tumour bulk RNA-seq → AIRR (RNA-seq AIRR extraction method Bolotin et al. *Nat Biotechnol* 2017, PMID 29020005) | `metadata.tsv`: `sample_id` (`TCGA-XX-XXXX.N`), `subject_id`, `cancer_type`/`disease`/`study_id` (**33 cancer types**), `sex/race/age`, **stage** (`cancer_stage` S1–S4 + `tumor_stage` i–iv; no grade column), `therapy/response`, `OS`+`OS_event` (days + 0/1 death, ~9510 usable; **`PFS`/`PFS_event` are present-but-empty — unusable**), **`total_reads`** (raw FASTQ total, GDC realigned-BAM `Total_Reads`, verified ≠ aligned; 99.6% present) + `aligned_reads`; **9591 samples**, **TCR+BCR but IG-dominant** (~97% IG: IGK/IGL/IGH; ~3% TR), median **634** clonotypes/sample (RNA-seq regime). Caveats: 487 lack clinical, 42 lack `total_reads` | **local git-LFS checkout** at `~/hf/airr_tcga/` (`git clone git@hf.co:datasets/isalgo/airr_tcga`) or `hf_hub_download(repo_id="isalgo/airr_tcga", filename="samples.tar.gz"/"metadata.tsv", repo_type="dataset")` + `load.py`. Per-sample AIRR in `samples.tar.gz` (`samples/<sample_id>.tsv`, AIRR cols). Separate **`metadata.hla.tsv`** = donor-level **HLA class-I** keyed by `subject_id` (`HLA-{A,B,C}_{1,2}`, 4-digit, + `hla_source`), union of TCGA **PanImmune** (Thorsson et al. *Immunity* 2018, PMID 29628290; primary, 7649) + **OptiType** fill (Szolek et al. *Bioinformatics* 2014, PMID 25143287; 1474); **9123/9450 donors = 96.5%**, → 9263 samples. **Tissue depth↔infiltration test bed** (`sec:samp-norm`, `prop:infiltration`): `total_reads` is the technical denominator for the receptor read-fraction infiltration proxy; HLA enables the `prop:hla` stratification |
 
+
+## Signature scale references — the study-level record
+
+`data/signature_reference_studies.tsv` (2,178 rows) is the **public provenance of the bundled scale
+references**: every study group behind them, with its accession, PMID where one exists, and
+per-locus sample counts.
+
+| arm | studies | samples | subjects |
+|---|---:|---:|---:|
+| `blood_reference` | 1,105 | 23,234 | 12,209 |
+| `tissue_reference` | 1,073 | 13,577 | 12,488 |
+
+All SRA/ENA, all *Homo sapiens*, all public consent. 809 of 2,178 studies (37.1%) carry a PMID; the
+rest are deposited without an associated publication. Columns: `arm`, `study_id`, `study_group`,
+`pmid`, `compartment`, `family`, `n_samples`, `n_subjects`, `n_TRA`, `n_TRB`, `n_IGH`, `n_IGK`,
+`n_IGL`.
+
+**Per-sample accessions are deliberately not published.** Study accessions and per-study counts are
+public facts; the sample-level membership list is not part of the public record. This is a
+disclosure boundary, not an oversight, and it has one honest consequence, stated once: a third
+party applying the published predicate to these study accessions obtains a **comparable** reference,
+not a byte-identical one. Each artifact's own metadata pins what actually shipped.
+
+The selection predicate is published in full — see `docs/signature.rst`:
+
+- compartment (`blood` / non-blood), SRA family, human, public consent;
+- per-locus read floors (`>= 100` reads for IGH/IGK/IGL/TRA/TRB; TRG and TRD are fitted on their
+  own thinner stratum, since only 8,688 and 5,620 blood samples clear that floor);
+- a per-BioProject cap, applied **before** any global row limit — the top 10 BioProjects hold 17.7%
+  of SRA blood and the top 100 hold 56.4%, so without a cap the reference describes those
+  submissions rather than the population;
+- winsorizing on per-locus reads at the 1st and 99th percentile;
+- disjointness: a reference study appears in no evaluation task, so the transfer claim is not
+  circular.
+
+Provenance is **derived** throughout: every value is computed by our code from experimental AIRR
+clonotype tables, never measured directly. The upstream sequencing is public SRA/ENA.
+
 ## Theory appendix (`appendix/` in the companion `2026-mirpy-ms` repo)
 
 | Dataset / asset | Path | What / provenance | Regenerate |

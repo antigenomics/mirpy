@@ -602,3 +602,87 @@ class TestBloodV3:
         from mir.signature.scale import load_scale
 
         assert load_scale("deep-tcr").columns == load_scale("blood-v3").columns
+
+
+class TestV4Models:
+    """All six named models resolve, and weighted is not the same fit as unweighted.
+
+    The weighting is the whole point of v4 -- v3 was fitted under mirpy 3.9.0, which predates
+    `weight_by_group` entirely, so it is a per-sample fit whether or not anyone intended one. If
+    the two v4 arms came out identical the parameter would not be doing anything.
+    """
+
+    def test_every_declared_model_is_installed(self):
+        from mir.signature.scale import MODELS, load_scale
+
+        missing = []
+        for name in MODELS:
+            try:
+                load_scale(name)
+            except FileNotFoundError:
+                missing.append(name)
+        assert not missing, f"declared but not bundled: {missing}"
+
+    def test_every_rna_seq_model_covers_all_seven_loci(self):
+        from mir.signature.scale import load_scale
+
+        seven = {"IGH", "IGK", "IGL", "TRA", "TRB", "TRD", "TRG"}
+        for name in ("blood", "blood-unweighted", "blood-v3", "tissue", "tissue-unweighted"):
+            assert set(load_scale(name).cstar) == seven, f"{name} does not cover all seven loci"
+
+    def test_weighted_and_unweighted_are_different_fits(self):
+        import numpy as np
+
+        from mir.signature.scale import load_scale
+
+        for w, u in (("blood", "blood-unweighted"), ("tissue", "tissue-unweighted")):
+            a, b = load_scale(w), load_scale(u)
+            both = np.asarray(a.scaled) & np.asarray(b.scaled)
+            assert both.sum() > 1000, "the two arms should share most columns"
+            assert not np.array_equal(np.asarray(a.loc)[both], np.asarray(b.loc)[both]), (
+                f"{w} and {u} have identical locations -- weight_by_group did nothing")
+
+    def test_the_column_layout_never_moves_between_models(self):
+        """Column i must mean the same thing under every reference, or the contract is void."""
+        from mir.signature.scale import MODELS, load_scale
+
+        ref = load_scale("deep-tcr").columns
+        for name in MODELS:
+            assert load_scale(name).columns == ref, f"{name} moves the column layout"
+
+
+class TestKmerSpaces:
+    """The k-mer spaces ship, and registering them cannot move an existing coordinate."""
+
+    def test_the_bundled_spaces_load_for_all_seven_loci(self):
+        from mir.signature import load_kmer_spaces
+
+        sp = load_kmer_spaces()
+        assert set(sp) == {"IGH", "IGK", "IGL", "TRA", "TRB", "TRD", "TRG"}
+        for locus, s in sp.items():
+            assert s.components.shape[0] == 32, f"{locus} was fitted at rank 32"
+            assert s.components.shape[1] == len(s.codes)
+
+    def test_they_load_without_pickle(self, tmp_path):
+        """A space is meant to travel, so reading one must not be able to execute code."""
+        import numpy as np
+
+        from mir.signature import KMER_PATH
+
+        np.load(KMER_PATH, allow_pickle=False)   # raises if any array is dtype=object
+
+    def test_registering_appends_and_leaves_the_narrow_tiers_alone(self):
+        from vdjtools.signature import layout as L
+        from vdjtools.signature.kmer import register_kmer
+
+        from mir.signature import load_kmer_spaces
+
+        before = {t: L.columns(t) for t in ("core", "standard", "full")}
+        register_kmer(load_kmer_spaces(), tier="full")
+        after = {t: L.columns(t) for t in ("core", "standard", "full")}
+
+        assert after["core"] == before["core"], "core tier moved"
+        assert after["standard"] == before["standard"], "standard tier moved"
+        assert after["full"][:len(before["full"])] == before["full"], (
+            "full tier moved -- an existing vector's column i would change meaning")
+        assert len(after["full"]) == len(before["full"]) + 231

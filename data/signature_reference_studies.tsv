@@ -1,0 +1,2179 @@
+arm	study_id	study_group	pmid	compartment	family	n_samples	n_subjects	n_TRA	n_TRB	n_IGH	n_IGK	n_IGL
+blood_reference	PRJNA795330	PRJNA795330		blood	sra	510	1	449	505	436	478	462
+blood_reference	GSE216738	PMID:36581735	36581735	blood	sra	463	462	82	121	462	459	417
+blood_reference	GSE185341	PMID:36648132.0	36648132.0	blood	sra	397	61	396	397	396	397	395
+blood_reference	GSE282464	GSE282464		blood	sra	373	373	337	340	368	368	362
+blood_reference	GSE217770	PMID:36496417.0	36496417.0	blood	sra	363	53	363	363	363	363	363
+blood_reference	GSE246521	PMID:39910036.0	39910036.0	blood	sra	330	330	47	132	323	240	180
+blood_reference	GSE198276	GSE198276		blood	sra	324	181	324	324	324	324	324
+blood_reference	GSE232633	GSE232633		blood	sra	292	59	292	292	291	292	292
+blood_reference	SRP415459	SRP415459		blood	sra	260	11	246	259	258	254	249
+blood_reference	PRJNA857010	PMID:36366544.0	36366544.0	blood	sra	256	1	232	255	235	252	246
+blood_reference	GSE199750	PMID:36871558.0	36871558.0	blood	sra	254	86	200	253	248	236	194
+blood_reference	GSE120502	PMID:31358949	31358949	blood	sra	246	99	246	246	235	246	239
+blood_reference	SRP454813	SRP454813		blood	sra	230	11	230	230	230	230	229
+blood_reference	GSE206151	PMID:37460024.0	37460024.0	blood	sra	229	75	223	225	186	223	220
+blood_reference	GSE240656	GSE240656		blood	sra	196	196	191	195	178	195	178
+blood_reference	GSE152683	PMID:33690224	33690224	blood	sra	195	40	190	194	190	195	192
+blood_reference	PRJNA790985	PMID:36153599	36153599	blood	sra	190	1	155	180	181	190	188
+blood_reference	GSE150735	PMID:35196024	35196024	blood	sra	187	187	186	185	175	181	150
+blood_reference	PRJNA736882	PMID:35544595.0	35544595.0	blood	sra	179	1	173	173	136	173	162
+blood_reference	GSE109516	PMID:34083402	34083402	blood	sra	178	178	177	178	170	176	155
+blood_reference	GSE294364	GSE294364		blood	sra	176	18	176	176	176	176	176
+blood_reference	GSE124400	PMID:30830868	30830868	blood	sra	175	94	174	174	49	169	169
+blood_reference	PRJNA739210	PRJNA739210		blood	sra	169	1	169	169	169	169	169
+blood_reference	GSE178967	PMID:35132407	35132407	blood	sra	159	99	155	153	152	159	154
+blood_reference	GSE193141	PMID:37924441	37924441	blood	sra	157	157	156	157	157	157	157
+blood_reference	PRJEB31975	PMID:32760401	32760401	blood	sra	156	1	151	155	156	156	155
+blood_reference	GSE192756	GSE192756		blood	sra	150	13	150	150	150	150	150
+blood_reference	GSE254732	PMID:38583289.0	38583289.0	blood	sra	149	41	149	149	148	149	147
+blood_reference	PRJNA916731	PMID:38366049.0	38366049.0	blood	sra	149	1	118	143	86	133	110
+blood_reference	PRJNA1152569	PMID:39939590.0	39939590.0	blood	sra	147	1	147	147	147	147	147
+blood_reference	GSE169687	PMID:35027067	35027067	blood	sra	143	78	143	143	143	143	142
+blood_reference	GSE291257	GSE291257		blood	sra	136	127	0	0	136	95	84
+blood_reference	GSE169030	PMID:33849432	33849432	blood	sra	134	6	9	134	2	67	5
+blood_reference	GSE124284	PMID:30830871	30830871	blood	sra	131	131	130	130	45	128	128
+blood_reference	GSE168698	PMID:33849432	33849432	blood	sra	123	5	38	123	14	99	58
+blood_reference	GSE199403	GSE199403		blood	sra	118	112	118	118	116	118	118
+blood_reference	GSE295758	GSE295758		blood	sra	113	111	113	113	113	113	113
+blood_reference	GSE67039	PMID:26237430	26237430	blood	sra	109	109	23	61	106	106	98
+blood_reference	PRJNA913576	PMID:36690713	36690713	blood	sra	108	1	86	107	108	107	108
+blood_reference	GSE129882	PMID:32348760	32348760	blood	sra	108	64	107	105	103	108	81
+blood_reference	GSE164366	PMID:33720973	33720973	blood	sra	100	29	100	100	99	100	100
+blood_reference	GSE193978	PMID:37649224.0	37649224.0	blood	sra	99	54	99	95	36	99	98
+blood_reference	GSE221740	GSE221740		blood	sra	98	98	95	97	98	98	98
+blood_reference	GSE143507	PMID:32477412	32477412	blood	sra	97	97	92	97	72	95	76
+blood_reference	GSE190680	GSE190680		blood	sra	97	52	91	96	97	97	97
+blood_reference	SRP443088	SRP443088		blood	sra	96	96	96	96	96	96	96
+blood_reference	GSE168598	PMID:34867983	34867983	blood	sra	94	54	64	94	6	86	69
+blood_reference	GSE231660	GSE231660		blood	sra	94	94	55	78	94	94	94
+blood_reference	PRJNA545334	PMID:33210468	33210468	blood	sra	90	1	76	89	90	90	90
+blood_reference	GSE173897	GSE173897		blood	sra	90	90	88	90	78	89	76
+blood_reference	GSE176490	GSE176490		blood	sra	89	86	69	86	55	70	59
+blood_reference	GSE184039	GSE184039		blood	sra	86	45	85	86	86	86	86
+blood_reference	GSE131590	PMID:31708927	31708927	blood	sra	85	8	85	85	13	85	84
+blood_reference	PRJNA799114	PRJNA799114		blood	sra	85	1	85	85	13	85	85
+blood_reference	GSE207214	PMID:36373948.0	36373948.0	blood	sra	83	56	83	83	4	78	80
+blood_reference	GSE212096	GSE212096		blood	sra	80	80	80	80	80	80	78
+blood_reference	GSE274944	GSE274944		blood	sra	80	65	80	80	78	80	80
+blood_reference	GSE109515	PMID:33303696	33303696	blood	sra	80	80	80	80	80	80	72
+blood_reference	GSE135964	PMID:32123257	32123257	blood	sra	79	4	63	79	79	79	79
+blood_reference	GSE231347	GSE231347		blood	sra	78	20	78	77	78	78	78
+blood_reference	GSE115823	PMID:30962590	30962590	blood	sra	77	69	53	76	35	66	66
+blood_reference	GSE167000	PMID:33758879	33758879	blood	sra	77	77	77	77	76	76	76
+blood_reference	GSE296403	GSE296403		blood	sra	77	56	77	77	76	77	75
+blood_reference	GSE218048	GSE218048		blood	sra	77	77	77	77	76	76	73
+blood_reference	GSE98645	PMID:29489876	29489876	blood	sra	75	7	74	75	46	75	20
+blood_reference	GSE224849	GSE224849		blood	sra	74	69	74	74	74	74	74
+blood_reference	GSE151161	PMID:34075090	34075090	blood	sra	74	38	62	71	55	62	49
+blood_reference	GSE193979	PMID:35841871.0	35841871.0	blood	sra	74	44	74	71	28	74	73
+blood_reference	GSE120115	PMID:30886186	30886186	blood	sra	73	19	67	73	72	73	72
+blood_reference	PRJNA533086	PMID:32348760	32348760	blood	sra	73	1	73	64	61	73	16
+blood_reference	GSE253782	PMID:38375330	38375330	blood	sra	72	21	67	70	51	69	44
+blood_reference	GSE85531	PMID:28664195.0	28664195.0	blood	sra	72	72	72	72	19	70	70
+blood_reference	GSE271708	PMID:39435665	39435665	blood	sra	71	71	71	71	71	71	71
+blood_reference	GSE250023	GSE250023		blood	sra	70	18	70	70	70	70	70
+blood_reference	GSE167124	PMID:33787858	33787858	blood	sra	70	70	70	70	70	70	70
+blood_reference	GSE274086	GSE274086		blood	sra	69	68	29	46	63	68	66
+blood_reference	PRJNA702017	PRJNA702017		blood	sra	68	1	68	68	68	68	68
+blood_reference	SRP348207	SRP348207		blood	sra	68	63	67	68	68	68	68
+blood_reference	GSE172114	PMID:34698500	34698500	blood	sra	68	68	65	68	66	66	66
+blood_reference	GSE278476	GSE278476		blood	sra	68	57	45	68	37	67	25
+blood_reference	GSE250426	PMID:39360678	39360678	blood	sra	67	36	53	65	56	60	49
+blood_reference	GSE211368	GSE211368		blood	sra	66	61	31	66	0	64	46
+blood_reference	SRP301622	SRP301622		blood	sra	65	12	64	64	65	65	65
+blood_reference	GSE184653	GSE184653		blood	sra	65	65	64	65	63	65	63
+blood_reference	GSE178240	GSE178240		blood	sra	65	64	65	65	61	65	65
+blood_reference	PRJNA916957	PRJNA916957		blood	sra	65	1	54	65	65	64	63
+blood_reference	GSE196350	GSE196350		blood	sra	64	64	64	64	64	64	64
+blood_reference	GSE116619	GSE116619		blood	sra	64	61	64	64	64	64	64
+blood_reference	GSE165149	PMID:33723462	33723462	blood	sra	63	21	63	63	63	63	63
+blood_reference	GSE212861	GSE212861		blood	sra	62	51	17	26	54	61	61
+blood_reference	GSE158592	GSE158592		blood	sra	62	62	62	62	62	62	62
+blood_reference	GSE134637	GSE134637		blood	sra	62	62	62	62	61	62	57
+blood_reference	SRP510395	SRP510395		blood	sra	61	9	61	61	61	61	61
+blood_reference	SRP414904	SRP414904		blood	sra	61	1	54	57	61	61	56
+blood_reference	GSE86884	PMID:25946140	25946140	blood	sra	60	31	44	49	48	55	36
+blood_reference	SRP312015	SRP312015		blood	sra	59	2	58	59	56	58	56
+blood_reference	PRJNA819939	PRJNA819939		blood	sra	58	1	57	58	56	58	57
+blood_reference	GSE244654	GSE244654		blood	sra	58	58	57	57	58	58	58
+blood_reference	SRP372602	SRP372602		blood	sra	57	9	57	57	57	57	57
+blood_reference	GSE114588	PMID:32178738	32178738	blood	sra	56	35	52	54	56	56	56
+blood_reference	GSE110041	PMID:31890206	31890206	blood	sra	56	7	56	56	56	56	48
+blood_reference	GSE113883	PMID:30201705	30201705	blood	sra	55	11	31	40	26	50	36
+blood_reference	SRP453362	SRP453362		blood	sra	55	2	54	55	55	55	54
+blood_reference	PRJNA802194	PRJNA802194		blood	sra	55	1	36	50	50	52	46
+blood_reference	GSE133298	PMID:33689671	33689671	blood	sra	54	27	54	54	54	54	53
+blood_reference	PRJNA1163403	PMID:39844875.0	39844875.0	blood	sra	54	1	51	53	54	52	49
+blood_reference	SRP530875	SRP530875		blood	sra	53	11	53	53	53	53	53
+blood_reference	GSE167923	PMID:33400293	33400293	blood	sra	53	53	53	53	52	53	53
+blood_reference	GSE115449	PMID:30270043	30270043	blood	sra	53	53	37	53	1	53	53
+blood_reference	GSE226825	PMID:37875944.0	37875944.0	blood	sra	52	52	2	18	38	3	50
+blood_reference	GSE207751	GSE207751		blood	sra	52	52	51	52	31	52	42
+blood_reference	GSE128224	GSE128224		blood	sra	52	26	52	52	52	52	52
+blood_reference	GSE213144	GSE213144		blood	sra	51	50	50	48	49	50	40
+blood_reference	PRJNA692257	PMID:34031375	34031375	blood	sra	51	1	51	51	45	50	43
+blood_reference	PRJEB23131	PRJEB23131		blood	sra	51	1	29	48	38	51	38
+blood_reference	GSE263013	PMID:38641753.0	38641753.0	blood	sra	51	51	49	51	49	49	39
+blood_reference	GSE205244	GSE205244		blood	sra	50	50	49	49	50	50	50
+blood_reference	PRJNA390289	PMID:30150281	30150281	blood	sra	50	1	50	34	41	50	11
+blood_reference	PRJNA819096	PRJNA819096		blood	sra	49	1	48	49	48	49	48
+blood_reference	SRP336742	SRP336742		blood	sra	49	49	7	12	49	36	24
+blood_reference	GSE208132	GSE208132		blood	sra	48	48	48	48	47	48	47
+blood_reference	SRP358351	SRP358351		blood	sra	48	24	46	48	48	48	48
+blood_reference	GSE134080	PMID:32532224	32532224	blood	sra	48	48	48	48	34	48	48
+blood_reference	GSE58122	PMID:26648521	26648521	blood	sra	48	1	48	48	47	48	40
+blood_reference	GSE201642	PMID:36172132	36172132	blood	sra	48	15	48	48	25	20	21
+blood_reference	GSE45735	PMID:23900141	23900141	blood	sra	48	5	14	47	6	46	32
+blood_reference	GSE221066	GSE221066		blood	sra	47	46	28	26	47	47	44
+blood_reference	PRJNA721896	PRJNA721896		blood	sra	47	1	47	47	47	47	47
+blood_reference	GSE216328	GSE216328		blood	sra	47	47	47	47	47	47	47
+blood_reference	GSE173697	GSE173697		blood	sra	47	47	46	46	43	44	44
+blood_reference	GSE287275	GSE287275		blood	sra	47	47	46	47	47	47	47
+blood_reference	GSE184722	GSE184722		blood	sra	47	47	1	46	45	45	43
+blood_reference	PRJEB33892	PMID:29950443	29950443	blood	sra	46	1	8	6	46	46	42
+blood_reference	GSE214763	PMID:36325355	36325355	blood	sra	46	46	28	46	46	41	38
+blood_reference	GSE127530	PMID:31473510	31473510	blood	sra	45	5	45	45	45	45	45
+blood_reference	PRJNA1228642	PRJNA1228642		blood	sra	45	1	43	45	45	45	45
+blood_reference	GSE181932	PMID:34533134	34533134	blood	sra	45	24	45	45	45	45	45
+blood_reference	GSE86308	PMID:29079696	29079696	blood	sra	44	22	44	44	44	44	44
+blood_reference	PRJNA1071588	PMID:38583289.0	38583289.0	blood	sra	43	1	42	43	41	41	39
+blood_reference	GSE194331	GSE194331		blood	sra	43	43	37	37	33	42	21
+blood_reference	PRJNA925435	PMID:39104114	39104114	blood	sra	43	1	42	43	34	43	43
+blood_reference	GSE141646	PMID:28835680	28835680	blood	sra	43	22	37	40	40	43	39
+blood_reference	GSE146658	GSE146658		blood	sra	43	39	43	43	31	43	16
+blood_reference	GSE87186	GSE87186		blood	sra	43	14	43	43	35	43	43
+blood_reference	GSE162746	PMID:33510868	33510868	blood	sra	42	8	42	42	9	42	42
+blood_reference	PRJNA717024	PRJNA717024		blood	sra	41	1	41	41	41	41	41
+blood_reference	PRJNA742759	PRJNA742759		blood	sra	41	1	41	41	41	41	41
+blood_reference	GSE189039	GSE189039		blood	sra	40	40	38	40	40	40	39
+blood_reference	GSE120596	PMID:30929268	30929268	blood	sra	39	26	30	39	39	39	37
+blood_reference	GSE182522	PMID:34977060	34977060	blood	sra	39	36	36	39	39	39	39
+blood_reference	GSE271586	GSE271586		blood	sra	39	39	35	39	39	39	39
+blood_reference	GSE110487	PMID:30463588	30463588	blood	sra	38	26	31	33	14	37	34
+blood_reference	SRP125882	SRP125882		blood	sra	38	1	38	38	38	38	38
+blood_reference	GSE164877	PMID:34031375	34031375	blood	sra	38	38	37	37	36	38	35
+blood_reference	GSE144358	PMID:32234474	32234474	blood	sra	37	37	29	37	37	37	37
+blood_reference	SRP490696	SRP490696		blood	sra	37	8	23	23	36	37	36
+blood_reference	GSE62190	PMID:26237430	26237430	blood	sra	37	37	12	23	37	37	34
+blood_reference	GSE94892	PMID:28683259	28683259	blood	sra	37	37	32	35	37	37	37
+blood_reference	GSE120913	PMID:31600201	31600201	blood	sra	36	36	36	36	36	36	36
+blood_reference	GSE98212	PMID:28498840	28498840	blood	sra	36	20	31	32	25	35	14
+blood_reference	GSE155918	PMID:33771921	33771921	blood	sra	36	6	33	36	36	36	35
+blood_reference	GSE174566	PMID:34128839	34128839	blood	sra	36	36	36	36	36	36	34
+blood_reference	GSE206023	GSE206023		blood	sra	36	36	35	35	36	36	35
+blood_reference	PRJNA921862	PRJNA921862		blood	sra	36	1	22	29	36	36	34
+blood_reference	GSE202177	GSE202177		blood	sra	35	35	35	35	35	35	35
+blood_reference	GSE112057	PMID:29950172	29950172	blood	sra	35	35	33	33	31	31	31
+blood_reference	PRJNA870919	PMID:38110534.0	38110534.0	blood	sra	35	1	9	30	10	35	30
+blood_reference	GSE254647	GSE254647		blood	sra	35	1	35	35	35	35	35
+blood_reference	GSE236651	GSE236651		blood	sra	35	34	33	35	35	35	35
+blood_reference	GSE262619	GSE262619		blood	sra	35	35	35	33	35	35	35
+blood_reference	GSE176230	PMID:35045871	35045871	blood	sra	34	17	34	34	34	34	34
+blood_reference	SRP453103	SRP453103		blood	sra	34	4	21	25	33	34	34
+blood_reference	SRP306515	SRP306515		blood	sra	34	6	34	34	26	31	13
+blood_reference	GSE192757	GSE192757		blood	sra	34	33	33	34	33	34	34
+blood_reference	PRJNA449520	PMID:31167967	31167967	blood	sra	33	20	31	33	18	33	32
+blood_reference	PRJNA828265	PRJNA828265		blood	sra	33	1	5	18	31	26	19
+blood_reference	SRP324681	SRP324681		blood	sra	32	10	29	31	32	32	32
+blood_reference	GSE102677	PMID:30753544	30753544	blood	sra	32	11	27	32	4	32	26
+blood_reference	GSE230214	GSE230214		blood	sra	32	32	31	32	32	32	32
+blood_reference	GSE246525	GSE246525		blood	sra	32	26	32	32	32	32	32
+blood_reference	PRJNA918688	PRJNA918688		blood	sra	32	1	28	31	32	32	32
+blood_reference	GSE151159	PMID:33354656	33354656	blood	sra	32	16	23	30	30	30	9
+blood_reference	GSE224615	GSE224615		blood	sra	32	1	32	32	32	32	32
+blood_reference	GSE169359	PMID:33941086	33941086	blood	sra	32	32	31	30	5	31	22
+blood_reference	GSE252508	GSE252508		blood	sra	31	1	31	28	31	31	31
+blood_reference	SRP518251	SRP518251		blood	sra	31	31	3	20	30	27	26
+blood_reference	SRP263166	SRP263166		blood	sra	31	4	31	31	31	31	31
+blood_reference	GSE68549	GSE68549		blood	sra	31	31	31	31	29	31	31
+blood_reference	PRJNA807370	PMID:37438430	37438430	blood	sra	31	1	23	26	31	31	31
+blood_reference	PRJNA816146	PRJNA816146		blood	sra	30	1	21	27	29	30	29
+blood_reference	GSE139912	PMID:32487996	32487996	blood	sra	30	21	29	30	30	30	29
+blood_reference	SRP590915	SRP590915		blood	sra	30	30	28	30	30	30	30
+blood_reference	PRJEB25761	PMID:29618666	29618666	blood	sra	30	1	0	25	25	30	29
+blood_reference	SRP362270	SRP362270		blood	sra	30	2	30	30	30	30	30
+blood_reference	PRJNA929287	PRJNA929287		blood	sra	29	1	23	29	26	29	27
+blood_reference	GSE227585	GSE227585		blood	sra	29	22	27	29	29	29	29
+blood_reference	GSE212645	GSE212645		blood	sra	29	29	29	29	29	29	29
+blood_reference	GSE113964	PMID:30696862	30696862	blood	sra	29	29	26	29	14	27	17
+blood_reference	GSE229014	GSE229014		blood	sra	29	29	27	28	29	29	29
+blood_reference	PRJNA526259	PMID:30897114	30897114	blood	sra	29	1	0	29	5	8	2
+blood_reference	GSE163605	PMID:34484204.0	34484204.0	blood	sra	29	29	27	29	28	29	24
+blood_reference	PRJNA798602	PRJNA798602		blood	sra	28	1	28	28	27	28	27
+blood_reference	PRJNA706114	PRJNA706114		blood	sra	28	1	28	28	25	28	28
+blood_reference	SRP250072	SRP250072		blood	sra	28	8	18	26	28	28	28
+blood_reference	GSE253498	GSE253498		blood	sra	28	28	28	28	28	28	28
+blood_reference	PRJEB27958	PRJEB27958		blood	sra	28	1	25	28	28	28	28
+blood_reference	SRP572837	SRP572837		blood	sra	27	6	26	27	27	27	27
+blood_reference	GSE168400	PMID:35060899	35060899	blood	sra	27	27	0	0	27	5	18
+blood_reference	SRP461591	SRP461591		blood	sra	27	1	27	27	27	27	27
+blood_reference	GSE219154	GSE219154		blood	sra	27	27	27	27	27	27	27
+blood_reference	PRJNA887046	PMID:36325355	36325355	blood	sra	27	1	26	27	27	25	26
+blood_reference	PRJNA705602	PMID:34586734	34586734	blood	sra	27	1	26	26	25	25	25
+blood_reference	GSE152421	GSE152421		blood	sra	27	27	27	27	27	27	25
+blood_reference	SRP465252	SRP465252		blood	sra	27	4	27	27	26	27	26
+blood_reference	GSE215456	GSE215456		blood	sra	27	27	27	27	27	27	27
+blood_reference	GSE211626	GSE211626		blood	sra	27	27	27	27	27	27	27
+blood_reference	PRJNA973064	PRJNA973064		blood	sra	27	1	25	27	24	27	27
+blood_reference	GSE174621	GSE174621		blood	sra	26	26	24	26	26	26	25
+blood_reference	PRJNA821976	PRJNA821976		blood	sra	26	1	26	26	2	26	26
+blood_reference	GSE202947	GSE202947		blood	sra	26	26	26	26	26	26	26
+blood_reference	SRP446957	SRP446957		blood	sra	26	2	25	26	26	26	26
+blood_reference	GSE213119	GSE213119		blood	sra	26	26	10	16	26	26	26
+blood_reference	SRP561865	SRP561865		blood	sra	26	1	25	26	26	26	26
+blood_reference	PRJNA916211	PRJNA916211		blood	sra	26	1	16	23	25	25	15
+blood_reference	SRP094502	SRP094502		blood	sra	26	26	22	24	24	26	22
+blood_reference	PRJNA299618	PRJNA299618		blood	sra	26	1	26	26	7	25	22
+blood_reference	GSE124676	PMID:32047471	32047471	blood	sra	25	19	21	25	23	23	23
+blood_reference	GSE142514	PMID:33876749	33876749	blood	sra	25	25	14	20	24	25	24
+blood_reference	GSE273149	GSE273149		blood	sra	25	25	6	20	23	23	23
+blood_reference	PRJNA800337	PRJNA800337		blood	sra	25	1	23	22	21	24	16
+blood_reference	SRP503794	SRP503794		blood	sra	25	25	15	25	0	25	25
+blood_reference	SRP519537	SRP519537		blood	sra	25	1	8	18	25	24	24
+blood_reference	SRP565677	SRP565677		blood	sra	24	24	22	23	24	24	24
+blood_reference	GSE225138	PMID:36964168	36964168	blood	sra	24	24	11	14	24	24	23
+blood_reference	GSE181750	GSE181750		blood	sra	24	24	22	22	24	24	23
+blood_reference	GSE161031	GSE161031		blood	sra	24	3	22	24	24	24	22
+blood_reference	SRP303034	SRP303034		blood	sra	24	24	24	24	22	24	21
+blood_reference	SRP353971	SRP353971		blood	sra	24	3	24	24	24	24	24
+blood_reference	GSE262073	GSE262073		blood	sra	24	24	24	24	24	24	24
+blood_reference	GSE232127	GSE232127		blood	sra	24	24	24	24	24	24	24
+blood_reference	GSE270376	PMID:39335143	39335143	blood	sra	24	24	24	24	24	24	24
+blood_reference	GSE201397	GSE201397		blood	sra	24	23	24	24	24	24	24
+blood_reference	GSE174552	GSE174552		blood	sra	24	24	16	20	24	24	22
+blood_reference	GSE164208	PMID:33509158	33509158	blood	sra	24	24	24	24	24	24	24
+blood_reference	PRJNA682434	PRJNA682434		blood	sra	23	1	20	23	22	23	23
+blood_reference	SRP371279	SRP371279		blood	sra	23	6	23	23	23	23	23
+blood_reference	SRP549239	SRP549239		blood	sra	23	2	20	23	23	23	23
+blood_reference	PRJNA354367	PMID:28148290	28148290	blood	sra	23	1	19	23	21	23	19
+blood_reference	PRJNA925652	PRJNA925652		blood	sra	23	1	23	23	23	23	23
+blood_reference	PRJNA459561	PMID:31468702	31468702	blood	sra	23	1	22	23	22	23	22
+blood_reference	GSE141147	GSE141147		blood	sra	23	19	13	18	23	23	23
+blood_reference	SRP417761	SRP417761		blood	sra	23	2	7	16	23	23	23
+blood_reference	PRJNA494155	PMID:32064895	32064895	blood	sra	23	1	23	23	23	23	23
+blood_reference	PRJNA713341	PRJNA713341		blood	sra	23	1	23	23	23	23	23
+blood_reference	SRP396420	SRP396420		blood	sra	22	3	22	22	21	21	21
+blood_reference	SRP419916	SRP419916		blood	sra	22	1	5	16	22	22	21
+blood_reference	PRJNA659032	PRJNA659032		blood	sra	22	1	9	11	22	22	21
+blood_reference	SRP418364	SRP418364		blood	sra	22	4	22	22	22	22	22
+blood_reference	PRJNA771014	PMID:35013133	35013133	blood	sra	22	1	22	22	22	22	22
+blood_reference	PRJEB28597	PRJEB28597		blood	sra	22	1	22	22	17	22	22
+blood_reference	SRP294275	SRP294275		blood	sra	22	14	21	22	22	22	22
+blood_reference	GSE157859	PMID:33361761	33361761	blood	sra	22	14	22	22	22	22	22
+blood_reference	SRP276081	SRP276081		blood	sra	22	1	22	22	22	22	22
+blood_reference	GSE142351	PMID:33511305	33511305	blood	sra	22	9	22	22	2	22	22
+blood_reference	GSE46665	PMID:24205042	24205042	blood	sra	21	9	17	20	17	21	20
+blood_reference	SRP419922	SRP419922		blood	sra	21	1	9	15	21	21	21
+blood_reference	GSE102574	GSE102574		blood	sra	21	21	20	19	3	21	19
+blood_reference	GSE100206	GSE100206		blood	sra	21	21	3	17	17	21	16
+blood_reference	GSE278382	GSE278382		blood	sra	20	20	20	20	20	20	20
+blood_reference	PRJNA756565	PMID:34977060	34977060	blood	sra	20	1	14	16	20	20	20
+blood_reference	GSE166761	PMID:34427831	34427831	blood	sra	20	6	16	19	20	20	20
+blood_reference	GSE250453	PMID:38338652	38338652	blood	sra	20	5	18	20	20	19	18
+blood_reference	SRP534211	SRP534211		blood	sra	20	2	20	20	20	20	20
+blood_reference	PRJNA1051786	PRJNA1051786		blood	sra	20	1	20	20	20	20	20
+blood_reference	GSE165080	GSE165080		blood	sra	20	20	20	20	20	20	20
+blood_reference	GSE267625	GSE267625		blood	sra	20	20	20	20	20	20	20
+blood_reference	GSE181646	GSE181646		blood	sra	20	20	20	20	20	20	20
+blood_reference	GSE277709	PMID:39844875.0	39844875.0	blood	sra	20	20	20	20	20	20	20
+blood_reference	SRP371907	SRP371907		blood	sra	20	13	20	20	20	20	20
+blood_reference	GSE191088	GSE191088		blood	sra	20	20	9	18	20	20	20
+blood_reference	PRJNA701556	PMID:33995378	33995378	blood	sra	20	1	19	20	20	20	20
+blood_reference	GSE206762	GSE206762		blood	sra	20	20	20	20	20	20	20
+blood_reference	PRJNA603772	PMID:33037226	33037226	blood	sra	20	1	0	2	20	20	19
+blood_reference	PRJNA928082	PRJNA928082		blood	sra	20	1	20	20	20	20	20
+blood_reference	SRP168964	SRP168964		blood	sra	20	2	20	20	20	20	20
+blood_reference	GSE79027	PMID:27694195	27694195	blood	sra	20	3	19	19	20	20	20
+blood_reference	PRJNA1148313	PRJNA1148313		blood	sra	20	1	20	20	5	20	20
+blood_reference	SRP150654	SRP150654		blood	sra	19	17	16	18	19	19	18
+blood_reference	SRP307688	SRP307688		blood	sra	19	19	18	19	19	19	19
+blood_reference	GSE224046	GSE224046		blood	sra	19	1	19	10	19	19	16
+blood_reference	GSE189136	PMID:35002734.0	35002734.0	blood	sra	19	19	19	19	19	19	19
+blood_reference	GSE234008	GSE234008		blood	sra	19	19	18	18	19	19	15
+blood_reference	PRJNA761345	PRJNA761345		blood	sra	19	1	19	19	8	19	19
+blood_reference	GSE215999	GSE215999		blood	sra	18	7	14	17	16	17	13
+blood_reference	PRJNA743095	PMID:35777820	35777820	blood	sra	18	1	15	18	15	13	12
+blood_reference	GSE297198	GSE297198		blood	sra	18	18	16	18	18	18	18
+blood_reference	GSE126091	PMID:30279092	30279092	blood	sra	18	5	18	18	18	18	17
+blood_reference	GSE211599	GSE211599		blood	sra	18	18	18	18	18	18	18
+blood_reference	PRJNA638653	PMID:33482742	33482742	blood	sra	18	1	18	18	18	18	18
+blood_reference	PRJNA929482	PRJNA929482		blood	sra	18	1	14	3	18	18	15
+blood_reference	SRP431303	SRP431303		blood	sra	18	11	8	11	18	18	17
+blood_reference	GSE260981	GSE260981		blood	sra	18	12	7	17	9	17	10
+blood_reference	GSE180014	GSE180014		blood	sra	18	18	15	16	18	18	18
+blood_reference	GSE115525	GSE115525		blood	sra	18	18	0	1	18	18	13
+blood_reference	GSE245018	GSE245018		blood	sra	18	18	17	17	18	18	17
+blood_reference	GSE149947	GSE149947		blood	sra	18	18	10	16	4	18	18
+blood_reference	GSE222393	GSE222393		blood	sra	17	17	12	14	17	17	17
+blood_reference	GSE150587	PMID:33308163	33308163	blood	sra	17	12	17	17	16	17	17
+blood_reference	PRJNA821871	PRJNA821871		blood	sra	17	1	7	13	17	17	17
+blood_reference	GSE53655	PMID:24608128	24608128	blood	sra	17	10	17	17	17	17	17
+blood_reference	PRJNA702558	PMID:33758879	33758879	blood	sra	17	1	17	17	16	16	16
+blood_reference	GSE108665	GSE108665		blood	sra	17	1	15	16	16	17	16
+blood_reference	GSE77929	GSE77929		blood	sra	17	7	16	16	17	16	15
+blood_reference	GSE218664	GSE218664		blood	sra	17	17	7	15	14	16	15
+blood_reference	SRP453015	SRP453015		blood	sra	17	11	11	17	17	17	17
+blood_reference	PRJNA305001	PMID:28611780	28611780	blood	sra	17	1	2	14	17	15	17
+blood_reference	PRJNA803431	PRJNA803431		blood	sra	16	1	16	16	3	16	16
+blood_reference	GSE159094	GSE159094		blood	sra	16	4	5	16	8	16	13
+blood_reference	E-MTAB-6845	PMID:30919880	30919880	blood	sra	16	16	8	14	3	12	3
+blood_reference	GSE234607	GSE234607		blood	sra	16	16	16	16	16	16	16
+blood_reference	GSE112594	PMID:29925930	29925930	blood	sra	16	13	16	16	4	15	15
+blood_reference	GSE179621	PMID:33273683	33273683	blood	sra	16	10	6	16	3	8	4
+blood_reference	GSE261699	GSE261699		blood	sra	16	13	5	16	0	6	1
+blood_reference	GSE298552	GSE298552		blood	sra	16	6	11	14	16	16	16
+blood_reference	GSE112104	PMID:32090859	32090859	blood	sra	16	16	14	15	12	16	16
+blood_reference	SRP548353	SRP548353		blood	sra	16	16	16	16	16	16	16
+blood_reference	PRJNA741686	PMID:35132407	35132407	blood	sra	16	1	13	14	13	16	15
+blood_reference	GSE189263	GSE189263		blood	sra	15	15	12	15	15	15	14
+blood_reference	SRP344572	SRP344572		blood	sra	15	15	15	15	15	15	15
+blood_reference	PRJNA648957	PMID:33329547	33329547	blood	sra	15	1	6	15	4	15	2
+blood_reference	GSE233157	GSE233157		blood	sra	15	15	0	0	15	11	7
+blood_reference	GSE172022	GSE172022		blood	sra	15	15	3	8	15	15	13
+blood_reference	GSE74235	GSE74235		blood	sra	15	3	15	15	15	15	15
+blood_reference	GSE156124	PMID:33273683	33273683	blood	sra	15	4	4	15	6	12	5
+blood_reference	SRP439527	SRP439527		blood	sra	15	13	15	15	15	15	15
+blood_reference	GSE172450	GSE172450		blood	sra	15	6	10	15	5	15	13
+blood_reference	GSE277984	GSE277984		blood	sra	15	15	15	15	15	15	15
+blood_reference	PRJNA542253	PMID:31249421	31249421	blood	sra	15	1	15	15	15	15	15
+blood_reference	SRP132160	SRP132160		blood	sra	15	6	15	15	15	15	15
+blood_reference	GSE177025	PMID:35060899	35060899	blood	sra	14	14	0	0	14	8	9
+blood_reference	GSE125512	PMID:31120332	31120332	blood	sra	14	10	14	14	2	14	12
+blood_reference	GSE92772	PMID:29358694	29358694	blood	sra	14	14	12	12	13	14	13
+blood_reference	GSE152179	PMID:32733475	32733475	blood	sra	14	2	12	14	13	14	12
+blood_reference	PRJNA494963	PMID:31600201	31600201	blood	sra	14	1	14	14	14	14	14
+blood_reference	SRP393928	SRP393928		blood	sra	14	4	14	14	14	14	14
+blood_reference	GSE254592	GSE254592		blood	sra	14	12	14	14	14	14	14
+blood_reference	PRJNA812012	PRJNA812012		blood	sra	14	1	11	14	2	14	12
+blood_reference	GSE100207	GSE100207		blood	sra	14	14	2	5	13	14	8
+blood_reference	GSE153100	PMID:33941086	33941086	blood	sra	14	14	14	14	14	14	13
+blood_reference	GSE120396	PMID:31278196	31278196	blood	sra	14	14	14	14	2	13	11
+blood_reference	GSE221766	GSE221766		blood	sra	14	14	12	13	14	14	13
+blood_reference	PRJNA1030915	PRJNA1030915		blood	sra	14	1	14	14	5	14	14
+blood_reference	PRJEB29090	PMID:31836668	31836668	blood	sra	14	1	12	14	13	13	13
+blood_reference	GSE218276	GSE218276		blood	sra	14	14	13	14	13	14	13
+blood_reference	GSE164890	GSE164890		blood	sra	14	7	14	14	14	14	14
+blood_reference	PRJNA717805	PRJNA717805		blood	sra	14	1	14	14	2	14	14
+blood_reference	GSE216902	GSE216902		blood	sra	14	14	9	11	14	14	14
+blood_reference	SRP301841	SRP301841		blood	sra	13	3	12	13	13	13	13
+blood_reference	GSE221921	PMID:38366049.0	38366049.0	blood	sra	13	13	13	13	12	13	13
+blood_reference	SRP433634	SRP433634		blood	sra	13	13	12	12	13	13	12
+blood_reference	SRP616382	SRP616382		blood	sra	13	13	13	13	13	13	13
+blood_reference	SRP194087	SRP194087		blood	sra	13	1	0	0	13	12	5
+blood_reference	GSE163073	PMID:34384544	34384544	blood	sra	13	13	4	12	12	12	12
+blood_reference	GSE167930	PMID:34586734	34586734	blood	sra	13	13	12	12	13	13	13
+blood_reference	GSE162894	PMID:33593877	33593877	blood	sra	13	13	4	9	9	9	9
+blood_reference	GSE249787	GSE249787		blood	sra	13	13	0	2	13	13	13
+blood_reference	SRP297826	SRP297826		blood	sra	13	1	13	13	12	13	10
+blood_reference	PRJNA914756	PRJNA914756		blood	sra	13	1	10	13	0	13	12
+blood_reference	SRP533761	SRP533761		blood	sra	13	7	13	13	13	13	13
+blood_reference	GSE165024	GSE165024		blood	sra	13	13	11	13	13	13	13
+blood_reference	PRJNA280078	PMID:26391122	26391122	blood	sra	13	1	13	13	13	13	13
+blood_reference	SRP073347	SRP073347		blood	sra	13	13	13	13	13	13	13
+blood_reference	GSE230161	GSE230161		blood	sra	13	13	5	13	0	11	10
+blood_reference	SRP472472	SRP472472		blood	sra	13	2	13	13	13	13	13
+blood_reference	GSE235048	PMID:37638022	37638022	blood	sra	12	8	11	12	12	12	12
+blood_reference	GSE179302	PMID:35777820	35777820	blood	sra	12	12	3	9	9	6	6
+blood_reference	SRP356108	SRP356108		blood	sra	12	4	11	11	12	12	12
+blood_reference	SRP311811	SRP311811		blood	sra	12	12	12	12	12	12	12
+blood_reference	SRP282392	SRP282392		blood	sra	12	1	10	12	11	11	11
+blood_reference	SRP291636	SRP291636		blood	sra	12	8	12	12	12	12	12
+blood_reference	GSE155198	PMID:33329547	33329547	blood	sra	12	5	11	11	6	12	5
+blood_reference	GSE99719	GSE99719		blood	sra	12	12	12	12	12	12	12
+blood_reference	PRJNA741605	PRJNA741605		blood	sra	12	1	12	12	12	12	12
+blood_reference	PRJNA353622	PRJNA353622		blood	sra	12	1	12	12	12	12	12
+blood_reference	GSE80183	PMID:27835693	27835693	blood	sra	12	12	12	12	12	12	12
+blood_reference	GSE207750	PMID:36366544.0	36366544.0	blood	sra	12	12	12	12	11	12	12
+blood_reference	PRJNA702820	PMID:34427831	34427831	blood	sra	12	1	10	12	11	12	12
+blood_reference	GSE285174	GSE285174		blood	sra	12	6	12	12	12	12	12
+blood_reference	GSE207625	GSE207625		blood	sra	12	12	11	12	12	12	12
+blood_reference	GSE103305	PMID:29069456	29069456	blood	sra	12	6	11	11	2	11	11
+blood_reference	GSE274134	PMID:39273470	39273470	blood	sra	12	6	12	12	12	12	12
+blood_reference	PRJNA861297	PMID:37018379	37018379	blood	sra	12	1	9	12	11	12	12
+blood_reference	E-MTAB-6141	E-MTAB-6141		blood	sra	12	12	12	12	6	12	12
+blood_reference	SRP221374	SRP221374		blood	sra	11	2	2	5	11	11	11
+blood_reference	PRJNA662985	PMID:33361761	33361761	blood	sra	11	1	9	11	11	11	10
+blood_reference	PRJNA870045	PRJNA870045		blood	sra	11	1	11	11	5	11	11
+blood_reference	PRJNA644109	PMID:32780768	32780768	blood	sra	11	1	6	9	11	11	8
+blood_reference	SRP186088	SRP186088		blood	sra	11	8	5	10	7	11	6
+blood_reference	PRJEB23048	PMID:32210480	32210480	blood	sra	11	1	11	11	11	11	11
+blood_reference	GSE110325	PMID:29610140	29610140	blood	sra	11	11	11	11	1	11	11
+blood_reference	PRJNA641554	PMID:32758644	32758644	blood	sra	11	1	8	11	2	1	0
+blood_reference	PRJNA730527	PRJNA730527		blood	sra	11	1	11	11	11	11	11
+blood_reference	GSE241467	GSE241467		blood	sra	11	11	8	10	11	11	11
+blood_reference	GSE200462	GSE200462		blood	sra	11	11	11	11	11	11	11
+blood_reference	PRJEB38307	PRJEB38307		blood	sra	11	1	5	11	0	7	2
+blood_reference	GSE158208	PMID:33746987	33746987	blood	sra	11	11	10	11	11	11	11
+blood_reference	SRP438715	SRP438715		blood	sra	11	1	11	11	9	11	8
+blood_reference	SRP339377	SRP339377		blood	sra	11	11	0	6	11	11	11
+blood_reference	GSE185027	GSE185027		blood	sra	11	11	11	11	11	11	11
+blood_reference	SRP408540	SRP408540		blood	sra	11	2	11	11	11	11	11
+blood_reference	GSE226238	GSE226238		blood	sra	11	11	11	11	7	11	7
+blood_reference	GSE58335	PMID:25385641	25385641	blood	sra	11	4	11	11	4	11	11
+blood_reference	PRJNA792450	PRJNA792450		blood	sra	11	1	2	8	7	7	7
+blood_reference	PRJNA792807	PRJNA792807		blood	sra	10	1	7	7	10	10	10
+blood_reference	SRP542912	SRP542912		blood	sra	10	10	10	10	10	10	10
+blood_reference	GSE133499	PMID:32204435	32204435	blood	sra	10	10	4	7	7	8	6
+blood_reference	GSE229778	GSE229778		blood	sra	10	10	10	10	10	10	10
+blood_reference	GSE148402	PMID:33504832	33504832	blood	sra	10	10	10	10	10	10	9
+blood_reference	GSE239678	GSE239678		blood	sra	10	10	9	10	9	9	9
+blood_reference	GSE137338	PMID:31841569	31841569	blood	sra	10	8	10	10	1	10	10
+blood_reference	SRP383277	SRP383277		blood	sra	10	2	10	10	10	10	10
+blood_reference	GSE131526	PMID:31671072	31671072	blood	sra	10	5	10	10	2	10	10
+blood_reference	PRJNA1017417	PMID:39160575	39160575	blood	sra	10	1	7	8	10	10	10
+blood_reference	GSE157240	PMID:34777354	34777354	blood	sra	10	10	4	4	9	9	9
+blood_reference	PRJNA756296	PRJNA756296		blood	sra	10	1	10	10	8	10	10
+blood_reference	PRJEB27965	PMID:31200750	31200750	blood	sra	10	1	8	10	9	10	10
+blood_reference	GSE66228	PMID:25787252.0	25787252.0	blood	sra	10	10	0	0	10	3	6
+blood_reference	GSE122309	PMID:30513106	30513106	blood	sra	10	10	8	7	10	10	10
+blood_reference	GSE185855	PMID:35013133	35013133	blood	sra	10	8	10	10	10	10	10
+blood_reference	GSE154703	PMID:33876188	33876188	blood	sra	10	7	10	10	9	9	9
+blood_reference	GSE110744	PMID:32526260	32526260	blood	sra	10	10	10	10	10	10	10
+blood_reference	PRJNA335562	PRJNA335562		blood	sra	10	1	10	10	10	10	10
+blood_reference	GSE132396	PMID:35839448	35839448	blood	sra	10	5	4	6	8	9	7
+blood_reference	GSE152341	PMID:32722616	32722616	blood	sra	10	10	10	10	0	6	6
+blood_reference	GSE110989	PMID:31452782	31452782	blood	sra	10	10	10	10	10	10	10
+blood_reference	SRP446517	SRP446517		blood	sra	10	10	10	10	8	7	8
+blood_reference	PRJNA938007	PRJNA938007		blood	sra	10	10	10	10	10	10	10
+blood_reference	GSE271520	GSE271520		blood	sra	10	10	10	10	10	10	10
+blood_reference	GSE308058	GSE308058		blood	sra	10	10	10	10	10	10	10
+blood_reference	PRJNA748034	PMID:34609968	34609968	blood	sra	10	1	8	10	10	10	10
+blood_reference	GSE201085	GSE201085		blood	sra	10	10	8	10	9	9	8
+blood_reference	SRP431345	SRP431345		blood	sra	9	9	9	9	9	9	9
+blood_reference	PRJNA759244	PMID:34765642	34765642	blood	sra	9	1	9	9	9	9	9
+blood_reference	GSE107572	GSE107572		blood	sra	9	9	6	9	0	9	8
+blood_reference	GSE144476	PMID:33037226	33037226	blood	sra	9	9	4	5	9	9	9
+blood_reference	PRJNA1041580	PRJNA1041580		blood	sra	9	1	5	9	9	9	9
+blood_reference	PRJNA647407	PMID:32853177	32853177	blood	sra	9	1	9	9	9	9	9
+blood_reference	GSE206397	GSE206397		blood	sra	9	6	9	9	9	9	9
+blood_reference	GSE221234	PMID:36690713	36690713	blood	sra	9	9	9	9	9	9	9
+blood_reference	SRP446634	SRP446634		blood	sra	9	9	9	9	8	9	8
+blood_reference	SRP446739	SRP446739		blood	sra	9	6	8	9	6	8	0
+blood_reference	GSE271667	PMID:39261833	39261833	blood	sra	9	3	9	9	9	9	9
+blood_reference	GSE293433	GSE293433		blood	sra	9	9	9	9	9	9	9
+blood_reference	SRP453636	SRP453636		blood	sra	9	2	9	9	9	9	9
+blood_reference	SRP431567	SRP431567		blood	sra	9	9	9	9	9	9	9
+blood_reference	SRP493853	SRP493853		blood	sra	9	1	7	2	9	9	9
+blood_reference	PRJNA556960	PMID:32024802	32024802	blood	sra	9	1	5	9	0	9	9
+blood_reference	PRJNA980703	PMID:37818590	37818590	blood	sra	9	1	9	9	8	9	8
+blood_reference	GSE190529	GSE190529		blood	sra	9	9	9	9	9	9	9
+blood_reference	PRJNA798391	PRJNA798391		blood	sra	9	1	9	9	8	9	9
+blood_reference	PRJNA751734	PRJNA751734		blood	sra	9	1	9	9	9	9	9
+blood_reference	GSE110745	GSE110745		blood	sra	9	3	9	9	9	9	9
+blood_reference	PRJNA1083989	PMID:39328420	39328420	blood	sra	9	1	7	9	9	9	9
+blood_reference	GSE247506	GSE247506		blood	sra	9	9	9	9	9	9	9
+blood_reference	GSE95573	PMID:28808331	28808331	blood	sra	9	3	9	9	9	9	9
+blood_reference	GSE199273	GSE199273		blood	sra	9	8	2	9	3	8	0
+blood_reference	PRJNA603492	PMID:32234474	32234474	blood	sra	9	1	9	9	9	9	9
+blood_reference	PRJNA277352	PMID:25885816	25885816	blood	sra	9	1	9	9	9	9	9
+blood_reference	PRJNA791478	PRJNA791478		blood	sra	9	1	0	0	9	0	0
+blood_reference	SRP593235	SRP593235		blood	sra	9	5	9	9	9	9	9
+blood_reference	GSE232929	GSE232929		blood	sra	9	9	9	9	9	9	9
+blood_reference	GSE108796	GSE108796		blood	sra	9	3	9	9	9	9	9
+blood_reference	GSE197637	GSE197637		blood	sra	9	9	9	9	9	9	9
+blood_reference	GSE128078	PMID:30897114	30897114	blood	sra	9	8	4	7	8	8	6
+blood_reference	GSE49642	GSE49642		blood	sra	8	8	2	4	8	8	8
+blood_reference	GSE224006	GSE224006		blood	sra	8	8	8	8	8	8	8
+blood_reference	GSE186724	GSE186724		blood	sra	8	8	8	8	8	8	8
+blood_reference	GSE156187	PMID:34103547	34103547	blood	sra	8	2	8	8	0	4	0
+blood_reference	PRJNA743946	PRJNA743946		blood	sra	8	1	6	8	8	8	8
+blood_reference	PRJNA844275	PMID:36171464	36171464	blood	sra	8	1	8	8	8	8	8
+blood_reference	PRJEB14743	PMID:27651416	27651416	blood	sra	8	1	8	8	8	8	8
+blood_reference	GSE216117	GSE216117		blood	sra	8	8	2	7	2	2	2
+blood_reference	SRP323553	SRP323553		blood	sra	8	8	8	8	8	7	8
+blood_reference	GSE120649	PMID:30341925	30341925	blood	sra	8	8	8	8	4	5	3
+blood_reference	GSE114033	PMID:31468702	31468702	blood	sra	8	8	8	8	8	8	8
+blood_reference	SRP482772	SRP482772		blood	sra	8	8	2	6	8	8	8
+blood_reference	SRP319809	SRP319809		blood	sra	8	2	6	8	8	8	8
+blood_reference	PRJNA726043	PRJNA726043		blood	sra	8	1	8	8	6	8	8
+blood_reference	PRJNA1105077	PRJNA1105077		blood	sra	8	1	8	8	8	8	4
+blood_reference	PRJNA511891	PRJNA511891		blood	sra	8	1	8	8	8	8	8
+blood_reference	GSE143780	PMID:33232305	33232305	blood	sra	8	5	4	4	8	8	7
+blood_reference	GSE140724	GSE140724		blood	sra	8	4	8	8	8	8	8
+blood_reference	SRP488229	SRP488229		blood	sra	8	6	4	4	8	8	8
+blood_reference	GSE177034	PMID:35544595.0	35544595.0	blood	sra	8	7	8	8	8	8	8
+blood_reference	GSE118558	PMID:32245794.0	32245794.0	blood	sra	8	2	8	8	3	8	5
+blood_reference	SRP503975	SRP503975		blood	sra	8	2	8	8	5	6	5
+blood_reference	PRJNA705589	PMID:33400293	33400293	blood	sra	8	1	4	6	7	8	7
+blood_reference	PRJNA720487	PRJNA720487		blood	sra	8	1	8	8	8	8	8
+blood_reference	GSE169687	PMID:35027067		blood	sra	8	8	8	8	8	8	8
+blood_reference	SRP460038	SRP460038		blood	sra	8	1	0	0	8	7	2
+blood_reference	GSE211567	PMID:38110534.0	38110534.0	blood	sra	8	8	4	7	1	7	6
+blood_reference	GSE67488	PMID:26391122	26391122	blood	sra	7	5	7	7	7	7	7
+blood_reference	SRP335715	SRP335715		blood	sra	7	1	1	5	6	5	6
+blood_reference	GSE201533	PMID:35637788	35637788	blood	sra	7	7	7	7	7	7	7
+blood_reference	GSE152218	PMID:33482742	33482742	blood	sra	7	7	7	7	7	7	7
+blood_reference	PRJNA738649	PRJNA738649		blood	sra	7	1	7	7	7	7	7
+blood_reference	PRJNA929483	PRJNA929483		blood	sra	7	1	3	7	6	7	6
+blood_reference	PRJNA759123	PMID:34765642	34765642	blood	sra	7	1	7	7	7	7	7
+blood_reference	PRJEB25139	PRJEB25139		blood	sra	7	1	7	7	7	7	7
+blood_reference	GSE175988	PMID:34255973	34255973	blood	sra	7	6	5	7	0	6	2
+blood_reference	GSE66917	PMID:26237430	26237430	blood	sra	7	7	2	3	7	7	7
+blood_reference	PRJNA680771	PMID:33692804	33692804	blood	sra	7	1	2	4	6	7	6
+blood_reference	GSE278885	GSE278885		blood	sra	7	7	4	6	7	7	5
+blood_reference	PRJNA337969	PRJNA337969		blood	sra	7	1	7	7	7	7	7
+blood_reference	PRJNA900301	PMID:36496417.0	36496417.0	blood	sra	7	1	7	7	7	7	7
+blood_reference	GSE156209	GSE156209		blood	sra	7	7	5	6	5	7	6
+blood_reference	GSE159543	GSE159543		blood	sra	7	7	6	6	7	7	7
+blood_reference	PRJNA660034	PRJNA660034		blood	sra	7	1	7	7	7	7	7
+blood_reference	GSE155925	PMID:33510411	33510411	blood	sra	7	7	7	7	4	7	7
+blood_reference	GSE121084	PMID:31069175	31069175	blood	sra	7	7	7	7	7	7	7
+blood_reference	GSE192685	GSE192685		blood	sra	7	7	0	0	7	5	3
+blood_reference	PRJNA518143	PMID:32529172	32529172	blood	sra	7	1	7	7	7	7	7
+blood_reference	GSE250153	GSE250153		blood	sra	7	7	0	0	7	7	7
+blood_reference	GSE274965	GSE274965		blood	sra	7	7	6	7	7	7	6
+blood_reference	SRP261186	SRP261186		blood	sra	7	3	7	7	7	7	7
+blood_reference	GSE194388	GSE194388		blood	sra	6	6	1	4	3	5	3
+blood_reference	GSE125223	PMID:30996137	30996137	blood	sra	6	6	5	5	6	6	5
+blood_reference	GSE183073	PMID:34765642	34765642	blood	sra	6	3	6	6	6	6	6
+blood_reference	GSE255071	PMID:38858368.0	38858368.0	blood	sra	6	6	2	4	3	5	0
+blood_reference	SRP123014	SRP123014		blood	sra	6	1	3	5	4	6	5
+blood_reference	GSE243217	PMID:39160575	39160575	blood	sra	6	6	4	5	5	5	5
+blood_reference	GSE196822	PMID:37438430	37438430	blood	sra	6	6	6	6	6	6	6
+blood_reference	GSE225974	GSE225974		blood	sra	6	6	4	5	4	6	4
+blood_reference	PRJNA517749	PMID:31662429	31662429	blood	sra	6	1	3	6	6	6	6
+blood_reference	SRP339494	SRP339494		blood	sra	6	5	6	6	6	6	6
+blood_reference	GSE176559	GSE176559		blood	sra	6	5	2	4	4	5	3
+blood_reference	PRJNA1113623	PRJNA1113623		blood	sra	6	1	6	6	3	6	6
+blood_reference	SRP372924	SRP372924		blood	sra	6	6	1	4	6	6	5
+blood_reference	GSE222041	GSE222041		blood	sra	6	6	6	6	6	6	6
+blood_reference	PRJNA759611	PRJNA759611		blood	sra	6	1	6	6	6	6	6
+blood_reference	PRJNA432948	PMID:31557154	31557154	blood	sra	6	1	3	5	6	6	5
+blood_reference	SRP446632	SRP446632		blood	sra	6	6	6	6	6	6	5
+blood_reference	GSE161042	GSE161042		blood	sra	6	6	4	5	5	6	4
+blood_reference	SRP608183	SRP608183		blood	sra	6	1	5	6	6	6	6
+blood_reference	PRJNA1051666	PRJNA1051666		blood	sra	6	1	3	6	6	6	6
+blood_reference	GSE100232	GSE100232		blood	sra	6	6	1	2	6	6	6
+blood_reference	GSE186587	GSE186587		blood	sra	6	6	1	3	6	6	4
+blood_reference	PRJNA1212513	PRJNA1212513		blood	sra	6	1	6	6	1	6	6
+blood_reference	GSE123523	PMID:31827207	31827207	blood	sra	6	6	6	6	6	6	6
+blood_reference	PRJNA1014414	PMID:37745328	37745328	blood	sra	6	1	4	5	3	6	6
+blood_reference	PRJEB26600	PRJEB26600		blood	sra	6	1	6	6	6	6	5
+blood_reference	SRP547138	SRP547138		blood	sra	6	1	6	6	6	6	6
+blood_reference	GSE95352	GSE95352		blood	sra	6	6	3	4	5	6	5
+blood_reference	SRP443006	SRP443006		blood	sra	6	1	6	6	6	6	6
+blood_reference	GSE237552	GSE237552		blood	sra	6	6	6	6	5	6	5
+blood_reference	GSE196988	GSE196988		blood	sra	6	6	6	6	0	5	2
+blood_reference	SRP357644	SRP357644		blood	sra	6	1	6	6	6	6	6
+blood_reference	GSE134979	PMID:32208488	32208488	blood	sra	6	6	6	6	0	3	2
+blood_reference	PRJNA431286	PMID:34083402	34083402	blood	sra	6	1	4	5	5	6	3
+blood_reference	GSE92472	PMID:28420548	28420548	blood	sra	6	6	6	6	6	6	6
+blood_reference	PRJNA1095453	PMID:38641753.0	38641753.0	blood	sra	6	1	5	6	5	5	2
+blood_reference	GSE124824	PMID:32885175	32885175.0	blood	sra	6	6	2	4	6	6	5
+blood_reference	PRJNA736432	PRJNA736432		blood	sra	6	1	6	6	6	6	6
+blood_reference	PRJNA793034	PRJNA793034		blood	sra	6	1	6	6	6	6	6
+blood_reference	GSE159034	PMID:33429950	33429950	blood	sra	6	5	6	6	2	5	5
+blood_reference	SRP520100	SRP520100		blood	sra	6	5	5	6	6	6	6
+blood_reference	GSE115203	PMID:30541850	30541850	blood	sra	6	3	6	6	6	6	6
+blood_reference	GSE60217	PMID:27595325	27595325	blood	sra	6	6	6	6	2	6	6
+blood_reference	GSE242173	PMID:38814828	38814828	blood	sra	6	6	6	6	6	6	6
+blood_reference	GSE162164	PMID:33692804	33692804	blood	sra	6	6	1	4	6	6	6
+blood_reference	PRJNA1054044	PMID:39360678	39360678	blood	sra	6	1	5	6	6	6	6
+blood_reference	GSE290023	GSE290023		blood	sra	6	6	6	6	6	6	6
+blood_reference	SRP356976	SRP356976		blood	sra	6	6	6	6	6	6	6
+blood_reference	PRJNA790453	PRJNA790453		blood	sra	6	1	0	2	6	6	6
+blood_reference	GSE128668	GSE128668		blood	sra	6	6	0	1	6	5	1
+blood_reference	SRP284055	SRP284055		blood	sra	5	2	4	4	5	5	5
+blood_reference	SRP432050	SRP432050		blood	sra	5	5	5	5	5	5	5
+blood_reference	GSE64655	PMID:25706537	25706537	blood	sra	5	2	5	5	5	5	5
+blood_reference	GSE202262	GSE202262		blood	sra	5	5	5	5	5	5	5
+blood_reference	GSE165159	GSE165159		blood	sra	5	5	3	5	5	5	5
+blood_reference	GSE228702	PMID:37181876.0	37181876.0	blood	sra	5	5	2	2	3	2	5
+blood_reference	SRP375355	SRP375355		blood	sra	5	4	2	4	2	2	2
+blood_reference	PRJNA574438	PRJNA574438		blood	sra	5	1	5	5	5	5	5
+blood_reference	SRP326294	SRP326294		blood	sra	5	1	5	5	5	5	5
+blood_reference	PRJNA512474	PRJNA512474		blood	sra	5	1	5	5	5	5	5
+blood_reference	GSE113210	PMID:30562046	30562046	blood	sra	5	5	5	5	4	5	5
+blood_reference	PRJNA921887	PRJNA921887		blood	sra	5	1	5	5	5	5	5
+blood_reference	SRP589392	SRP589392		blood	sra	5	5	5	5	5	5	5
+blood_reference	PRJNA821445	PMID:36871558.0	36871558.0	blood	sra	5	1	5	5	4	4	4
+blood_reference	SRP548052	SRP548052		blood	sra	5	5	3	5	5	5	5
+blood_reference	GSE110633	GSE110633		blood	sra	5	5	1	5	3	4	4
+blood_reference	GSE71359	GSE71359		blood	sra	5	5	0	3	3	3	3
+blood_reference	SRP334331	SRP334331		blood	sra	5	3	3	5	5	5	5
+blood_reference	PRJNA565209	PMID:31841569	31841569	blood	sra	5	1	5	5	5	5	5
+blood_reference	GSE192707	GSE192707		blood	sra	5	5	3	3	5	5	5
+blood_reference	GSE165082	PMID:33981329	33981329	blood	sra	5	5	5	5	1	5	5
+blood_reference	SRP120650	SRP120650		blood	sra	5	3	4	5	5	5	5
+blood_reference	PRJNA1051620	PRJNA1051620		blood	sra	5	1	5	5	5	5	5
+blood_reference	PRJNA737596	PRJNA737596		blood	sra	5	1	5	5	5	5	5
+blood_reference	GSE131897	PMID:31343987	31343987	blood	sra	5	5	4	4	3	4	3
+blood_reference	GSE200836	GSE200836		blood	sra	5	5	5	5	5	5	5
+blood_reference	PRJNA214592	PRJNA214592		blood	sra	5	1	3	5	5	5	5
+blood_reference	GSE224468	GSE224468		blood	sra	5	1	5	5	5	5	5
+blood_reference	GSE161777	PMID:33296687	33296687	blood	sra	5	4	5	5	0	5	5
+blood_reference	GSE183132	PMID:34765642	34765642	blood	sra	5	3	5	5	5	5	5
+blood_reference	SRP452919	SRP452919		blood	sra	5	4	5	5	5	5	5
+blood_reference	PRJNA627540	PRJNA627540		blood	sra	5	1	5	5	4	5	5
+blood_reference	GSE196728	PMID:35977481.0	35977481.0	blood	sra	5	4	0	4	2	4	4
+blood_reference	GSE168813	GSE168813		blood	sra	5	5	0	0	5	0	2
+blood_reference	GSE274876	GSE274876		blood	sra	5	5	5	5	5	5	5
+blood_reference	GSE136310	PMID:32167501	32167501	blood	sra	5	2	5	5	5	5	5
+blood_reference	PRJNA1053424	PRJNA1053424		blood	sra	5	1	5	5	5	5	5
+blood_reference	PRJNA777605	PRJNA777605		blood	sra	5	1	5	5	0	5	5
+blood_reference	PRJEB26498	PMID:31196098	31196098	blood	sra	5	1	2	3	5	4	4
+blood_reference	PRJNA622427	PRJNA622427		blood	sra	5	1	5	5	2	5	5
+blood_reference	GSE131504	PMID:31350911	31350911	blood	sra	5	5	4	4	5	5	5
+blood_reference	GSE113386	PMID:30616658.0	30616658.0	blood	sra	5	5	5	5	0	5	4
+blood_reference	PRJNA357628	PMID:28420548	28420548	blood	sra	5	1	5	5	5	5	5
+blood_reference	GSE35394	PMID:23264659	23264659	blood	sra	5	3	5	5	1	5	5
+blood_reference	SRP453827	SRP453827		blood	sra	4	4	0	0	4	3	4
+blood_reference	PRJNA505338	PMID:28065665	28065665	blood	sra	4	1	2	4	4	4	4
+blood_reference	SRP356741	SRP356741		blood	sra	4	4	4	4	4	4	4
+blood_reference	E-MTAB-8875	E-MTAB-8875		blood	sra	4	4	1	2	3	3	3
+blood_reference	SRP460699	SRP460699		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA931739	PRJNA931739		blood	sra	4	1	3	4	0	0	0
+blood_reference	SRP414577	SRP414577		blood	sra	4	2	3	3	4	4	3
+blood_reference	GSE211190	GSE211190		blood	sra	4	4	4	4	1	4	2
+blood_reference	PRJNA917424	PRJNA917424		blood	sra	4	1	4	4	4	4	4
+blood_reference	PRJNA1041385	PRJNA1041385		blood	sra	4	1	4	4	2	4	4
+blood_reference	GSE130824	PMID:31249421	31249421	blood	sra	4	4	4	4	4	4	4
+blood_reference	SRP555005	SRP555005		blood	sra	4	4	3	3	4	4	4
+blood_reference	PRJNA904775	PRJNA904775		blood	sra	4	1	4	4	4	4	4
+blood_reference	GSE272381	GSE272381		blood	sra	4	4	4	4	4	4	4
+blood_reference	GSE168281	PMID:34336943	34336943	blood	sra	4	4	4	4	2	4	2
+blood_reference	GSE195933	GSE195933		blood	sra	4	4	2	2	4	4	4
+blood_reference	GSE241238	GSE241238		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA1078747	PRJNA1078747		blood	sra	4	1	4	4	4	4	4
+blood_reference	GSE293559	GSE293559		blood	sra	4	4	3	4	3	4	4
+blood_reference	GSE210162	GSE210162		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA675222	PRJNA675222		blood	sra	4	1	2	4	3	3	2
+blood_reference	PRJNA893078	PRJNA893078		blood	sra	4	1	4	4	0	4	4
+blood_reference	GSE130836	PMID:31211922	31211922	blood	sra	4	4	4	4	0	4	4
+blood_reference	GSE104423	PMID:29236770	29236770	blood	sra	4	4	4	4	0	4	4
+blood_reference	E-MTAB-9066	E-MTAB-9066		blood	sra	4	4	3	3	4	4	4
+blood_reference	GSE141140	GSE141140		blood	sra	4	4	3	4	3	3	3
+blood_reference	GSE78081	GSE78081		blood	sra	4	4	4	4	1	4	4
+blood_reference	SRP379422	SRP379422		blood	sra	4	3	4	4	0	0	0
+blood_reference	SRP587396	SRP587396		blood	sra	4	1	2	4	4	4	4
+blood_reference	E-MTAB-6753	PMID:31196098	31196098	blood	sra	4	4	3	4	4	4	4
+blood_reference	SRP479736	SRP479736		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA631782	PRJNA631782		blood	sra	4	1	4	4	0	4	4
+blood_reference	PRJNA915976	PRJNA915976		blood	sra	4	1	2	4	4	4	4
+blood_reference	PRJNA1001790	PRJNA1001790		blood	sra	4	1	4	4	4	4	4
+blood_reference	PRJEB27207	PMID:29474390	29474390	blood	sra	4	1	3	1	4	4	4
+blood_reference	GSE245507	GSE245507		blood	sra	4	4	4	4	4	4	3
+blood_reference	GSE209591	PMID:37018379	37018379	blood	sra	4	4	4	4	4	4	4
+blood_reference	GSE101437	PMID:29555915	29555915	blood	sra	4	4	4	4	2	4	4
+blood_reference	GSE84891	GSE84891		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA707605	PRJNA707605		blood	sra	4	1	0	3	3	4	3
+blood_reference	GSE113890	GSE113890		blood	sra	4	4	3	2	4	4	4
+blood_reference	SRP375610	SRP375610		blood	sra	4	4	1	4	1	3	2
+blood_reference	PRJNA201433	PMID:24205042	24205042	blood	sra	4	1	3	4	2	4	4
+blood_reference	GSE120795	PMID:31015567	31015567	blood	sra	4	4	4	4	0	4	4
+blood_reference	SRP548490	SRP548490		blood	sra	4	4	4	4	4	4	4
+blood_reference	SRP268879	SRP268879		blood	sra	4	3	2	2	4	4	4
+blood_reference	PRJEB28209	PRJEB28209		blood	sra	4	1	4	4	4	4	4
+blood_reference	GSE303117	GSE303117		blood	sra	4	4	4	4	4	4	4
+blood_reference	GSE195796	GSE195796		blood	sra	4	4	4	4	4	4	4
+blood_reference	GSE42960	PMID:23474817	23474817	blood	sra	4	2	4	4	4	4	4
+blood_reference	GSE232404	GSE232404		blood	sra	4	4	1	2	4	4	4
+blood_reference	GSE270045	GSE270045		blood	sra	4	4	4	4	4	4	2
+blood_reference	SRP392913	SRP392913		blood	sra	4	3	0	0	4	4	4
+blood_reference	GSE153122	PMID:32758644	32758644	blood	sra	4	4	4	4	2	1	0
+blood_reference	SRP346419	SRP346419		blood	sra	4	4	4	4	4	4	4
+blood_reference	SRP409631	SRP409631		blood	sra	4	4	4	4	4	4	4
+blood_reference	PRJNA873078	PRJNA873078		blood	sra	4	1	4	3	2	4	4
+blood_reference	GSE124389	GSE124389		blood	sra	4	3	4	4	4	4	4
+blood_reference	SRP065146	SRP065146		blood	sra	4	3	0	4	4	4	4
+blood_reference	GSE148171	PMID:33421909	33421909	blood	sra	4	4	3	2	2	2	3
+blood_reference	GSE206050	GSE206050		blood	sra	4	3	0	0	4	4	4
+blood_reference	GSE183154	PMID:34867956	34867956	blood	sra	4	2	4	4	4	4	4
+blood_reference	GSE171809	GSE171809		blood	sra	3	3	0	1	3	3	3
+blood_reference	GSE222253	GSE222253		blood	sra	3	3	3	3	3	3	3
+blood_reference	PRJNA656814	PMID:33273683	33273683	blood	sra	3	1	0	3	0	1	0
+blood_reference	GSE272173	GSE272173		blood	sra	3	3	1	1	3	3	3
+blood_reference	SRP033696	SRP033696		blood	sra	3	2	2	3	2	3	3
+blood_reference	PRJNA507472	PRJNA507472		blood	sra	3	1	3	3	3	3	3
+blood_reference	SRP534341	SRP534341		blood	sra	3	2	1	1	3	3	3
+blood_reference	GSE107104	PMID:29764370	29764370	blood	sra	3	3	2	3	0	3	3
+blood_reference	PRJNA800536	PRJNA800536		blood	sra	3	1	0	0	3	3	3
+blood_reference	GSE154773	PMID:32853177	32853177	blood	sra	3	3	3	3	3	3	3
+blood_reference	PRJNA774204	PMID:31928344	31928344	blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA849421	PMID:37460024.0	37460024.0	blood	sra	3	1	0	3	0	3	1
+blood_reference	GSE242721	PMID:37745328	37745328	blood	sra	3	3	3	3	2	2	2
+blood_reference	GSE278917	GSE278917		blood	sra	3	3	3	3	3	3	3
+blood_reference	PRJNA647271	PMID:33876188	33876188	blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA528283	PRJNA528283		blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE241183	GSE241183		blood	sra	3	3	3	3	3	3	3
+blood_reference	SRP295214	SRP295214		blood	sra	3	3	2	3	3	3	2
+blood_reference	GSE102633	PMID:30753544	30753544	blood	sra	3	3	2	3	0	2	2
+blood_reference	PRJNA706733	PMID:34336943	34336943	blood	sra	3	1	1	2	2	3	1
+blood_reference	GSE260910	PMID:39328420	39328420	blood	sra	3	3	3	3	3	3	3
+blood_reference	PRJNA746332	PRJNA746332		blood	sra	3	1	3	3	3	3	3
+blood_reference	SRP453300	SRP453300		blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE209760	GSE209760		blood	sra	3	3	0	3	3	3	3
+blood_reference	SRP397416	SRP397416		blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA888385	PRJNA888385		blood	sra	3	1	3	3	3	3	3
+blood_reference	SRP587232	SRP587232		blood	sra	3	2	3	3	3	3	3
+blood_reference	SRP478319	SRP478319		blood	sra	3	3	3	3	3	3	3
+blood_reference	SRP189136	SRP189136		blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE262147	GSE262147		blood	sra	3	3	3	3	3	3	3
+blood_reference	SRP530623	SRP530623		blood	sra	3	1	2	2	3	3	3
+blood_reference	GSE85263	GSE85263		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE166201	GSE166201		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE230738	GSE230738		blood	sra	3	3	3	3	2	3	3
+blood_reference	GSE154998	PMID:33306162	33306162	blood	sra	3	3	2	2	2	2	2
+blood_reference	SRP621533	SRP621533		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE233304	GSE233304		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE97590	PMID:28854372	28854372	blood	sra	3	3	3	3	1	1	1
+blood_reference	GSE234207	GSE234207		blood	sra	3	3	3	3	2	2	1
+blood_reference	GSE179992	PMID:34437303	34437303	blood	sra	3	3	2	2	1	3	3
+blood_reference	GSE173983	GSE173983		blood	sra	3	3	3	3	2	2	2
+blood_reference	SRP568063	SRP568063		blood	sra	3	1	0	0	3	3	3
+blood_reference	PRJNA774655	PMID:34913457	34913457	blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE134985	PMID:32024802	32024802	blood	sra	3	3	3	3	0	3	3
+blood_reference	PRJNA657013	PMID:34103547	34103547	blood	sra	3	1	1	3	0	3	2
+blood_reference	GSE223097	GSE223097		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE140275	PMID:31849604	31849604	blood	sra	3	3	3	3	3	3	3
+blood_reference	PRJNA1155188	PRJNA1155188		blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE199868	GSE199868		blood	sra	3	3	0	0	3	3	3
+blood_reference	PRJNA433845	PRJNA433845		blood	sra	3	1	3	3	0	3	3
+blood_reference	GSE63703	PMID:26573221	26573221	blood	sra	3	3	3	3	1	3	3
+blood_reference	PRJNA891692	PRJNA891692		blood	sra	3	1	0	3	0	0	0
+blood_reference	PRJNA1171376	PRJNA1171376		blood	sra	3	1	2	3	3	3	3
+blood_reference	PRJNA931952	PRJNA931952		blood	sra	3	1	3	3	3	3	3
+blood_reference	GSE245886	GSE245886		blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE171964	GSE171964		blood	sra	3	3	2	0	3	3	3
+blood_reference	PRJNA436923	PMID:30862783	30862783	blood	sra	3	1	1	3	2	3	2
+blood_reference	GSE139350	PMID:34220794	34220794	blood	sra	3	3	2	3	3	3	3
+blood_reference	GSE80714	PMID:27869712	27869712	blood	sra	3	3	3	3	3	3	3
+blood_reference	GSE113504	GSE113504		blood	sra	3	3	2	3	3	3	3
+blood_reference	PRJEB23048	PMID:32210480		blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA587520	PMID:32487996	32487996	blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA1006774	PRJNA1006774		blood	sra	3	1	0	2	3	3	3
+blood_reference	PRJNA727526	PRJNA727526		blood	sra	3	1	2	3	1	3	1
+blood_reference	GSE111793	GSE111793		blood	sra	3	3	0	0	3	1	1
+blood_reference	PRJNA800414	PRJNA800414		blood	sra	3	1	0	1	2	3	1
+blood_reference	PRJNA715360	PRJNA715360		blood	sra	3	1	3	3	3	3	3
+blood_reference	PRJNA895072	PMID:36581735	36581735	blood	sra	3	1	0	0	3	3	2
+blood_reference	PRJNA491676	PMID:30886186	30886186	blood	sra	3	1	2	3	2	3	3
+blood_reference	GSE162280	GSE162280		blood	sra	3	3	0	2	3	3	3
+blood_reference	GSE154911	PMID:32839538	32839538	blood	sra	2	2	1	2	1	0	1
+blood_reference	GSE209880	GSE209880		blood	sra	2	2	1	2	0	1	1
+blood_reference	PRJNA492956	PMID:31278196	31278196	blood	sra	2	1	2	2	0	2	0
+blood_reference	PRJNA915943	PRJNA915943		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE203408	GSE203408		blood	sra	2	2	0	2	0	0	0
+blood_reference	E-MTAB-6270	PMID:29618666	29618666	blood	sra	2	2	2	2	1	1	1
+blood_reference	SRP388531	SRP388531		blood	sra	2	2	2	2	0	0	0
+blood_reference	GSE69735	GSE69735		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE132923	GSE132923		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA916275	PRJNA916275		blood	sra	2	1	2	2	2	2	2
+blood_reference	PRJNA476141	PMID:30962590	30962590	blood	sra	2	1	0	2	0	2	2
+blood_reference	GSE174083	PMID:34907015	34907015	blood	sra	2	2	0	2	0	0	0
+blood_reference	GSE271570	GSE271570		blood	sra	2	2	1	1	2	2	2
+blood_reference	GSE186593	PMID:34913457	34913457	blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE122485	PMID:28065665	28065665	blood	sra	2	2	1	2	2	2	2
+blood_reference	SRP094482	SRP094482		blood	sra	2	2	2	2	0	0	0
+blood_reference	PRJNA657050	PRJNA657050		blood	sra	2	1	2	2	2	2	2
+blood_reference	SRP356196	SRP356196		blood	sra	2	1	0	0	2	2	2
+blood_reference	GSE153792	PMID:32780768	32780768	blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE280402	GSE280402		blood	sra	2	2	1	2	1	2	1
+blood_reference	SRP614576	SRP614576		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA299534	PRJNA299534		blood	sra	2	1	1	2	2	2	2
+blood_reference	PRJNA690118	PMID:33720973	33720973	blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE206505	GSE206505		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE290026	GSE290026		blood	sra	2	2	2	2	0	2	2
+blood_reference	PRJNA515603	PMID:30996137	30996137	blood	sra	2	1	0	2	0	2	0
+blood_reference	SRP534156	SRP534156		blood	sra	2	2	1	2	2	2	2
+blood_reference	PRJNA814322	PRJNA814322		blood	sra	2	1	1	2	2	2	2
+blood_reference	GSE200857	GSE200857		blood	sra	2	2	2	2	0	1	0
+blood_reference	GSE128614	GSE128614		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE243066	GSE243066		blood	sra	2	2	1	2	2	2	2
+blood_reference	SRP388974	SRP388974		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA493229	PMID:31358949	31358949	blood	sra	2	1	1	2	0	2	1
+blood_reference	GSE110146	PMID:31557154	31557154	blood	sra	2	1	1	2	2	2	0
+blood_reference	PRJEB28211	PRJEB28211		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE182916	PMID:34499625	34499625	blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE57253	PMID:25217959	25217959	blood	sra	2	2	2	2	0	1	1
+blood_reference	PRJNA721461	PRJNA721461		blood	sra	2	1	2	2	2	2	2
+blood_reference	PRJNA892100	PRJNA892100		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE211225	GSE211225		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE157185	PMID:33072739	33072739	blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE190546	GSE190546		blood	sra	2	2	0	0	2	2	2
+blood_reference	GSE223736	GSE223736		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA493653	PMID:30929268	30929268	blood	sra	2	1	2	2	2	2	2
+blood_reference	SRP506396	SRP506396		blood	sra	2	2	1	2	2	2	2
+blood_reference	GSE152293	GSE152293		blood	sra	2	2	0	2	2	2	2
+blood_reference	GSE236610	GSE236610		blood	sra	2	2	0	0	2	2	2
+blood_reference	PRJNA476781	PMID:30340504	30340504	blood	sra	2	1	2	2	2	2	2
+blood_reference	PRJNA832132	PRJNA832132		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE180379	PMID:34609968	34609968	blood	sra	2	1	2	2	2	2	2
+blood_reference	SRP321526	SRP321526		blood	sra	2	2	1	1	2	2	2
+blood_reference	GSE109313	PMID:29548336	29548336	blood	sra	2	2	2	2	2	2	2
+blood_reference	SRP433116	SRP433116		blood	sra	2	2	0	2	2	2	2
+blood_reference	GSE287540	GSE287540		blood	sra	2	2	1	1	1	0	1
+blood_reference	GSE125873	PMID:31662429	31662429	blood	sra	2	2	1	1	2	2	2
+blood_reference	GSE148476	GSE148476		blood	sra	2	2	0	2	0	2	0
+blood_reference	PRJNA915202	PRJNA915202		blood	sra	2	1	1	1	2	2	2
+blood_reference	GSE199911	GSE199911		blood	sra	2	2	0	2	0	2	1
+blood_reference	PRJNA844257	PRJNA844257		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE120784	PMID:30528824	30528824	blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE148892	PMID:32509585	32509585	blood	sra	2	2	2	2	1	2	1
+blood_reference	GSE235658	GSE235658		blood	sra	2	2	0	0	2	2	2
+blood_reference	PRJNA809647	PRJNA809647		blood	sra	2	1	2	2	0	2	2
+blood_reference	PRJNA1144921	PRJNA1144921		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE114179	PMID:33024045	33024045	blood	sra	2	2	2	2	1	1	1
+blood_reference	PRJNA396725	PMID:30651843	30651843	blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE171082	GSE171082		blood	sra	2	2	1	2	0	2	0
+blood_reference	GSE158508	GSE158508		blood	sra	2	2	0	2	2	2	2
+blood_reference	GSE304470	GSE304470		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA635385	PMID:33933170	33933170	blood	sra	2	1	1	1	2	2	2
+blood_reference	SRP333360	SRP333360		blood	sra	2	2	0	2	0	2	0
+blood_reference	GSE165518	PMID:34561445	34561445	blood	sra	2	2	0	0	2	1	1
+blood_reference	SRP183059	SRP183059		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA312122	PRJNA312122		blood	sra	2	1	0	0	2	2	1
+blood_reference	SRP498387	SRP498387		blood	sra	2	2	2	2	0	2	2
+blood_reference	GSE249138	GSE249138		blood	sra	2	2	1	1	2	2	2
+blood_reference	GSE166409	PMID:33857290	33857290	blood	sra	2	2	0	1	1	2	0
+blood_reference	GSE223227	PMID:39104114	39104114	blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE100063	GSE100063		blood	sra	2	2	1	1	2	2	2
+blood_reference	GSE176153	GSE176153		blood	sra	2	2	0	0	2	0	1
+blood_reference	GSE128723	PMID:30995102	30995102	blood	sra	2	2	0	0	2	2	2
+blood_reference	GSE214998	GSE214998		blood	sra	2	2	1	2	2	2	1
+blood_reference	SRP250640	SRP250640		blood	sra	2	1	1	1	2	1	0
+blood_reference	PRJNA795126	PMID:37924441	37924441	blood	sra	2	1	2	2	2	2	2
+blood_reference	PRJNA758290	PMID:34499625	34499625	blood	sra	2	1	0	1	1	1	0
+blood_reference	GSE36866	GSE36866		blood	sra	2	1	0	1	2	2	1
+blood_reference	PRJNA318253	PMID:27835693	27835693	blood	sra	2	1	2	2	2	2	2
+blood_reference	PRJNA914088	PRJNA914088		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE66895	GSE66895		blood	sra	2	2	2	2	0	2	0
+blood_reference	SRP383553	SRP383553		blood	sra	2	2	1	2	2	2	2
+blood_reference	GSE254015	GSE254015		blood	sra	2	2	0	1	2	2	1
+blood_reference	PRJNA729449	PRJNA729449		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE117769	GSE117769		blood	sra	2	2	1	1	2	2	2
+blood_reference	SRP467298	SRP467298		blood	sra	2	2	2	2	2	2	2
+blood_reference	SRP062979	SRP062979		blood	sra	2	2	1	2	2	2	1
+blood_reference	SRP282545	SRP282545		blood	sra	2	2	2	2	1	1	1
+blood_reference	GSE190024	GSE190024		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA973696	PMID:37298316	37298316	blood	sra	2	1	1	1	1	2	1
+blood_reference	PRJNA800731	PRJNA800731		blood	sra	2	1	0	2	1	2	2
+blood_reference	GSE66573	PMID:25885816	25885816	blood	sra	2	2	2	2	2	2	2
+blood_reference	SRP539005	SRP539005		blood	sra	2	2	2	0	2	2	2
+blood_reference	GSE121578	PMID:30635621	30635621	blood	sra	2	2	2	2	0	2	2
+blood_reference	SRP430489	SRP430489		blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA812326	PRJNA812326		blood	sra	2	1	0	0	2	0	0
+blood_reference	GSE186505	PMID:31928344	31928344	blood	sra	2	2	2	2	2	2	2
+blood_reference	SRP534133	SRP534133		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE263242	GSE263242		blood	sra	2	2	0	0	2	2	2
+blood_reference	GSE201482	GSE201482		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE251806	GSE251806		blood	sra	2	2	0	0	2	2	1
+blood_reference	PRJNA984255	PMID:37638022	37638022	blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE123070	PMID:30862783	30862783	blood	sra	2	2	2	2	2	2	2
+blood_reference	PRJNA762882	PRJNA762882		blood	sra	2	1	2	2	2	2	2
+blood_reference	GSE205161	GSE205161		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE221148	GSE221148		blood	sra	2	2	2	2	2	2	2
+blood_reference	GSE250050	GSE250050		blood	sra	1	1	0	1	1	1	1
+blood_reference	GSE241280	GSE241280		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1003124	PRJNA1003124		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1132480	PRJNA1132480		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE182038	PMID:34544801	34544801	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE288199	GSE288199		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1224584	PRJNA1224584		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE271574	GSE271574		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE198609	GSE198609		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1088447	PRJNA1088447		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE252275	GSE252275		blood	sra	1	1	0	1	1	1	1
+blood_reference	SRP257224	SRP257224		blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA429023	PRJNA429023		blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890258	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890265	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890288	blood	sra	1	1	0	1	0	1	0
+blood_reference	SRP223445	SRP223445		blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA795763	PRJNA795763		blood	sra	1	1	0	0	1	1	0
+blood_reference	GSE80126	PMID:27765019	27765019	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE102114	PMID:30651843	30651843	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA638020	PRJNA638020		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE184998	PMID:34684517	34684517	blood	sra	1	1	1	0	1	1	1
+blood_reference	PRJNA765581	PRJNA765581		blood	sra	1	1	0	1	0	0	0
+blood_reference	SRP345534	SRP345534		blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA755863	PRJNA755863		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA793384	PRJNA793384		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890289	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA756565	PMID:34977060		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890239	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA753135	PRJNA753135		blood	sra	1	1	0	1	1	1	1
+blood_reference	GSE126427	PMID:30826177	30826177	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE205823	GSE205823		blood	sra	1	1	0	1	1	1	1
+blood_reference	GSE142520	GSE142520		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE134416	GSE134416		blood	sra	1	1	1	1	0	0	0
+blood_reference	GSE120691	PMID:32064895	32064895	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA817356	PRJNA817356		blood	sra	1	1	0	1	0	0	0
+blood_reference	SRP239396	SRP239396		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA562156	PMID:32167501	32167501	blood	sra	1	1	1	1	0	1	0
+blood_reference	PRJNA732398	PRJNA732398		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA876312	PRJNA876312		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA434174	PRJNA434174		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890243	blood	sra	1	1	1	1	0	0	0
+blood_reference	PRJNA879439	PRJNA879439		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA314760	PMID:27694195	27694195	blood	sra	1	1	0	1	0	0	0
+blood_reference	GSE208038	GSE208038		blood	sra	1	1	1	1	1	0	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890266	blood	sra	1	1	1	1	0	1	0
+blood_reference	GSE36522	GSE36522		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE107806	PMID:31761676	31761676	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA837877	PRJNA837877		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE75665	PMID:28611780	28611780	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE219251	GSE219251		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA634346	PRJNA634346		blood	sra	1	1	1	1	0	1	1
+blood_reference	PRJNA854164	PMID:36373948.0	36373948.0	blood	sra	1	1	1	1	0	0	0
+blood_reference	PRJNA1083463	PRJNA1083463		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA513044	PMID:32047471	32047471	blood	sra	1	1	0	1	0	0	0
+blood_reference	PRJNA857013	PRJNA857013		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP393097	SRP393097		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA727495	PRJNA727495		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP502278	SRP502278		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE179487	GSE179487		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA1033573	PRJNA1033573		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890275	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA1132253	PRJNA1132253		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890210	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE196455	GSE196455		blood	sra	1	1	0	1	0	1	1
+blood_reference	GSE129882	PMID:32348760		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890253	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890317	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA778236	PMID:32079617	32079617	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE133758	PMID:32221409	32221409	blood	sra	1	1	0	1	0	0	0
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890209	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890324	blood	sra	1	1	0	1	0	0	0
+blood_reference	GSE299853	GSE299853		blood	sra	1	1	0	1	1	0	0
+blood_reference	GSE188938	GSE188938		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA428258	PRJNA428258		blood	sra	1	1	0	1	0	1	1
+blood_reference	GSE159657	GSE159657		blood	sra	1	1	1	0	1	1	1
+blood_reference	PRJNA943250	PRJNA943250		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890277	blood	sra	1	1	0	1	0	1	0
+blood_reference	SRP215172	SRP215172		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890214	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA722046	PMID:34698500	34698500	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA820292	PRJNA820292		blood	sra	1	1	1	1	0	0	0
+blood_reference	GSE102881	GSE102881		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890315	blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE141787	GSE141787		blood	sra	1	1	0	1	1	1	0
+blood_reference	SRP219781	SRP219781		blood	sra	1	1	0	1	1	1	1
+blood_reference	SRP315102	SRP315102		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE302772	GSE302772		blood	sra	1	1	1	1	0	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890235	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1132962	PMID:39435665	39435665	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890245	blood	sra	1	1	0	1	0	1	1
+blood_reference	PRJNA528638	PMID:30995102	30995102	blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA513867	PMID:32885175.0	32885175.0	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP366941	SRP366941		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE288083	GSE288083		blood	sra	1	1	0	1	0	0	1
+blood_reference	PRJNA670006	PRJNA670006		blood	sra	1	1	1	1	0	0	0
+blood_reference	PRJNA358580	PMID:29358694	29358694	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890310	blood	sra	1	1	1	1	0	1	0
+blood_reference	SRP356747	SRP356747		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA768792	PMID:36648132.0	36648132.0	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA921731	PRJNA921731		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP132555	SRP132555		blood	sra	1	1	1	1	1	0	1
+blood_reference	GSE154272	GSE154272		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1099305	PRJNA1099305		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP457500	SRP457500		blood	sra	1	1	1	1	0	1	1
+blood_reference	PRJNA645700	PRJNA645700		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890224	blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA744389	PMID:33273683	33273683	blood	sra	1	1	0	1	0	0	0
+blood_reference	PRJNA905367	PRJNA905367		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE166663	PMID:33995378	33995378	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE201566	GSE201566		blood	sra	1	1	1	1	1	0	0
+blood_reference	GSE179645	GSE179645		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA726734	PRJNA726734		blood	sra	1	1	1	1	0	1	1
+blood_reference	PRJNA636362	PMID:33343577	33343577	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE206648	GSE206648		blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA510012	PMID:31183075	31183075	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE219616	GSE219616		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890257	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJEB23804	PRJEB23804		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE227690	GSE227690		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA672843	PRJNA672843		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE255073	GSE255073		blood	sra	1	1	0	1	0	1	1
+blood_reference	GSE161469	GSE161469		blood	sra	1	1	0	0	1	1	1
+blood_reference	SRP119618	SRP119618		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA560788	PMID:32123257	32123257	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1005005	PRJNA1005005		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890241	blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE147561	GSE147561		blood	sra	1	1	0	0	1	1	0
+blood_reference	SRP460789	SRP460789		blood	sra	1	1	0	1	1	1	1
+blood_reference	GSE270609	GSE270609		blood	sra	1	1	0	0	1	1	0
+blood_reference	PRJNA722839	PRJNA722839		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP035252	SRP035252		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890238	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA691933	PRJNA691933		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE100882	GSE100882		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1166908	PRJNA1166908		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA799671	PRJNA799671		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE67401	PMID:25993322	25993322	blood	sra	1	1	1	1	0	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890261	blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE97158	PMID:29920562	29920562	blood	sra	1	1	1	1	0	1	1
+blood_reference	GSE282051	GSE282051		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA837285	PRJNA837285		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP218015	SRP218015		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA436593	PRJNA436593		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890271	blood	sra	1	1	1	1	0	1	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890300	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA658334	PRJNA658334		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890248	blood	sra	1	1	0	1	0	0	0
+blood_reference	SRP515325	SRP515325		blood	sra	1	1	1	1	1	1	1
+blood_reference	E-MTAB-5614	PMID:29474390	29474390	blood	sra	1	1	1	1	0	0	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890247	blood	sra	1	1	0	1	0	1	0
+blood_reference	SRP508464	SRP508464		blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA1255758	PRJNA1255758		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE228320	GSE228320		blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA543789	PMID:32247005	32247005	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP424082	SRP424082		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA325416	PMID:28761058	28761058	blood	sra	1	1	1	1	0	1	0
+blood_reference	PRJNA1033563	PMID:39910036.0	39910036.0	blood	sra	1	1	0	0	1	1	0
+blood_reference	GSE263180	GSE263180		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE174431	PMID:34638368	34638368	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA328993	PRJNA328993		blood	sra	1	1	0	1	0	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890223	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA474387	PMID:30720798	30720798	blood	sra	1	1	1	1	0	1	0
+blood_reference	PRJNA1192554	PRJNA1192554		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA520747	PRJNA520747		blood	sra	1	1	1	1	0	1	1
+blood_reference	SRP637734	SRP637734		blood	sra	1	1	0	1	1	1	1
+blood_reference	SRP065930	SRP065930		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE265975	GSE265975		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP353026	SRP353026		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890263	blood	sra	1	1	1	1	0	0	0
+blood_reference	PRJNA232593	PMID:24608128	24608128	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA601661	PMID:33232305	33232305	blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA600846	PMID:32477412	32477412	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP199697	SRP199697		blood	sra	1	1	0	0	1	1	1
+blood_reference	GSE283710	GSE283710		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP423663	SRP423663		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP017262	SRP017262		blood	sra	1	1	0	0	1	1	1
+blood_reference	SRP092544	SRP092544		blood	sra	1	1	0	0	1	1	1
+blood_reference	SRP323213	SRP323213		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA300424	PRJNA300424		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA952972	PRJNA952972		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP531162	SRP531162		blood	sra	1	1	0	1	0	0	0
+blood_reference	PRJNA717662	PRJNA717662		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE173828	PMID:34077954	34077954	blood	sra	1	1	1	1	0	1	1
+blood_reference	GSE206250	GSE206250		blood	sra	1	1	1	1	1	1	1
+blood_reference	E-MTAB-7830	PMID:32760401	32760401	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP187501	SRP187501		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890292	blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE163989	GSE163989		blood	sra	1	1	0	0	1	1	1
+blood_reference	SRP092128	SRP092128		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890250	blood	sra	1	1	0	1	0	0	0
+blood_reference	GSE234297	PMID:37818590	37818590	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA694854	PMID:34561445	34561445	blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA378716	PRJNA378716		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890225	blood	sra	1	1	0	0	1	1	1
+blood_reference	GSE189230	GSE189230		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA278767	PMID:26237430	26237430	blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA540189	PRJNA540189		blood	sra	1	1	0	0	1	1	1
+blood_reference	GSE60514	PMID:25724378	25724378	blood	sra	1	1	0	1	0	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890272	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890213	blood	sra	1	1	0	1	1	1	0
+blood_reference	PRJNA431285	PMID:33303696	33303696	blood	sra	1	1	1	1	1	1	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890293	blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE138746	PMID:32909363	32909363	blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA548207	PRJNA548207		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA634938	PMID:34075090	34075090	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP313166	SRP313166		blood	sra	1	1	0	0	1	1	1
+blood_reference	GSE224884	GSE224884		blood	sra	1	1	0	0	1	1	0
+blood_reference	E-MTAB-5293	E-MTAB-5293		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA632871	PMID:33308163	33308163	blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP388126	SRP388126		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA1055463	PMID:39914267.0	39914267.0	blood	sra	1	1	0	1	1	1	1
+blood_reference	GSE242046	GSE242046		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA389408	PRJNA389408		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890268	blood	sra	1	1	0	1	0	1	0
+blood_reference	SRP237465	SRP237465		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE132511	GSE132511		blood	sra	1	1	0	0	1	1	1
+blood_reference	PRJNA736019	PRJNA736019		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA679331	PMID:33296687	33296687	blood	sra	1	1	0	0	1	0	0
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890240	blood	sra	1	1	0	1	0	1	0
+blood_reference	SRP338538	SRP338538		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE112087	PMID:31921420, 31890209	31921420, 31890242	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE144206	PMID:30323023	30323023	blood	sra	1	1	1	1	0	1	1
+blood_reference	GSE30567	GSE30567		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890262	blood	sra	1	1	0	0	1	1	1
+blood_reference	SRP501398	SRP501398		blood	sra	1	1	0	1	0	1	0
+blood_reference	GSE283231	GSE283231		blood	sra	1	1	0	1	1	1	1
+blood_reference	SRP414007	SRP414007		blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE264125	GSE264125		blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA1136554	PRJNA1136554		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA910114	PRJNA910114		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP464118	SRP464118		blood	sra	1	1	1	1	0	1	0
+blood_reference	GSE99992	PMID:30150281	30150281	blood	sra	1	1	1	1	1	1	1
+blood_reference	GSE150097	GSE150097		blood	sra	1	1	0	1	0	1	1
+blood_reference	GSE66117	GSE66117		blood	sra	1	1	0	1	1	1	1
+blood_reference	PRJNA555899	PRJNA555899		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP256990	SRP256990		blood	sra	1	1	1	1	1	1	1
+blood_reference	SRP425959	SRP425959		blood	sra	1	1	1	1	1	1	1
+blood_reference	PRJNA439269	PMID:31921420, 31890206	31921420, 31890274	blood	sra	1	1	0	1	0	1	0
+blood_reference	PRJNA493832	PMID:30341925	30341925	blood	sra	1	1	1	1	1	1	0
+tissue_reference	GSE135743	GSE135743		tissue	sra	40	40	8	15	40	40	35
+tissue_reference	GSE241699	GSE241699		tissue	sra	40	40	1	23	40	40	40
+tissue_reference	GSE115390	PMID:30521002	30521002	tissue	sra	40	40	2	16	40	40	40
+tissue_reference	GSE223765	GSE223765		tissue	sra	40	40	8	12	40	40	37
+tissue_reference	GSE113255	PMID:31773340	31773340	tissue	sra	40	40	0	4	40	40	38
+tissue_reference	GSE202361	GSE202361		tissue	sra	40	40	37	33	37	40	39
+tissue_reference	GSE233774	GSE233774		tissue	sra	40	28	16	32	40	40	40
+tissue_reference	GSE240729	GSE240729		tissue	sra	40	40	0	0	40	40	38
+tissue_reference	GSE214846	PMID:36353638	36353638	tissue	sra	40	31	1	3	40	40	38
+tissue_reference	GSE181043	GSE181043		tissue	sra	40	40	9	29	40	40	40
+tissue_reference	GSE122401	PMID:30645970	30645970	tissue	sra	40	36	28	35	40	40	40
+tissue_reference	GSE230522	PMID:37525619	37525619	tissue	sra	40	40	0	0	40	40	40
+tissue_reference	GSE190609	GSE190609		tissue	sra	40	40	0	3	40	40	40
+tissue_reference	GSE81266	PMID:28221248	28221248	tissue	sra	40	16	0	0	40	40	40
+tissue_reference	GSE271172	PMID:39879113	39879113	tissue	sra	40	40	7	15	40	40	40
+tissue_reference	GSE212666	GSE212666		tissue	sra	40	40	7	16	40	39	34
+tissue_reference	GSE239422	GSE239422		tissue	sra	40	40	0	0	40	40	40
+tissue_reference	GSE195477	GSE195477		tissue	sra	40	40	40	40	40	40	40
+tissue_reference	GSE244826	PMID:39982271	39982271	tissue	sra	40	40	1	2	40	39	39
+tissue_reference	GSE249547	PMID:38064663	38064663	tissue	sra	40	34	1	4	39	39	35
+tissue_reference	GSE268273	GSE268273		tissue	sra	40	40	0	0	40	40	38
+tissue_reference	GSE225846	GSE225846		tissue	sra	40	40	0	1	40	40	39
+tissue_reference	GSE136634	PMID:32202637	32202637	tissue	sra	40	26	16	34	36	31	22
+tissue_reference	GSE158952	GSE158952		tissue	sra	40	24	8	24	40	40	40
+tissue_reference	GSE137430	PMID:32428528	32428528	tissue	sra	40	40	8	17	32	37	21
+tissue_reference	GSE124535	PMID:32968453	32968453	tissue	sra	40	40	1	7	40	40	39
+tissue_reference	GSE127165	PMID:32487167	32487167	tissue	sra	40	40	9	13	40	40	39
+tissue_reference	GSE184336	PMID:36119489	36119489	tissue	sra	40	40	10	24	40	40	40
+tissue_reference	GSE276114	GSE276114		tissue	sra	40	40	0	0	40	40	39
+tissue_reference	GSE109142	PMID:30604764	30604764	tissue	sra	40	36	0	14	40	40	40
+tissue_reference	GSE171896	PMID:34055876	34055876	tissue	sra	40	40	7	16	40	40	40
+tissue_reference	GSE229394	GSE229394		tissue	sra	40	40	21	10	39	40	40
+tissue_reference	GSE281918	GSE281918		tissue	sra	40	40	0	2	40	40	40
+tissue_reference	GSE242915	PMID:37776595	37776595	tissue	sra	40	37	7	19	40	40	40
+tissue_reference	GSE130605	GSE130605		tissue	sra	40	40	2	7	40	40	39
+tissue_reference	GSE294575	GSE294575		tissue	sra	40	40	7	25	40	40	40
+tissue_reference	GSE144269	PMID:32873799	32873799	tissue	sra	40	29	2	4	40	40	38
+tissue_reference	GSE132024	GSE132024		tissue	sra	40	40	2	13	40	40	40
+tissue_reference	GSE268851	GSE268851		tissue	sra	40	40	1	0	40	40	40
+tissue_reference	GSE222334	GSE222334		tissue	sra	40	40	1	3	40	40	40
+tissue_reference	GSE283522	PMID:39747865	39747865	tissue	sra	40	39	0	0	40	40	31
+tissue_reference	GSE147986	PMID:32582543	32582543	tissue	sra	40	40	26	36	40	39	34
+tissue_reference	GSE146889	PMID:33549857	33549857	tissue	sra	40	39	2	0	40	40	40
+tissue_reference	GSE131050	PMID:31754050	31754050	tissue	sra	40	40	1	2	40	40	36
+tissue_reference	GSE213058	GSE213058		tissue	sra	40	40	1	2	40	40	37
+tissue_reference	GSE68799	GSE68799		tissue	sra	40	40	35	37	40	40	40
+tissue_reference	GSE103584	PMID:30325352	30325352	tissue	sra	40	40	0	0	40	40	39
+tissue_reference	GSE282732	GSE282732		tissue	sra	40	40	1	6	40	40	40
+tissue_reference	GSE166720	PMID:35332150	35332150	tissue	sra	40	40	14	28	40	40	40
+tissue_reference	GSE180777	GSE180777		tissue	sra	40	40	9	7	40	40	40
+tissue_reference	GSE180440	GSE180440		tissue	sra	40	39	1	20	40	40	40
+tissue_reference	GSE158559	GSE158559		tissue	sra	40	40	3	6	40	40	40
+tissue_reference	GSE108746	PMID:30111863	30111863	tissue	sra	40	16	0	2	40	40	40
+tissue_reference	GSE240567	PMID:38806494	38806494	tissue	sra	40	40	8	20	29	31	22
+tissue_reference	GSE193309	PMID:36496193	36496193	tissue	sra	40	22	12	23	23	27	19
+tissue_reference	GSE126304	GSE126304		tissue	sra	40	40	10	26	40	40	40
+tissue_reference	GSE262940	GSE262940		tissue	sra	40	40	2	8	40	40	40
+tissue_reference	GSE223305	PMID:38527292.0	38527292.0	tissue	sra	40	40	32	40	40	40	40
+tissue_reference	GSE190139	GSE190139		tissue	sra	40	40	21	25	40	40	40
+tissue_reference	GSE107422	PMID:31578316	31578316	tissue	sra	40	40	6	22	40	40	39
+tissue_reference	GSE139179	PMID:33556098	33556098	tissue	sra	40	22	4	18	40	40	40
+tissue_reference	GSE98894	PMID:29915428	29915428	tissue	sra	40	40	1	3	40	40	37
+tissue_reference	GSE156451	PMID:34737287	34737287	tissue	sra	40	34	0	6	40	40	40
+tissue_reference	GSE263083	PMID:39215190	39215190	tissue	sra	40	40	6	10	40	40	39
+tissue_reference	GSE295032	GSE295032		tissue	sra	40	40	30	37	12	37	36
+tissue_reference	GSE268514	GSE268514		tissue	sra	40	40	0	5	40	40	39
+tissue_reference	GSE137768	GSE137768		tissue	sra	40	40	18	28	23	25	18
+tissue_reference	GSE222673	PMID:38734931	38734931	tissue	sra	40	40	10	12	40	40	40
+tissue_reference	GSE280250	GSE280250		tissue	sra	40	40	12	23	40	40	39
+tissue_reference	GSE140343	PMID:32649877	32649877	tissue	sra	40	33	28	40	40	40	40
+tissue_reference	GSE179746	GSE179746		tissue	sra	40	24	17	25	40	40	40
+tissue_reference	GSE114564	GSE114564		tissue	sra	40	40	0	0	40	40	37
+tissue_reference	GSE190923	GSE190923		tissue	sra	40	40	9	2	40	40	39
+tissue_reference	GSE290733	GSE290733		tissue	sra	40	40	1	1	40	40	37
+tissue_reference	GSE214397	GSE214397		tissue	sra	40	40	15	22	40	40	40
+tissue_reference	GSE102349	PMID:28851814	28851814	tissue	sra	40	40	38	39	40	40	40
+tissue_reference	GSE231572	GSE231572		tissue	sra	40	40	38	39	40	40	40
+tissue_reference	GSE133624	PMID:31358969	31358969	tissue	sra	40	31	12	18	40	40	39
+tissue_reference	GSE172356	GSE172356		tissue	sra	40	40	8	11	40	40	40
+tissue_reference	GSE210997	GSE210997		tissue	sra	40	40	31	38	40	40	40
+tissue_reference	GSE225731	PMID:37507201	37507201	tissue	sra	40	40	20	31	40	40	40
+tissue_reference	GSE113617	GSE113617		tissue	sra	40	40	5	6	40	40	35
+tissue_reference	GSE142083	PMID:33106477	33106477	tissue	sra	40	35	10	13	40	40	40
+tissue_reference	GSE184072	GSE184072		tissue	sra	40	40	2	9	40	40	40
+tissue_reference	GSE172057	PMID:33893160	33893160	tissue	sra	40	40	13	22	40	40	40
+tissue_reference	GSE83687	PMID:28892060	28892060	tissue	sra	40	40	2	16	40	40	40
+tissue_reference	GSE165512	GSE165512		tissue	sra	40	40	20	37	40	40	40
+tissue_reference	GSE275870	GSE275870		tissue	sra	40	38	24	29	39	39	39
+tissue_reference	GSE189371	GSE189371		tissue	sra	40	40	1	26	39	39	39
+tissue_reference	GSE253086	PMID:38744924	38744924	tissue	sra	40	40	6	19	40	40	40
+tissue_reference	GSE213092	PMID:36748835	36748835	tissue	sra	40	40	2	9	40	40	40
+tissue_reference	GSE275638	PMID:39693209	39693209	tissue	sra	40	40	1	8	40	39	40
+tissue_reference	GSE220148	GSE220148		tissue	sra	40	40	3	19	40	40	40
+tissue_reference	GSE179443	PMID:35124821	35124821	tissue	sra	40	40	2	4	40	40	38
+tissue_reference	GSE133626	PMID:https://doi.org/10.1101/695999	https://doi.org/10.1101/695999	tissue	sra	40	15	0	1	40	40	40
+tissue_reference	GSE89408	PMID:28455435/28863153	28455435/28863153	tissue	sra	40	40	10	13	40	40	37
+tissue_reference	GSE162515	PMID:34593797	34593797	tissue	sra	40	23	13	16	40	40	40
+tissue_reference	GSE107593	GSE107593		tissue	sra	40	12	1	3	40	40	40
+tissue_reference	GSE232352	PMID:35562768	35562768	tissue	sra	40	40	0	0	40	40	39
+tissue_reference	GSE81089	PMID:29282718	29282718	tissue	sra	40	40	16	22	40	40	40
+tissue_reference	GSE126765	GSE126765		tissue	sra	40	40	0	0	40	40	40
+tissue_reference	GSE175759	GSE175759		tissue	sra	40	40	0	2	40	40	40
+tissue_reference	GSE247203	GSE247203		tissue	sra	40	40	8	21	40	40	40
+tissue_reference	GSE77314	PMID:27119355	27119355	tissue	sra	40	32	0	2	40	40	37
+tissue_reference	GSE268175	GSE268175		tissue	sra	40	27	7	22	40	40	40
+tissue_reference	GSE179252	PMID:35082793	35082793	tissue	sra	40	40	7	30	40	40	39
+tissue_reference	GSE167977	PMID:34965952	34965952	tissue	sra	40	40	0	0	40	40	39
+tissue_reference	GSE230524	GSE230524		tissue	sra	40	40	0	1	39	40	40
+tissue_reference	GSE213647	PMID:38331894	38331894	tissue	sra	40	39	4	8	40	40	39
+tissue_reference	GSE216872	GSE216872		tissue	sra	40	39	1	6	40	40	38
+tissue_reference	GSE195832	GSE195832		tissue	sra	40	36	1	7	40	40	39
+tissue_reference	GSE281917	GSE281917		tissue	sra	40	40	0	9	40	40	39
+tissue_reference	GSE174478	GSE174478		tissue	sra	40	40	0	0	40	40	35
+tissue_reference	GSE224564	PMID:37980563	37980563	tissue	sra	40	40	3	3	40	40	40
+tissue_reference	GSE146009	GSE146009		tissue	sra	40	24	0	0	40	40	39
+tissue_reference	GSE138503	PMID:34680291	34680291	tissue	sra	40	40	2	6	40	40	40
+tissue_reference	GSE158420	GSE158420		tissue	sra	40	29	1	0	40	40	40
+tissue_reference	GSE126964	PMID:32982583	32982583	tissue	sra	40	37	16	28	40	40	39
+tissue_reference	GSE196576	PMID:39779996	39779996	tissue	sra	40	40	0	0	40	40	40
+tissue_reference	GSE183984	GSE183984		tissue	sra	40	40	1	0	40	40	40
+tissue_reference	GSE193946	GSE193946		tissue	sra	40	40	0	1	40	40	40
+tissue_reference	GSE112996	GSE112996		tissue	sra	39	12	26	32	39	39	39
+tissue_reference	GSE152415	PMID:33906066	33906066	tissue	sra	39	39	0	0	39	39	39
+tissue_reference	GSE92592	PMID:28230051	28230051	tissue	sra	39	39	3	12	39	39	39
+tissue_reference	GSE129871	PMID:31142743	31142743	tissue	sra	39	39	0	1	39	38	35
+tissue_reference	GSE223119	GSE223119		tissue	sra	39	39	1	26	39	39	39
+tissue_reference	GSE87410	GSE87410		tissue	sra	39	39	1	2	39	39	37
+tissue_reference	GSE216022	GSE216022		tissue	sra	38	37	0	6	38	38	38
+tissue_reference	GSE242315	GSE242315		tissue	sra	38	38	10	10	38	38	34
+tissue_reference	GSE148355	PMID:33772139	33772139	tissue	sra	38	36	0	0	38	38	36
+tissue_reference	GSE243625	GSE243625		tissue	sra	37	27	0	1	37	37	37
+tissue_reference	GSE165808	GSE165808		tissue	sra	37	37	4	5	37	37	36
+tissue_reference	GSE295399	GSE295399		tissue	sra	37	37	0	0	37	37	36
+tissue_reference	GSE141828	PMID:33083529	33083529	tissue	sra	37	37	0	0	37	37	36
+tissue_reference	GSE233900	GSE233900		tissue	sra	37	37	32	36	37	37	37
+tissue_reference	GSE240829	GSE240829		tissue	sra	37	24	13	13	37	37	34
+tissue_reference	GSE141571	PMID:32428543	32428543	tissue	sra	36	24	14	18	24	33	16
+tissue_reference	GSE105130	PMID:31429776	31429776	tissue	sra	36	24	0	1	36	36	36
+tissue_reference	GSE202069	GSE202069		tissue	sra	36	31	0	3	36	36	36
+tissue_reference	GSE151243	GSE151243		tissue	sra	35	20	10	17	35	35	34
+tissue_reference	GSE195952	GSE195952		tissue	sra	35	35	2	2	35	35	34
+tissue_reference	GSE189757	GSE189757		tissue	sra	35	35	2	0	35	35	35
+tissue_reference	GSE71340	PMID:27306793, 29196464, 31940494	27306793, 29196464, 31940494	tissue	sra	35	35	4	8	35	35	35
+tissue_reference	GSE178537	GSE178537		tissue	sra	34	34	0	0	34	34	24
+tissue_reference	GSE236932	GSE236932		tissue	sra	34	34	10	11	34	34	34
+tissue_reference	GSE50760	GSE50760		tissue	sra	34	34	0	2	34	34	34
+tissue_reference	GSE65185	GSE65185		tissue	sra	34	15	8	15	34	34	30
+tissue_reference	GSE189367	GSE189367		tissue	sra	34	34	11	7	34	34	34
+tissue_reference	GSE160693	GSE160693		tissue	sra	34	34	3	0	34	34	33
+tissue_reference	GSE162694	PMID:34508113	34508113	tissue	sra	33	33	0	0	33	33	28
+tissue_reference	GSE270349	GSE270349		tissue	sra	33	33	2	5	33	33	33
+tissue_reference	GSE261086	GSE261086		tissue	sra	33	33	17	21	33	33	33
+tissue_reference	GSE266963	GSE266963		tissue	sra	33	13	3	9	33	33	33
+tissue_reference	GSE277386	GSE277386		tissue	sra	33	32	3	11	32	32	32
+tissue_reference	GSE141198	PMID:34414122	34414122	tissue	sra	33	33	0	1	33	33	29
+tissue_reference	GSE217260	GSE217260		tissue	sra	33	33	1	7	33	33	33
+tissue_reference	GSE98394	PMID:28469092	28469092	tissue	sra	33	33	6	13	33	33	28
+tissue_reference	GSE135251	PMID:33268509	33268509	tissue	sra	33	33	0	0	33	33	33
+tissue_reference	GSE183150	GSE183150		tissue	sra	32	28	0	3	32	32	32
+tissue_reference	GSE183620	GSE183620		tissue	sra	32	32	0	0	32	32	31
+tissue_reference	GSE142025	GSE142025		tissue	sra	32	32	6	10	32	32	30
+tissue_reference	GSE74956	PMID:27091409	27091409	tissue	sra	32	32	8	14	32	32	31
+tissue_reference	GSE206422	GSE206422		tissue	sra	31	18	3	2	31	31	30
+tissue_reference	GSE152430	GSE152430		tissue	sra	31	31	0	0	31	31	30
+tissue_reference	GSE215286	GSE215286		tissue	sra	31	31	2	0	31	31	31
+tissue_reference	GSE198545	PMID:35574319	35574319	tissue	sra	31	31	0	0	31	31	31
+tissue_reference	GSE48865	PMID:25135958	25135958	tissue	sra	31	31	0	0	31	31	29
+tissue_reference	GSE169203	PMID:35288462	35288462	tissue	sra	30	30	3	0	30	30	29
+tissue_reference	GSE267010	GSE267010		tissue	sra	30	30	0	0	30	30	28
+tissue_reference	GSE95640	GSE95640		tissue	sra	30	30	2	11	25	30	19
+tissue_reference	GSE171059	GSE171059		tissue	sra	30	30	27	29	30	30	29
+tissue_reference	GSE141610	GSE141610		tissue	sra	30	30	12	25	30	30	30
+tissue_reference	GSE191275	GSE191275		tissue	sra	30	30	2	10	30	30	30
+tissue_reference	GSE272035	GSE272035		tissue	sra	30	30	2	5	29	29	25
+tissue_reference	GSE253650	GSE253650		tissue	sra	29	19	12	13	29	29	27
+tissue_reference	GSE226478	GSE226478		tissue	sra	29	28	5	10	29	29	29
+tissue_reference	GSE165724	GSE165724		tissue	sra	29	23	1	6	29	29	28
+tissue_reference	GSE244807	PMID:39242455	39242455	tissue	sra	29	29	0	0	29	29	26
+tissue_reference	GSE221492	GSE221492		tissue	sra	29	29	4	7	29	29	28
+tissue_reference	GSE283313	GSE283313		tissue	sra	29	16	0	13	25	26	25
+tissue_reference	GSE94660	GSE94660		tissue	sra	29	21	0	2	29	29	29
+tissue_reference	GSE149276	PMID:32554602	32554602	tissue	sra	29	29	6	12	29	29	29
+tissue_reference	GSE204748	GSE204748		tissue	sra	28	28	2	10	28	28	27
+tissue_reference	GSE248167	GSE248167		tissue	sra	28	28	1	11	28	28	28
+tissue_reference	GSE102312	GSE102312		tissue	sra	28	28	17	23	28	28	28
+tissue_reference	GSE142279	GSE142279		tissue	sra	28	20	7	21	28	28	28
+tissue_reference	GSE208858	GSE208858		tissue	sra	28	27	12	14	28	28	26
+tissue_reference	GSE143897	GSE143897		tissue	sra	28	17	1	4	28	28	28
+tissue_reference	GSE147704	GSE147704		tissue	sra	27	24	1	8	26	27	27
+tissue_reference	GSE199152	GSE199152		tissue	sra	27	27	2	9	27	27	27
+tissue_reference	GSE243375	PMID:38300710	38300710	tissue	sra	26	26	0	0	26	26	26
+tissue_reference	GSE214293	GSE214293		tissue	sra	26	26	6	19	26	26	26
+tissue_reference	GSE174799	PMID:34003290	34003290	tissue	sra	26	17	0	1	26	26	25
+tissue_reference	GSE216037	GSE216037		tissue	sra	26	25	1	5	26	26	26
+tissue_reference	GSE154548	GSE154548		tissue	sra	26	26	0	0	26	26	25
+tissue_reference	GSE199949	GSE199949		tissue	sra	26	13	19	26	26	26	26
+tissue_reference	GSE180887	GSE180887		tissue	sra	26	26	3	4	26	26	25
+tissue_reference	GSE180661	GSE180661		tissue	sra	26	20	6	1	25	26	25
+tissue_reference	GSE93326	PMID:29440233	29440233	tissue	sra	26	26	0	0	26	26	25
+tissue_reference	GSE62852	PMID:28679652	28679652	tissue	sra	25	25	0	0	25	25	24
+tissue_reference	GSE132836	PMID:31292266		tissue	sra	25	25	0	10	25	25	25
+tissue_reference	GSE215285	GSE215285		tissue	sra	25	25	2	4	25	25	25
+tissue_reference	GSE237995	GSE237995		tissue	sra	25	23	0	0	25	25	24
+tissue_reference	GSE65485	GSE65485		tissue	sra	25	24	3	9	25	25	25
+tissue_reference	GSE162714	PMID:33945502	33945502	tissue	sra	25	11	0	0	25	25	25
+tissue_reference	GSE304200	GSE304200		tissue	sra	25	25	2	7	25	25	25
+tissue_reference	GSE164359	GSE164359		tissue	sra	25	25	0	1	25	25	24
+tissue_reference	GSE77509	PMID:28194035	28194035	tissue	sra	25	17	0	0	25	25	21
+tissue_reference	GSE138485	GSE138485		tissue	sra	25	25	0	5	25	25	25
+tissue_reference	GSE130078	GSE130078		tissue	sra	24	24	0	0	24	24	24
+tissue_reference	GSE198946	GSE198946		tissue	sra	24	24	3	12	23	23	23
+tissue_reference	GSE104171	PMID:29551594	29551594	tissue	sra	24	24	0	3	24	20	6
+tissue_reference	GSE228122	PMID:37736163	37736163	tissue	sra	24	24	22	22	24	24	24
+tissue_reference	GSE229410	GSE229410		tissue	sra	24	23	0	4	24	24	24
+tissue_reference	GSE249997	GSE249997		tissue	sra	24	24	0	0	24	24	20
+tissue_reference	GSE236522	GSE236522		tissue	sra	24	24	6	13	24	24	24
+tissue_reference	GSE196711	GSE196711		tissue	sra	23	23	3	7	23	23	23
+tissue_reference	GSE136711	GSE136711		tissue	sra	23	20	1	3	23	23	23
+tissue_reference	GSE189642	GSE189642		tissue	sra	23	23	19	22	23	23	23
+tissue_reference	GSE230489	PMID:40405018	40405018	tissue	sra	23	23	4	9	23	23	23
+tissue_reference	GSE106500	PMID:29710228	29710228	tissue	sra	23	20	0	0	23	23	23
+tissue_reference	GSE152040	PMID:35090594	35090594	tissue	sra	23	23	20	23	23	23	23
+tissue_reference	GSE253553	PMID:38782587	38782587	tissue	sra	23	23	15	17	23	23	23
+tissue_reference	GSE225182	GSE225182		tissue	sra	23	22	2	11	23	23	23
+tissue_reference	GSE245764	GSE245764		tissue	sra	22	22	1	9	22	22	22
+tissue_reference	GSE129508	GSE129508		tissue	sra	22	22	0	0	22	22	22
+tissue_reference	GSE251905	GSE251905		tissue	sra	22	19	0	4	21	22	22
+tissue_reference	GSE165255	PMID:33664231	33664231	tissue	sra	22	19	0	0	22	22	22
+tissue_reference	GSE176271	GSE176271		tissue	sra	22	14	0	0	22	22	22
+tissue_reference	GSE104730	GSE104730		tissue	sra	22	22	2	6	22	22	22
+tissue_reference	GSE207194	GSE207194		tissue	sra	22	22	0	0	22	22	21
+tissue_reference	GSE200418	GSE200418		tissue	sra	22	7	0	0	22	22	20
+tissue_reference	GSE113113	GSE113113		tissue	sra	21	21	14	11	16	17	14
+tissue_reference	GSE255518	GSE255518		tissue	sra	21	21	11	5	20	21	21
+tissue_reference	GSE135631	GSE135631		tissue	sra	21	21	3	6	21	21	20
+tissue_reference	GSE224758	GSE224758		tissue	sra	21	21	3	12	21	21	21
+tissue_reference	GSE78220	PMID:26997480	26997480	tissue	sra	21	20	8	13	20	21	19
+tissue_reference	GSE273036	GSE273036		tissue	sra	21	18	0	1	21	21	19
+tissue_reference	GSE153659	GSE153659		tissue	sra	21	21	10	16	20	20	20
+tissue_reference	GSE127831	PMID:31748229, 34009107	31748229, 34009107	tissue	sra	21	21	18	19	21	21	21
+tissue_reference	GSE276366	GSE276366		tissue	sra	21	19	9	0	21	21	21
+tissue_reference	GSE180280	GSE180280		tissue	sra	21	17	0	0	21	21	21
+tissue_reference	GSE190449	GSE190449		tissue	sra	21	21	0	4	21	21	21
+tissue_reference	GSE139682	PMID:31792210	31792210	tissue	sra	20	10	3	4	20	20	19
+tissue_reference	GSE178411	GSE178411		tissue	sra	20	20	3	6	19	20	18
+tissue_reference	GSE243957	GSE243957		tissue	sra	20	20	0	4	20	20	19
+tissue_reference	GSE162187	GSE162187		tissue	sra	20	20	5	8	20	20	20
+tissue_reference	GSE230113	GSE230113		tissue	sra	20	20	2	4	20	20	20
+tissue_reference	GSE128429	GSE128429		tissue	sra	20	20	2	14	20	20	20
+tissue_reference	GSE147980	GSE147980		tissue	sra	20	20	0	2	20	20	20
+tissue_reference	GSE184616	GSE184616		tissue	sra	20	14	0	2	19	19	18
+tissue_reference	GSE71119	PMID:26916546	26916546	tissue	sra	19	19	3	4	19	19	19
+tissue_reference	GSE148801	PMID:32736413	32736413	tissue	sra	19	19	0	0	19	19	19
+tissue_reference	GSE148036	PMID:33097805	33097805	tissue	sra	19	14	7	15	19	19	19
+tissue_reference	GSE97165	PMID:28863153	28863153	tissue	sra	19	19	1	3	19	19	19
+tissue_reference	GSE150851	GSE150851		tissue	sra	19	19	0	0	19	19	19
+tissue_reference	GSE274551	PMID:39927885	39927885	tissue	sra	19	11	1	4	19	19	19
+tissue_reference	GSE149609	GSE149609		tissue	sra	19	10	0	2	19	19	19
+tissue_reference	GSE165611	PMID:36717865	36717865	tissue	sra	19	19	7	12	17	17	16
+tissue_reference	GSE256268	GSE256268		tissue	sra	19	18	0	0	19	19	18
+tissue_reference	GSE166449	PMID:33857424	33857424	tissue	sra	19	19	2	1	19	19	19
+tissue_reference	GSE116782	GSE116782		tissue	sra	19	7	7	13	19	19	19
+tissue_reference	GSE207243	GSE207243		tissue	sra	19	19	10	19	19	19	18
+tissue_reference	GSE141569	GSE141569		tissue	sra	19	19	10	14	19	19	19
+tissue_reference	GSE156699	PMID:33499129, 33727600	33499129, 33727600	tissue	sra	18	18	0	1	18	18	18
+tissue_reference	GSE181820	GSE181820		tissue	sra	18	18	9	13	18	18	18
+tissue_reference	GSE216340	GSE216340		tissue	sra	18	18	15	16	18	18	18
+tissue_reference	GSE131179	PMID:31292297	31292297	tissue	sra	18	18	3	8	18	18	16
+tissue_reference	GSE102101	GSE102101		tissue	sra	18	10	3	7	18	18	18
+tissue_reference	GSE156281	GSE156281		tissue	sra	18	18	0	0	18	18	18
+tissue_reference	GSE291331	GSE291331		tissue	sra	18	18	2	2	18	18	18
+tissue_reference	GSE235570	GSE235570		tissue	sra	18	18	8	12	18	18	16
+tissue_reference	GSE153437	PMID:32669372	32669372	tissue	sra	18	18	9	14	12	13	9
+tissue_reference	GSE103424	GSE103424		tissue	sra	18	18	0	1	18	18	18
+tissue_reference	GSE192647	GSE192647		tissue	sra	18	18	0	0	18	18	18
+tissue_reference	GSE225066	GSE225066		tissue	sra	18	18	1	3	18	18	18
+tissue_reference	GSE223463	GSE223463		tissue	sra	18	15	1	0	18	17	17
+tissue_reference	GSE189266	GSE189266		tissue	sra	18	18	4	10	18	18	18
+tissue_reference	GSE186063	GSE186063		tissue	sra	18	18	1	10	15	15	15
+tissue_reference	GSE191230	PMID:35878022	35878022	tissue	sra	18	18	6	11	18	18	17
+tissue_reference	GSE271664	GSE271664		tissue	sra	17	17	1	0	17	16	13
+tissue_reference	GSE95013	PMID:29335468	29335468	tissue	sra	17	17	11	14	16	15	13
+tissue_reference	GSE183924	PMID:34604072	34604072	tissue	sra	17	17	4	0	17	17	17
+tissue_reference	GSE250595	GSE250595		tissue	sra	17	17	0	0	17	17	16
+tissue_reference	GSE207248	GSE207248		tissue	sra	17	12	0	0	17	17	17
+tissue_reference	GSE221240	PMID:37213253	37213253	tissue	sra	17	9	0	0	17	17	16
+tissue_reference	GSE59483	PMID:25199720	25199720	tissue	sra	17	17	0	0	17	17	14
+tissue_reference	GSE250445	GSE250445		tissue	sra	17	16	0	0	17	17	17
+tissue_reference	GSE137327	GSE137327		tissue	sra	17	9	0	0	17	17	17
+tissue_reference	GSE212604	GSE212604		tissue	sra	16	16	3	6	16	16	16
+tissue_reference	GSE151495	PMID:33491664	33491664	tissue	sra	16	16	4	4	16	16	16
+tissue_reference	GSE226870	GSE226870		tissue	sra	16	16	1	1	16	16	16
+tissue_reference	GSE157256	PMID:33402335	33402335	tissue	sra	16	16	3	5	16	16	16
+tissue_reference	GSE136825	GSE136825		tissue	sra	16	16	1	1	16	16	16
+tissue_reference	GSE169289	GSE169289		tissue	sra	16	16	2	5	16	16	15
+tissue_reference	GSE54456	PMID:24441097, 25723451, 27992404, 32132203	24441097, 25723451, 27992404, 32132203	tissue	sra	16	16	0	0	16	16	16
+tissue_reference	GSE138202	GSE138202		tissue	sra	16	8	2	7	16	16	16
+tissue_reference	GSE227335	GSE227335		tissue	sra	16	16	1	5	16	16	16
+tissue_reference	PRJNA378161	PRJNA378161		tissue	sra	16	1	1	1	16	16	14
+tissue_reference	GSE285522	GSE285522		tissue	sra	16	7	1	5	15	15	10
+tissue_reference	GSE139533	PMID:32102350	32102350	tissue	sra	16	9	0	1	16	16	16
+tissue_reference	GSE293744	GSE293744		tissue	sra	16	16	0	0	16	16	15
+tissue_reference	GSE173855	GSE173855		tissue	sra	16	14	1	1	16	16	14
+tissue_reference	GSE239934	GSE239934		tissue	sra	16	16	0	0	16	16	16
+tissue_reference	GSE157194	PMID:32615169	32615169	tissue	sra	16	14	0	2	15	15	15
+tissue_reference	GSE205973	GSE205973		tissue	sra	16	16	4	9	16	16	15
+tissue_reference	GSE63569	GSE63569		tissue	sra	15	15	0	0	15	15	14
+tissue_reference	GSE196263	GSE196263		tissue	sra	15	7	0	0	15	15	15
+tissue_reference	GSE82291	PMID:29438977, 28440341	29438977, 28440341	tissue	sra	15	15	2	3	15	15	15
+tissue_reference	GSE227100	GSE227100		tissue	sra	15	15	12	15	4	14	15
+tissue_reference	GSE135222	PMID:31537801; 32762727	31537801; 32762727	tissue	sra	15	15	1	3	15	15	15
+tissue_reference	GSE154200	GSE154200		tissue	sra	15	15	2	7	10	11	6
+tissue_reference	GSE164150	PMID:33889540	33889540	tissue	sra	15	15	1	1	15	15	15
+tissue_reference	GSE271757	PMID:39151421	39151421	tissue	sra	15	15	8	7	15	15	15
+tissue_reference	GSE211398	PMID:36812168	36812168	tissue	sra	15	15	0	0	15	15	15
+tissue_reference	GSE145429	PMID:32516590	32516590	tissue	sra	15	15	0	1	15	15	15
+tissue_reference	GSE196006	PMID:36139061	36139061	tissue	sra	15	11	0	1	15	15	15
+tissue_reference	GSE103001	PMID:29234122	29234122	tissue	sra	15	11	0	0	15	15	12
+tissue_reference	GSE213324	GSE213324		tissue	sra	15	15	2	3	15	15	15
+tissue_reference	GSE80609	PMID:29941933	29941933	tissue	sra	15	14	0	0	15	15	14
+tissue_reference	GSE275788	PMID:39939590	39939590	tissue	sra	15	12	14	14	15	15	15
+tissue_reference	GSE173078	GSE173078		tissue	sra	15	15	0	0	15	15	15
+tissue_reference	GSE277107	GSE277107		tissue	sra	15	10	7	10	15	15	15
+tissue_reference	GSE138283	PMID:32245461	32245461	tissue	sra	15	15	0	0	15	15	15
+tissue_reference	GSE192832	GSE192832		tissue	sra	15	15	0	0	15	15	11
+tissue_reference	GSE233517	GSE233517		tissue	sra	15	15	0	0	15	15	15
+tissue_reference	GSE138702	PMID:31985806	31985806	tissue	sra	15	15	15	15	15	15	15
+tissue_reference	GSE199906	PMID:36655602	36655602	tissue	sra	15	15	9	14	15	15	15
+tissue_reference	GSE102055	GSE102055		tissue	sra	15	15	0	5	15	15	13
+tissue_reference	GSE210647	GSE210647		tissue	sra	15	15	0	0	15	15	15
+tissue_reference	GSE289037	GSE289037		tissue	sra	15	15	4	14	15	15	15
+tissue_reference	GSE130397	PMID:31856832	31856832	tissue	sra	15	7	2	0	15	15	15
+tissue_reference	GSE133039	PMID:32240714	32240714	tissue	sra	15	12	0	2	15	15	14
+tissue_reference	GSE302495	GSE302495		tissue	sra	15	12	1	0	15	15	15
+tissue_reference	GSE240671	GSE240671		tissue	sra	14	13	0	0	14	14	13
+tissue_reference	GSE114740	GSE114740		tissue	sra	14	8	0	3	14	14	14
+tissue_reference	GSE179933	GSE179933		tissue	sra	14	14	0	2	14	14	14
+tissue_reference	GSE202479	GSE202479		tissue	sra	14	14	1	3	14	14	14
+tissue_reference	GSE266325	PMID:39956825	39956825	tissue	sra	14	14	12	13	14	14	14
+tissue_reference	GSE270042	GSE270042		tissue	sra	14	13	0	0	14	14	13
+tissue_reference	GSE217386	GSE217386		tissue	sra	14	14	1	7	14	14	14
+tissue_reference	GSE211167	PMID:36121736	36121736	tissue	sra	14	14	2	1	14	14	14
+tissue_reference	GSE100799	PMID:29844878	29844878	tissue	sra	14	14	0	0	14	14	14
+tissue_reference	GSE188249	PMID:35671108	35671108	tissue	sra	14	10	0	3	14	14	14
+tissue_reference	GSE232764	GSE232764		tissue	sra	14	14	2	1	14	14	14
+tissue_reference	GSE106534	PMID:30237493	30237493	tissue	sra	14	13	6	6	14	14	14
+tissue_reference	GSE213065	GSE213065		tissue	sra	14	13	0	0	14	14	12
+tissue_reference	GSE118131	PMID:31300474	31300474	tissue	sra	14	14	1	2	14	14	13
+tissue_reference	GSE179879	PMID:35361728	35361728	tissue	sra	14	14	10	11	14	14	14
+tissue_reference	GSE193898	GSE193898		tissue	sra	14	14	1	6	14	14	14
+tissue_reference	GSE179730	GSE179730		tissue	sra	14	9	0	4	14	14	14
+tissue_reference	GSE85465	PMID:27677335	27677335	tissue	sra	14	7	3	7	14	14	14
+tissue_reference	GSE77635	PMID:30619609	30619609	tissue	sra	14	6	0	0	14	14	14
+tissue_reference	GSE290190	PMID:40155749	40155749	tissue	sra	14	9	0	1	14	14	14
+tissue_reference	GSE150368	GSE150368		tissue	sra	14	14	1	0	14	14	14
+tissue_reference	GSE126044	PMID:32879421	32879421	tissue	sra	14	14	2	0	14	14	14
+tissue_reference	GSE87592	PMID:30011215	30011215	tissue	sra	13	13	0	0	13	13	13
+tissue_reference	GSE63816	PMID:25586593	25586593	tissue	sra	13	13	1	9	13	13	13
+tissue_reference	GSE138614	PMID:31829262	31829262	tissue	sra	13	6	0	0	13	13	11
+tissue_reference	GSE205204	GSE205204		tissue	sra	13	13	2	8	13	13	13
+tissue_reference	GSE224707	GSE224707		tissue	sra	13	12	0	0	13	13	13
+tissue_reference	GSE106272	GSE106272		tissue	sra	13	13	0	3	13	13	13
+tissue_reference	GSE189035	GSE189035		tissue	sra	13	13	0	2	13	13	13
+tissue_reference	GSE306395	GSE306395		tissue	sra	13	9	0	3	13	13	13
+tissue_reference	GSE201868	GSE201868		tissue	sra	13	13	2	3	13	13	13
+tissue_reference	GSE104310	GSE104310		tissue	sra	13	13	0	2	13	13	12
+tissue_reference	GSE184733	GSE184733		tissue	sra	13	10	0	2	13	13	10
+tissue_reference	GSE156171	PMID:33865912	33865912	tissue	sra	13	13	0	0	13	13	13
+tissue_reference	GSE227919	GSE227919		tissue	sra	13	13	0	0	13	13	11
+tissue_reference	GSE306800	GSE306800		tissue	sra	13	13	3	9	13	13	13
+tissue_reference	GSE119336	GSE119336		tissue	sra	13	12	0	1	13	13	12
+tissue_reference	GSE226481	GSE226481		tissue	sra	13	13	8	12	13	13	13
+tissue_reference	GSE97214	PMID:28489570	28489570	tissue	sra	13	8	0	2	13	13	13
+tissue_reference	GSE144293	GSE144293		tissue	sra	13	13	4	5	13	13	13
+tissue_reference	GSE94437	GSE94437		tissue	sra	13	7	0	0	13	13	12
+tissue_reference	GSE225208	GSE225208		tissue	sra	13	13	10	12	13	13	13
+tissue_reference	GSE193080	GSE193080		tissue	sra	13	13	0	0	13	13	13
+tissue_reference	GSE75299	PMID:28864476	28864476	tissue	sra	13	7	7	11	13	13	12
+tissue_reference	GSE186775	GSE186775		tissue	sra	13	13	0	0	13	13	13
+tissue_reference	GSE165883	GSE165883		tissue	sra	13	8	0	0	13	13	13
+tissue_reference	GSE139688	PMID:35028452	35028452	tissue	sra	13	10	0	0	13	13	12
+tissue_reference	GSE99248	GSE99248		tissue	sra	13	12	0	0	13	13	13
+tissue_reference	GSE276931	GSE276931		tissue	sra	12	7	7	7	12	12	12
+tissue_reference	GSE164158	PMID:33552118	33552118	tissue	sra	12	7	0	1	12	12	12
+tissue_reference	GSE213145	GSE213145		tissue	sra	12	12	0	0	12	12	11
+tissue_reference	GSE225650	PMID:37950869	37950869	tissue	sra	12	12	0	0	12	12	11
+tissue_reference	GSE146436	PMID:33436736	33436736	tissue	sra	12	10	0	0	12	12	12
+tissue_reference	GSE55758	PMID:26300991	26300991	tissue	sra	12	8	0	6	12	12	12
+tissue_reference	GSE115414	PMID:31732695	31732695	tissue	sra	12	12	0	0	12	12	10
+tissue_reference	GSE278036	GSE278036		tissue	sra	12	12	5	10	10	11	7
+tissue_reference	GSE141200	GSE141200		tissue	sra	12	12	0	0	12	12	12
+tissue_reference	GSE183533	GSE183533		tissue	sra	12	12	0	0	12	12	12
+tissue_reference	GSE224526	GSE224526		tissue	sra	12	12	2	0	12	12	12
+tissue_reference	GSE182831	PMID:36604653	36604653	tissue	sra	12	12	0	1	12	12	12
+tissue_reference	GSE125866	GSE125866		tissue	sra	12	8	0	5	12	11	12
+tissue_reference	GSE83520	PMID:27459529	27459529	tissue	sra	12	7	0	1	12	12	11
+tissue_reference	GSE150586	GSE150586		tissue	sra	12	12	2	2	12	12	12
+tissue_reference	GSE206199	PMID:36418319	36418319	tissue	sra	12	12	4	9	12	12	12
+tissue_reference	GSE98422	GSE98422		tissue	sra	12	12	1	1	12	12	12
+tissue_reference	GSE141785	GSE141785		tissue	sra	12	12	0	0	12	12	12
+tissue_reference	GSE133998	PMID:32838810	32838810	tissue	sra	12	6	3	5	12	12	12
+tissue_reference	GSE124510	GSE124510		tissue	sra	12	7	0	0	12	12	5
+tissue_reference	GSE273886	GSE273886		tissue	sra	11	11	0	0	11	11	8
+tissue_reference	GSE190826	GSE190826		tissue	sra	11	11	0	0	11	11	11
+tissue_reference	GSE211653	GSE211653		tissue	sra	11	11	4	6	11	11	11
+tissue_reference	GSE138866	GSE138866		tissue	sra	11	11	0	0	11	11	9
+tissue_reference	GSE158854	GSE158854		tissue	sra	11	11	2	0	11	11	11
+tissue_reference	GSE113619	PMID:29870686	29870686	tissue	sra	11	2	0	0	11	11	9
+tissue_reference	GSE234304	GSE234304		tissue	sra	11	11	0	0	11	11	11
+tissue_reference	GSE228953	PMID:38396288	38396288	tissue	sra	11	7	2	3	11	11	11
+tissue_reference	GSE229571	GSE229571		tissue	sra	11	11	2	2	11	11	11
+tissue_reference	GSE227747	GSE227747		tissue	sra	11	11	7	11	11	11	11
+tissue_reference	GSE274139	GSE274139		tissue	sra	11	11	4	4	11	11	11
+tissue_reference	GSE110114	GSE110114		tissue	sra	11	11	9	9	11	11	11
+tissue_reference	GSE155800	PMID:34458010	34458010	tissue	sra	11	8	1	2	11	11	10
+tissue_reference	GSE104140	GSE104140		tissue	sra	11	11	0	0	11	11	11
+tissue_reference	GSE151165	PMID:34376784	34376784	tissue	sra	11	11	0	1	11	11	11
+tissue_reference	GSE200130	PMID:37399271	37399271	tissue	sra	11	7	2	5	11	11	11
+tissue_reference	GSE130955	PMID:32603313	32603313	tissue	sra	11	11	0	0	11	11	10
+tissue_reference	GSE183464	GSE183464		tissue	sra	11	11	0	3	11	11	11
+tissue_reference	GSE194056	GSE194056		tissue	sra	11	11	0	0	11	11	11
+tissue_reference	GSE285944	GSE285944		tissue	sra	11	11	7	8	10	10	10
+tissue_reference	GSE199517	GSE199517		tissue	sra	11	8	5	7	10	10	8
+tissue_reference	GSE234354	PMID:37798294	37798294	tissue	sra	11	11	0	1	11	11	9
+tissue_reference	GSE157020	PMID:36521659	36521659	tissue	sra	11	9	0	0	11	11	11
+tissue_reference	GSE193276	GSE193276		tissue	sra	11	11	5	6	10	11	11
+tissue_reference	GSE214947	PMID:40034069	40034069	tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE157126	GSE157126		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE48403	GSE48403		tissue	sra	10	5	0	4	10	10	10
+tissue_reference	GSE111320	GSE111320		tissue	sra	10	10	2	5	10	9	9
+tissue_reference	GSE220815	GSE220815		tissue	sra	10	10	2	9	10	10	10
+tissue_reference	GSE142731	PMID:33839593	33839593	tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE184752	PMID:34615725	34615725	tissue	sra	10	6	7	7	10	10	10
+tissue_reference	GSE74734	PMID:26766592	26766592	tissue	sra	10	10	2	4	10	10	10
+tissue_reference	GSE135069	PMID:31826721	31826721	tissue	sra	10	5	2	9	10	10	10
+tissue_reference	GSE137237	PMID:31600962	31600962	tissue	sra	10	9	0	0	10	10	10
+tissue_reference	GSE149723	PMID:32647134	32647134	tissue	sra	10	7	4	7	9	9	9
+tissue_reference	GSE183947	GSE183947		tissue	sra	10	8	0	0	10	10	10
+tissue_reference	GSE223924	GSE223924		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE289466	GSE289466		tissue	sra	10	10	1	1	10	9	9
+tissue_reference	GSE111582	GSE111582		tissue	sra	10	10	2	2	10	10	9
+tissue_reference	GSE142000	GSE142000		tissue	sra	10	10	3	3	10	10	9
+tissue_reference	GSE183229	GSE183229		tissue	sra	10	10	0	1	10	10	10
+tissue_reference	GSE107943	GSE107943		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE159237	PMID:33771853	33771853	tissue	sra	10	9	0	2	10	10	9
+tissue_reference	GSE118014	PMID:30315258	30315258	tissue	sra	10	10	1	1	10	10	10
+tissue_reference	GSE225650	PMID:37950869		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE296260	GSE296260		tissue	sra	10	9	0	2	10	10	10
+tissue_reference	GSE196748	GSE196748		tissue	sra	10	10	0	1	10	10	10
+tissue_reference	GSE199630	GSE199630		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE150474	GSE150474		tissue	sra	10	10	0	1	10	10	8
+tissue_reference	GSE77661	PMID:27050392	27050392	tissue	sra	10	6	0	0	10	10	9
+tissue_reference	GSE213565	GSE213565		tissue	sra	10	10	0	1	10	10	10
+tissue_reference	GSE230397	GSE230397		tissue	sra	10	10	0	0	10	10	6
+tissue_reference	GSE152229	GSE152229		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE245351	GSE245351		tissue	sra	10	10	0	0	10	10	10
+tissue_reference	GSE190967	GSE190967		tissue	sra	9	9	0	0	9	9	9
+tissue_reference	GSE246963	GSE246963		tissue	sra	9	9	1	7	9	9	9
+tissue_reference	GSE101794	GSE101794		tissue	sra	9	9	0	2	9	9	9
+tissue_reference	GSE221107	GSE221107		tissue	sra	9	9	0	9	8	9	6
+tissue_reference	GSE171248	GSE171248		tissue	sra	9	9	1	2	9	9	9
+tissue_reference	GSE104836	GSE104836		tissue	sra	9	9	0	3	9	9	9
+tissue_reference	GSE216664	GSE216664		tissue	sra	9	9	0	1	9	9	9
+tissue_reference	GSE150043	GSE150043		tissue	sra	9	9	0	0	9	9	9
+tissue_reference	GSE179265	GSE179265		tissue	sra	9	9	1	4	9	9	9
+tissue_reference	GSE165932	GSE165932		tissue	sra	9	9	0	0	9	9	8
+tissue_reference	GSE294056	GSE294056		tissue	sra	9	9	0	3	9	9	9
+tissue_reference	GSE124625	GSE124625		tissue	sra	9	9	0	7	9	9	9
+tissue_reference	GSE224248	GSE224248		tissue	sra	9	9	0	0	9	9	9
+tissue_reference	GSE143318	GSE143318		tissue	sra	9	7	0	0	9	9	9
+tissue_reference	GSE179440	GSE179440		tissue	sra	9	9	0	1	9	9	9
+tissue_reference	GSE202922	GSE202922		tissue	sra	9	9	0	0	9	9	8
+tissue_reference	GSE189340	GSE189340		tissue	sra	9	9	2	2	9	9	9
+tissue_reference	GSE254682	GSE254682		tissue	sra	9	9	0	0	9	9	9
+tissue_reference	GSE118995	GSE118995		tissue	sra	9	9	1	3	9	9	9
+tissue_reference	GSE176221	GSE176221		tissue	sra	9	9	3	5	9	9	9
+tissue_reference	GSE119794	PMID:30294829	30294829	tissue	sra	9	9	2	5	9	9	9
+tissue_reference	GSE263321	PMID:39799155	39799155	tissue	sra	9	9	5	4	9	8	9
+tissue_reference	GSE202687	PMID:35681616	35681616	tissue	sra	9	9	4	5	9	9	9
+tissue_reference	GSE163899	PMID:33535616	33535616	tissue	sra	9	9	0	1	9	9	9
+tissue_reference	GSE222298	GSE222298		tissue	sra	9	8	0	0	9	9	9
+tissue_reference	GSE50514	PMID:24416450	24416450	tissue	sra	8	8	4	8	7	7	7
+tissue_reference	GSE112509	GSE112509		tissue	sra	8	8	7	7	8	8	8
+tissue_reference	GSE272776	GSE272776		tissue	sra	8	8	0	1	8	8	8
+tissue_reference	GSE168009	PMID:34783210	34783210	tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE140261	GSE140261		tissue	sra	8	8	1	2	8	8	6
+tissue_reference	GSE100925	PMID:30930117	30930117	tissue	sra	8	8	0	0	8	8	7
+tissue_reference	GSE76404	GSE76404		tissue	sra	8	8	0	2	8	8	7
+tissue_reference	GSE214980	GSE214980		tissue	sra	8	5	8	8	8	8	8
+tissue_reference	GSE118719	GSE118719		tissue	sra	8	8	5	6	8	8	8
+tissue_reference	GSE74442	GSE74442		tissue	sra	8	8	0	1	8	8	8
+tissue_reference	GSE102661	GSE102661		tissue	sra	8	8	0	5	8	8	8
+tissue_reference	GSE206838	GSE206838		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE104131	PMID:29741809	29741809	tissue	sra	8	7	0	0	8	8	8
+tissue_reference	GSE182923	GSE182923		tissue	sra	8	8	0	4	8	8	8
+tissue_reference	GSE136846	GSE136846		tissue	sra	8	6	0	0	8	8	7
+tissue_reference	GSE248612	GSE248612		tissue	sra	8	8	1	2	8	8	8
+tissue_reference	GSE64912	PMID:25803323	25803323	tissue	sra	8	8	1	4	8	8	8
+tissue_reference	GSE196009	GSE196009		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE274628	GSE274628		tissue	sra	8	8	0	0	8	8	5
+tissue_reference	GSE235236	PMID:37495570	37495570	tissue	sra	8	8	0	3	8	8	8
+tissue_reference	GSE218939	PMID:37400526	37400526	tissue	sra	8	7	3	3	8	8	8
+tissue_reference	GSE264741	GSE264741		tissue	sra	8	7	0	0	8	8	7
+tissue_reference	GSE160626	GSE160626		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE165988	GSE165988		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE119674	GSE119674		tissue	sra	8	8	0	5	8	8	8
+tissue_reference	GSE224056	GSE224056		tissue	sra	8	5	6	6	8	8	8
+tissue_reference	GSE84339	PMID:28087642	28087642	tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE143986	GSE143986		tissue	sra	8	8	8	8	8	8	8
+tissue_reference	GSE180790	PMID:34670579	34670579	tissue	sra	8	7	3	5	8	8	8
+tissue_reference	GSE147304	GSE147304		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE263647	GSE263647		tissue	sra	8	8	1	1	8	8	8
+tissue_reference	GSE153262	GSE153262		tissue	sra	8	8	5	6	7	8	7
+tissue_reference	GSE267031	GSE267031		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE249273	GSE249273		tissue	sra	8	8	0	0	8	8	7
+tissue_reference	GSE227541	GSE227541		tissue	sra	8	8	5	6	8	8	8
+tissue_reference	GSE72820	GSE72820		tissue	sra	8	6	0	0	8	8	8
+tissue_reference	GSE174519	GSE174519		tissue	sra	8	8	0	1	8	8	8
+tissue_reference	GSE155398	PMID:33664848	33664848	tissue	sra	8	8	4	5	5	7	5
+tissue_reference	GSE251845	GSE251845		tissue	sra	8	8	0	0	8	8	8
+tissue_reference	GSE122248	GSE122248		tissue	sra	8	8	0	1	8	8	8
+tissue_reference	GSE193101	GSE193101		tissue	sra	8	8	1	6	5	6	4
+tissue_reference	GSE171012	GSE171012		tissue	sra	8	8	2	7	8	8	7
+tissue_reference	GSE159574	GSE159574		tissue	sra	8	8	3	3	8	8	8
+tissue_reference	GSE151347	GSE151347		tissue	sra	7	7	0	1	7	7	7
+tissue_reference	GSE239514	GSE239514		tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE131568	PMID:33313120	33313120	tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE171011	PMID:34188490	34188490	tissue	sra	7	4	4	2	7	7	6
+tissue_reference	GSE278664	GSE278664		tissue	sra	7	7	2	2	7	7	7
+tissue_reference	GSE113024	GSE113024		tissue	sra	7	5	0	0	7	7	7
+tissue_reference	GSE138581	PMID:32292502	32292502	tissue	sra	7	7	3	4	7	7	7
+tissue_reference	GSE251942	GSE251942		tissue	sra	7	6	0	0	7	7	5
+tissue_reference	GSE159924	GSE159924		tissue	sra	7	7	0	0	7	7	4
+tissue_reference	GSE121344	PMID:32005828	32005828	tissue	sra	7	7	0	0	7	7	6
+tissue_reference	GSE164871	GSE164871		tissue	sra	7	7	5	6	7	7	7
+tissue_reference	GSE49601	GSE49601		tissue	sra	7	7	3	6	6	6	5
+tissue_reference	GSE160499	PMID:33414469	33414469	tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE194116	GSE194116		tissue	sra	7	7	3	1	7	7	7
+tissue_reference	GSE104858	PMID:29503225	29503225	tissue	sra	7	2	0	0	7	7	7
+tissue_reference	GSE297863	GSE297863		tissue	sra	7	7	0	2	7	7	4
+tissue_reference	GSE232434	GSE232434		tissue	sra	7	7	2	2	7	7	7
+tissue_reference	GSE152991	GSE152991		tissue	sra	7	7	0	0	7	7	2
+tissue_reference	GSE52248	PMID:24735754	24735754	tissue	sra	7	5	0	0	7	7	7
+tissue_reference	GSE275015	GSE275015		tissue	sra	7	7	0	1	7	7	7
+tissue_reference	GSE263644	GSE263644		tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE188812	PMID:32923142	32923142	tissue	sra	7	6	2	2	7	7	7
+tissue_reference	GSE273408	GSE273408		tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE210787	GSE210787		tissue	sra	7	7	4	6	7	7	7
+tissue_reference	GSE132107	GSE132107		tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE109203	PMID:33304451	33304451	tissue	sra	7	7	1	2	7	7	7
+tissue_reference	GSE275731	GSE275731		tissue	sra	7	7	1	2	7	7	5
+tissue_reference	GSE261888	GSE261888		tissue	sra	7	6	0	0	7	7	7
+tissue_reference	GSE146853	GSE146853		tissue	sra	7	7	0	1	7	7	7
+tissue_reference	GSE176178	PMID:34430403	34430403	tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE58963	GSE58963		tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE190174	GSE190174		tissue	sra	7	7	0	1	7	7	7
+tissue_reference	GSE175648	GSE175648		tissue	sra	7	7	0	0	7	6	6
+tissue_reference	GSE222932	PMID:36928921	36928921	tissue	sra	7	4	3	4	7	7	7
+tissue_reference	GSE136661	PMID:31591222	31591222	tissue	sra	7	7	0	1	7	7	7
+tissue_reference	GSE169146	PMID:35668129	35668129	tissue	sra	7	4	6	7	5	6	5
+tissue_reference	GSE117580	GSE117580		tissue	sra	7	7	0	5	2	4	2
+tissue_reference	GSE264621	GSE264621		tissue	sra	7	7	0	0	7	7	6
+tissue_reference	GSE189191	GSE189191		tissue	sra	7	7	4	4	7	7	6
+tissue_reference	GSE136630	PMID:34059508	34059508	tissue	sra	7	5	0	0	7	7	7
+tissue_reference	GSE58375	PMID:25759020	25759020	tissue	sra	7	7	0	0	7	7	7
+tissue_reference	GSE130688	GSE130688		tissue	sra	7	7	0	0	7	7	6
+tissue_reference	GSE96619	PMID:28494868	28494868	tissue	sra	6	4	1	2	5	6	5
+tissue_reference	GSE115099	GSE115099		tissue	sra	6	6	0	1	6	6	6
+tissue_reference	GSE212836	GSE212836		tissue	sra	6	6	0	0	6	6	5
+tissue_reference	GSE121810	PMID:30742122	30742122	tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE189672	PMID:35108039	35108039	tissue	sra	6	6	0	1	6	6	6
+tissue_reference	GSE58135	PMID:24929677	24929677	tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE183454	GSE183454		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE119968	PMID:31959771	31959771	tissue	sra	6	3	0	0	6	5	6
+tissue_reference	GSE145272	GSE145272		tissue	sra	6	6	5	6	6	6	6
+tissue_reference	GSE155164	GSE155164		tissue	sra	6	4	0	0	6	6	6
+tissue_reference	GSE190504	GSE190504		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE214302	GSE214302		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE190924	GSE190924		tissue	sra	6	6	4	4	6	6	6
+tissue_reference	GSE206448	GSE206448		tissue	sra	6	6	0	1	6	6	5
+tissue_reference	GSE136044	GSE136044		tissue	sra	6	6	0	1	6	6	6
+tissue_reference	GSE141746	GSE141746		tissue	sra	6	4	0	0	6	6	6
+tissue_reference	GSE125966	PMID:34323958	34323958	tissue	sra	6	6	1	0	6	5	4
+tissue_reference	GSE207435	GSE207435		tissue	sra	6	6	1	1	6	6	6
+tissue_reference	GSE109620	PMID:29510190	29510190	tissue	sra	6	6	3	6	5	5	5
+tissue_reference	GSE72713	PMID:27216292	27216292	tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE145996	GSE145996		tissue	sra	6	6	0	0	6	6	5
+tissue_reference	GSE288482	GSE288482		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE200660	GSE200660		tissue	sra	6	6	0	0	6	6	5
+tissue_reference	GSE135445	GSE135445		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE210351	GSE210351		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE202413	GSE202413		tissue	sra	6	6	4	4	6	6	6
+tissue_reference	GSE136401	PMID:33208770	33208770	tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE188799	GSE188799		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE158403	GSE158403		tissue	sra	6	6	1	1	6	6	6
+tissue_reference	GSE155665	GSE155665		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE85897	PMID:27713405	27713405	tissue	sra	6	6	1	2	6	6	6
+tissue_reference	GSE145645	PMID:33931443	33931443	tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE137308	PMID:32174248	32174248	tissue	sra	6	3	1	1	6	6	6
+tissue_reference	GSE134886	PMID:33931030	33931030	tissue	sra	6	3	6	6	6	6	6
+tissue_reference	GSE163071	GSE163071		tissue	sra	6	6	0	0	6	6	5
+tissue_reference	GSE211218	GSE211218		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE74484	PMID:26853473	26853473	tissue	sra	6	4	0	0	6	6	6
+tissue_reference	GSE113341	GSE113341		tissue	sra	6	6	0	2	6	6	6
+tissue_reference	GSE206998	PMID:36405725	36405725	tissue	sra	6	6	2	2	6	6	6
+tissue_reference	GSE155154	GSE155154		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE157601	GSE157601		tissue	sra	6	6	0	0	6	6	6
+tissue_reference	GSE190027	GSE190027		tissue	sra	6	6	0	1	6	6	6
+tissue_reference	GSE112221	GSE112221		tissue	sra	5	3	0	0	5	5	5
+tissue_reference	GSE142077	PMID:32977749	32977749	tissue	sra	5	3	0	0	5	5	4
+tissue_reference	GSE157538	GSE157538		tissue	sra	5	5	3	4	3	3	3
+tissue_reference	GSE212961	GSE212961		tissue	sra	5	5	2	4	5	5	4
+tissue_reference	GSE139274	PMID:31795964	31795964	tissue	sra	5	3	2	2	5	5	5
+tissue_reference	GSE139402	PMID:33318144	33318144	tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE126548	PMID:32676330	32676330	tissue	sra	5	5	1	1	5	5	5
+tissue_reference	GSE72819	GSE72819		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE165612	GSE165612		tissue	sra	5	5	2	2	5	5	5
+tissue_reference	GSE62544	GSE62544		tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE271198	GSE271198		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE132223	GSE132223		tissue	sra	5	5	2	4	5	5	5
+tissue_reference	GSE222982	PMID:36922678	36922678	tissue	sra	5	5	0	1	5	5	5
+tissue_reference	GSE212690	PMID:36269797	36269797	tissue	sra	5	5	0	2	5	5	5
+tissue_reference	GSE101108	GSE101108		tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE192886	GSE192886		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE252145	GSE252145		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE181037	GSE181037		tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE145064	PMID:32086342	32086342	tissue	sra	5	5	2	2	4	4	3
+tissue_reference	GSE190688	GSE190688		tissue	sra	5	5	0	1	5	5	5
+tissue_reference	GSE294501	GSE294501		tissue	sra	5	5	1	3	5	5	5
+tissue_reference	GSE267465	GSE267465		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE145372	PMID:33312754	33312754	tissue	sra	5	5	0	3	5	5	5
+tissue_reference	GSE143939	GSE143939		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE235326	GSE235326		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE209903	GSE209903		tissue	sra	5	5	0	1	5	5	5
+tissue_reference	GSE120444	PMID:30518681	30518681	tissue	sra	5	5	3	5	5	5	5
+tissue_reference	GSE290450	GSE290450		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE120597	PMID:30359577	30359577	tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE119436	GSE119436		tissue	sra	5	3	0	4	5	5	5
+tissue_reference	GSE73708	GSE73708		tissue	sra	5	4	0	0	5	5	5
+tissue_reference	GSE141685	GSE141685		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE293618	GSE293618		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE113126	PMID:29942093	29942093	tissue	sra	5	5	4	4	5	5	5
+tissue_reference	GSE213761	GSE213761		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE282504	GSE282504		tissue	sra	5	5	0	1	5	5	5
+tissue_reference	GSE142582	PMID:32381429	32381429	tissue	sra	5	5	2	2	3	3	2
+tissue_reference	GSE91065	PMID:30552977	30552977	tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE51005	PMID:25519703	25519703	tissue	sra	5	4	0	0	5	5	5
+tissue_reference	GSE223201	GSE223201		tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE189830	PMID:38200573	38200573	tissue	sra	5	3	1	1	5	5	5
+tissue_reference	GSE108317	GSE108317		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE223470	PMID:37160509	37160509	tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE222739	GSE222739		tissue	sra	5	5	0	0	5	5	3
+tissue_reference	GSE125856	GSE125856		tissue	sra	5	5	2	2	5	5	5
+tissue_reference	GSE201439	GSE201439		tissue	sra	5	5	0	0	5	5	4
+tissue_reference	GSE183406	GSE183406		tissue	sra	5	5	1	1	5	5	5
+tissue_reference	GSE255848	GSE255848		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE241466	GSE241466		tissue	sra	5	5	1	0	5	5	5
+tissue_reference	GSE52194	PMID:23604310	23604310	tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE191081	GSE191081		tissue	sra	5	5	1	3	5	5	5
+tissue_reference	GSE279683	GSE279683		tissue	sra	5	5	0	1	5	5	4
+tissue_reference	GSE182917	GSE182917		tissue	sra	5	5	0	0	5	5	5
+tissue_reference	GSE89122	PMID:27144525	27144525	tissue	sra	5	3	0	2	5	5	4
+tissue_reference	GSE149008	GSE149008		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE125733	GSE125733		tissue	sra	4	4	0	2	4	4	4
+tissue_reference	GSE137238	PMID:31600962	31600962	tissue	sra	4	3	0	0	4	4	4
+tissue_reference	GSE215011	GSE215011		tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE132289	PMID:31940494		tissue	sra	4	4	3	3	4	4	4
+tissue_reference	GSE167523	PMID:34105780	34105780	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE190580	GSE190580		tissue	sra	4	4	2	3	4	4	4
+tissue_reference	GSE100363	PMID:31623628	31623628	tissue	sra	4	2	2	2	4	4	4
+tissue_reference	GSE87340	GSE87340		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE156906	GSE156906		tissue	sra	4	4	0	0	4	4	2
+tissue_reference	GSE155697	PMID:33284430	33284430	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE222045	GSE222045		tissue	sra	4	4	1	2	4	4	4
+tissue_reference	GSE139505	PMID:32108138	32108138	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	PRJNA679232	PMID:33335257	33335257	tissue	sra	4	4	0	2	4	4	4
+tissue_reference	GSE295809	GSE295809		tissue	sra	4	4	0	0	4	4	3
+tissue_reference	GSE159382	GSE159382		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE141027	GSE141027		tissue	sra	4	3	0	0	4	3	3
+tissue_reference	GSE84538	GSE84538		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE143233	GSE143233		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE114286	PMID:30341238	30341238	tissue	sra	4	4	0	1	4	4	3
+tissue_reference	GSE197894	GSE197894		tissue	sra	4	3	0	0	4	4	4
+tissue_reference	GSE37764	PMID:23405175		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE143950	PMID:32236620	32236620	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE124030	GSE124030		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE171294	GSE171294		tissue	sra	4	4	0	2	4	4	4
+tissue_reference	GSE200427	PMID:35991552	35991552	tissue	sra	4	2	0	0	4	4	4
+tissue_reference	GSE243173	GSE243173		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE83115	PMID:27329541	27329541	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE161015	GSE161015		tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE247185	GSE247185		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE48850	PMID:24135138	24135138	tissue	sra	4	3	1	3	4	4	4
+tissue_reference	GSE126076	PMID:30914431	30914431	tissue	sra	4	1	0	0	4	4	4
+tissue_reference	GSE299468	GSE299468		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE245467	GSE245467		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE222769	PMID:37749132	37749132	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE179455	GSE179455		tissue	sra	4	4	1	2	4	4	4
+tissue_reference	GSE291206	GSE291206		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE164541	GSE164541		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE208261	GSE208261		tissue	sra	4	4	0	1	4	3	4
+tissue_reference	GSE121842	PMID:31169949	31169949	tissue	sra	4	3	0	2	4	4	4
+tissue_reference	GSE127559	PMID:32224864	32224864	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE179979	GSE179979		tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE93624	PMID:28805827	28805827	tissue	sra	4	4	0	2	4	4	4
+tissue_reference	GSE59612	GSE59612		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE115650	PMID:30312408	30312408	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE125506	GSE125506		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE87581	PMID:28570276	28570276	tissue	sra	4	4	2	2	4	4	4
+tissue_reference	GSE37764	PMID:23405175	23405175	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE109807	GSE109807		tissue	sra	4	4	1	2	4	4	3
+tissue_reference	GSE173609	GSE173609		tissue	sra	4	2	0	0	4	4	4
+tissue_reference	GSE185543	GSE185543		tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE285765	GSE285765		tissue	sra	4	4	0	0	4	4	3
+tissue_reference	GSE206501	GSE206501		tissue	sra	4	4	2	3	4	4	4
+tissue_reference	GSE168204	GSE168204		tissue	sra	4	3	2	3	4	4	4
+tissue_reference	GSE185392	GSE185392		tissue	sra	4	4	0	4	0	0	0
+tissue_reference	GSE309678	GSE309678		tissue	sra	4	4	1	2	4	4	4
+tissue_reference	GSE130160	PMID:31432603	31432603	tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE166861	PMID:34164359	34164359	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE162332	PMID:33634878	33634878	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE175891	PMID:33999421	33999421	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE81550	PMID:27363021	27363021	tissue	sra	4	3	0	0	4	4	4
+tissue_reference	GSE226069	GSE226069		tissue	sra	4	4	0	0	4	0	4
+tissue_reference	GSE272042	PMID:39955294	39955294	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE282430	GSE282430		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE186466	GSE186466		tissue	sra	4	3	0	0	4	4	3
+tissue_reference	GSE149763	PMID:33596784	33596784	tissue	sra	4	4	0	1	4	4	3
+tissue_reference	GSE173808	PMID:34295332	34295332	tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE109231	PMID:29661169	29661169	tissue	sra	4	4	3	4	2	2	2
+tissue_reference	GSE212139	GSE212139		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE156044	PMID:32991841	32991841	tissue	sra	4	4	0	0	4	4	0
+tissue_reference	GSE266101	GSE266101		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE165298	GSE165298		tissue	sra	4	4	0	2	4	4	4
+tissue_reference	GSE282733	GSE282733		tissue	sra	4	4	0	0	4	4	3
+tissue_reference	GSE140707	PMID:32596058	32596058	tissue	sra	4	3	1	2	4	4	4
+tissue_reference	GSE145842	GSE145842		tissue	sra	4	4	0	3	3	4	3
+tissue_reference	GSE119224	GSE119224		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE261162	GSE261162		tissue	sra	4	4	3	3	4	4	4
+tissue_reference	GSE178781	GSE178781		tissue	sra	4	4	0	1	3	4	2
+tissue_reference	GSE135055	GSE135055		tissue	sra	4	4	0	1	4	4	4
+tissue_reference	GSE304352	GSE304352		tissue	sra	4	4	1	2	4	4	4
+tissue_reference	GSE111972	PMID:30867415	30867415	tissue	sra	4	3	0	0	4	4	4
+tissue_reference	GSE226566	GSE226566		tissue	sra	4	4	0	0	4	4	4
+tissue_reference	GSE179568	PMID:34795670	34795670	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE164939	PMID:34572907	34572907	tissue	sra	3	3	0	3	1	2	2
+tissue_reference	GSE151419	PMID:33535553	33535553	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE172359	PMID:33987102	33987102	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE189022	GSE189022		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE143514	PMID:34248943	34248943	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE63381	PMID:24952746	24952746	tissue	sra	3	3	3	3	3	3	3
+tissue_reference	GSE244325	GSE244325		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE132836	PMID:31292266	31292266	tissue	sra	3	3	3	3	3	3	3
+tissue_reference	GSE226321	GSE226321		tissue	sra	3	3	0	0	3	3	2
+tissue_reference	GSE83560	GSE83560		tissue	sra	3	2	0	1	3	3	3
+tissue_reference	GSE216613	GSE216613		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE83990	PMID:29244788	29244788	tissue	sra	3	2	0	0	3	3	3
+tissue_reference	GSE108027	PMID:29861296	29861296	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE203367	GSE203367		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE214432	GSE214432		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE157293	PMID:33384713	33384713	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE199361	GSE199361		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE121212	GSE121212		tissue	sra	3	3	0	0	3	3	2
+tissue_reference	GSE202295	PMID:36070371	36070371	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE75688	GSE75688		tissue	sra	3	3	1	1	3	3	3
+tissue_reference	GSE154556	PMID:32879137	32879137	tissue	sra	3	3	0	1	2	2	2
+tissue_reference	GSE131880	GSE131880		tissue	sra	3	3	2	2	3	3	3
+tissue_reference	GSE212907	GSE212907		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE107000	PMID:29761158	29761158	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE277029	GSE277029		tissue	sra	3	3	0	1	3	3	3
+tissue_reference	GSE164544	PMID:33732646	33732646	tissue	sra	3	3	3	3	3	3	3
+tissue_reference	GSE206464	GSE206464		tissue	sra	3	3	1	2	3	3	3
+tissue_reference	GSE113916	PMID:30497804	30497804	tissue	sra	3	3	1	1	3	3	3
+tissue_reference	GSE178807	GSE178807		tissue	sra	3	3	1	3	3	3	3
+tissue_reference	GSE189690	GSE189690		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE80606	PMID:28721901	28721901	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE287627	GSE287627		tissue	sra	3	3	0	0	3	3	2
+tissue_reference	GSE134056	PMID:31552087	31552087	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE162436	PMID:33303685	33303685	tissue	sra	3	3	2	2	2	2	2
+tissue_reference	GSE205281	GSE205281		tissue	sra	3	3	0	3	3	3	3
+tissue_reference	GSE267505	GSE267505		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE167488	PMID:34365093	34365093	tissue	sra	3	3	0	1	3	3	3
+tissue_reference	GSE117405	GSE117405		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE264282	GSE264282		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE56087	GSE56087		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE111354	GSE111354		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE285865	GSE285865		tissue	sra	3	3	1	2	3	3	3
+tissue_reference	GSE208076	GSE208076		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE159529	GSE159529		tissue	sra	3	2	2	0	3	3	3
+tissue_reference	GSE113972	GSE113972		tissue	sra	3	3	1	1	3	3	2
+tissue_reference	GSE45326	PMID:24344320	24344320	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE263878	GSE263878		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE74697	GSE74697		tissue	sra	3	3	0	0	3	3	1
+tissue_reference	GSE171398	GSE171398		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE241226	PMID:7802055	7802055	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE166773	GSE166773		tissue	sra	3	1	2	3	3	3	3
+tissue_reference	GSE85671	PMID:29141020	29141020	tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE249027	GSE249027		tissue	sra	3	3	0	1	3	3	3
+tissue_reference	GSE64850	PMID:26311227	26311227	tissue	sra	3	3	0	2	3	3	3
+tissue_reference	GSE240287	GSE240287		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE197702	GSE197702		tissue	sra	3	3	0	1	3	3	3
+tissue_reference	GSE163434	PMID:33071237	33071237	tissue	sra	3	2	0	1	3	3	2
+tissue_reference	GSE111177	GSE111177		tissue	sra	3	3	0	0	3	3	3
+tissue_reference	GSE251900	GSE251900		tissue	sra	3	3	1	1	3	3	3
+tissue_reference	GSE221429	GSE221429		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE165286	PMID:33911148	33911148	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE183435	GSE183435		tissue	sra	2	2	1	0	2	2	2
+tissue_reference	GSE193814	GSE193814		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE48953	PMID:24297791	24297791	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE124841	PMID:31160577	31160577	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE103608	GSE103608		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE144020	GSE144020		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE283876	GSE283876		tissue	sra	2	2	2	2	2	2	2
+tissue_reference	GSE226303	GSE226303		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE110948	PMID:29754815	29754815	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE161472	PMID:34088950	34088950	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE275374	PMID:40002253	40002253	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE156172	GSE156172		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE115898	PMID:28465541	28465541	tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE220538	GSE220538		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE267434	GSE267434		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE184199	GSE184199		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE93486	GSE93486		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE165252	PMID:33504550	33504550	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE125864	PMID:31243098	31243098	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE33782	GSE33782		tissue	sra	2	2	0	2	2	2	2
+tissue_reference	GSE178965	GSE178965		tissue	sra	2	2	0	1	2	2	2
+tissue_reference	GSE93499	GSE93499		tissue	sra	2	1	0	0	2	2	2
+tissue_reference	GSE203174	GSE203174		tissue	sra	2	2	0	0	2	1	2
+tissue_reference	GSE200678	GSE200678		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE198618	GSE198618		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE35178	GSE35178		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE165595	GSE165595		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE199939	GSE199939		tissue	sra	2	2	1	1	2	2	2
+tissue_reference	GSE102138	GSE102138		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE141570	GSE141570		tissue	sra	2	2	1	2	0	0	0
+tissue_reference	GSE208637	GSE208637		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE244118	GSE244118		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE126848	PMID:30653341	30653341	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE147911	GSE147911		tissue	sra	2	2	2	2	0	0	0
+tissue_reference	GSE84267	PMID:31018951	31018951	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE274202	GSE274202		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE157517	GSE157517		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE178913	GSE178913		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE173825	PMID:29675951	29675951	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE267310	GSE267310		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE191139	GSE191139		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE287198	GSE287198		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE145284	PMID:32125283	32125283	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE106218	GSE106218		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE173900	GSE173900		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE146115	PMID:33531041	33531041	tissue	sra	2	1	1	1	2	2	2
+tissue_reference	GSE195664	GSE195664		tissue	sra	2	2	0	0	2	2	0
+tissue_reference	GSE78562	GSE78562		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE224783	GSE224783		tissue	sra	2	2	0	0	2	2	0
+tissue_reference	GSE180857	GSE180857		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE80388	PMID:29720137	29720137	tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE79209	GSE79209		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE212787	GSE212787		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE63183	PMID:26680004	26680004	tissue	sra	2	1	0	0	2	2	2
+tissue_reference	GSE136000	GSE136000		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE263297	GSE263297		tissue	sra	2	1	0	0	2	2	2
+tissue_reference	GSE106899	PMID:29794131	29794131	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE249921	PMID:38934509	38934509	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE156657	GSE156657		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE274203	GSE274203		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE92914	PMID:30241526	30241526	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE268366	GSE268366		tissue	sra	2	2	2	2	2	2	2
+tissue_reference	GSE56961	GSE56961		tissue	sra	2	2	0	0	2	2	1
+tissue_reference	GSE217717	GSE217717		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE212719	GSE212719		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE182297	PMID:34506752	34506752	tissue	sra	2	1	0	0	2	2	2
+tissue_reference	GSE181922	PMID:35482409	35482409	tissue	sra	2	2	1	1	1	2	2
+tissue_reference	GSE107650	GSE107650		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE260693	GSE260693		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE55716	GSE55716		tissue	sra	2	2	1	2	2	2	2
+tissue_reference	GSE41476	PMID:23846333	23846333	tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE246323	GSE246323		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE213055	GSE213055		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE108072	GSE108072		tissue	sra	2	2	0	0	2	2	2
+tissue_reference	GSE70285	PMID:26842848	26842848	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE72627	GSE72627		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE168561	GSE168561		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE78578	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738808	tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE202054	GSE202054		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE129762	PMID:32051591	32051591	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738831	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE250241	GSE250241		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE157403	PMID:33942030	33942030	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE115828	PMID:30742112	30742112	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE77530	PMID:26973881	26973881	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE285296	GSE285296		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738829	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE182132	GSE182132		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88186	GSE88186		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738827	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE193725	GSE193725		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738816	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE199888	GSE199888		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738811	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE147250	PMID:32460015	32460015	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE312695	GSE312695		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE200680	GSE200680		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE250152	GSE250152		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE216638	GSE216638		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE159857	PMID:35676822	35676822	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE164677	PMID:33681213	33681213	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE174976	GSE174976		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE142538	GSE142538		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE193567	GSE193567		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE106548	PMID:32109341	32109341	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE78570	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE182586	GSE182586		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE60052	PMID:27093186	27093186	tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738812	tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE298630	GSE298630		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE211554	GSE211554		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738826	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE69241	GSE69241		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE99662	GSE99662		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE107311	GSE107311		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE163126	GSE163126		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738804	tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE137551	PMID:31908010	31908010	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE162389	GSE162389		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88270	GSE88270		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738819	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE164285	GSE164285		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738817	tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE88668	GSE88668		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE235919	GSE235919		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE160016	GSE160016		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE128786	GSE128786		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE235910	GSE235910		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE132289	PMID:31940494	31940494	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE142258	PMID:33839593	33839593	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738821	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738824	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE162542	GSE162542		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE67994	GSE67994		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE110345	GSE110345		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE108539	GSE108539		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE148715	GSE148715		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE160085	PMID:33446563	33446563	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE159940	GSE159940		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE88634	GSE88634		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175218	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738836	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE249925	GSE249925		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175049	GSE175049		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	PRJNA315543	PMID:27261081	27261081	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738807	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE103489	PMID:29510191	29510191	tissue	sra	1	1	0	1	0	0	0
+tissue_reference	GSE287322	GSE287322		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE277819	GSE277819		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE166863	PMID:33844442	33844442	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175217	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE130036	GSE130036		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE174128	PMID:34311131		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE105127	PMID:30297808	30297808	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE56701	GSE56701		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE287726	GSE287726		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE201365	GSE201365		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738806	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE201221	GSE201221		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE50630	PMID:25189356	25189356	tissue	sra	1	1	1	1	0	0	0
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738822	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738830	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738809	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE174128	PMID:34311131	34311131	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE193534	GSE193534		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE218965	GSE218965		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE96784	PMID:29137350	29137350	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE179895	GSE179895		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE139061	GSE139061		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738835	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE97541	PMID:29941933	29941933	tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE88121	GSE88121		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE239531	GSE239531		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE115821	PMID:30127394	30127394	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE218806	GSE218806		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE87984	GSE87984		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE224010	GSE224010		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE156928	GSE156928		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE164292	GSE164292		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE241330	GSE241330		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE239379	GSE239379		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE91061	PMID:29033130	29033130	tissue	sra	1	1	1	1	0	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738818	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738815	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE158396	GSE158396		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE245639	GSE245639		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738805	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE113126	PMID:29942093		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE157712	GSE157712		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738828	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE133296	PMID:32766252	32766252	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE147983	GSE147983		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE190023	GSE190023		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE263944	GSE263944		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE193407	PMID:36895005	36895005	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175010	GSE175010		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE271517	GSE271517		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE208747	GSE208747		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE125285	PMID:33997165	33997165	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE214487	GSE214487		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175066	GSE175066		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE278135	GSE278135		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE209981	GSE209981		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE111073	PMID:31198831	31198831	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738810	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE107475	GSE107475		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE135448	GSE135448		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE180105	GSE180105		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE176133	PMID:34248943	34248943	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE205891	GSE205891		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE113839	GSE113839		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE226762	GSE226762		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE118476	PMID:30923319	30923319	tissue	sra	1	1	0	1	0	1	1
+tissue_reference	GSE155176	PMID:32841223	32841223	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE303107	GSE303107		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE70968	GSE70968		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE102485	GSE102485		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE165278	GSE165278		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE153434	GSE153434		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE64810	GSE64810		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE142668	PMID:32550005	32550005	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE46224	GSE46224		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE174980	GSE174980		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175295	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE81928	PMID:30271949	30271949	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE288971	GSE288971		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE93489	GSE93489		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE302563	GSE302563		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE214334	GSE214334		tissue	sra	1	1	0	0	1	1	0
+tissue_reference	GSE181559	GSE181559		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE101547	GSE101547		tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE184951	GSE184951		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88212	GSE88212		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE143630	GSE143630		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE179351	GSE179351		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88244	GSE88244		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738820	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE160195	PMID:33680922	33680922	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE168266	GSE168266		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738813	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE186075	GSE186075		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE119937	GSE119937		tissue	sra	1	1	0	1	0	1	1
+tissue_reference	GSE175260	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE137619	GSE137619		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88273	GSE88273		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738823	tissue	sra	1	1	0	1	1	1	1
+tissue_reference	GSE174961	GSE174961		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE202182	GSE202182		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE126698	PMID:32719445	32719445	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738832	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE80463	PMID:27681425	27681425	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88214	GSE88214		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE174964	GSE174964		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738834	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE163603	GSE163603		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE150316	PMID:33298930	33298930	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE88418	GSE88418		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE230864	GSE230864		tissue	sra	1	1	1	1	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738825	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE129871	PMID:31142743		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE283072	GSE283072		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE256068	GSE256068		tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE71651	PMID:31801944, 31395854, 30999914, 30764831, 28738804	31801944, 31395854, 30999914, 30764831, 28738833	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE64486	PMID:26679344	26679344	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE138239	PMID:32245461	32245461	tissue	sra	1	1	0	0	1	1	1
+tissue_reference	GSE175238	PMID:22955616	22955616	tissue	sra	1	1	0	0	1	1	1

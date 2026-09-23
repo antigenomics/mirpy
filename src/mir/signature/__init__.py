@@ -30,6 +30,8 @@ from .scale import (
     load_scale,
     measure_constants,
     save_scale,
+    KMER_PATH,
+    load_kmer_spaces,
 )
 from .reference import (
     DEFAULT_PATH,
@@ -56,7 +58,9 @@ __all__ = [
     "isotype_shares",
     "prototype_sum",
     "slots",
+    "KMER_PATH",
     "MIN_N_OBS",
+    "load_kmer_spaces",
     "LocusReference",
     "ScaleReference",
     "fit_scale",

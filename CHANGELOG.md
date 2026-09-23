@@ -3,6 +3,69 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.15.0 — 2026-09-24
+
+### Added — the four v4 scale references, and the tissue model
+
+All six named references now ship. `blood` and `tissue` are the defaults for their assay; the
+`-unweighted` arms are there for when your own cohort **is** one large study.
+
+| `--scale` | corpus | studies | scaled columns |
+|---|---|---:|---:|
+| `deep-tcr` | 7 deep amplicon cohorts, 4,080 samples | — | 394 / 1,403 |
+| `blood` | 23,234 blood samples | 947 | 1,377 / 1,403 |
+| `blood-unweighted` | same corpus, one vote per sample | 947 | 1,377 / 1,403 |
+| `blood-v3` | same corpus, pre-3.11 fit, kept for continuity | 947 | 1,377 / 1,403 |
+| `tissue` | 13,577 tissue samples | 1,024 | 1,360 / 1,403 |
+| `tissue-unweighted` | same corpus, one vote per sample | 1,024 | 1,370 / 1,403 |
+
+v3 was fitted under mirpy 3.9.0, which predates `weight_by_group`/`min_n_groups` entirely, so it is
+a per-sample fit whether or not anyone intended one. The v4 arms are the same corpora refitted with
+`min_n_obs=1000`, `min_n_groups=20`, and the weighting stated explicitly.
+
+**`cstar` did not move and neither did the rotation.** The coverage constants are consumed at
+*emission* time and are already baked into the matrices these fits read, so v3 → v4 moves location
+and scale only. Weighted against unweighted: median |Δlocation| 0.0016 on blood and 0.0011 on
+tissue, with the weighted scale about 7% wider (median ratio 1.070 blood, 1.075 tissue).
+
+### Added — tissue is not blood, measured
+
+Over the 1,359 columns the blood and tissue references both establish, the **median scale ratio is
+0.721** and the largest location difference is **17.2 robust deviations**. A tissue sample read
+against the blood reference is not slightly off, it is in the wrong units, and the `div` columns
+are where it shows first.
+
+### Added — `kmer_spaces_v1.npz` ships, so `vsig:kmer` can finally be declared
+
+Until this artifact existed the block could not even be *declared*: `layout.py` fixes a block's
+width at declaration time and the k-mer block's width is whatever rank was fitted. Fitted on the
+same task-disjoint slice as the scale references, from raw junctions — 7 loci at rank 32, from 423
+surviving terms (TRG) to 38,962 (IGH).
+
+```python
+from vdjtools.signature.kmer import register_kmer
+from mir.signature import load_kmer_spaces
+
+register_kmer(load_kmer_spaces())      # vsig:kmer, 33 columns x 7 loci
+```
+
+**Registering is opt-in, and it appends.** `core` (152) and `standard` (688) are untouched; `full`
+goes 1,403 → 1,634 with the first 1,403 columns keeping their meaning *and their index*. A vector
+computed before registering stays valid. This is asserted by a test, because it is the whole
+contract.
+
+Do not select components by score: on the AS/B27 task the 17 columns the published motif occupies
+give AUC 0.769 at permutation p = 0.031, while the best of 64 SVD components gives AUC 0.841 at
+**p = 0.20 — chance** (null median 0.297, 95th percentile 0.385). Use
+`KmerSpace.transform(residual=True)`.
+
+### Note — the wheel is now 10 MB, up from 3 MB
+
+`resources/signature` holds 8.1 MB: the rotation (896 KB), six scale references (~190 KB together)
+and the k-mer spaces (7.0 MB). The k-mer artifact is the whole increase, and it is float32 for that
+reason — float64 would have made it 14.2 MiB. Requires `vdjtools >= 3.12.1`, which is what makes
+these files loadable without `pickle`.
+
 ## 3.14.0 — 2026-09-24
 
 ### Added — the bulk-blood scale reference ships, and it fills the B-cell hole

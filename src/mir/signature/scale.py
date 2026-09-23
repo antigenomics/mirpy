@@ -62,6 +62,12 @@ DEFAULT_PATH = _RES / "rsig_scale_v2.npz"
 #:
 #: The unweighted fit ships anyway: it is the right reference when your own cohort is one large
 #: study and you want its scale, not a cross-study consensus.
+#: The frozen per-locus V+k-mer spaces (vocabulary + IDF + rotation), fitted on the same
+#: task-disjoint reference slice as the scale references. Until this artifact existed, the
+#: ``vsig:kmer`` block could not even be *declared*: ``layout.py`` fixes a block's width at
+#: declaration time and the k-mer block's width is whatever rank was fitted.
+KMER_PATH = _RES / "kmer_spaces_v1.npz"
+
 MODELS: dict[str, str] = {
     "deep-tcr": "rsig_scale_v2.npz",
     # blood, bulk RNA-seq
@@ -712,3 +718,37 @@ def _demo() -> None:
 
 if __name__ == "__main__":
     _demo()
+
+
+def load_kmer_spaces(path: "str | Path | None" = None):
+    """Load the bundled per-locus V+k-mer spaces, or one you fitted yourself.
+
+    Registering them is **opt-in and deliberate**, because it widens the ``full`` tier from 1,403
+    to 1,634 columns:
+
+    .. code-block:: python
+
+        from vdjtools.signature.kmer import register_kmer
+        from mir.signature.scale import load_kmer_spaces
+
+        register_kmer(load_kmer_spaces())     # adds vsig:kmer, 33 columns x 7 loci
+
+    The new columns land at the **end** of the layout, so ``core`` and ``standard`` are untouched
+    and the first 1,403 columns of ``full`` keep their meaning and their index. A vector you
+    computed before registering stays valid.
+
+    **Do not select components by score.** On the AS/B27 task the 17 columns the published motif
+    occupies give AUC 0.769 at permutation p = 0.031, while the best of 64 SVD components gives
+    AUC 0.841 at p = 0.20 -- chance, against a null median of 0.297 and a 95th percentile of 0.385.
+    Picking the best component is the trap; ``KmerSpace.transform(residual=True)`` is the answer.
+
+    Raises:
+        FileNotFoundError: If ``path`` was given and does not exist, or the bundled artifact is
+            missing.
+    """
+    from vdjtools.features.kmer_space import load_kmer_spaces as _load
+
+    p = Path(path) if path is not None else KMER_PATH
+    if not p.exists():
+        raise FileNotFoundError(f"no k-mer spaces at {p}")
+    return _load(p)

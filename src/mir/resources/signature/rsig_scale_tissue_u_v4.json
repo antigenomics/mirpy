@@ -1,0 +1,42 @@
+{
+  "min_n_obs": 1000,
+  "n_samples": 13577,
+  "min_n_groups": 20,
+  "n_groups": 1024,
+  "batch_groups": 210,
+  "weighted_by_group": false,
+  "cstar": {
+    "TRA": 0.12302207099651022,
+    "TRB": 0.10717559117473499,
+    "IGH": 0.15254135571643757,
+    "IGK": 0.3123936118239366,
+    "IGL": 0.25397845781536005,
+    "TRG": 0.18181818181818177,
+    "TRD": 0.12662422957942715
+  },
+  "pgen_q05": {
+    "TRA": -10.639175508875827,
+    "TRB": -15.237543490056138,
+    "IGH": -26.52638529687084,
+    "IGK": -13.137340070800178,
+    "IGL": -14.847312876592612,
+    "TRG": -18.94622606145553,
+    "TRD": -18.151714992089985
+  },
+  "columns": 1403,
+  "scaled": 1370,
+  "unscaled": 33,
+  "median_n_obs": 13183,
+  "loci_with_cstar": [
+    "IGH",
+    "IGK",
+    "IGL",
+    "TRA",
+    "TRB",
+    "TRD",
+    "TRG"
+  ],
+  "batch_measured": 1369,
+  "batch_dominated": 146,
+  "groups_note": "study accessions are published as a table in data/signature_reference_studies.tsv, not inlined in the wheel"
+}
