@@ -3,6 +3,8 @@ tmp/
 
 ## Data
 airr_benchmark/
+data_dump/
+examples/.data/
 # Big test fixtures stay out of git (CI-guarded tests skip when absent); small
 # deterministic fixtures ARE committed so the default suite runs in CI.
 tests/assets/vdjdb_full.txt.gz

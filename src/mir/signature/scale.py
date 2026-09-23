@@ -36,7 +36,24 @@ from pathlib import Path
 import numpy as np
 
 #: Bundled alongside the geometry artifact.
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "resources" / "signature" / "rsig_scale_v2.npz"
+_RES = Path(__file__).resolve().parent.parent / "resources" / "signature"
+DEFAULT_PATH = _RES / "rsig_scale_v2.npz"
+
+#: Named scale references -- the *models*. The rotation is one artifact for all of them (it is
+#: fit-free, so no assay and no sample enters it); what differs is the per-column location/scale
+#: and the per-locus coverage constant ``cstar``, and those are assay-specific. Reading a bulk
+#: RNA-seq sample against a reference fitted on targeted TCR libraries is not a small error:
+#: measured ``cstar`` for TRB is 0.408 in the amplicon reference and 0.1256 in the blood per-study
+#: fit, a 3.2x difference in the coverage level every Hill number is compared at.
+#:
+#: ``deep-tcr`` ships today. ``blood`` and ``tissue`` resolve to artifacts that are not in the
+#: wheel yet; naming one raises :class:`FileNotFoundError` saying so, rather than silently falling
+#: back to a reference fitted on a different assay.
+MODELS: dict[str, str] = {
+    "deep-tcr": "rsig_scale_v2.npz",
+    "blood": "rsig_scale_blood_v4.npz",
+    "tissue": "rsig_scale_tissue_v1.npz",
+}
 
 #: A column observed fewer times than this ships unscaled. A reference is a claim about a
 #: population; a hundred samples cannot support one for 716 columns.
@@ -560,24 +577,40 @@ def save_scale(ref: ScaleReference, path: "str | Path" = DEFAULT_PATH) -> Path:
 
 @lru_cache(maxsize=4)
 def load_scale(path: "str | Path | None" = None) -> "ScaleReference | None":
-    """Load the scale artifact, or ``None`` if none is installed.
+    """Load the scale artifact by **model name** or path, or ``None`` if none is installed.
+
+    ``path`` may be one of :data:`MODELS` (``"deep-tcr"``, ``"blood"``, ``"tissue"``) or a path to
+    an artifact. A name is resolved against the bundled resources.
 
     ``None`` rather than an exception **only for the default path**: a signature without a scale
     reference is still a perfectly usable raw feature vector, and the caller is told which it got
     via ``standardize=``.
 
-    An explicitly supplied path that does not exist RAISES. Returning ``None`` there conflates
-    "you did not ask for a reference" with "the reference you named is missing" -- so a typo in
-    ``--scale`` would silently produce an unstandardised matrix that looks exactly like a
+    An explicitly supplied name or path that does not exist RAISES. Returning ``None`` there
+    conflates "you did not ask for a reference" with "the reference you named is missing" -- so a
+    typo in ``--scale`` would silently produce an unstandardised matrix that looks exactly like a
     standardised one, and the caller has already said they want a specific artifact.
 
     Raises:
-        FileNotFoundError: If ``path`` was given and does not exist.
+        FileNotFoundError: If ``path`` was given and does not resolve to an installed artifact.
+        ValueError: If ``path`` looks like a model name but is not one of :data:`MODELS`.
     """
     if path is not None:
-        p = Path(path)
-        if not p.exists():
-            raise FileNotFoundError(f"no scale reference at {p}")
+        name = str(path)
+        if name in MODELS:
+            p = _RES / MODELS[name]
+            if not p.exists():
+                raise FileNotFoundError(
+                    f"scale reference {name!r} is not installed (expected {p.name}). "
+                    f"Installed: {', '.join(sorted(n for n, f in MODELS.items() if (_RES / f).exists()))}. "
+                    f"Pass --standardize none for raw block values, or a path to your own artifact.")
+        else:
+            p = Path(name)
+            if not p.exists() and "/" not in name and not name.endswith(".npz"):
+                raise ValueError(
+                    f"unknown scale reference {name!r}; expected one of {sorted(MODELS)} or a path")
+            if not p.exists():
+                raise FileNotFoundError(f"no scale reference at {p}")
     else:
         p = DEFAULT_PATH
         if not p.exists():

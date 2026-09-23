@@ -532,3 +532,40 @@ def test_measure_constants_pools_the_same_draw_the_block_scores():
     assert "pgen_junctions(df, locus, n_pgen)" in src, "the reference draws its own pool"
     assert "to_list()[:n_pgen]" not in src, "the reference head-slices a sorted frame"
     assert callable(pgen_junctions)
+
+
+class TestNamedModels:
+    """`load_scale` resolves a model name, and refuses a name it does not know.
+
+    The rotation is one artifact for every model; only the per-column scale and the per-locus
+    coverage constant differ, and those are assay-specific. A name that resolves to an artifact
+    which is not installed must raise rather than fall back to the bundled one -- silently reading
+    bulk RNA-seq against a reference fitted on targeted TCR libraries is a 3.2x error in the
+    coverage level every Hill number is compared at.
+    """
+
+    def test_the_bundled_model_loads_by_name(self):
+        from mir.signature.scale import load_scale
+
+        ref = load_scale("deep-tcr")
+        assert ref is not None
+        assert set(ref.cstar) == {"TRA", "TRB"}, "the bundled reference covers TRA and TRB only"
+
+    def test_a_model_with_no_installed_artifact_raises(self):
+        import pytest
+
+        from mir.signature.scale import MODELS, load_scale, _RES
+
+        missing = [n for n, f in MODELS.items() if not (_RES / f).exists()]
+        if not missing:
+            pytest.skip("every declared model is installed")
+        with pytest.raises(FileNotFoundError, match="not installed"):
+            load_scale(missing[0])
+
+    def test_an_unknown_name_raises_rather_than_being_read_as_a_path(self):
+        import pytest
+
+        from mir.signature.scale import load_scale
+
+        with pytest.raises(ValueError, match="unknown scale reference"):
+            load_scale("bloood")

@@ -25,11 +25,15 @@ anywhere in this repo. (Pre-dating files still violate this: `README.md`, `CHANG
 
 Heavy benchmarks run on **aldan3** (env `mirpy`, `sbatch`); light jobs local.
 
-## ⛔ Worktrees — REQUIRED
-Multiple Claude sessions edit mirpy concurrently (the 2026-07-16 split hit real collisions across
-parallel sessions). **Never work directly on the main checkout** — call `EnterWorktree` at session
-start (worktree under `.claude/worktrees/`, fresh branch off `origin/master`), commit and push from
-there, merge via PR/fast-forward. Same for `2026-mirpy-analysis` and `2026-mirpy-ms`.
+## NO WORKTREES -- branches only
+
+**Never create a worktree here**, and never call `EnterWorktree`. Sessions are sequential, not
+concurrent; the collisions this rule once guarded against are not how we work now. Worktrees under
+`.claude/worktrees/` are gitignored, so anything committed there is invisible from the repo root and
+silently unbacked, and a branch held by a worktree cannot be checked out in the main repo.
+
+`git switch -c feature/<name>` off `origin/master`, commit, push, merge into `dev`, delete the
+branch. Same for `2026-mirpy-analysis` and `2026-mirpy-ms`.
 
 ## Reuse, don't duplicate — the ecosystem
 mirpy has **no AIRR data-model layer of its own**. It works on `vdjtools` polars frames and delegates:

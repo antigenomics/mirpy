@@ -46,6 +46,77 @@ Two more things worth knowing: ``--standardize reference`` (the default) is what
 comparable with anyone else's, and you should **not** PCA-project the result — plain scaling beat
 projection at every rank tested.
 
+A folder of AIRR files, and a table you can join
+------------------------------------------------
+
+The complete recipe, end to end. Input: a directory of per-sample AIRR TSVs and your own metadata
+sheet. Output: one TSV with one row per sample, joinable on ``sample_id``.
+
+.. code-block:: bash
+
+   mir signature --preset classify samples/*.tsv -o sig.tsv
+
+``sample_id`` is the file name up to the first dot, so ``samples/SRR8364167.tsv`` becomes
+``SRR8364167``. Name your files after whatever key your metadata already uses and the join needs no
+mapping table:
+
+.. code-block:: python
+
+   import polars as pl
+
+   sig  = pl.read_csv("sig.tsv",  separator="\t")
+   meta = pl.read_csv("meta.tsv", separator="\t")     # your own sheet
+   full = sig.join(meta, left_on="sample_id", right_on="Run", how="left")
+   full.write_csv("signature_with_metadata.tsv", separator="\t")
+
+That is the whole pipeline. Everything after it is your analysis.
+
+Run on the 1,764-sample SRA cohort in |airr_benchmark| this takes roughly 0.6 s per sample on eight
+cores, and a 20-sample subset produced **615 columns with every ``sample_id`` matching its metadata
+row**. See :doc:`notebooks` for the runnable version.
+
+.. |airr_benchmark| raw:: html
+
+   <a href="https://huggingface.co/datasets/isalgo/airr_benchmark">isalgo/airr_benchmark</a>
+
+What ``nan`` means in the output
+--------------------------------
+
+A hole is never filled with zero. ``nan`` means *not estimable for this sample*, and there are two
+distinct reasons, which you separate with the mask columns ``vsig:mask:<locus>:present`` and
+``vsig:mask:<locus>:estimable``:
+
+- **The locus is not in the file.** A TRB-only library has ``nan`` everywhere under ``:IGH:``.
+- **The locus is there but too shallow** for that particular estimator.
+
+There is also a third, which is a property of the shipped artifact rather than of your data, and it
+is worth knowing before you see it. Measured on 20 samples of the SRA cohort with
+``--preset classify``: 28 of 615 columns are ``nan`` for **every** sample, and 20 of those 28 are
+the coverage-standardised diversity block -- ``vsig:div:{0D_c,1D_c,2D_c,clonality}`` -- on exactly
+the five loci the bundled scale reference has no coverage constant for: IGH, IGK, IGL, TRG and TRD.
+The remaining eight are ``vsig:pgen:frac_atypical`` on those same five loci, ``vsig:shm`` on IGH and
+``rsig:band:top`` on two loci.
+
+TRA and TRB have **0** such columns. This is not a defect in your samples: the bundled reference was
+fitted on targeted TCR libraries, so it carries ``cstar`` for TRA and TRB and for nothing else. The
+B-cell and gamma-delta diversity columns come back the moment a reference covering those loci is
+selected -- see :ref:`which-scale-reference`.
+
+Raw block values, if you want them
+----------------------------------
+
+``--standardize none`` emits the same columns **before** any reference rescaling -- raw counts,
+fractions and Hill numbers in their own units rather than standardised against a corpus:
+
+.. code-block:: bash
+
+   mir signature --preset classify --standardize none samples/*.tsv -o raw.tsv
+
+This is the right output when you are building your own within-cohort model and do not need
+cross-cohort comparability, and it is also the answer to "where did my IGH diversity go": raw Hill
+numbers need no ``cstar``, so they are populated on all seven loci. What you give up is exactly what
+standardisation buys -- a column that means the same thing in your matrix and a collaborator's.
+
 The Python API
 --------------
 
@@ -344,11 +415,128 @@ Two artifacts ship, and the split is the design.
 
 Fitting a **scale** and fitting a **basis** are different statistical problems, and only one of
 them is safe at the sample sizes anyone actually has. A rotation over :math:`p = 256` coordinates
-per slot is not column-identified at a few thousand samples — measured split-half column agreement
-of a fitted junction basis is 0.23 — whereas a per-column median and MAD converge as
+per slot is not column-identified at the sample sizes anyone has — measured split-half column
+agreement of a fitted junction basis is 0.23 — whereas a per-column median and MAD converge as
 :math:`1/\sqrt{n}`. So the rotation is taken from the **prototype cloud** instead: bundled
 receptors embedded against bundled receptors, zero samples, nothing to re-fit and nothing of any
 corpus in it.
+
+More data does not change that answer, which is the part worth stating plainly. Refitting the
+rotation *inside* study-disjoint folds over **14,553 samples across 182 studies**, not one component
+of 1,369 reproduces at :math:`|r| \ge 0.95` and no subspace reaches an overlap of 0.80; per-component
+split-half agreement is 0.949 for PC1, 0.614 for PC2 and **0.11–0.32 for PC3–PC12**. The cause is
+the spectrum, not the sample count — eigenvalues run 182, 73, 56, 51, 48, 44, 42, 38, 34, … so from
+PC2 on the components are near-degenerate. A degenerate pair has a determined *plane* and an
+undetermined labelling of the two axes inside it, at any :math:`n`. Task performance agrees: AUC is
+flat from :math:`k = 16` to 256 and *falls* when all 1,369 columns are used.
+
+.. _which-scale-reference:
+
+Which scale reference your samples need
+---------------------------------------
+
+The geometry is one artifact for everybody — it covers all seven loci and no assay enters it. The
+**scale** is not: it is fitted on repertoires, and repertoires from a targeted TCR library and from
+bulk RNA-seq do not live on the same scale. Reading a sample against the wrong reference is not a
+small error.
+
+The reference that ships today was fitted on **seven targeted (amplicon) TCR cohorts, 4,080
+samples**, and that has two consequences a user should know before trusting a column:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 16 16 16
+
+   * - locus
+     - columns
+     - with a fitted scale
+     - ``cstar``
+   * - TRA
+     - 198
+     - 197
+     - 0.545
+   * - TRB
+     - 198
+     - 197
+     - 0.408
+   * - TRG / TRD
+     - 198 each
+     - **2 each**
+     - —
+   * - IGH / IGK / IGL
+     - 209 / 198 / 198
+     - **2 each**
+     - —
+
+The two scaled columns on the five uncovered loci are only ``mask:present`` and ``mask:estimable``
+— the hole indicators. **No real content is standardised outside TRA and TRB**, and because a locus
+with no ``cstar`` falls back to a coverage level no finite sample attains, its ``div:`` columns come
+back ``nan``. If you are working with B cells today, that is why.
+
+Why not simply pool one reference over everything: the coverage level ``cstar`` differs by **3.2×**
+between assays on the same locus — TRB sits at 0.408 in an amplicon corpus and 0.126 in bulk blood
+RNA-seq. ``cstar`` is the depth every Hill number is compared at, and a value above what a sample
+attains puts it into extrapolation, which is measured to inflate diversity roughly tenfold. Averaging
+the two assays would put *both* populations in the wrong regime.
+
+It lands hardest on the six cross-locus columns — ``pair:-:log_IGH_TRB``, ``log_TRG_TRB``,
+``log_TRD_TRB``, ``log_TRA_TRB``, ``log_IGK_IGL`` and ``qc:-:n_loci_present``. A ratio between a
+locus measured one way and a locus measured another is a statement about assay, not about biology.
+For the same reason a reference must be fitted on samples where every locus came from the **same
+library**; loci drawn from different samples cannot produce these columns at all.
+
+So a reference is chosen by assay, not by preference. There are **three models**, each a name you
+pass to ``--scale``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 18 18 12 26
+
+   * - model
+     - your data
+     - reference corpus
+     - loci
+     - notes
+   * - ``deep-tcr``
+     - targeted / amplicon TCR
+     - 7 deep cohorts, 4,080 samples
+     - TRA, TRB
+     - deep; singleton and rare-clone bands are meaningful
+   * - ``blood``
+     - bulk **blood** RNA-seq
+     - 23,234 SRA samples, 947 study groups
+     - all 7
+     - shallow per locus; γδ is thin and its bands are depth-fragile
+   * - ``tissue``
+     - bulk **tissue** RNA-seq
+     - SRA tissue population
+     - all 7
+     - shallower again — a third of tissue TRB samples carry under 10 clonotypes
+
+.. code-block:: bash
+
+   mir signature --preset classify --scale deep-tcr samples/*.tsv -o sig.tsv
+
+**``deep-tcr`` is what ships today and is the default.** ``blood`` and ``tissue`` name artifacts
+that are not in the wheel yet; asking for one raises ``FileNotFoundError`` saying exactly that,
+rather than quietly falling back to a reference fitted on a different assay. ``load_scale()`` takes
+the same names from Python.
+
+The **rotation is the same artifact for all three** -- it is fit-free, so no assay and no sample
+enters it -- which is what makes adding a model cheap and what guarantees that a coordinate already
+in your hands does not move when one arrives.
+
+.. note::
+
+   **B-cell and γδ coverage in ``deep-tcr`` waits on data that does not exist yet.** The
+   amplicon corpus behind it is TCR α/β only, so there is no deep IG or TRG/TRD stratum to fit.
+   Deep B-cell and γδ references will be added when such libraries are available; until then, bulk
+   samples covering those loci belong on ``blood`` or ``tissue``, and ``--standardize none`` gives
+   raw values on all seven loci today.
+
+A name or path that does not resolve **raises** rather than returning ``None``: returning ``None``
+would conflate "you did not ask for a reference" with "the one you named is missing", and a typo
+would hand you an unstandardised matrix that looks exactly like a standardised one.
 
 Batch is the thing to check first
 ----------------------------------

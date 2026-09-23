@@ -1,6 +1,9 @@
-"""``mir`` command-line interface — turn receptor tables into embeddings.
+"""``mir`` command-line interface — turn receptor tables into embeddings and signatures.
 
-Two commands cover the two scales mirpy embeds at:
+**Start with ``mir signature``** unless you know you want a raw embedding. It is the command you
+send a collaborator: fixed-width, named columns, already standardised.
+
+Four commands. Two embed at the two scales mirpy works at:
 
 * ``mir embed clonotypes SAMPLE``   — one repertoire's clonotype table → a per-clonotype
   TCREMP embedding table (``e0…``), the input to clustering / ML.
@@ -8,11 +11,21 @@ Two commands cover the two scales mirpy embeds at:
   vector ``Φ(S)`` (``phi0…``) per sample, per chain, on one shared basis (so the rows are
   mutually comparable / MMD-able).
 
+Two produce the portable signature — the hand-off object, whose basis is frozen rather than fitted
+on your cohort, so two people's vectors are comparable:
+
+* ``mir signature SAMPLE…`` — → one fixed-width named vector per sample (688 columns at the
+  ``standard`` tier), standardised against a frozen reference. Emits **both** halves: ``rsig``
+  (geometry, computed here) and ``vsig`` (statistics, from ``vdjtools.signature``).
+* ``mir presets [NAME]``    — the named column subsets and their ranking, so a subset is chosen by
+  intent rather than by reading a 1,403-row column dictionary.
+
 Inputs are any format ``vdjtools.io.read`` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ,
 parquet, …). Output is TSV (default / ``.tsv``) or Parquet (``.parquet`` — recommended for
 the wide raw embedding); ``-o -`` (or no ``-o``) writes TSV to stdout.
 
-Run ``mir embed clonotypes -h`` / ``mir embed repertoires -h`` for the full flag list.
+Run ``mir <command> -h`` for the full flag list; ``mir signature --describe`` prints the column
+dictionary and reads no input.
 """
 from __future__ import annotations
 
@@ -454,8 +467,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="'reference' rescales every column against the bundled reference so the "
                         "vector is comparable with anyone else's (default); 'none' emits raw "
                         "block values")
-    s.add_argument("--scale", default=None,
-                   help="path to an alternative scale artifact (default: the bundled one)")
+    s.add_argument("--scale", default=None, metavar="MODEL|PATH",
+                   help="scale reference: a model name (deep-tcr, blood, tissue) or a path to an "
+                        "artifact. The rotation is the same for every model; what differs is the "
+                        "per-column scale and the per-locus coverage constant, which are "
+                        "assay-specific. Default: the bundled deep-tcr reference")
     s.add_argument("--preset", default=None,
                    help="named feature set; overrides --tier (see `mir presets`)")
     s.add_argument("--threads", type=int, default=1,
