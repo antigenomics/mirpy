@@ -3,6 +3,54 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.13.0 — 2026-09-24
+
+### Added — three named scale models, one rotation
+
+`load_scale()` and `mir signature --scale` now take a **model name** rather than only a path:
+
+| model | your data | loci | state |
+|---|---|---|---|
+| `deep-tcr` | targeted / amplicon TCR | TRA, TRB | ships today; the default |
+| `blood` | bulk blood RNA-seq | all 7 | artifact not in the wheel yet |
+| `tissue` | bulk tissue RNA-seq | all 7 | artifact not in the wheel yet |
+
+The **rotation is one artifact for all three** — it is fit-free, so no assay and no sample enters
+it, and a coordinate already in your hands does not move when a model is added. What differs is the
+per-column location/scale and the per-locus coverage constant `cstar`, and those are assay-specific:
+TRB sits at **0.408** in the amplicon reference and **0.1256** in the blood per-study fit, a 3.2×
+difference in the coverage level every Hill number is compared at. A value above what a sample
+attains forces extrapolation, measured to inflate diversity roughly tenfold.
+
+So a named model whose artifact is not installed raises `FileNotFoundError` naming it, and an
+unknown name raises `ValueError` rather than being read as a path. Neither falls back to the
+bundled reference — reading bulk RNA-seq against an amplicon fit is exactly the error that must not
+happen silently.
+
+Documented alongside: deep **B-cell and γδ** references wait on deep libraries that do not exist in
+the corpus yet. Until then those loci belong on `blood`/`tissue`, or on `--standardize none`, which
+needs no `cstar` and is populated on all seven.
+
+### Changed — the docs tell you where the signature is
+
+The signature page was written, committed and live, and nobody could find it: the left sidebar was a
+flat wall of page titles in source order. `index.rst` now carries captioned toctrees — **Start
+here**, **Repertoire signatures**, **Worked examples**, **Reference** — with the theme configured to
+render that structure, matching `seqtree` and `mhcmatch`.
+
+### Added — the end-to-end recipe and a runnable notebook
+
+`docs/signature.rst` answers the question people actually ask: a directory of AIRR TSVs plus your
+own metadata sheet, to one joinable table. `examples/signature_pipeline.py` is the runnable version
+on the 1,764-sample SRA cohort in `isalgo/airr_benchmark` — verified end to end at 20 samples ×
+615 columns with 0 unmatched on the metadata join.
+
+Measured while writing it, and worth knowing before you see it: with `--preset classify`, **28 of
+615 columns are `nan` for every sample**, and **20 of those 28** are
+`vsig:div:{0D_c,1D_c,2D_c,clonality}` on the five loci the bundled reference has no `cstar` for
+(IGH, IGK, IGL, TRG, TRD). TRA and TRB have none. That is the shipped artifact's coverage, not a
+defect in anyone's samples.
+
 ## 3.12.0 — 2026-08-20
 
 ### Changed — non-productive rearrangements are removed on every read, with no opt-out
