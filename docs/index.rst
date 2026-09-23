@@ -109,11 +109,32 @@ Every formula, derivation and invariant behind these is collected in
 
 .. toctree::
    :hidden:
+   :caption: Start here
+   :maxdepth: 2
 
    self
    usage
    preprocessing
+
+.. toctree::
+   :hidden:
+   :caption: Repertoire signatures
+   :maxdepth: 2
+
    signature
-   math
+
+.. toctree::
+   :hidden:
+   :caption: Worked examples
+   :maxdepth: 2
+
    examples
+   notebooks
+
+.. toctree::
+   :hidden:
+   :caption: Reference
+   :maxdepth: 2
+
    api
+   math

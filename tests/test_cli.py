@@ -69,32 +69,30 @@ def test_embed_clonotypes_filters_non_coding_by_default(tmp_path):
     assert got.height == len(TRB)          # both non-coding rows dropped, no crash
 
 
-def test_embed_clonotypes_no_filter_functional_still_raises_on_underscore(tmp_path):
-    # --no-filter-functional is the "I want non-functional receptors" opt-in and reaches the
-    # embedder with allow_nonstandard=True -- but '_' crashes seqtree, so it raises regardless.
-    src = tmp_path / "S.tsv"
-    _write(src, TRB + [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3)])
-    with pytest.raises(ValueError, match="out-of-frame"):
-        main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "--no-filter-functional"])
+# `--no-filter-functional` was removed in 3.12.0: a guard you can switch off is not a guard
+# against something that fails silently, and a stop codon is IN seqtree's alphabet, so an
+# unfiltered frame embeds to a finite, meaningless distance rather than crashing. The three tests
+# that used to assert the opt-in's behaviour now assert that it is refused and says where to go.
 
 
-def test_embed_clonotypes_no_filter_functional_embeds_stop_codons(tmp_path):
-    # the opt-in does what it says for the one case that is a real receptor category
+@pytest.mark.parametrize("extra", [[], ["--n-prototypes", "300"]])
+def test_no_filter_functional_is_refused_and_points_at_vdjtools(tmp_path, extra):
     src = tmp_path / "S.tsv"
-    out = tmp_path / "emb.tsv"
     _write(src, TRB + [("TRBV20-1*01", "TRBJ1-2*01", "CSARVSG*YGYTF", 2)])
-    main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "-o", str(out),
-          "--no-filter-functional"])
-    assert pl.read_csv(out, separator="\t").height == len(TRB) + 1
+    with pytest.raises(SystemExit, match="vdjtools filter"):
+        main(["embed", "clonotypes", str(src), *extra, "--no-filter-functional"])
 
 
-def test_embed_clonotypes_rejects_a_corrupt_table(tmp_path):
-    # an ambiguity code is a damaged file, not a kind of receptor -- the opt-in must not hide it
+def test_a_corrupt_table_raises_on_the_default_path(tmp_path):
+    """An ambiguity code is a damaged file, not a kind of receptor.
+
+    It has to raise on the path people actually use, which is now the only path -- previously
+    this was only asserted behind the removed opt-in, so nothing covered the default.
+    """
     src = tmp_path / "S.tsv"
     _write(src, TRB + [("TRBV20-1*01", "TRBJ1-2*01", "CSARVSGXYGYTF", 2)])
-    with pytest.raises(ValueError, match="CORRUPT"):
-        main(["embed", "clonotypes", str(src), "--n-prototypes", "300",
-              "--no-filter-functional"])
+    with pytest.raises(ValueError, match="unparseable value"):
+        main(["embed", "clonotypes", str(src), "--n-prototypes", "300"])
 
 
 def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):
