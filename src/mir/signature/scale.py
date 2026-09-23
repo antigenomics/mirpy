@@ -49,10 +49,28 @@ DEFAULT_PATH = _RES / "rsig_scale_v2.npz"
 #: ``deep-tcr`` ships today. ``blood`` and ``tissue`` resolve to artifacts that are not in the
 #: wheel yet; naming one raises :class:`FileNotFoundError` saying so, rather than silently falling
 #: back to a reference fitted on a different assay.
+#: Two fits ship per RNA-seq corpus, weighted and unweighted, because which one you want depends
+#: on what you are asking. ``weight_by_group=True`` gives every *study* one vote; unweighted gives
+#: every *sample* one vote, so a 3,000-sample submission sets the coordinates for everyone.
+#:
+#: Weighted is the default and it is not a close call. Held-out-study agreement at 640 study groups
+#: (~14,500 samples), five seeds: weighted passes **0.843-0.857** of columns on both location and
+#: scale, unweighted **0.533-0.551** -- and the weighted fit is tighter on both terms it is scored
+#: on (median absolute location shift 0.036 vs 0.050, median scale ratio 0.973 vs 0.940). The
+#: held-out *design*
+#: (by-study vs iid-sample) barely moves either, so it is the fitting weight that carries it.
+#:
+#: The unweighted fit ships anyway: it is the right reference when your own cohort is one large
+#: study and you want its scale, not a cross-study consensus.
 MODELS: dict[str, str] = {
     "deep-tcr": "rsig_scale_v2.npz",
-    "blood": "rsig_scale_blood_v4.npz",
-    "tissue": "rsig_scale_tissue_v1.npz",
+    # blood, bulk RNA-seq
+    "blood": "rsig_scale_blood_w_v4.npz",
+    "blood-unweighted": "rsig_scale_blood_u_v4.npz",
+    "blood-v3": "rsig_scale_v3.npz",
+    # tissue, bulk RNA-seq
+    "tissue": "rsig_scale_tissue_w_v4.npz",
+    "tissue-unweighted": "rsig_scale_tissue_u_v4.npz",
 }
 
 #: A column observed fewer times than this ships unscaled. A reference is a claim about a

@@ -3,6 +3,46 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.14.0 — 2026-09-24
+
+### Added — the bulk-blood scale reference ships, and it fills the B-cell hole
+
+`--scale blood-v3` (and `load_scale("blood-v3")`) selects a reference fitted on **23,234 bulk blood
+RNA-seq samples across 947 SRA study groups**. It was fitted on 2026-08-13 and never pulled into a
+wheel; it is in this one.
+
+What it changes, measured on 20 samples of the SRA cohort in `isalgo/airr_benchmark` with
+`--preset classify`:
+
+| reference | columns nan for every sample |
+|---|---|
+| `deep-tcr` (default) | **28** of 615 |
+| `blood-v3` | **3** of 615 |
+
+The 25 recovered are `vsig:div:{0D_c,1D_c,2D_c,clonality}` and `vsig:pgen:frac_atypical` on IGH,
+IGK, IGL, TRG and TRD — the five loci the amplicon reference has no coverage constant for. It
+scales **1,377 of 1,403** columns against the default's 394, and carries `cstar` for all seven loci
+against the default's two.
+
+**It is a drop-in.** The two references have byte-identical column order, asserted by a test, so
+nothing you have already computed moves position or meaning — holes get filled and nothing else
+changes. The default is unchanged, so this costs existing users nothing.
+
+### Added — weighted and unweighted model names
+
+Each RNA-seq corpus will ship two fits: `blood` / `blood-unweighted`, `tissue` /
+`tissue-unweighted`. Weighted gives every **study** one vote, unweighted every **sample**, so one
+large submission cannot set the coordinates for everyone.
+
+Weighted is the default and the measurement is not close — held-out-study agreement at 640 study
+groups (~14,500 samples), five seeds: **0.843–0.857** of columns pass on both location and scale
+weighted, against **0.533–0.551** unweighted, with a tighter fit on both terms (median absolute
+location shift 0.036 vs 0.050; median scale ratio 0.973 vs 0.940). The held-out *design* (by-study
+vs iid-sample) barely moves either, so it is the fitting weight that carries it.
+
+The unweighted fit ships anyway: it is the right reference when your own cohort **is** one large
+study and you want its scale rather than a cross-study consensus.
+
 ## 3.13.0 — 2026-09-24
 
 ### Added — three named scale models, one rotation
