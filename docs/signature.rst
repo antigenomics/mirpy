@@ -485,33 +485,58 @@ locus measured one way and a locus measured another is a statement about assay, 
 For the same reason a reference must be fitted on samples where every locus came from the **same
 library**; loci drawn from different samples cannot produce these columns at all.
 
-So a reference is chosen by assay, not by preference:
+So a reference is chosen by assay, not by preference. There are **three models**, each a name you
+pass to ``--scale``:
 
 .. list-table::
    :header-rows: 1
-   :widths: 16 22 14 26
+   :widths: 12 18 18 12 26
 
-   * - your data
-     - reference
+   * - model
+     - your data
+     - reference corpus
      - loci
      - notes
-   * - targeted / amplicon TCR
-     - the shipped amplicon fit
+   * - ``deep-tcr``
+     - targeted / amplicon TCR
+     - 7 deep cohorts, 4,080 samples
      - TRA, TRB
      - deep; singleton and rare-clone bands are meaningful
-   * - bulk **blood** RNA-seq
-     - blood reference
+   * - ``blood``
+     - bulk **blood** RNA-seq
+     - 23,234 SRA samples, 947 study groups
      - all 7
      - shallow per locus; γδ is thin and its bands are depth-fragile
-   * - bulk **tissue** RNA-seq
-     - tissue reference
+   * - ``tissue``
+     - bulk **tissue** RNA-seq
+     - SRA tissue population
      - all 7
      - shallower again — a third of tissue TRB samples carry under 10 clonotypes
 
-Pass a reference explicitly with ``--scale`` (or ``load_scale(...)``). A path that does not exist
-**raises** rather than returning ``None``: returning ``None`` would conflate "you did not ask for a
-reference" with "the one you named is missing", and a typo would hand you an unstandardised matrix
-that looks exactly like a standardised one.
+.. code-block:: bash
+
+   mir signature --preset classify --scale deep-tcr samples/*.tsv -o sig.tsv
+
+**``deep-tcr`` is what ships today and is the default.** ``blood`` and ``tissue`` name artifacts
+that are not in the wheel yet; asking for one raises ``FileNotFoundError`` saying exactly that,
+rather than quietly falling back to a reference fitted on a different assay. ``load_scale()`` takes
+the same names from Python.
+
+The **rotation is the same artifact for all three** -- it is fit-free, so no assay and no sample
+enters it -- which is what makes adding a model cheap and what guarantees that a coordinate already
+in your hands does not move when one arrives.
+
+.. note::
+
+   **B-cell and γδ coverage in ``deep-tcr`` waits on data that does not exist yet.** The
+   amplicon corpus behind it is TCR α/β only, so there is no deep IG or TRG/TRD stratum to fit.
+   Deep B-cell and γδ references will be added when such libraries are available; until then, bulk
+   samples covering those loci belong on ``blood`` or ``tissue``, and ``--standardize none`` gives
+   raw values on all seven loci today.
+
+A name or path that does not resolve **raises** rather than returning ``None``: returning ``None``
+would conflate "you did not ask for a reference" with "the one you named is missing", and a typo
+would hand you an unstandardised matrix that looks exactly like a standardised one.
 
 Batch is the thing to check first
 ----------------------------------

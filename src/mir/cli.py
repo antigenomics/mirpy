@@ -467,8 +467,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="'reference' rescales every column against the bundled reference so the "
                         "vector is comparable with anyone else's (default); 'none' emits raw "
                         "block values")
-    s.add_argument("--scale", default=None,
-                   help="path to an alternative scale artifact (default: the bundled one)")
+    s.add_argument("--scale", default=None, metavar="MODEL|PATH",
+                   help="scale reference: a model name (deep-tcr, blood, tissue) or a path to an "
+                        "artifact. The rotation is the same for every model; what differs is the "
+                        "per-column scale and the per-locus coverage constant, which are "
+                        "assay-specific. Default: the bundled deep-tcr reference")
     s.add_argument("--preset", default=None,
                    help="named feature set; overrides --tier (see `mir presets`)")
     s.add_argument("--threads", type=int, default=1,
