@@ -20,6 +20,22 @@ Frames are **polars**, keyed by AIRR names (`v_call`, `j_call`, `junction_aa`, `
 `locus`). There is no `Clonotype` class and no data-model layer: IO, germline reference, Pgen and
 sampling all come from `vdjtools`; alignment comes from `seqtree`.
 
+## Where the detail lives
+
+This file is the **API surface and the traps** — what to import, what to call, and what produces a
+silently wrong answer. It does not repeat the reference documentation.
+
+| You need | Go to |
+|---|---|
+| Runnable walkthroughs, every module | https://docs.isalgo.dev/mirpy/usage.html |
+| Every symbol, autodoc'd | https://docs.isalgo.dev/mirpy/api.html |
+| The portable signature, end to end | https://docs.isalgo.dev/mirpy/signature.html |
+| The channel vocabulary | https://docs.isalgo.dev/mirpy/channels.html |
+| Theory T1–T7 and the maths | https://docs.isalgo.dev/mirpy/math.html |
+| Worked notebooks | https://docs.isalgo.dev/mirpy/notebooks.html |
+| How to work in this repo, open loops | `CLAUDE.md` |
+| Dataset provenance | `SOURCES.md` |
+
 ## The one invariant that matters
 
 **Two embeddings are comparable only if the prototype panel *and* the fitted PCA rotation match.**
@@ -126,148 +142,74 @@ and never needs an `n × n` Gram. The `n_eff/(n_eff−1)` correction is on by de
 bias is of order `1/n_eff`, which varies by orders of magnitude across samples *and* correlates
 with phenotype.
 
-### `mir.signature` — the portable signature (geometry half)
+### `mir.signature` — the portable signature
 
-**Feature presets — the entry point to recommend to a collaborator.** `vdjtools.signature.presets` names
-and ranks the useful column subsets so nobody picks columns by hand:
+Full reference: **https://docs.isalgo.dev/mirpy/signature.html** (design, transforms, scale
+references, the measurements behind each choice) and
+**https://docs.isalgo.dev/mirpy/channels.html** (the channel vocabulary). What follows is the
+surface and the traps.
 
-| preset | rank | columns | use it for |
-|---|---|---|---|
-| `compact` | recommended | 152 | first look; small cohorts; features must stay well under n |
-| `transfer` | recommended | 550 | the model must run on another lab's samples |
-| `classify` | recommended | 615 | general supervised work when train/test share a protocol |
-| `statistics` | specific | 101 | no embedding available; textbook-defined features only |
-| `bcell` | specific | 286 | BCR work — Ig loci with SHM and isotype |
-| `geometry` | specific | 514 | batch is the adversary; blood↔tissue comparisons |
-| `full` | specific | 1403 | feature selection, NOT fitting — measured worse than a good subset |
-| `nuisance` | **avoid** | 73 | a control: depth/mask/QC only. If your model matches it, it reads library prep |
-
-```bash
-mir presets                 # the table, with rankings
-mir presets transfer        # one preset in full: features, how computed, use cases, caveats
-```
-
-Presets resolve from the frozen layout alone — no corpus, no fitted artifact — so two people
-selecting the same preset get identical columns in identical order.
-
-
-A **fixed-width, name-addressed per-sample vector meant to be handed to someone else**, on a
-scale their model can consume without fitting a scaler. The column contract lives in
-`vdjtools.signature` (which mirpy already depends on, so there is one layout and one transform
-registry rather than two that drift); this package supplies the `rsig` blocks, `vdjtools.signature`
-supplies the `vsig` ones, and the two concatenate on `sample_id`.
-
-| | `vsig` — statistics | `rsig` — geometry |
-|---|---|---|
-| blocks | `depth` `div` `clon` `len` `iso` `shm` `pair` `aa` `pchem` `pgen` (+`usage` `pub` pending) | `depth` `div` `band` `contrast` `phiv` `phij` `phic` |
-| each column is | a defined statistic of the clone-size vector or the germline vocabulary | a linear functional, a norm, or a mixture coefficient of `Φ = Σ w_σ z_σ` |
-
-`depth` and `div` appear under **both** on purpose — the count-native and embedding-native
-readings of the same idea are different objects (`n_eff = 1/Σw²` is a Hill number of the weights
-the geometry actually uses), and their head-to-head is a result. The `sig` prefix keeps them apart.
-
-The geometry is **fit-free**: `z_σ` is a distance vector to the bundled prototype panel and the
-rotation is the PCA of the *prototype cloud*, fitted to no samples at all, so nothing drifts when
-a reference is re-fit. Measured (gate B1a, two cohorts): it retains ≥0.98 of a sample-fitted
-rotation at the shipped widths, whereas a *fitted* junction basis has split-half column agreement
-of 0.23 — its coordinates do not survive splitting one cohort in half.
-
-`Φ` **must be centred** or the block is nearly blank: every prototype distance is large and
-positive, so raw between-donor cosine spans ~0.001 while the shared offset is 55× the
-between-donor signal. Centred, the same donors span 1.48. **The centre is `naive`** — `Φ` of a
-large synthetic unselected repertoire — not `mu_phi`, the prototype cloud's own mean: measured on
-two cohorts `naive` recovers 67–85% of an oracle centring and `mu_phi` only 4–21%, because the
-panel sits 5–7 between-donor spreads from where repertoires actually are. `mu_phi` still ships —
-it is the centre the *rotation* was fitted against, and reproducing the artifact needs it. Same
-reason `contrast` subtracts a naive reference instead of reporting `Φ`.
-
-Compartment shares are **closed form, not NNLS**: `Φ` is linear in the clone-weight measure and
-the bands are a genuine partition, so a compartment's share of `Φ` is exactly its share of the
-weight. (`repertoire.band_frames`' default bands overlap — `top ⊂ expanded` — so an NNLS over
-them is not a composition at all and its shares can exceed 1.)
-
-**Two artifacts, and the split is the point.** `rsig_v2.npz` (7 loci, 896 KB, **bit-identical on
-rebuild**) holds the geometry and is built from bundled resources with no sample read.
-`rsig_scale_v2.npz` holds the one thing that *must* come from data — per-column location and
-scale — plus the measured `cstar` and `pgen_q05`. Fitting a scale is a different statistical
-problem from fitting a basis: a rotation over p=256 is not identified at a thousand samples,
-while a median and MAD are identified at any n and converge as `1/sqrt(n)`. That is why the
-re-fit story is safe.
-
-The rotation is built on the **whole** bundled prototype panel, not a draw — with a draw it is a
-random variable in `n_cloud`, and the junction slot had not converged at 4,000 (C: 5/48 components
-matched by `|cos|` against the whole panel; V: 23/24; J: 12/12). The unstable ones are exactly the
-near-degenerate pairs, which *swap* rather than drift, so the gaps ship and
-`LocusReference.exchangeable(slot)` names them: a linear model spanning the plane is fine, a
-per-coordinate importance read-out on one of the pair is not interpretable.
+A fixed-width, name-addressed per-sample vector **meant to be handed to someone else**, already
+standardised so their model needs no scaler. Two halves on one contract: `vsig` (statistics, from
+`vdjtools.signature`) and `rsig` (geometry, here); they concatenate on `sample_id`. Column names
+are `<sig>:<channel>:<locus>:<feature>`; tiers `core` (152) ⊂ `standard` (688) ⊂ `full` (1403) are
+exact **index subsets** of one frozen order.
 
 ```python
-from mir.signature import signature, signature_cohort
-v = signature({"TRB": df})                 # 688 named columns, standardized, ~0.3 s/sample
+from mir.signature import (signature, signature_cohort, channel_spec, channels,
+                           columns, describe, load_scale, MODELS)
+v = signature({"TRB": df})                 # 688 named columns, standardised, ~0.3 s/sample
 F = signature_cohort(samples)              # one row per sample, positional
-signature(sample, standardize="none")      # raw values
+signature(sample, standardize="none")      # raw block values
 ```
 ```bash
-mir signature cohort/*.tsv.gz -o sig.parquet --tier standard
-mir signature --describe --tier standard   # the column dictionary; reads no input
-mir signature --channels                   # the channel vocabulary; reads no input
+mir signature --preset classify --scale blood cohort/*.tsv.gz -o sig.parquet
+mir signature --describe --tier standard   # column dictionary; reads no input
+mir signature --channels                   # channel vocabulary; reads no input
+mir presets                                # the 8 named column subsets, ranked
 ```
 
-**Channels — the interpretive layer.** A column is `<sig>:<channel>:<locus>:<feature>`; the channel
-is the named group of columns that measures one thing, and the level a finding is stated at.
-`CHANNELS`, `channel()`, `channels()`, `channel_table()` are re-exported from
-`vdjtools.signature.layout`; `channel_spec(tier, columns=…, per_locus=…)` wraps the map as a
-`mir.explain.ChannelSpec`, which is the bridge to `channel_report` / `channel_drivers`. Keys carry
-the half (`vsig:div` vs `rsig:div` are different measurements of the same idea, not duplicates);
-only the `rsig` geometry channels are `attributable`.
+**Presets are the entry point to recommend**, not hand-picked columns: `compact` (86),
+`classify` (615), `transfer` (550), `geometry` (514), `statistics` (101), `bcell` (271),
+`full` (1403, feature selection only) and `nuisance` (73, ranked *avoid* — a control). They
+resolve from the frozen layout alone, so two people choosing one name get identical columns in
+identical order. `mir presets NAME` prints any of them in full.
 
-```python
-from mir.explain import channel_report
-from mir.signature import channel_spec, signature_cohort
-F = signature_cohort(samples, tier="standard")
-rep = channel_report(F.drop("sample_id").to_numpy(),
-                     channel_spec("standard", columns=F.columns[1:]),
-                     lambda B: cv_auc(B, y), base=0.5, mode="both")
-rep.best                                   # -> "vsig:div"
-```
+**Channels** are the interpretive layer: the second field of a column name, twenty of them
+covering the whole vector, disjoint and exhaustive. `channel_spec(tier, columns=…, per_locus=…)`
+wraps the name→index map as a `mir.explain.ChannelSpec`, which is the bridge to `channel_report`
+and `channel_drivers` (see `mir.explain` below). Only the four `rsig` geometry channels are
+`attributable`; asking a Hill number which clonotypes drive it raises.
 
-**Scale references — `--scale NAME|PATH`, `load_scale(name)`, `MODELS`.** The rotation is fit-free
-(PCA of the bundled prototype panel, zero samples), so choosing a model moves only the per-column
-location/scale and the per-locus coverage constant `cstar`. Six ship: `deep-tcr` (default;
-targeted deep TCR, 4,080 samples, TRA+TRB only, 394/1403 columns scaled), `blood` (public SRA bulk
-RNA-seq blood, 23,234 samples in 947 studies, 7 loci, 1377/1403), `tissue` (13,577 samples in 1,024
-studies, 1360/1403), plus `blood-unweighted` / `tissue-unweighted` and `blood-v3` (superseded, kept
-loadable so nobody's existing numbers move). **Weighted is the default and it is not close** —
-held-out-study agreement at 640 study groups passes 0.843–0.857 of columns against 0.533–0.551
-unweighted; `weight_by_group=True` gives every study one vote instead of every sample, so one
-3,000-sample submission cannot set the coordinates for everyone. Take an unweighted fit only when
-your own cohort *is* one large study. A named model with no installed artifact raises
-`FileNotFoundError`; an unknown name raises `ValueError` rather than being read as a path.
-Reading a bulk RNA-seq sample against `deep-tcr` is not a small error: `cstar` for TRB is 0.408
-there and 0.1072 in the RNA-seq fits, a 3.8x difference in the coverage level every Hill number is
-compared at.
+**Scale references** — `--scale NAME|PATH`, `load_scale(name)`, `MODELS`. Six ship:
+`deep-tcr` (default, targeted TCR, TRA+TRB only, 394/1403 columns scaled), `blood` and
+`tissue` (bulk RNA-seq, all 7 loci, 1377 and 1360/1403), their `-unweighted` arms, and
+`blood-v3` (superseded, kept loadable so nobody's numbers move).
 
-**Scaling, measured on 4,080 real samples** (analysis repo, `benchmarks/SIGNATURE_SCALING.md`):
+#### Traps
 
-- Nothing is normal after the block transforms — excess kurtosis −3 to 423, and **0.4–27% of
-  samples beyond five robust deviations** where a normal gives 6e-7. The failure mode is the tail,
-  not skew (only 13 of 392 columns are bimodal).
-- **Median/MAD converges at N=1,000** (0.992 of columns within 0.10 scales *and* ±10% of scale);
-  **mean/sd never does** (0.576 at N=1,000, 0.841 at N=2,000), and the half that fails is the
-  scale. Huber's edge over median/MAD is 0.002 — noise.
-- **No Yeo-Johnson ships.** It halves Anderson–Darling in-corpus for the scalar blocks, but held
-  out it gains ≤0.7% on the 875 columns that dominate the width, its λ ranges 3.2–6.1 across
-  corpora exactly where it helps, and on `clon` a transferred λ makes 57% of columns *less* normal.
-- Fitting on one cohort and applying to another, **the spread transfers (robust sd of z = 1.008)
-  and the offset does not** (1.34 robust deviations). That is batch, and rescaling cannot fix it.
-  `fit_scale(..., group=...)` records `batch_ratio` per column and `batch_dominated` exposes it —
-  136 of 390 usable columns are batch-dominated, worst `pair` 3.43 and `depth` 2.19, **cleanest the
-  geometry blocks** (`contrast` 0.65, `phic` 0.71).
-
-`fit_scale` refuses a column the corpus barely saw (`min_n_obs`) rather than shipping a
-confident-looking number from nine samples; statistics come from observed entries only, before
-any imputation, since filling first deflates the scale in proportion to sparsity and lets the
-least-observed locus dominate. A hole stays `nan` — never centred, never zero-filled.
+- **The rotation is fit-free and must stay that way.** It is a PCA of the bundled prototype panel
+  — zero samples — so no refit moves a stakeholder's coordinate. Touching
+  `src/mir/resources/prototypes/*` or `PC_DIMS` breaks that guarantee.
+- **Assay decides the scale, not preference.** `cstar` for TRB is 0.4080 in the amplicon reference
+  and 0.1072 in the RNA-seq ones. A `cstar` above what a sample attains forces extrapolation,
+  measured to inflate diversity roughly tenfold. Bulk RNA-seq through the default returns `nan`
+  for every coverage-standardised diversity column on IGH/IGK/IGL/TRG/TRD.
+- **Weighted is the default and it is not close.** One vote per *study* passes 0.843–0.857 of
+  columns held-out against 0.533–0.551 per *sample*. Take an unweighted arm only when your cohort
+  **is** one large study.
+- **Blood is not a substitute for tissue**: median scale ratio 0.721, max location difference 17.2
+  robust deviations over the 1,359 columns both establish.
+- **Rescaling cannot fix batch.** Fitted on one cohort and applied to another the spread transfers
+  (robust sd of z = 1.008) and the offset does not (1.34 robust deviations). `fit_scale(...,
+  group=...)` hands you `batch_ratio` per column; the geometry blocks are cleanest, `depth` and
+  `pair` worst.
+- **A hole stays `nan`** — never centred, never zero-filled. `fit_scale` refuses a column the
+  corpus barely saw (`min_n_obs`, `min_n_groups`) rather than shipping a confident number from
+  nine samples, and statistics come from observed entries only: imputing first deflates the scale
+  in proportion to sparsity.
+- **A named model with no installed artifact raises**; an unknown name raises rather than being
+  read as a path. Neither ever falls back to a reference fitted on another assay.
 
 ### `mir.explain` — which channel carries the signal
 
