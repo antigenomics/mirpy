@@ -79,9 +79,15 @@ validation-only), `mode="vjcdr3"` (vs `"cdr123"`), `threads=0` (all cores).
 
 ### `mir.distances` — the geometry underneath
 
-`junction_distance_matrix(queries, refs, …)` (seqtree gapblock, GIL-released) and
-`load_germline_distances` / `GermlineDistances` (baked V/J/CDR1/CDR2 lookup with allele cascade).
-Reach for these directly only when you want the raw distance, not an embedding.
+These live in **submodules, not the package root** -- `mir.distances` re-exports only `junction`:
+
+```python
+from mir.distances.junction import junction_distance_matrix   # seqtree gapblock, GIL-released
+from mir.distances.germline import GermlineDistances, load_germline_distances
+```
+
+`GermlineDistances` is the baked V/J/CDR1/CDR2 lookup with an allele cascade. Reach for either
+directly only when you want the raw distance rather than an embedding.
 
 ### `mir.repertoire` — the sample-level embedding `Φ(S)`
 
@@ -263,6 +269,19 @@ confident-looking number from nine samples; statistics come from observed entrie
 any imputation, since filling first deflates the scale in proportion to sparsity and lets the
 least-observed locus dominate. A hole stays `nan` — never centred, never zero-filled.
 
+### `mir.explain` — which channel carries the signal
+
+`ChannelSpec` / `ChannelBuilder` / `stack_embeddings` attach the name→column map `Φ.vector` does
+not carry. `channel_report(X, spec, scorer, …)` ablates each channel under a **caller-supplied**
+scorer — the library never sees `y` and ships no scorers, so a Cox C-index and a CV AUC both plug
+in. `mode="in"` (default) is marginal; `"both"` adds the conditional half, and high `delta` with
+`delta_out ≈ 0` is the **redundancy** signature. `channel_drivers` hops channel → clonotypes, but
+only for a channel declared `attributable` (a kernel mean) — a Hill number has no clonotype
+pre-image and it raises.
+
+`add(..., preserve_magnitude=True)` uses one global scalar for a block whose *magnitude* is the
+signal (a `contrast_embedding`); per-column z-scoring deletes exactly that.
+
 ### `mir.cohort` — the digital donor
 
 `fit_donor_embeddings` → `DonorCohort`: per-chain identity (kernel mean, cross-sample
@@ -295,19 +314,6 @@ binomial + water-level calibration) → `enriched_mask` / `denoise_and_cluster`.
   dilutes the sparse antigen clusters.
 - Abundance-aware: pass `abundance=` + `weight=` to swap the distinct in-ball count for a
   variance-stabilised mass, plus a per-clonotype orphan/depth channel Fisher-combined with breadth.
-
-### `mir.explain` — which channel carries the signal
-
-`ChannelSpec` / `ChannelBuilder` / `stack_embeddings` attach the name→column map `Φ.vector` does
-not carry. `channel_report(X, spec, scorer, …)` ablates each channel under a **caller-supplied**
-scorer — the library never sees `y` and ships no scorers, so a Cox C-index and a CV AUC both plug
-in. `mode="in"` (default) is marginal; `"both"` adds the conditional half, and high `delta` with
-`delta_out ≈ 0` is the **redundancy** signature. `channel_drivers` hops channel → clonotypes, but
-only for a channel declared `attributable` (a kernel mean) — a Hill number has no clonotype
-pre-image and it raises.
-
-`add(..., preserve_magnitude=True)` uses one global scalar for a block whose *magnitude* is the
-signal (a `contrast_embedding`); per-column z-scoring deletes exactly that.
 
 ### `mir.generate`, `mir.twin`, `mir.track` — the generative and trajectory tiers
 
@@ -350,6 +356,11 @@ hash + weights and refuse a mismatched basis. **Ship a bundle, never bare weight
 
 Exact-match reconstruction is **training-data-limited, not architecture-limited**: n=20k→100k
 drives exact 0.885→0.958. Optimal `(K, PC) = (2000, 300–500)`.
+
+`mir.ml` re-exports only the tokenizers; everything above imports from its own submodule --
+`from mir.ml.train import pick_device, train_forward_encoder`,
+`from mir.ml.diffusion import DiffusionModel, train_diffusion`,
+`from mir.ml.bundle import CodecBundle`.
 
 `pick_device()` = CUDA → MPS → CPU; override with `device=` or `MIR_DEVICE`.
 

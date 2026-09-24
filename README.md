@@ -41,7 +41,7 @@ Pure-Python wheel; the heavy lifting (alignment, Pgen, sampling) is reused from
 |---|---|
 | Turn receptors into vectors you can cluster or classify | [Quick start](#quick-start) · [User guide](https://docs.isalgo.dev/mirpy/usage.html) |
 | Pick prototype counts and PCA dimensions | [Recommended presets](#recommended-presets) |
-| Find enriched / antigen-driven neighbourhoods | [`mir.density`](#background-subtraction--clustering-mirdensity) |
+| Find enriched / antigen-driven neighbourhoods | [`mir.density`](#background-subtraction-and-clustering-mirdensity) |
 | Compare whole repertoires, not clonotypes | [`mir.repertoire`](#sample-level-repertoire-embedding-mirrepertoire) |
 | One fixed feature vector per sample, for a classifier | [Repertoire signatures](#repertoire-signatures-extended) · [Signature](https://docs.isalgo.dev/mirpy/signature.html) |
 | Name which part of a vector carries a signal | [`mir.explain`](https://docs.isalgo.dev/mirpy/channels.html) |
@@ -189,22 +189,45 @@ Provenance and the regenerate command are in [`SOURCES.md`](SOURCES.md).
 
 ## What's inside
 
-| Module | Purpose |
-|---|---|
-| `mir.embedding.tcremp` | `TCREmp` / `PairedTCREmp` — the prototype embedding |
-| `mir.embedding.pca` | PCA denoising of embeddings |
-| `mir.distances` | junction distance (`seqtree.gapblock`; `metric`/`matrix`/`alignment` options) + baked germline distances |
-| `mir.bench` | VDJdb loader, clustering (`cluster(method=…)`: DBSCAN/HDBSCAN/OPTICS) + F1/retention, theory experiments (incl. `codec_losslessness`), cohort scorers (`bench.eval`: `cv_auc`/`cv_cindex`/`km_logrank`) + `recovery_report` (are the basic statistics carried inside the embedding?) |
-| `mir.density` | continuous-density TCRNET/ALICE — enrichment (+ clonal-abundance channel, `backend=` exact/kdtree/ann) + noise-filtering (Theory T6) |
-| `mir.repertoire` | sample-level (repertoire) embedding — RFF kernel mean ‖ Hill diversity ‖ second moment; MMD / HLA-stratified distance; motif witness; `centroid_atypicality`, multi-locus `fit_repertoire_spaces`; **sub-probability** `missing_mass`/`naive_reference`/`contrast_embedding` (Theory §T.7) |
-| `mir.explain` | named-channel fusion (`ChannelBuilder`, incl. `preserve_magnitude` global scaling) + scorer-agnostic ablation (`channel_report`/`channel_drivers`) — which part of Φ carries the signal (§T.7) |
-| `mir.cohort` | the **digital donor** — multi-chain `fit_donor_embeddings`/`DonorCohort` (+ `transform`/`save`/`load`) + `residualize` / `cluster_samples` / `incidence_biomarkers` (§T.7) |
-| `mir.track` | **exposure trajectory** — PhenoPath-style covariate-disentangled latent progression axis (`fit_exposure_trajectory`) over any channel matrix; repertoire-level exposure detection |
-| `mir.generate` | the **generative loop** (mechanical half) — `DescriptorDensity`: sample new synthetic donor states / `evolve` one along a coordinate, over `RepertoireDescriptor` |
-| `mir.twin` | the **digital twin** — `DonorTwin`/`make_twins`: perturb or resample one donor's state through a `mir.generate`/`mir.ml.diffusion` generator |
-| `mir.ml` | neural codecs (forward/inverse/Pgen/unified) + learned repertoire `set_encoder` (Set-Transformer/DeepRC) + conditional **diffusion generator** (`mir.ml.diffusion`, the generative loop's research half) — Part 2, experimental; `[ml]` extra |
+Grouped by what you are doing. Full API in
+[`skills/mirpy/SKILL.md`](skills/mirpy/SKILL.md) and the
+[API reference](https://docs.isalgo.dev/mirpy/api.html).
 
-## Background subtraction & clustering (`mir.density`)
+**Receptors to vectors**
+
+| Module | What it does |
+|---|---|
+| `mir.embedding` | `TCREmp` / `PairedTCREmp`, PCA denoising, the per-chain presets |
+| `mir.distances` | junction distance via `seqtree.gapblock`, plus baked germline distances |
+
+**Repertoires to vectors**
+
+| Module | What it does |
+|---|---|
+| `mir.repertoire` | one vector per sample: RFF kernel mean, Hill diversity, second moment; MMD, motif witness, sub-probability measures |
+| `mir.signature` | the **portable signature** — fixed, named, already-standardised columns you can hand to a collaborator |
+| `mir.explain` | which named channel carries a signal, and which clonotypes drive it |
+| `mir.density` | continuous TCRNET / ALICE: neighbourhood enrichment and noise filtering |
+
+**Cohorts, time and generation**
+
+| Module | What it does |
+|---|---|
+| `mir.cohort` | the **digital donor** — multi-chain donor embeddings, residualisation, incidence biomarkers |
+| `mir.track` | **exposure trajectory** — a latent progression axis disentangled from a known covariate |
+| `mir.generate` | the **generative loop**: sample new synthetic donor states, or evolve one along a coordinate |
+| `mir.twin` | the **digital twin**: perturb or resample one donor's state through a generator |
+
+**Supporting**
+
+| Module | What it does |
+|---|---|
+| `mir.cli` | the `mir` console script — `embed clonotypes`, `embed repertoires`, `signature`, `presets` |
+| `mir.bench` | VDJdb loader, clustering metrics, theory experiments, cohort scorers |
+| `mir.ml` | neural codecs, learned set encoders, diffusion generator — experimental, `[ml]` extra |
+| `mir.aliases`, `mir.alleles` | species / locus aliases and allele-name normalisation |
+
+## Background subtraction and clustering (`mir.density`)
 
 TCRNET/ALICE find antigen-driven convergent clusters by *neighbour enrichment*. `mir.density`
 does the same test with neighbour-counting in the **embedding space** instead of on a sequence
@@ -231,7 +254,8 @@ away (HF `isalgo/airr_control`, read with `vdjtools.io.read` — see [`SOURCES.m
 Failing that, `generate_background(locus, n)` samples the vdjtools P_gen model (the ALICE regime);
 the "water level" of a naive repertoire is handled by the empirical-null calibration. Pass
 `source="arda"` there when your data is arda-annotated (same allele namespace as the prototypes),
-and `species="mouse"` for mouse — both need a vdjtools shipping the bundled `arda` model set. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
+and `species="mouse"` for mouse — both need a vdjtools shipping the
+bundled `arda` model set. The density benchmarks (YFV, ankylosing-spondylitis B27, TCRNET)
 live in the companion [`2026-mirpy-analysis`](https://github.com/antigenomics) repo.
 
 The default backend is `"kdtree"` (exact scipy cKDTree, all cores). At whole-repertoire scale pass
@@ -328,7 +352,7 @@ psi = contrast_embedding(emb, ref)           # Ψ = mass·(Φ − naive): signed
   **origin**, the right place for "no infiltrate detected", and a shallow blood sample says so by
   its norm instead of being dropped. Give the caller `mass` to weight with; don't add a floor.
 
-> ⚠ **Scale a magnitude-carrying block with one global scalar, never per column.** Per-column
+> WARNING: **Scale a magnitude-carrying block with one global scalar, never per column.** Per-column
 > standardisation forces every coordinate to unit variance across samples, so a matrix where half the
 > rows sit at the origin comes out looking exactly like one where none do — it deletes the deficiency
 > it was built to preserve. Use `ChannelBuilder.add(..., preserve_magnitude=True)`, which applies one
@@ -350,8 +374,9 @@ mixture_weights(emb, bands)["weights"]              # π per compartment, by NNL
 rarefy_embedding(space, sample, depth=20_000).v_rep # matched-depth Φ + its replicate noise
 ```
 
-* **`rao_q`** — Rao's quadratic entropy is `1 − ‖Φ₁‖²` *exactly* (verified against an explicit Gram to
-  ~1e-16), so the **norm** of the kernel mean is a diversity statistic and no Gram matrix is needed.
+* **`rao_q`** — Rao's quadratic entropy is `1 − ‖Φ₁‖²` *exactly* (verified against an explicit
+  Gram to ~1e-16), so the **norm** of the kernel mean is a diversity statistic and no Gram matrix
+  is needed.
   It is the diversity the Hill block cannot express: every Hill number is a functional of the
   clone-size distribution alone, hence invariant to permuting *which* receptor carries which
   abundance, while Rao's Q weights each pair by how different the receptors are. Measured: this one
@@ -393,11 +418,12 @@ fingerprint. Read it beside `explained_variance`: with the deficient measure, R�
 0.259 → 0.001 and best-of-PC1–5 0.253 → 0.047 *while PC1's explained variance was unchanged*, which is
 what distinguishes "a different direction" from "a collapsed one".
 
-> ⚠ **`mir.cohort.residualize(..., shrink=True)`** for batch offsets fitted from few samples in many
+> WARNING: **`mir.cohort.residualize(..., shrink=True)`** for batch offsets fitted from few samples in many
 > dimensions. Plain per-group centring can make the batch *easier* to read, measured out-of-sample:
 > batch-identity AUC 0.863 raw → **0.985** after centring, 0.978 after ComBat. The mechanism is
-> estimation error — `‖µ̂ − µ‖ ≈ √(σ²d/n)` was ≈16 against a true offset of 7–24, so subtracting it
-> injects a batch-constant vector as large as the one it removes, invisible in-sample by construction.
+> estimation error — `‖µ̂ − µ‖ ≈ √(σ²d/n)` was ≈16 against a true offset of 7–24, so subtracting
+> it injects a batch-constant vector as large as the one it removes, invisible in-sample by
+> construction.
 > Positive-part James–Stein shrinkage recovered most of it: 0.985 → **0.889**.
 
 The matching evaluation criterion is **recoverability, not competition**:
