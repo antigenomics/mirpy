@@ -42,7 +42,7 @@ for arg in "$@"; do
     --dev-parents) DEV_PARENTS=1 ;;
     --docs)        INSTALL_DOCS=1 ;;
     --tests)       DO_TESTS=1 ;;
-    --help|-h)     sed -n '2,32p' "$0"; exit 0 ;;
+    --help|-h)     sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -95,7 +95,27 @@ uv pip install -e "$ROOT[$EXTRAS]"
 
 # --- 4. verification -------------------------------------------------------
 log "verifying install"
-python -c "import mir; from mir.embedding.tcremp import TCREmp; print('mir', mir.__version__, 'import OK')"
+# `import mir` alone proved very little. The signature is the path a stakeholder actually runs,
+# and it is the one that fails on a checkout whose bundled resources did not come through -- so
+# load every scale reference here rather than letting a missing artifact surface on their data.
+python - <<'PY'
+import mir
+from mir.embedding.tcremp import TCREmp            # noqa: F401  -- importing it is the check
+from mir.signature import MODELS, columns, load_scale
+
+bad = []
+for name in MODELS:
+    try:
+        load_scale(name)
+    except Exception as exc:
+        bad.append(f"{name} ({type(exc).__name__})")
+
+print(f"mir {mir.__version__} import OK")
+print(f"  signature: {len(columns('standard'))} standard columns, "
+      f"{len(MODELS) - len(bad)}/{len(MODELS)} scale references load")
+if bad:
+    raise SystemExit("  MISSING scale references: " + ", ".join(bad))
+PY
 
 # --- 5. optional tests -----------------------------------------------------
 if [ "$DO_TESTS" -eq 1 ]; then
