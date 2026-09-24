@@ -27,7 +27,9 @@ dependencies = [
   "polars",
   "scikit-learn",
   "scipy",          # density-ratio enrichment tests (mir.density) + theory fits
-  "seqtree>=0.3.0",
+  # 1.0.0 is where seqtree began guaranteeing semver. The old `>=0.3.0` floor was five
+  # releases stale and let pip resolve versions predating the gapblock scorer this depends on.
+  "seqtree>=1.0.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
   "vdjtools>=3.13.0",

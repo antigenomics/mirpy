@@ -3,6 +3,14 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## Unreleased
+
+### Changed — the seqtree floor is 1.0.0
+
+`seqtree>=0.3.0` was five releases stale and predated seqtree's semver guarantee, which starts at
+1.0.0 — so the floor let pip resolve versions predating the gapblock scorer every distance in this
+package goes through. The full suite (392 tests) is green against seqtree 1.0.0.
+
 ## 3.16.0 — 2026-09-24
 
 ### Added — the channel vocabulary reaches the ablation machinery
