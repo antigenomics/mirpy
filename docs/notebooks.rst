@@ -24,8 +24,9 @@ Start here
    <div class="proj-card-grid">
      <a class="proj-card" href="https://github.com/antigenomics/mirpy/blob/master/examples/signature_pipeline.py">
        <h3>Signature pipeline</h3>
-       <p>A folder of AIRR TSVs to one table joined with your metadata, in one command. Runs on
-       1,764 SRA samples from <code>isalgo/airr_benchmark</code>. Read this one first.</p>
+       <p>A folder of AIRR TSVs to one table joined with your metadata, in one command --- then
+       reading the result by channel. Runs on 1,764 SRA samples from
+       <code>isalgo/airr_benchmark</code>. Read this one first.</p>
      </a>
      <a class="proj-card" href="https://github.com/antigenomics/mirpy/blob/master/examples/quickstart.py">
        <h3>Quickstart</h3>

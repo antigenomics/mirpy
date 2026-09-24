@@ -43,12 +43,15 @@ DEFAULT_PATH = _RES / "rsig_scale_v2.npz"
 #: fit-free, so no assay and no sample enters it); what differs is the per-column location/scale
 #: and the per-locus coverage constant ``cstar``, and those are assay-specific. Reading a bulk
 #: RNA-seq sample against a reference fitted on targeted TCR libraries is not a small error:
-#: measured ``cstar`` for TRB is 0.408 in the amplicon reference and 0.1256 in the blood per-study
-#: fit, a 3.2x difference in the coverage level every Hill number is compared at.
+#: measured ``cstar`` for TRB is 0.4080 in the shipped amplicon reference and 0.1072 in the shipped
+#: RNA-seq ones, a 3.8x difference in the coverage level every Hill number is compared at. The
+#: amplicon reference also carries ``cstar`` for TRA and TRB only; the RNA-seq references carry all
+#: seven loci, which is what fills the B-cell columns.
 #:
-#: ``deep-tcr`` ships today. ``blood`` and ``tissue`` resolve to artifacts that are not in the
-#: wheel yet; naming one raises :class:`FileNotFoundError` saying so, rather than silently falling
-#: back to a reference fitted on a different assay.
+#: All six ship in the wheel. A name with no installed artifact raises
+#: :class:`FileNotFoundError` saying so, and an unknown name raises :class:`ValueError` rather
+#: than being read as a path -- either way, never a silent fall back to a reference fitted on a
+#: different assay.
 #: Two fits ship per RNA-seq corpus, weighted and unweighted, because which one you want depends
 #: on what you are asking. ``weight_by_group=True`` gives every *study* one vote; unweighted gives
 #: every *sample* one vote, so a 3,000-sample submission sets the coordinates for everyone.

@@ -1,4 +1,4 @@
-"""CLI smoke tests — the two `mir embed` commands on tiny bundled-geometry frames."""
+"""CLI smoke tests — `mir embed`, and the input-free `mir signature` introspection flags."""
 
 import polars as pl
 import pytest
@@ -151,3 +151,13 @@ def test_locus_flag_accepts_aliases(tmp_path):
 
     with pytest.raises(SystemExit, match="Unknown locus"):
         main(["embed", "clonotypes", str(src), "--locus", "nonsense", "--n-prototypes", "300"])
+
+
+def test_signature_channels_reads_no_input(tmp_path, capsys):
+    """The vocabulary is printable without a sample — it describes the contract, not the data."""
+    out = tmp_path / "chan.tsv"
+    main(["signature", "--channels", "-o", str(out)])
+    rows = out.read_text().strip().split("\n")
+    assert rows[0].split("\t")[:3] == ["channel", "sig", "block"]
+    assert any(r.startswith("vsig:div\t") for r in rows)
+    assert any(r.startswith("rsig:phic\t") for r in rows)

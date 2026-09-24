@@ -6,6 +6,13 @@ who ``pip install mirpy-lib``, on their own samples, and directly comparable wit
 the whole design goal: a matrix you can hand a collaborator that drops into PCA, logistic
 regression, random forest, boosting or an MLP with no scaler of their own.
 
+.. note::
+
+   Columns are named ``<sig>:<channel>:<locus>:<feature>``. The **channel** is the second field —
+   the named group of columns that measures one thing, and the level a finding is usually stated
+   at ("the groups separate in IGH diversity"). :doc:`channels` is the vocabulary: twenty names,
+   what each measures, and how to ask which one carries your signal.
+
 Quickstart — one command
 ------------------------
 
@@ -442,8 +449,9 @@ The geometry is one artifact for everybody — it covers all seven loci and no a
 bulk RNA-seq do not live on the same scale. Reading a sample against the wrong reference is not a
 small error.
 
-The reference that ships today was fitted on **seven targeted (amplicon) TCR cohorts, 4,080
-samples**, and that has two consequences a user should know before trusting a column:
+Six references ship. The **default** one, ``deep-tcr``, was fitted on **seven targeted (amplicon)
+TCR cohorts, 4,080 samples**, and that has two consequences a user should know before trusting a
+column:
 
 .. list-table::
    :header-rows: 1
@@ -475,9 +483,9 @@ The two scaled columns on the five uncovered loci are only ``mask:present`` and 
 with no ``cstar`` falls back to a coverage level no finite sample attains, its ``div:`` columns come
 back ``nan``. If you are working with B cells today, that is why.
 
-Why not simply pool one reference over everything: the coverage level ``cstar`` differs by **3.2×**
-between assays on the same locus — TRB sits at 0.408 in an amplicon corpus and 0.126 in bulk blood
-RNA-seq. ``cstar`` is the depth every Hill number is compared at, and a value above what a sample
+Why not simply pool one reference over everything: the coverage level ``cstar`` differs by **3.8x**
+between assays on the same locus — TRB sits at 0.4080 in the amplicon reference and 0.1072 in the
+bulk RNA-seq ones. ``cstar`` is the depth every Hill number is compared at, and a value above what a sample
 attains puts it into extrapolation, which is measured to inflate diversity roughly tenfold. Averaging
 the two assays would put *both* populations in the wrong regime.
 
@@ -500,12 +508,12 @@ So a reference is chosen by assay, not by preference:
      - state
    * - ``deep-tcr``
      - targeted / amplicon TCR
-     - 7 deep cohorts, 4,080 samples
+     - deep sequencing: 7 cohorts, 4,080 samples
      - TRA, TRB
      - **ships; the default**
    * - ``blood``
      - bulk **blood** RNA-seq
-     - 23,234 samples, 947 study groups
+     - public SRA: 23,234 samples, 947 study groups
      - all 7
      - **ships**
    * - ``blood-unweighted``
@@ -520,7 +528,7 @@ So a reference is chosen by assay, not by preference:
      - **ships** (kept for continuity)
    * - ``tissue``
      - bulk **tissue** RNA-seq
-     - 13,577 samples, 1,024 study groups
+     - public SRA: 13,577 samples, 1,024 study groups
      - all 7
      - **ships**
    * - ``tissue-unweighted``
@@ -729,7 +737,8 @@ API
 ---
 
 .. automodule:: mir.signature
-   :members: signature, signature_cohort, rsig, columns, describe, load_reference, self_test
+   :members: signature, signature_cohort, rsig, columns, describe, channels, channel,
+             channel_spec, channel_table, load_reference, self_test
    :undoc-members:
    :show-inheritance:
 

@@ -122,6 +122,7 @@ Every formula, derivation and invariant behind these is collected in
    :maxdepth: 2
 
    signature
+   channels
 
 .. toctree::
    :hidden:

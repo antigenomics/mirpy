@@ -35,6 +35,18 @@ pip install "mirpy-lib[bench]"   # + benchmark / theory experiments
 Pure-Python wheel; the heavy lifting (alignment, Pgen, sampling) is reused from
 [`seqtree`](https://github.com/antigenomics/seqtree) and `vdjtools`.
 
+## Where to start
+
+| You want to | Go to |
+|---|---|
+| Turn receptors into vectors you can cluster or classify | [Quick start](#quick-start) · [User guide](https://docs.isalgo.dev/mirpy/usage.html) |
+| Pick prototype counts and PCA dimensions | [Recommended presets](#recommended-presets) |
+| Find enriched / antigen-driven neighbourhoods | [`mir.density`](#background-subtraction--clustering-mirdensity) |
+| Compare whole repertoires, not clonotypes | [`mir.repertoire`](#sample-level-repertoire-embedding-mirrepertoire) |
+| One fixed feature vector per sample, for a classifier | [Repertoire signatures](#repertoire-signatures-extended) · [Signature](https://docs.isalgo.dev/mirpy/signature.html) |
+| Name which part of a vector carries a signal | [`mir.explain`](https://docs.isalgo.dev/mirpy/channels.html) |
+| Worked examples as notebooks | [Notebook gallery](https://docs.isalgo.dev/mirpy/notebooks.html) |
+
 ## Quick start
 
 ```python
@@ -78,8 +90,9 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
 # BOTH halves: vdjtools statistics + mirpy embedding geometry, in one vector.
 mir signature --preset classify cohort/*.tsv.gz -o sig.parquet
-mir signature --preset classify --threads 0 cohort/*.tsv.gz -o sig.parquet   # 0 = every core
+mir signature --preset classify --scale blood --threads 0 cohort/*.tsv.gz -o sig.parquet
 mir signature --describe --preset classify        # the column dictionary; reads no input
+mir signature --channels                          # the channel vocabulary; reads no input
 mir presets                                       # the named feature sets, ranked
 mir presets classify                              # what one preset is, and when to use it
 ```
@@ -90,10 +103,12 @@ inferred per file (or restrict with `--locus`, which takes aliases — `beta`, `
 on anything it can't resolve). An MMD matrix is per chain, so across several loci `--mmd mmd.tsv`
 writes `mmd.TRB.tsv`, `mmd.TRA.tsv`, …; with one locus the name is used as given.
 
-Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame markers in
-`junction_aa`) before embedding by default — pass `--no-filter-functional` to skip this. Without
-it, a stop codon silently produces a numerically meaningless embedding and an out-of-frame `_`
-marker crashes the run outright (neither is a valid amino acid).
+Both `embed` commands drop non-coding clonotypes (stop codon / legacy out-of-frame markers in
+`junction_aa`) before embedding, and there is **no flag to turn it off**: a stop codon is in
+seqtree's alphabet, so an unfiltered frame does not crash — it embeds to a finite, meaningless
+distance and contaminates the geometry silently. `--no-filter-functional` is refused with a
+pointer to `vdjtools filter --nonproductive`, which is what to use when the non-productive
+fraction is the thing you want.
 
 ## Recommended presets
 
@@ -394,46 +409,64 @@ so coverage and richness are unrecoverable from `Φ` **by construction**; the de
 win that question as a design consequence. It sits beside `mir.cohort.missingness_report` as the
 other "is this object honest" check.
 
-## The portable signature (`mir.signature`)
+## Repertoire signatures (extended)
 
-`Φ(S)` is a fingerprint, but not one you can hand over: its basis is fitted on *your* cohort, so two
-collaborators get incomparable vectors. The **signature** is the hand-off object — a fixed-width,
-name-addressed, already-standardised vector that anyone who `pip install mirpy-lib` can compute from
-their own AIRR files and drop into PCA, logistic regression, boosting or an MLP with no scaler of
-their own.
+An **optional** layer on top of everything above, for when the deliverable is a *table a
+collaborator can join* rather than an embedding. `Φ(S)` is a fingerprint but not a portable one —
+its basis is fitted on *your* cohort, so two labs get incomparable vectors. The **signature** fixes
+the basis and the scale: a fixed-width, name-addressed, already-standardised vector that anyone who
+`pip install mirpy-lib` can compute from their own AIRR files and drop into PCA, logistic
+regression, boosting or an MLP with no scaler of their own.
+
+Command line and library both, and they emit the same columns:
+
+```bash
+mir signature --preset classify --scale blood cohort/*.tsv.gz -o sig.parquet
+mir signature --channels                # what each group of columns measures; reads no input
+```
 
 ```python
-from mir.signature import signature, signature_cohort, describe
+from mir.signature import signature, signature_cohort, channel_spec, describe, MODELS
 
-v = signature({"TRB": df})                # 688 named columns (standard tier), ~0.3 s/sample
-F = signature_cohort(samples)             # one row per sample, positional
-describe("standard")                      # column, sig, block, locus, feature, transform, flags
+F = signature_cohort(samples, tier="standard")   # one row per sample, 688 named columns
+describe("standard")                             # the column dictionary
 ```
 
 Two halves, concatenated on `sample_id` and namespaced so they never collide: `vsig` (statistics of
 the clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig`
-(geometry — every column a linear functional, a norm, or a mixture coefficient of `Φ`). Tiers
-`core ⊂ standard ⊂ full` are exact **index subsets** of one frozen column order.
+(geometry — every column a linear functional, a norm, or a mixture coefficient of `Φ`). A column is
+`<sig>:<channel>:<locus>:<feature>`; the tiers `core` (152) ⊂ `standard` (688) ⊂ `full` (1403) are
+exact **index subsets** of one frozen order. The **channel** — the second field — is the level a
+finding is stated at: twenty names covering the whole vector, so "the classifier found something"
+becomes "IGH diversity and isotype composition carry it". See
+[**Channels**](https://docs.isalgo.dev/mirpy/channels.html).
 
-Three properties are what make it portable, and each was measured rather than assumed
-(numbers in the analysis repo's `benchmarks/SIGNATURE_SCALING.md`):
+**The rotation is fit-free.** The map reducing `Φ` to coordinates is the PCA of the *bundled
+prototype panel* — zero samples enter it, so nobody's coordinates move when a reference is
+refreshed. Only location and scale come from data, and those are what `--scale` selects:
 
-- **The basis is fit-free.** The rotation reducing `Φ` to coordinates is the PCA of the *bundled
-  prototype panel* — no samples, nothing to re-fit, so nobody's coordinates move when a reference
-  is refreshed. A basis fitted on a corpus instead is not merely worse but unusable at the sizes
-  anyone has: split-half column agreement of a fitted junction basis is **0.23**.
-- **Only location and scale come from data**, and they converge. Median and `1.4826·MAD` reach
-  0.992 of columns within tolerance at **N = 1,000** reference samples; mean and sd never get there
-  (0.841 at N = 2,000), because the columns are heavy-tailed — 0.4–27% of samples sit beyond five
-  robust deviations, against the 6·10⁻⁷ a normal gives.
-- **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, a
-  statistic the sample is too shallow to estimate — each is `nan` plus a `mask:` column, because a
-  model that reads "absent" as "zero" reads an unsequenced chain as biology.
+| `--scale` | fitted on | scaled columns |
+|---|---|--:|
+| `deep-tcr` *(default)* | targeted deep TCR sequencing, 4,080 samples | 394 / 1403 |
+| `blood` | public SRA bulk RNA-seq, blood — 23,234 samples in 947 studies | 1377 / 1403 |
+| `tissue` | public SRA bulk RNA-seq, tissue — 13,577 samples in 1,024 studies | 1360 / 1403 |
 
-What it does *not* fix is batch. Fitted on one cohort and applied to another the spread transfers
-(robust sd of z = 1.008) and the offset does not (1.34 robust deviations); `fit_scale(...,
-group=...)` records which columns are batch channels so you are handed the list rather than left to
-find it. The geometry blocks are the cleanest on that measure and the depth summaries the worst.
+`deep-tcr` covers TRA and TRB only; the RNA-seq references cover all seven loci, which is what
+fills the B-cell columns. Each also ships an unweighted variant (`blood-unweighted`,
+`tissue-unweighted`): the default gives every **study** one vote, the unweighted variant every
+**sample**, so a single 3,000-sample submission would otherwise set the coordinates for everyone.
+Weighted is the default and it is not close — held-out-study agreement at 640 study groups passes
+**0.843–0.857** of columns against **0.533–0.551** unweighted. Take the unweighted fit only when
+your own cohort *is* one large study and you want its scale rather than a cross-study consensus.
+
+**Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
+statistic the sample is too shallow to estimate is `nan` plus a `mask:` column, because a model that
+reads "absent" as "zero" reads an unsequenced chain as biology. What the signature does *not* fix is
+batch: the spread transfers across cohorts and the offset does not, so `fit_scale(..., group=...)`
+hands you the list of batch-sensitive columns rather than leaving you to find it.
+
+Full documentation — presets, transforms, what is fitted and what is not, and the end-to-end recipe
+for a folder of AIRR files: [**Signature**](https://docs.isalgo.dev/mirpy/signature.html).
 
 ## Exposure trajectory, generative loop, digital twin
 

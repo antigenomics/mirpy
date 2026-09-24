@@ -3,6 +3,45 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.16.0 — 2026-09-24
+
+### Added — the channel vocabulary reaches the ablation machinery
+
+`mir.explain` has always asked "which named channel of the matrix carries this signal", and
+`mir.signature` has always emitted columns whose second field names exactly such a group. Nothing
+connected the two, so anyone asking the question over a signature matrix rebuilt the channel map by
+hand.
+
+- `channel_spec(tier, columns=…, per_locus=…)` returns a `mir.explain.ChannelSpec` over signature
+  columns, ready for `channel_report` / `channel_drivers`. Attributability comes from the layout's
+  `Block` declarations, so only the four geometry channels (`rsig:contrast`, `rsig:phiv`,
+  `rsig:phij`, `rsig:phic`) will attribute, and the rest raise rather than answer a category error.
+- `CHANNELS`, `channel`, `channels`, `channel_table` are re-exported from `vdjtools.signature`
+  (>= 3.13.0), so a caller of `mir.signature` never has to know where the contract is implemented.
+- `mir signature --channels` prints the vocabulary and reads no input, beside `--describe`.
+- `MODELS` is exported — the named scale references were reachable only by string before.
+
+`examples/signature_pipeline.py` gains a channels section, so the gallery's read-this-first
+notebook now ends on how to read 688 columns rather than on how to produce them.
+
+### Changed — the README says signatures are an extended option, and says which scale to use
+
+The signature section is shorter, explicitly marked extended, and links to the docs rather than
+restating them. It now carries the `--scale` table (which corpus each reference was fitted on,
+public SRA bulk RNA-seq vs deep targeted sequencing, and how many of 1,403 columns each scales)
+and explains weighted vs unweighted in the terms that decide it: one vote per study against one
+vote per sample. A **Where to start** table routes each task to its docs page.
+
+### Fixed — two stale claims in the shipped docstrings
+
+`MODELS` still said `blood` and `tissue` "are not in the wheel yet"; all six have shipped since
+3.15.0. And the `cstar` comparison quoted 0.1256 for blood TRB from a pre-3.11 fit — the reference
+that ships carries **0.1072**, so the amplicon-vs-RNA-seq gap on TRB is **3.8x**, not 3.2x.
+
+The README also still advertised `--no-filter-functional`, which has been refused since 3.12.0: a
+stop codon is in seqtree's alphabet, so an unfiltered frame does not crash, it embeds to a finite
+meaningless distance and contaminates the geometry silently.
+
 ## 3.15.0 — 2026-09-24
 
 ### Added — the four v4 scale references, and the tissue model

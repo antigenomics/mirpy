@@ -25,7 +25,8 @@ parquet, …). Output is TSV (default / ``.tsv``) or Parquet (``.parquet`` — r
 the wide raw embedding); ``-o -`` (or no ``-o``) writes TSV to stdout.
 
 Run ``mir <command> -h`` for the full flag list; ``mir signature --describe`` prints the column
-dictionary and reads no input.
+dictionary and ``mir signature --channels`` the channel vocabulary --- the named groups those
+columns fall into, which is the level a finding is usually stated at. Both read no input.
 """
 from __future__ import annotations
 
@@ -277,7 +278,7 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 def cmd_signature(a: argparse.Namespace) -> None:
     from vdjtools.signature import presets as P
 
-    from mir.signature import assemble, columns, describe
+    from mir.signature import assemble, channel_table, columns, describe
 
     # --preset picks BOTH the tier and the column subset. mirpy is where the two halves meet, so
     # unlike `vdjtools signature` every preset resolves here in full.
@@ -290,6 +291,11 @@ def cmd_signature(a: argparse.Namespace) -> None:
         a.tier, keep = spec.tier, spec.columns()
         print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} columns, "
               f"suggested scaling {spec.scaling}", file=sys.stderr)
+
+    if a.channels:
+        # One row per channel rather than per column: the level a finding is stated at.
+        _write(channel_table(a.tier), a.output)
+        return
 
     if a.describe:
         d = describe(a.tier)
@@ -429,6 +435,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  # which columns am I about to get? reads no input at all\n"
             "  mir signature --preset classify --describe\n"
             "\n"
+            "  # the twenty channels those columns group into, and what each measures\n"
+            "  mir signature --channels\n"
+            "\n"
             "  # all cores, one process per sample\n"
             "  mir signature --preset classify --threads 0 cohort/*.tsv.gz -o sig.parquet\n"
             "\n"
@@ -478,6 +487,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="worker processes over samples; 0 = every core (default 1)")
     s.add_argument("--describe", action="store_true",
                    help="print the column dictionary for --tier/--preset and exit; reads no input")
+    s.add_argument("--channels", action="store_true",
+                   help="print the channel vocabulary for --tier and exit -- one row per named "
+                        "group of columns, and what it measures; reads no input")
     s.set_defaults(func=cmd_signature)
 
     q = sub.add_parser(

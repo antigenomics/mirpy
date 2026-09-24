@@ -192,10 +192,57 @@ def _(mo, pl, sig):
     {mo.as_html(_tab) if _rows else "none"}
 
     The diversity block is coverage-standardised, which needs a measured coverage level `cstar`
-    per locus. The bundled scale reference was fitted on targeted TCR libraries, so it carries
-    `cstar` for **TRA and TRB only** -- which is why those two loci have zero dead columns and the
-    other five lose their diversity columns. Pass `--standardize none` for raw Hill numbers on all
-    seven loci, at the cost of cross-cohort comparability.
+    per locus. The **default** scale reference (`deep-tcr`) was fitted on targeted TCR libraries,
+    so it carries `cstar` for **TRA and TRB only** -- which is why those two loci have zero dead
+    columns and the other five lose their diversity columns.
+
+    Two ways out. `--scale blood` (or `--scale tissue`) selects a reference fitted on bulk RNA-seq,
+    which carries `cstar` for all seven loci and fills the B-cell columns; that is the right choice
+    for the SRA samples here. `--standardize none` gives raw Hill numbers on all seven loci at the
+    cost of cross-cohort comparability.
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        """
+        ## Reading the result: channels
+
+        688 columns is too many to think about one at a time. The second field of a column name is
+        its **channel** -- the named group of columns that measures one thing -- and it is the level
+        a finding is usually stated at: not "column 412 moved" but "IGH diversity moved".
+        """
+    )
+    return
+
+
+@app.cell
+def _(mo, pl, sig):
+    from mir.signature import channel_spec, channel_table
+
+    _spec = channel_spec(columns=[c for c in sig.columns if c != "sample_id"])
+    _tab = channel_table("standard").select("channel", "n_columns", "attributable", "measures")
+
+    mo.md(f"""
+    **{len(_spec.names)} channels over {_spec.width} columns**, disjoint and exhaustive.
+
+    {mo.as_html(_tab)}
+
+    `attributable` says whether "which clonotypes drive this" is a well-posed question -- true only
+    where the channel is a sum over clonotypes. A Hill number is not, so asking is a category error
+    rather than an unanswered question, and `mir.explain.channel_drivers` raises instead of
+    returning a plausible-looking list.
+
+    Hand `_spec` to `mir.explain.channel_report` with a scorer of your own to find which channel
+    carries your signal:
+
+    ```python
+    from mir.explain import channel_report
+    rep = channel_report(X, _spec, lambda B: cv_auc(B, y), base=0.5, mode="both")
+    rep.best
+    ```
     """)
     return
 

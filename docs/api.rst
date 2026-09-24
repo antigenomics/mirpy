@@ -362,16 +362,18 @@ Command-line interface (``mir``)
 ``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with four
 commands: two embedding scales, plus the portable signature and its column presets.
 
-Both commands drop non-coding clonotypes (stop codon / legacy out-of-frame ``junction_aa``) before
-embedding by default via ``vdjtools.preprocess.filter_functional`` — pass ``--no-filter-functional``
-to disable.
+Both ``embed`` commands drop non-coding clonotypes (stop codon / legacy out-of-frame
+``junction_aa``) before embedding, and there is **no flag to disable it**: a stop codon is in
+seqtree's alphabet, so an unfiltered frame does not crash — it embeds to a finite, meaningless
+distance and contaminates the geometry silently. ``--no-filter-functional`` is refused with a
+message pointing at ``vdjtools filter --nonproductive``, which is what to use when the
+non-productive fraction is the thing you want.
 
 ``mir embed clonotypes INPUT``
    One repertoire's clonotype table → a per-clonotype TCREMP embedding table (columns ``e0…``).
    Flags: ``--species``, ``--locus`` (inferred when the file has one locus), ``--n-prototypes``,
    ``--mode {vjcdr3,cdr123}``, ``--replicate R`` (prototype draw), ``--pca K`` (compact the table),
-   ``--filter-functional``/``--no-filter-functional``, ``--threads``, ``-o`` (``.tsv`` /
-   ``.parquet``; default stdout TSV).
+   ``--threads``, ``-o`` (``.tsv`` / ``.parquet``; default stdout TSV).
 
 ``mir embed repertoires INPUT...``
    A dataset of clonotype tables → one repertoire vector ``Φ(S)`` per sample **per chain** on one
@@ -380,19 +382,23 @@ to disable.
    ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}`` (default ``log2p1``),
    ``--blocks mean,diversity[,second]``, ``--n-rff``, ``--n-rff-second``, ``--n-components``,
    ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
-   ``--filter-functional``/``--no-filter-functional``, ``--threads``, ``--seed``, ``-o``.
+   ``--threads``, ``--seed``, ``-o``.
 
 ``mir signature INPUT...``
    AIRR clonotype tables → **one fixed-width named feature vector per sample**, standardised
    against a frozen reference so a downstream model needs no scaler of its own. This is the command
    to send a collaborator. Flags: ``--tier {core,standard,full}``, ``--preset NAME``,
    ``--species``, ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``,
-   ``--standardize {reference,none}``, ``--scale PATH`` (an explicit reference; a named-but-missing
-   one raises rather than silently producing an unstandardised matrix), ``--threads`` (0 = every
-   core), ``--describe`` (print the column dictionary and read no input), ``-o``.
+   ``--standardize {reference,none}``, ``--scale NAME|PATH`` (which scale reference to
+   standardise against — a bundled model name or a path; a named-but-missing one raises rather
+   than silently producing an unstandardised matrix), ``--threads`` (0 = every core),
+   ``--describe`` (print the column dictionary and read no input), ``--channels`` (print the
+   channel vocabulary and read no input), ``-o``.
 
    This emits **both halves**. ``vdjtools signature`` emits the ``vsig`` half alone and reports how
    many ``rsig`` columns it left to this command; the two concatenate on ``sample_id``.
+   :doc:`signature` covers the scale references and :doc:`channels` the vocabulary the columns
+   group into.
 
 ``mir presets [NAME]``
    The named column subsets and their ranking — ``compact`` (152), ``classify`` (615),

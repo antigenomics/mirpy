@@ -51,6 +51,7 @@ mir presets                                       # named feature sets, ranked
 mir signature S1 S2 … --preset classify --threads 0 -o sig.parquet  # 0 = every core
 mir signature S1 S2 …         -o sig.parquet --tier standard   # the portable signature
 mir signature --describe --tier standard          # the column dictionary; reads no input
+mir signature --channels                          # the channel vocabulary; reads no input
 ```
 
 - Reads anything `vdjtools.io.read` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ, parquet).
@@ -203,7 +204,42 @@ signature(sample, standardize="none")      # raw values
 ```bash
 mir signature cohort/*.tsv.gz -o sig.parquet --tier standard
 mir signature --describe --tier standard   # the column dictionary; reads no input
+mir signature --channels                   # the channel vocabulary; reads no input
 ```
+
+**Channels — the interpretive layer.** A column is `<sig>:<channel>:<locus>:<feature>`; the channel
+is the named group of columns that measures one thing, and the level a finding is stated at.
+`CHANNELS`, `channel()`, `channels()`, `channel_table()` are re-exported from
+`vdjtools.signature.layout`; `channel_spec(tier, columns=…, per_locus=…)` wraps the map as a
+`mir.explain.ChannelSpec`, which is the bridge to `channel_report` / `channel_drivers`. Keys carry
+the half (`vsig:div` vs `rsig:div` are different measurements of the same idea, not duplicates);
+only the `rsig` geometry channels are `attributable`.
+
+```python
+from mir.explain import channel_report
+from mir.signature import channel_spec, signature_cohort
+F = signature_cohort(samples, tier="standard")
+rep = channel_report(F.drop("sample_id").to_numpy(),
+                     channel_spec("standard", columns=F.columns[1:]),
+                     lambda B: cv_auc(B, y), base=0.5, mode="both")
+rep.best                                   # -> "vsig:div"
+```
+
+**Scale references — `--scale NAME|PATH`, `load_scale(name)`, `MODELS`.** The rotation is fit-free
+(PCA of the bundled prototype panel, zero samples), so choosing a model moves only the per-column
+location/scale and the per-locus coverage constant `cstar`. Six ship: `deep-tcr` (default;
+targeted deep TCR, 4,080 samples, TRA+TRB only, 394/1403 columns scaled), `blood` (public SRA bulk
+RNA-seq blood, 23,234 samples in 947 studies, 7 loci, 1377/1403), `tissue` (13,577 samples in 1,024
+studies, 1360/1403), plus `blood-unweighted` / `tissue-unweighted` and `blood-v3` (superseded, kept
+loadable so nobody's existing numbers move). **Weighted is the default and it is not close** —
+held-out-study agreement at 640 study groups passes 0.843–0.857 of columns against 0.533–0.551
+unweighted; `weight_by_group=True` gives every study one vote instead of every sample, so one
+3,000-sample submission cannot set the coordinates for everyone. Take an unweighted fit only when
+your own cohort *is* one large study. A named model with no installed artifact raises
+`FileNotFoundError`; an unknown name raises `ValueError` rather than being read as a path.
+Reading a bulk RNA-seq sample against `deep-tcr` is not a small error: `cstar` for TRB is 0.408
+there and 0.1072 in the RNA-seq fits, a 3.8x difference in the coverage level every Hill number is
+compared at.
 
 **Scaling, measured on 4,080 real samples** (analysis repo, `benchmarks/SIGNATURE_SCALING.md`):
 
