@@ -125,6 +125,12 @@ files) — do not run it.
   split.
 
 ## Open loops / next steps
+- **Release ordering with vdjtools is a hard sequence, and the docs job is what breaks.** mirpy's
+  `docs.yml` installs from PyPI, so bumping `vdjtools>=X` and pushing in one commit fails the docs
+  build until vdjtools X is actually on PyPI — it has done so twice (3.12.1 and 3.13.0). Order:
+  tag/release vdjtools, wait for `pypi.org/simple/vdjtools/` to list it (the JSON API lags the
+  simple index by minutes, and pip's HTTP cache lags both — use `--no-cache-dir` to check), then
+  push mirpy. If the docs job has already failed, `gh run rerun --failed` once the dep lands.
 - **The bundled `rsig_scale_v2` carries `cstar` for TRA and TRB only** (0.545 / 0.408). The other
   five loci fall back to `_UNREACHABLE_COVERAGE = 1.0` and emit an all-`nan` `div` block, silently;
   and both shipped values are ~4x the attained coverage of the reference corpus, so TRA/TRB samples
