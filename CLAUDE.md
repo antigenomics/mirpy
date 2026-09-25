@@ -131,6 +131,19 @@ files) — do not run it.
   tag/release vdjtools, wait for `pypi.org/simple/vdjtools/` to list it (the JSON API lags the
   simple index by minutes, and pip's HTTP cache lags both — use `--no-cache-dir` to check), then
   push mirpy. If the docs job has already failed, `gh run rerun --failed` once the dep lands.
+
+  **Happened a third time, 2026-09-25 (vdjtools 3.14.1 / mirpy 3.17.0), and the rule as written is
+  what let it.** It said "then push mirpy", which reads as a rule about *releasing* — so the floor
+  bump went to `master` while vdjtools 3.14.1 was still sitting on the `pypi` environment's
+  reviewer gate, and CI went red on `No matching distribution found for vdjtools>=3.14.1` before
+  any tag existed. **Pushing the commit is the breaking act, not tagging the release.** Either
+  wait for PyPI before pushing at all, or push the code and the floor bump as two commits and hold
+  the second one.
+
+  Note the gate itself: vdjtools' `publish.yml` deploys into a `pypi` environment with required
+  reviewers, so a release sits at `status: waiting` until a human approves it in the Actions UI.
+  It will not publish on its own, and no amount of waiting changes that — check
+  `gh run list --workflow publish.yml` and look for `waiting` rather than assuming it is slow.
 - **The bundled `rsig_scale_v2` carries `cstar` for TRA and TRB only** (0.545 / 0.408). The other
   five loci fall back to `_UNREACHABLE_COVERAGE = 1.0` and emit an all-`nan` `div` block, silently;
   and both shipped values are ~4x the attained coverage of the reference corpus, so TRA/TRB samples
