@@ -296,7 +296,7 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 def cmd_signature(a: argparse.Namespace) -> None:
     from vdjtools.signature import presets as P
 
-    from mir.signature import assemble, channel_table, columns, describe
+    from mir.signature import assemble, channel_table, describe
 
     # --preset picks BOTH the tier and the column subset. mirpy is where the two halves meet, so
     # unlike `vdjtools signature` every preset resolves here in full.
@@ -306,8 +306,20 @@ def cmd_signature(a: argparse.Namespace) -> None:
             spec = P.get(a.preset)
         except KeyError as e:
             raise SystemExit(str(e)) from None
-        a.tier, keep = spec.tier, spec.columns()
-        print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} columns, "
+        a.tier = spec.tier
+        # A preset may name columns from both halves. This tool emits the rsig half, so keep that
+        # part and SAY the number changed -- the mirror image of `vdjtools signature`, which keeps
+        # the vsig part of the same preset. Silently returning a short vector under the preset's
+        # name is how a feature set drifts from the thing it is called.
+        full = spec.columns()
+        keep = [c for c in full if c.startswith("rsig:")]
+        if not keep:
+            raise SystemExit(
+                f"preset {spec.name!r} selects no rsig columns (it is {'+'.join(spec.sig)}); "
+                f"use `vdjtools signature --preset {spec.name}` for the statistics half")
+        print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} rsig columns of "
+              f"{len(full)} ({len(full) - len(keep)} are vsig -- "
+              f"`vdjtools signature --preset {spec.name}` emits those), "
               f"suggested scaling {spec.scaling}", file=sys.stderr)
 
     if a.channels:
@@ -354,16 +366,17 @@ def cmd_signature(a: argparse.Namespace) -> None:
     workers = a.threads if a.threads > 0 else available_cores()
     workers = 1 if a.threads == 1 else min(workers, max(1, len(samples)))
     print(f"[mir] {len(samples)} samples, tier={a.tier}"
-          f"{f' (preset {a.preset})' if a.preset else ''}, "
+          f"{f' (preset {a.preset})' if a.preset else ''}"
+          f", "
           f"{workers} worker{'s' if workers != 1 else ''} of {available_cores()} available "
           f"core{'s' if available_cores() != 1 else ''}", file=sys.stderr)
     t0 = time.perf_counter()
-    out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
-                                    standardize=a.standardize, scale=scale,
-                                    n_jobs=a.threads, columns=keep,
-                                    on_duplicate=a.on_duplicate)
+    out = assemble.rsig_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
+                               standardize=a.standardize, scale=scale,
+                               n_jobs=a.threads, columns=keep,
+                               on_duplicate=a.on_duplicate)
     dt = time.perf_counter() - t0
-    n_cols = len(keep) if keep else len(columns(a.tier))
+    n_cols = out.width - 1
     print(f"[mir] {out.height} samples x {n_cols} columns "
           f"({a.preset or a.tier}, standardize={a.standardize}) in {dt:.1f} s "
           f"({dt / max(out.height, 1) * 1000:.0f} ms/sample)", file=sys.stderr)

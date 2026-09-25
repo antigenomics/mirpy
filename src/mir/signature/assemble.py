@@ -327,115 +327,85 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
 
 
 def _one(item, tier, kw):
-    sid, s = item
-    return {"sample_id": sid, **signature(s, tier=tier, **kw)}
+    """One sample's joined row. Module-level so a worker process can unpickle it."""
+    sid, sample = item
+    return {"sample_id": sid, **signature(sample, tier=tier, **kw)}
 
 
-def _chunk(args):
-    """One contiguous slice of the cohort, start to finish, inside one worker.
+def _one_rsig(item, tier, kw):
+    """One sample's rsig row -- geometry only, no vsig computed at all."""
+    sid, sample = item
+    if callable(sample) and not isinstance(sample, (dict, pl.DataFrame)):
+        sample = sample()
+    from vdjtools.signature import blocks as VB
 
-    The unit of work handed to a process is a slice, never a sample. A task per sample re-pickles
-    ``kw`` -- which carries the scale reference -- once per sample instead of once per worker, and
-    that alone is the difference between a few megabytes crossing the pipe and a gigabyte.
+    frames = _locus_frames(sample)
+    if kw.pop("sanitise", True):
+        frames = {k: VB.sanitise(v, on_duplicate=kw.pop("on_duplicate", "error"))[0]
+                  for k, v in frames.items()}
+        frames = {k: v for k, v in frames.items() if v.height}
+    scale = kw.pop("scale", None)
+    standardize = kw.pop("standardize", "reference")
+    clip = kw.pop("clip", 8.0)
+    out = rsig(frames, tier=tier, **kw)
+    if standardize == "reference":
+        from .scale import load_scale
+
+        sref = scale if scale is not None else load_scale()
+        if sref is not None:
+            out = sref.apply(out, clip=clip)
+    return {"sample_id": sid, **out}
+
+
+def _cohort(samples, one, tier, kw, n_jobs, columns, sig):
+    """Shared body: build rows through vdjtools' pool, then select this half's columns."""
+    import functools
+
+    from vdjtools.signature import layout as L
+    from vdjtools.signature.cohort import parallel_rows
+
+    items = list(samples.items() if isinstance(samples, dict) else samples)
+    rows = parallel_rows(items, functools.partial(one, tier=tier, kw=kw), n_jobs)
+    if not rows:
+        return pl.DataFrame(schema={"sample_id": pl.Utf8})
+    want = columns if columns is not None else L.columns(tier, sig)
+    if columns is not None and sig is not None:
+        want = [c for c in want if c.startswith(f"{sig}:")]
+    return pl.DataFrame(rows).select(["sample_id", *want])
+
+
+def rsig_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
+                columns: list[str] | None = None, **kw) -> pl.DataFrame:
+    """A cohort of **this tool's half**: ``sample_id`` plus the ``rsig`` geometry columns.
+
+    The counterpart to ``vdjtools.signature.vsig_cohort``. One tool per half -- join the two
+    frames on ``sample_id`` for the full portable signature. Cheap relative to the pair: at
+    ``tier="standard"`` this is 528 of the 688 columns for roughly a twelfth of the cost, because
+    vdjtools' Pgen block dominates the other half.
+
+    Args:
+        samples: ``{sample_id: {locus: frame}}``, an iterable of pairs, or a zero-argument
+            callable per sample (deferring the read into the worker keeps peak memory at
+            ``O(n_jobs)`` samples rather than the whole cohort).
+        tier: Column tier.
+        n_jobs: Worker processes; ``1`` in-process, ``0`` every core this process may use.
+        columns: Explicit subset, intersected with the ``rsig`` half.
+        **kw: Passed through to :func:`rsig` (plus ``sanitise``, ``scale``, ``standardize``,
+            ``clip``, ``on_duplicate``).
     """
-    items, tier, kw = args
-    return [_one(it, tier, kw) for it in items]
-
-
-def _slices(n: int, workers: int) -> list[tuple[int, int]]:
-    """``workers`` contiguous half-open ranges covering ``0..n``, sizes differing by at most one.
-
-    The same prescheduling R's ``mclapply(mc.preschedule = TRUE)`` does and the same block split
-    GNU ``parallel`` does: cut the input into as many pieces as there are workers, hand each worker
-    one piece, and stop. Load balancing is given up on purpose -- per-sample cost here varies by a
-    factor of a few, not a factor of a hundred, so the tail is short and the IPC saved is large.
-    """
-    return [(round(i * n / workers), round((i + 1) * n / workers)) for i in range(workers)]
-
-
-def _parallel_rows(items, tier, kw, n_jobs: int) -> list[dict]:
-    """Assemble a cohort across processes, or fail in a way somebody can act on.
-
-    **`spawn`, not `fork`, and not the platform default.** Polars is multithreaded and its own
-    documentation is explicit that it cannot be combined with `fork`: the child inherits the
-    parent's mutexes and file locks in whatever state they were in, and hangs forever the first
-    time it touches one. CPython 3.12 warns about `fork()` in a multi-threaded process for the
-    same reason and stops defaulting to it in 3.14. `spawn` costs a fresh interpreter per worker,
-    which is why the work is chunked: that cost is paid once per worker rather than once per
-    sample, and the frozen rotation and scale reference are loaded once per worker with it.
-
-    **No serial fallback.** This used to catch `BrokenExecutor`, warn, and run the loop in-process,
-    which kept the answer right and hid the fact that the pool never started at all -- measured at
-    the time as "two workers bought 6%", where both timings were serial. A caller filtering
-    warnings, which is routine around sklearn, saw nothing whatsoever. A pool that cannot run
-    raises here, and the message says which of the two fixes applies.
-    """
-    from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
-    from multiprocessing import get_context
-
-    from vdjtools.cores import available_cores
-
-    workers = min(len(items), n_jobs if n_jobs > 0 else available_cores())
-    if workers < 2:
-        return [_one(it, tier, kw) for it in items]
-    chunks = [(items[a:b], tier, kw) for a, b in _slices(len(items), workers) if b > a]
-    try:
-        with ProcessPoolExecutor(max_workers=len(chunks),
-                                 mp_context=get_context("spawn")) as ex:
-            return [row for part in ex.map(_chunk, chunks) for row in part]
-    except (BrokenExecutor, RuntimeError) as e:
-        raise RuntimeError(
-            f"signature_cohort(n_jobs={n_jobs}) could not start its worker processes "
-            f"({type(e).__name__}). Workers are spawned, not forked -- polars cannot be combined "
-            "with fork -- and a spawned worker re-imports the module that called this. That "
-            "succeeds from an importable module and fails from `python - <<EOF`, from `python -c`, "
-            "and from a call at the top level of a script. Either guard the call with "
-            "`if __name__ == '__main__':` in a real .py file, or pass n_jobs=1 to assemble in "
-            "process. It is NOT falling back to serial on your behalf: that is what hid a 20x "
-            "slowdown here before, because a pool that never ran is indistinguishable from a slow "
-            "one once the answer comes out right."
-        ) from e
+    return _cohort(samples, _one_rsig, tier, kw, n_jobs, columns, "rsig")
 
 
 def signature_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
                      columns: list[str] | None = None, **kw) -> pl.DataFrame:
-    """Assemble a cohort: one row per sample, ``sample_id`` plus every signature column.
+    """A cohort of the **joined** signature -- both halves, one row per sample.
 
-    Args:
-        samples: ``{sample_id: {locus: frame}}`` or an iterable of ``(sample_id, frames)``. Each
-            value may instead be a **zero-argument callable** returning that -- see
-            :func:`_locus_frames`. On a cohort large enough to care, prefer the callable: the
-            parent then never holds the cohort, and peak memory scales with ``n_jobs`` rather than
-            with the number of samples (1.1 GB against 6.6 GB on 1,000 x 10,000 at ``n_jobs=8``).
-        tier: Column tier.
-        n_jobs: Worker **processes**. ``1`` runs in-process; ``0`` uses every core **this process
-            is allowed** (:func:`vdjtools.cores.available_cores`) -- the affinity mask and the
-            cgroup quota, not ``os.cpu_count()``. Under ``srun -c 8`` on a 40-core node those are
-            8 and 40, and sizing off the latter starts 40 interpreters to share 8 cores. A cohort is
-            embarrassingly parallel over samples -- each is independent and the frozen artifacts
-            are read-only -- and per-sample cost runs from milliseconds on shallow blood to
-            minutes on a deep tissue biopsy, so this is the difference between minutes and hours.
-            The cohort is cut into exactly ``n_jobs`` contiguous slices, one per worker; a worker
-            that cannot start raises rather than quietly degrading to serial.
-        columns: Explicit column subset (e.g. from a preset). Defaults to the whole tier.
-
-    Returns:
-        One row per sample, ``sample_id`` first, then the requested columns in layout order.
-
-    Raises:
-        RuntimeError: If ``n_jobs != 1`` and the worker processes cannot start -- typically a
-            caller with no importable ``__main__`` (a heredoc, ``python -c``, a bare script).
+    This is the library constructor for the portable signature and what the scale-reference
+    fitting machinery measures over. The CLI does not use it: ``mir signature`` emits
+    :func:`rsig_cohort` and ``vdjtools signature`` emits ``vsig_cohort``, and a caller who wants
+    the join runs both and joins on ``sample_id``.
     """
-    from vdjtools.signature import layout as L
-
-    items = list(samples.items() if isinstance(samples, dict) else samples)
-    rows = (_parallel_rows(items, tier, kw, n_jobs)
-            if n_jobs != 1 and len(items) > 1
-            else [_one(it, tier, kw) for it in items])
-    if not rows:
-        return pl.DataFrame(schema={"sample_id": pl.Utf8})
-    want = columns if columns is not None else L.columns(tier)
-    return pl.DataFrame(rows).select(["sample_id", *want])
+    return _cohort(samples, _one, tier, kw, n_jobs, columns, None)
 
 
 def _demo() -> None:

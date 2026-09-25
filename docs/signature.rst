@@ -13,16 +13,56 @@ regression, random forest, boosting or an MLP with no scaler of their own.
    at ("the groups separate in IGH diversity"). :doc:`channels` is the vocabulary: twenty names,
    what each measures, and how to ask which one carries your signal.
 
-Quickstart — one command
-------------------------
+Two tools, two halves, one join
+-------------------------------
 
-No Python needed. This is the command to send a collaborator:
+The signature has two halves and **each tool emits its own**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 26 14 38
+
+   * - half
+     - produced by
+     - standard
+     - what it measures
+   * - ``vsig``
+     - ``vdjtools signature``
+     - 160 cols
+     - statistics: diversity, clonality, length, Pgen, isotype, SHM
+   * - ``rsig``
+     - ``mir signature``
+     - 528 cols
+     - geometry: where the repertoire sits in the frozen prototype space
+
+Each command emits its own half and nothing else. Run both and join on ``sample_id`` to get the
+688-column **portable signature**; the join is exact rather than approximate, because the scale
+reference standardises **per column** — a column's value is identical whether or not the other
+half was computed beside it.
+
+``mir signature`` is the cheap half: 528 of the 688 columns for about a twelfth of the runtime,
+because vdjtools' Pgen block is ~94% of the cost of the pair.
+
+Quickstart
+----------
+
+No Python needed.
 
 .. code-block:: bash
 
    pip install mirpy-lib
 
-   mir signature --preset classify cohort/*.tsv.gz -o sig.parquet
+   mir signature      cohort/*.tsv.gz -o rsig.parquet     # geometry  (this tool)
+   vdjtools signature cohort/*.tsv.gz -o vsig.parquet     # statistics (that tool)
+
+And the join, when you want the whole vector:
+
+.. code-block:: python
+
+   import polars as pl
+
+   F = (pl.read_parquet("rsig.parquet")
+          .join(pl.read_parquet("vsig.parquet"), on="sample_id", how="inner"))
 
 Files sharing a sample id (the name up to the first dot) are joined into one multi-locus sample, so
 a donor sequenced on TRA and TRB is one signature with both loci filled rather than two half-empty
@@ -34,6 +74,11 @@ auto-detected.
    mir signature --preset classify --describe        # the columns, reading no input
    mir presets                                       # the named feature sets, ranked
    mir presets classify                              # one in full: what, how, when
+
+A preset may name columns from both halves. ``mir signature --preset classify`` keeps the 514
+``rsig:`` ones and **says on stderr** how many it dropped and which command emits them —
+``vdjtools signature --preset classify`` keeps the other 101. Run both, join, and you have the
+preset. A preset with no ``rsig:`` columns is an error here rather than an empty frame.
 
 .. _cohort-sizing:
 

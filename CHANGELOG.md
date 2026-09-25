@@ -3,6 +3,70 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.18.0 — 2026-09-26
+
+### BREAKING — `mir signature` emits the geometry half only
+
+One tool per half. `mir signature` emits `rsig`, `vdjtools signature` emits `vsig`, and the caller
+joins them on `sample_id`. Previously `mir signature` emitted both, which meant it spent **~94% of
+its runtime recomputing a half the other tool already owns**.
+
+| | `vdjtools signature` | `mir signature` |
+|---|---|---|
+| half | `vsig` — statistics | `rsig` — geometry |
+| standard tier | 160 columns | **528 columns** |
+| channels | `div` (Hill/**Shannon**), `clon`, `depth`, `len`, `pgen`, `iso`, `shm`, `pair`, `aa`, `pchem`, `kmer`, `qc`, `mask` | `div` (**Rao**), `depth`, `band`, `contrast`, `phiv`, `phij`, `phic` |
+
+Measured at `tier="standard"` on one 4,000-clonotype sample: **10 ms for `rsig` against 128 ms for
+both**. mirpy's half is 77% of the columns for 8% of the cost.
+
+```bash
+mir signature      cohort/*.tsv.gz -o rsig.parquet     # geometry
+vdjtools signature cohort/*.tsv.gz -o vsig.parquet     # statistics
+```
+
+**The join is exact, not approximate.** The scale reference standardises **per column**, so a
+column's value is identical whether or not the other half was computed beside it — pinned by a
+test comparing `rsig_cohort` against the same columns of `signature_cohort`.
+
+**There is no combined mode and no `--half` flag**, not even to opt back in. A second way to ask
+for the other tool's output would be a duplicate, and it is the cost this change removes.
+
+### Added — `rsig_cohort`, and one shared pool
+
+- `mir.signature.rsig_cohort` — a cohort of this tool's half. What the CLI calls.
+- `mir.signature.signature_cohort` — unchanged in meaning: the **joined** vector, which is what
+  the scale-reference fitting machinery measures over. Not used by the CLI.
+
+Both, and `vdjtools.signature.vsig_cohort`, now run on one implementation —
+`vdjtools.signature.cohort.parallel_rows` (new in vdjtools 3.15.0). Three callers, one pool, no
+copies of the process handling. Requires `vdjtools>=3.15.0`.
+
+**Presets are intersected, not ignored.** `mir signature --preset classify` keeps the 514 `rsig:`
+columns of that preset's 615 and says on stderr how many it dropped and which command emits them;
+`vdjtools signature --preset classify` keeps the other 101. That mirrors behaviour vdjtools
+already had. A preset with no `rsig:` columns is an error here, naming the other command, rather
+than an empty frame.
+
+### Added — the run says what it chose, and the docs say what it costs
+
+`mir signature` prints the sample count, tier, worker count **and the cores it believes it has**
+before starting, then the elapsed and per-sample cost. The core count is the one thing a cluster
+or container silently gets wrong, so it goes where somebody can see it and stop early.
+
+```
+[mir] 1000 samples, tier=core (preset compact), 8 workers of 8 available cores
+[mir] 1000 samples x 86 columns (compact, standardize=reference) in 116.5 s (117 ms/sample)
+```
+
+:doc:`signature` gained a sizing section with end-to-end measurements on 1,000 samples of 10,000
+clonotypes, including a clean `pip install` on an 8-core / 32 GB Linux node (Xeon Silver 4210R):
+**117.8 s at `--preset compact`, 274 MB peak, 774% CPU**. Two things that table exists to say. The
+tier dominates, not the column count — `classify` (615 columns) and `transfer` (550) measure
+identically, because selecting fewer columns does not compute less. And per-core speed matters
+more than core count: the same sample is ~1.0 CPU-second on an M-series core and ~4.0 on that
+Xeon.
+
 ## 3.17.0 — 2026-09-25
 
 ### Fixed — `signature_cohort(n_jobs=)` was not parallel at all

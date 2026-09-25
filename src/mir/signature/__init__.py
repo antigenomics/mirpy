@@ -21,7 +21,7 @@ from vdjtools.signature.layout import (
     parse,
 )
 
-from .assemble import rsig, signature, signature_cohort
+from .assemble import rsig, signature, rsig_cohort, signature_cohort
 from .blocks import (
     BANDS,
     CHUNK,
@@ -128,6 +128,7 @@ __all__ = [
     "rsig",
     "self_test",
     "signature",
+    "rsig_cohort",
     "signature_cohort",
     "weights",
 ]

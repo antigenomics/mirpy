@@ -64,8 +64,9 @@ pip install "mirpy-lib[build]"            # BioPython + arda: regenerate baked r
 mir embed clonotypes  SAMPLE  -o out.parquet      # per-clonotype table (e0…)
 mir embed repertoires S1 S2 … -o phi.tsv --mmd mmd.tsv   # one Φ(S) per sample per chain (phi0…)
 mir presets                                       # named feature sets, ranked
-mir signature S1 S2 … --preset classify --threads 0 -o sig.parquet  # 0 = every core
-mir signature S1 S2 …         -o sig.parquet --tier standard   # the portable signature
+mir signature S1 S2 …         -o rsig.parquet --tier standard  # geometry ONLY (rsig)
+mir signature S1 S2 … --preset classify -o rsig.parquet        # preset's rsig columns only
+# the vsig half is `vdjtools signature`; join the two on sample_id for the full vector
 mir signature --describe --tier standard          # the column dictionary; reads no input
 mir signature --channels                          # the channel vocabulary; reads no input
 ```

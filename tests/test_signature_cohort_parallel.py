@@ -22,7 +22,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from mir.signature.assemble import _slices, signature_cohort
+from mir.signature import rsig_cohort
+from vdjtools.signature.cohort import slices as _slices
 
 _AA = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
 
@@ -60,14 +61,14 @@ def test_slices_are_contiguous_exhaustive_and_balanced(n, workers):
 
 def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch):
     """The whole point. A correctness-preserving fallback hid a 20x slowdown for months."""
-    import mir.signature.assemble as A
+    import mir.signature.assemble as A  # noqa: F401
 
     def broken(*a, **k):
         raise RuntimeError("no workers for you")
 
     monkeypatch.setattr("concurrent.futures.ProcessPoolExecutor", broken)
     with pytest.raises(RuntimeError) as e:
-        A.signature_cohort(cohort(4), tier="core", n_jobs=2)
+        A.rsig_cohort(cohort(4), tier="core", n_jobs=2)
     msg = str(e.value)
     assert "n_jobs=1" in msg                      # the escape hatch is named
     assert "__main__" in msg                      # so is the actual cause
@@ -76,12 +77,12 @@ def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch):
 
 def test_no_warning_path_survives(monkeypatch, recwarn):
     """A warning is not good enough: callers filter them, and sklearn makes that routine."""
-    import mir.signature.assemble as A
+    import mir.signature.assemble as A  # noqa: F401
 
     monkeypatch.setattr("concurrent.futures.ProcessPoolExecutor",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
-        A.signature_cohort(cohort(4), tier="core", n_jobs=2)
+        A.rsig_cohort(cohort(4), tier="core", n_jobs=2)
     assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
 
 
@@ -91,8 +92,8 @@ def test_no_warning_path_survives(monkeypatch, recwarn):
 def test_parallel_matches_serial_exactly():
     """Real worker processes. Parallelism that moves a number is a bug with a speedup."""
     c = cohort(6, n_clonotypes=200)
-    serial = signature_cohort(c, tier="core", n_jobs=1)
-    parallel = signature_cohort(c, tier="core", n_jobs=3)
+    serial = rsig_cohort(c, tier="core", n_jobs=1)
+    parallel = rsig_cohort(c, tier="core", n_jobs=3)
     assert parallel["sample_id"].to_list() == serial["sample_id"].to_list()   # order preserved
     assert parallel.equals(serial)
 
@@ -125,7 +126,7 @@ def test_the_work_really_happens_in_several_processes(tmp_path):
 
     d = str(tmp_path)
     samples = {f"S{i:03d}": functools.partial(_pid_probe, d, 400, i) for i in range(8)}
-    out = signature_cohort(samples, tier="core", n_jobs=4)
+    out = rsig_cohort(samples, tier="core", n_jobs=4)
 
     pids = list(tmp_path.iterdir())
     assert out.height == 8
@@ -155,10 +156,10 @@ def test_more_workers_is_actually_faster():
     import time
 
     c = cohort(48, n_clonotypes=5000)
-    signature_cohort(cohort(1, n_clonotypes=50), tier="standard", n_jobs=1)   # warm lazy imports
+    rsig_cohort(cohort(1, n_clonotypes=50), tier="standard", n_jobs=1)   # warm lazy imports
 
-    t0 = time.perf_counter(); signature_cohort(c, tier="standard", n_jobs=1); serial = time.perf_counter() - t0
-    t0 = time.perf_counter(); signature_cohort(c, tier="standard", n_jobs=4); parallel = time.perf_counter() - t0
+    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=1); serial = time.perf_counter() - t0
+    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=4); parallel = time.perf_counter() - t0
     speedup = serial / parallel
     assert speedup > 1.1, (
         f"48 samples took {serial:.2f} s in process and {parallel:.2f} s on four workers -- "
@@ -176,8 +177,8 @@ def test_a_deferred_sample_gives_the_same_answer_as_an_eager_one():
     import math
 
     c = cohort(3, n_clonotypes=200, seed=3)
-    eager = signature_cohort(c, tier="core", n_jobs=1)
-    deferred = signature_cohort(
+    eager = rsig_cohort(c, tier="core", n_jobs=1)
+    deferred = rsig_cohort(
         {sid: functools.partial(_identity, frames) for sid, frames in c.items()},
         tier="core", n_jobs=1)
     assert deferred["sample_id"].to_list() == eager["sample_id"].to_list()

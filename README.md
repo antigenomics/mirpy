@@ -89,8 +89,8 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
 # BOTH halves: vdjtools statistics + mirpy embedding geometry, in one vector.
-mir signature --preset classify cohort/*.tsv.gz -o sig.parquet
-mir signature --preset classify --scale blood --threads 0 cohort/*.tsv.gz -o sig.parquet
+mir signature cohort/*.tsv.gz -o rsig.parquet                  # geometry; vdjtools emits vsig
+mir signature --preset classify --scale blood cohort/*.tsv.gz -o rsig.parquet
 mir signature --describe --preset classify        # the column dictionary; reads no input
 mir signature --channels                          # the channel vocabulary; reads no input
 mir presets                                       # the named feature sets, ranked
