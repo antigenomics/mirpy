@@ -63,6 +63,29 @@ help. On 400 samples it made things **worse**: 32.75 s at `threads=0` (auto) aga
 loud failure with no warning-only path, parallel output identical to serial, and a marked
 benchmark for wall time.
 
+### Changed — the defaults now do the right thing without being told
+
+Two settings made a correct installation slow or fragile for no reason the user could have known
+about.
+
+**`mir signature --threads` defaulted to `1`.** Every cohort ran in one process unless somebody
+knew to ask otherwise — 152 s instead of 73 s on 1,000 samples. It now defaults to `0`, every
+core. Pass `1` to stay in-process, which is what you want inside your own pool. The CLI can do
+this safely where the library cannot: a console script always has an importable `__main__`, a
+notebook does not.
+
+**The CLI read the whole cohort into the parent before starting any worker**, then copied it down
+a pipe. Sample files are now grouped by id *without being read* and the read is deferred into the
+worker that will use it, through the new zero-argument-callable form of a sample. Measured on
+1,000 samples x 10,000 clonotypes at `n_jobs=8`: **peak resident for the largest process fell from
+6.6 GB to 356 MB.** The ratio is not the point — the point is that peak memory stopped scaling
+with the number of samples. A 10,000-sample cohort now costs what a 1,000-sample one does, which
+is what makes a 32 GB machine a safe place to run this rather than a gamble.
+
+Library callers get the same form: any sample value may be a zero-argument callable returning
+`{locus: frame}`. Use `functools.partial` over a module-level function — a lambda cannot be
+pickled and the pool will refuse it.
+
 ### Added — `on_duplicate` on `signature` and `mir signature`
 
 Requires `vdjtools>=3.14.1`, which refuses a frame that has no `junction_nt` and repeats

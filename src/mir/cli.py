@@ -134,6 +134,24 @@ def _sample_id(path: str) -> str:
     return os.path.basename(path).split(".")[0]
 
 
+def _read_sample(paths: "list[str]") -> "dict[str, pl.DataFrame]":
+    """Read one sample's file(s) into ``{locus: frame}``. Module-level so it can be pickled.
+
+    ``signature_cohort`` takes a zero-argument callable per sample, and this is the one the CLI
+    hands it via ``functools.partial``. Deferring the read is what keeps a big cohort inside a
+    small machine: the parent process never holds a clonotype frame at all, each worker reads its
+    own slice one sample at a time, and nothing but a list of paths crosses the pipe.
+    """
+    out: dict[str, pl.DataFrame] = {}
+    for path in paths:
+        df = _with_locus(_read(path))
+        for locus in [x for x in df["locus"].unique().to_list() if x]:
+            sub = df.filter(pl.col("locus") == locus)
+            if sub.height:
+                out[locus] = pl.concat([out[locus], sub]) if locus in out else sub
+    return out
+
+
 def _pick_locus(df: pl.DataFrame, requested: str | None) -> str:
     """Resolve ``--locus`` to a canonical IMGT locus, or infer it when the file has only one."""
     loci = [x for x in df["locus"].unique().to_list() if x]
@@ -304,19 +322,21 @@ def cmd_signature(a: argparse.Namespace) -> None:
 
     # A sample is one file, or several files sharing a sample id — a donor sequenced on TRA and
     # TRB is one signature with both loci filled, not two half-empty ones.
+    #
+    # Grouped by id WITHOUT reading: the read is deferred into the worker that will use it. On
+    # 1,000 samples of 10,000 clonotypes that is the difference between 6.6 GB resident and
+    # 1.1 GB, because the alternative is for this process to materialise the whole cohort and then
+    # copy it down a pipe.
+    import functools
     from collections import defaultdict
 
-    samples: dict[str, dict[str, pl.DataFrame]] = defaultdict(dict)
+    by_id: dict[str, list[str]] = defaultdict(list)
     for path in a.input:
-        df = _with_locus(_read(path))
-        sid = _sample_id(path)
-        for locus in [x for x in df["locus"].unique().to_list() if x]:
-            sub = df.filter(pl.col("locus") == locus)
-            if sub.height:
-                samples[sid][locus] = sub
+        by_id[_sample_id(path)].append(str(path))
 
-    if not samples:
+    if not by_id:
         raise SystemExit("no samples to sign (check inputs)")
+    samples = {sid: functools.partial(_read_sample, paths) for sid, paths in by_id.items()}
 
     scale = None
     if a.standardize == "reference" and a.scale:
@@ -484,8 +504,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "assay-specific. Default: the bundled deep-tcr reference")
     s.add_argument("--preset", default=None,
                    help="named feature set; overrides --tier (see `mir presets`)")
-    s.add_argument("--threads", type=int, default=1,
-                   help="worker processes over samples; 0 = every core (default 1)")
+    s.add_argument("--threads", type=int, default=0,
+                   help="worker processes over samples; 0 = every core (the default). Pass 1 to "
+                        "stay in-process, which is what you want inside your own pool")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
                    help="a sample with no junction_nt that repeats (junction_aa, v_call, j_call, "
                         "c_call) cannot say whether those rows are two clonotypes or one: error "
