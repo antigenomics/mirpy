@@ -67,13 +67,6 @@ import numpy as np
 #: cancels out of any comparison made at one setting.
 V_REGION_AA = 98
 
-#: Mean BLOSUM62 penalty per amino-acid substitution, over the substitution spectrum SHM actually
-#: produces. Measured by :func:`mean_shm_penalty` rather than assumed: SHM is not uniform over
-#: pairs -- it is driven by AID hotspots and the genetic code, so transitions at WRCY/RGYW motifs
-#: dominate and those tend to be chemically conservative.
-_MEAN_PENALTY_CACHE: dict[str, float] = {}
-
-
 @lru_cache(maxsize=1)
 def _matrix():
     import seqtree
@@ -91,24 +84,27 @@ def substitution_penalty(a: str, b: str) -> float:
     return float(_matrix().penalty(a, b))
 
 
+@lru_cache(maxsize=4)
 def mean_shm_penalty(alphabet: str = "ACDEFGHIKLMNPQRSTVWY") -> float:
     """Mean BLOSUM62 penalty over all ordered substitution pairs.
+
+    Cached on ``alphabet``, which is the function's only argument and so covers every input that
+    can change the result; bounded at 4 because a caller realistically uses one alphabet. It
+    replaces a hand-rolled module-level dict that was correct but unbounded -- the same key, with
+    eviction, and five fewer lines.
 
     The uniform-spectrum default. It is deliberately *not* the SHM-weighted mean: weighting by the
     real AID spectrum needs a mutability model, and asserting one here would bake an assumption
     into a constant where a caller cannot see it. Pass your own ``lambda_scalar`` to
     :func:`shm_penalty` if you have a spectrum.
     """
-    key = alphabet
-    if key not in _MEAN_PENALTY_CACHE:
-        tot = n = 0.0
-        for a in alphabet:
-            for b in alphabet:
-                if a != b:
-                    tot += substitution_penalty(a, b)
-                    n += 1
-        _MEAN_PENALTY_CACHE[key] = tot / n
-    return _MEAN_PENALTY_CACHE[key]
+    tot = n = 0.0
+    for a in alphabet:
+        for b in alphabet:
+            if a != b:
+                tot += substitution_penalty(a, b)
+                n += 1
+    return tot / n
 
 
 def parse_mutations(spec: str | None) -> list[tuple[str, str]]:

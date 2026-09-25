@@ -16,7 +16,6 @@ frozen reference — each yields ``nan`` and a mask column, because a model that
 from __future__ import annotations
 
 import numpy as np
-import warnings
 
 import polars as pl
 
@@ -213,7 +212,8 @@ def _model(species: str, locus: str, n_prototypes: int):
 
 def signature(sample, *, tier: str = "standard", species: str = "human", weight: str = "log2p1",
               reference=None, scale=None, standardize: str = "reference", clip: float = 8.0,
-              sanitise: bool = True, prefiltered: bool = False, **vsig_kw) -> dict[str, float]:
+              sanitise: bool = True, prefiltered: bool = False,
+              on_duplicate: str = "error", **vsig_kw) -> dict[str, float]:
     """Both halves of one sample's signature, concatenated — the hand-off object.
 
     With ``standardize="reference"`` (the default) every column is rescaled against the frozen
@@ -245,6 +245,12 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
             which rows those are. If you do not want the column at all, drop it with a preset
             (``classify``, ``transfer`` and ``compact`` all do) — that is exact, whereas
             filtering the repertoire is not.
+        on_duplicate: What to do with a locus frame that has no ``junction_nt`` and repeats an
+            amino-acid clonotype key -- ``"error"`` (default) or ``"sum"``. Both halves see the
+            same policy, which matters more here than in either library alone: ``vsig`` and
+            ``rsig`` sanitise separately, so a policy applied to one and not the other would
+            weight the two halves of one vector on different row sets. See
+            :func:`vdjtools.io.schema.assert_resolvable`.
         **vsig_kw: Forwarded to ``vdjtools.signature.vsig`` (``cstar``, ``pgen_q05``, ``strict``…).
             ``cstar`` and ``pgen_q05`` default to the measured values in the scale reference.
 
@@ -293,10 +299,11 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
 
     frames = _locus_frames(sample)
     if sanitise:
-        frames = {k: VB.sanitise(v)[0] for k, v in frames.items()}
+        frames = {k: VB.sanitise(v, on_duplicate=on_duplicate)[0] for k, v in frames.items()}
         frames = {k: v for k, v in frames.items() if v.height}
     # vsig sanitises internally and needs the raw frames to report the dropped fraction honestly
-    out = {**vsig(sample, tier=tier, weight=weight, prefiltered=prefiltered, **vsig_kw),
+    out = {**vsig(sample, tier=tier, weight=weight, prefiltered=prefiltered,
+                  on_duplicate=on_duplicate, **vsig_kw),
            **rsig(frames, tier=tier, species=species, weight=weight, reference=reference)}
     return sref.apply(out, clip=clip) if standardize == "reference" else out
 
@@ -306,6 +313,71 @@ def _one(item, tier, kw):
     return {"sample_id": sid, **signature(s, tier=tier, **kw)}
 
 
+def _chunk(args):
+    """One contiguous slice of the cohort, start to finish, inside one worker.
+
+    The unit of work handed to a process is a slice, never a sample. A task per sample re-pickles
+    ``kw`` -- which carries the scale reference -- once per sample instead of once per worker, and
+    that alone is the difference between a few megabytes crossing the pipe and a gigabyte.
+    """
+    items, tier, kw = args
+    return [_one(it, tier, kw) for it in items]
+
+
+def _slices(n: int, workers: int) -> list[tuple[int, int]]:
+    """``workers`` contiguous half-open ranges covering ``0..n``, sizes differing by at most one.
+
+    The same prescheduling R's ``mclapply(mc.preschedule = TRUE)`` does and the same block split
+    GNU ``parallel`` does: cut the input into as many pieces as there are workers, hand each worker
+    one piece, and stop. Load balancing is given up on purpose -- per-sample cost here varies by a
+    factor of a few, not a factor of a hundred, so the tail is short and the IPC saved is large.
+    """
+    return [(round(i * n / workers), round((i + 1) * n / workers)) for i in range(workers)]
+
+
+def _parallel_rows(items, tier, kw, n_jobs: int) -> list[dict]:
+    """Assemble a cohort across processes, or fail in a way somebody can act on.
+
+    **`spawn`, not `fork`, and not the platform default.** Polars is multithreaded and its own
+    documentation is explicit that it cannot be combined with `fork`: the child inherits the
+    parent's mutexes and file locks in whatever state they were in, and hangs forever the first
+    time it touches one. CPython 3.12 warns about `fork()` in a multi-threaded process for the
+    same reason and stops defaulting to it in 3.14. `spawn` costs a fresh interpreter per worker,
+    which is why the work is chunked: that cost is paid once per worker rather than once per
+    sample, and the frozen rotation and scale reference are loaded once per worker with it.
+
+    **No serial fallback.** This used to catch `BrokenExecutor`, warn, and run the loop in-process,
+    which kept the answer right and hid the fact that the pool never started at all -- measured at
+    the time as "two workers bought 6%", where both timings were serial. A caller filtering
+    warnings, which is routine around sklearn, saw nothing whatsoever. A pool that cannot run
+    raises here, and the message says which of the two fixes applies.
+    """
+    import os
+    from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
+    from multiprocessing import get_context
+
+    workers = min(len(items), n_jobs if n_jobs > 0 else (os.cpu_count() or 1))
+    if workers < 2:
+        return [_one(it, tier, kw) for it in items]
+    chunks = [(items[a:b], tier, kw) for a, b in _slices(len(items), workers) if b > a]
+    try:
+        with ProcessPoolExecutor(max_workers=len(chunks),
+                                 mp_context=get_context("spawn")) as ex:
+            return [row for part in ex.map(_chunk, chunks) for row in part]
+    except (BrokenExecutor, RuntimeError) as e:
+        raise RuntimeError(
+            f"signature_cohort(n_jobs={n_jobs}) could not start its worker processes "
+            f"({type(e).__name__}). Workers are spawned, not forked -- polars cannot be combined "
+            "with fork -- and a spawned worker re-imports the module that called this. That "
+            "succeeds from an importable module and fails from `python - <<EOF`, from `python -c`, "
+            "and from a call at the top level of a script. Either guard the call with "
+            "`if __name__ == '__main__':` in a real .py file, or pass n_jobs=1 to assemble in "
+            "process. It is NOT falling back to serial on your behalf: that is what hid a 20x "
+            "slowdown here before, because a pool that never ran is indistinguishable from a slow "
+            "one once the answer comes out right."
+        ) from e
+
+
 def signature_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
                      columns: list[str] | None = None, **kw) -> pl.DataFrame:
     """Assemble a cohort: one row per sample, ``sample_id`` plus every signature column.
@@ -313,40 +385,27 @@ def signature_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
     Args:
         samples: ``{sample_id: {locus: frame}}`` or an iterable of ``(sample_id, frames)``.
         tier: Column tier.
-        n_jobs: Worker processes. ``1`` runs in-process; ``0`` uses every core. A cohort is
+        n_jobs: Worker **processes**. ``1`` runs in-process; ``0`` uses every core. A cohort is
             embarrassingly parallel over samples -- each is independent and the frozen artifacts
             are read-only -- and per-sample cost runs from milliseconds on shallow blood to
             minutes on a deep tissue biopsy, so this is the difference between minutes and hours.
+            The cohort is cut into exactly ``n_jobs`` contiguous slices, one per worker; a worker
+            that cannot start raises rather than quietly degrading to serial.
         columns: Explicit column subset (e.g. from a preset). Defaults to the whole tier.
 
     Returns:
         One row per sample, ``sample_id`` first, then the requested columns in layout order.
+
+    Raises:
+        RuntimeError: If ``n_jobs != 1`` and the worker processes cannot start -- typically a
+            caller with no importable ``__main__`` (a heredoc, ``python -c``, a bare script).
     """
     from vdjtools.signature import layout as L
 
     items = list(samples.items() if isinstance(samples, dict) else samples)
-    if n_jobs == 1 or len(items) < 2:
-        rows = [_one(it, tier, kw) for it in items]
-    else:
-        import os
-        from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
-        from functools import partial
-        workers = n_jobs if n_jobs > 0 else (os.cpu_count() or 1)
-        try:
-            with ProcessPoolExecutor(max_workers=workers) as ex:
-                rows = list(ex.map(partial(_one, tier=tier, kw=kw), items))
-        except (BrokenExecutor, RuntimeError) as e:
-            # On macOS and Windows the workers SPAWN, which re-imports the caller's module. A
-            # script that calls this at module level therefore re-runs itself in every worker and
-            # the pool dies with an error that says nothing about the cause. Falling back keeps
-            # the result correct and says what to change -- the alternative is a collaborator's
-            # first script failing with `BrokenProcessPool` and no route forward.
-            warnings.warn(
-                f"parallel assembly failed ({type(e).__name__}); falling back to one process. "
-                "If you called signature_cohort at module level in a script, guard it with "
-                "`if __name__ == '__main__':` and n_jobs will work.",
-                RuntimeWarning, stacklevel=2)
-            rows = [_one(it, tier, kw) for it in items]
+    rows = (_parallel_rows(items, tier, kw, n_jobs)
+            if n_jobs != 1 and len(items) > 1
+            else [_one(it, tier, kw) for it in items])
     if not rows:
         return pl.DataFrame(schema={"sample_id": pl.Utf8})
     want = columns if columns is not None else L.columns(tier)

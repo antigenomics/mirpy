@@ -3,6 +3,87 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.17.0 — 2026-09-25
+
+### Fixed — `signature_cohort(n_jobs=)` was not parallel at all
+
+Three faults, and the third made the first two invisible.
+
+1. **One task per sample.** `ex.map(partial(_one, …), items)` dispatched one task per sample, so
+   `kw` — which carries the scale reference — was pickled once per sample instead of once per
+   worker.
+2. **Spawned workers, and nothing said so.** A caller with no importable `__main__` (`python -
+   <<EOF`, `python -c`, a call at the top level of a script) killed every worker.
+3. **A silent fallback.** The pool was wrapped in `except (BrokenExecutor, RuntimeError):` followed
+   by the serial loop. The answer stayed correct and a dead pool became indistinguishable from a
+   slow one.
+
+Measured at the time on 20 samples / 36,416 clonotypes / 16 cores: 1,261 ms per sample at
+`n_jobs=1` and 1,182 ms at `n_jobs=2` — "two workers bought 6%", where the pool had never started
+and **both numbers were serial**. Reproduced here before the fix at 1,000 samples: `n_jobs=4` and
+`n_jobs=1` returned 2.25 s and 2.26 s on the same input.
+
+The cohort is now cut into **exactly as many contiguous slices as there are workers**, one task per
+worker — the prescheduling `mclapply(mc.preschedule = TRUE)` does and the block split GNU
+`parallel` does. A pool that cannot start **raises**, and the message names both fixes.
+
+**`spawn`, not `fork`, and not the platform default.** Polars' own documentation is explicit that
+it cannot be combined with `fork`: the child inherits the parent's mutexes and file locks in
+whatever state they were in and hangs the first time it touches one. That was reproduced here —
+a two-worker `fork` pool over a trivial polars expression hung outright and had to be killed.
+CPython 3.12 warns about `fork()` in a multi-threaded process for the same reason and stops
+defaulting to it in 3.14. `spawn` costs a fresh interpreter per worker, which is exactly why the
+work is chunked: that cost is then paid once per worker rather than once per sample.
+
+**Measured**, 1,000 samples x 10,000 clonotypes, `tier="standard"`, 16 cores:
+
+| `n_jobs` | wall | ms/sample |
+|---:|---:|---:|
+| 1 | 152.43 s | 152.4 |
+| 2 | 103.36 s | 103.4 |
+| 4 | 81.08 s | 81.1 |
+| 8 | **73.48 s** | **73.5** |
+
+Total cost 1,030 CPU-seconds and 6.6 GB peak RSS, so on eight fully-used cores the same cohort is
+~129 s at best — inside a three-minute budget, with the memory bound set by holding the whole
+cohort in the parent.
+
+`n_jobs=1` is **not** serial and the table should not be read as if it were: the native Pgen batch
+threads internally, and one "serial" pass over 20 samples measured 3.95 s wall against 25.39 s of
+CPU — about 6.4 cores busy. That is most of the reason eight workers return 2.05x rather than 8x;
+the machine was already largely saturated at `n_jobs=1`.
+
+**Pinning the inner threads was tried and rejected on measurement.** The obvious theory — eight
+workers x sixteen inner threads oversubscribes — predicts that `threads=1` in the workers should
+help. On 400 samples it made things **worse**: 32.75 s at `threads=0` (auto) against 43.68 s at
+`threads=1`, because the native Pgen batch puts the otherwise-idle cores to use. `threads=2` gave
+33.90 s and `n_jobs=16, threads=1` gave 30.51 s. The default is left alone.
+
+`tests/test_signature_cohort_parallel.py` pins the shape: contiguous exhaustive balanced slices, a
+loud failure with no warning-only path, parallel output identical to serial, and a marked
+benchmark for wall time.
+
+### Added — `on_duplicate` on `signature` and `mir signature`
+
+Requires `vdjtools>=3.14.1`, which refuses a frame that has no `junction_nt` and repeats
+`(junction_aa, v_call, j_call, c_call)` — it cannot say whether those rows are two nucleotide
+clonotypes encoding one peptide or one clonotype the export split, and richness, clonality,
+Shannon and top-clone fraction all differ between the readings.
+
+`signature(..., on_duplicate="error"|"sum")` and `mir signature --on-duplicate` pass the policy to
+**both halves**. That matters more here than in either library alone: `vsig` and `rsig` sanitise
+separately, so a policy applied to one and not the other would weight the two halves of one vector
+on different row sets.
+
+### Changed — two unbounded caches
+
+`distances/germline.py` `_load_cached` was `maxsize=None`. Now 16, which covers every artifact that
+can exist (2 species x 7 loci, 1.0 MB in total) with headroom; a combination that does not ship
+raises inside `load` rather than landing in the cache. `distances/shm.py`'s hand-rolled
+`_MEAN_PENALTY_CACHE` dict is now `@lru_cache(maxsize=4)` on `mean_shm_penalty` — the same key,
+with eviction, and five fewer lines. Both `load_scale` and `load_reference` were already bounded
+and keyed on the artifact path; they load a frozen artifact, which is the line this package holds.
+
 ## Unreleased
 
 ### Changed — the seqtree floor is 1.0.0

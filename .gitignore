@@ -199,3 +199,11 @@ experiments/runs/
 
 # git worktrees live inside the repo dir; never commit them as nested checkouts
 .claude/worktrees/
+
+# Working notes that carry cohort names, cluster paths and collaborator-specific detail.
+# These are the input to a release, not part of one: a filed bug report names the cohort the bug
+# was found on, which belongs in the private analysis repo and nowhere in a public history.
+/TODO.md
+/NOTES.md
+/ROADMAP.md
+/STATUS.md

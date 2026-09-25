@@ -325,7 +325,8 @@ def cmd_signature(a: argparse.Namespace) -> None:
 
     out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
                                     standardize=a.standardize, scale=scale,
-                                    n_jobs=a.threads, columns=keep)
+                                    n_jobs=a.threads, columns=keep,
+                                    on_duplicate=a.on_duplicate)
     n_cols = len(keep) if keep else len(columns(a.tier))
     print(f"[mir] {out.height} samples x {n_cols} columns "
           f"({a.preset or a.tier}, standardize={a.standardize})", file=sys.stderr)
@@ -485,6 +486,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="named feature set; overrides --tier (see `mir presets`)")
     s.add_argument("--threads", type=int, default=1,
                    help="worker processes over samples; 0 = every core (default 1)")
+    s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
+                   help="a sample with no junction_nt that repeats (junction_aa, v_call, j_call, "
+                        "c_call) cannot say whether those rows are two clonotypes or one: error "
+                        "(default) refuses, sum adds the counts together")
     s.add_argument("--describe", action="store_true",
                    help="print the column dictionary for --tier/--preset and exit; reads no input")
     s.add_argument("--channels", action="store_true",

@@ -138,8 +138,18 @@ class GermlineDistances:
         return small[inv]
 
 
-@lru_cache(maxsize=None)
+#: Bounded at the number of artifacts that can exist, with headroom: 14 ship (2 species x 7 loci,
+#: 1.0 MB in total) and a combination that does not ship raises inside ``load`` rather than
+#: landing here. ``maxsize=None`` was unbounded by construction, which is a leak waiting on a
+#: caller that iterates species -- and an unbounded cache is the construct this module is not
+#: allowed to have, whatever its realistic size.
+@lru_cache(maxsize=16)
 def _load_cached(species_c: str, locus_c: str) -> GermlineDistances:
+    """Keyed on the **canonical** species and locus, which is the whole of the artifact's identity.
+
+    Canonicalisation happens in :func:`load_germline_distances`, before the key is formed, so two
+    spellings of one locus share an entry instead of loading the same file twice.
+    """
     return GermlineDistances.load(species_c, locus_c)
 
 
