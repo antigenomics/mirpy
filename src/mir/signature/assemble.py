@@ -370,11 +370,12 @@ def _parallel_rows(items, tier, kw, n_jobs: int) -> list[dict]:
     warnings, which is routine around sklearn, saw nothing whatsoever. A pool that cannot run
     raises here, and the message says which of the two fixes applies.
     """
-    import os
     from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
     from multiprocessing import get_context
 
-    workers = min(len(items), n_jobs if n_jobs > 0 else (os.cpu_count() or 1))
+    from vdjtools.cores import available_cores
+
+    workers = min(len(items), n_jobs if n_jobs > 0 else available_cores())
     if workers < 2:
         return [_one(it, tier, kw) for it in items]
     chunks = [(items[a:b], tier, kw) for a, b in _slices(len(items), workers) if b > a]
@@ -407,7 +408,10 @@ def signature_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
             parent then never holds the cohort, and peak memory scales with ``n_jobs`` rather than
             with the number of samples (1.1 GB against 6.6 GB on 1,000 x 10,000 at ``n_jobs=8``).
         tier: Column tier.
-        n_jobs: Worker **processes**. ``1`` runs in-process; ``0`` uses every core. A cohort is
+        n_jobs: Worker **processes**. ``1`` runs in-process; ``0`` uses every core **this process
+            is allowed** (:func:`vdjtools.cores.available_cores`) -- the affinity mask and the
+            cgroup quota, not ``os.cpu_count()``. Under ``srun -c 8`` on a 40-core node those are
+            8 and 40, and sizing off the latter starts 40 interpreters to share 8 cores. A cohort is
             embarrassingly parallel over samples -- each is independent and the frozen artifacts
             are read-only -- and per-sample cost runs from milliseconds on shallow blood to
             minutes on a deep tissue biopsy, so this is the difference between minutes and hours.

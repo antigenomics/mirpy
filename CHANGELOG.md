@@ -65,6 +65,16 @@ benchmark for wall time.
 
 ### Changed — the defaults now do the right thing without being told
 
+**`n_jobs=0` counted the machine's cores, not this process's.** Requires `vdjtools>=3.14.2`, whose
+new `vdjtools.cores.available_cores()` takes the smallest of the CPU affinity mask, the cgroup CFS
+quota and `os.cpu_count()`. Measured on an Aldan-3 `medium` node under `srun -c 8`:
+`os.cpu_count()` is **40** and the real allowance is **8**, so `--threads 0` would have started 40
+interpreters to share 8 cores — several GB of overhead on a 32 GB box, for cores that do not
+exist. Containers are worse, because `docker run --cpus=N` and Kubernetes CPU limits are bandwidth
+quotas that no API reports except the cgroup file.
+
+
+
 Two settings made a correct installation slow or fragile for no reason the user could have known
 about.
 
