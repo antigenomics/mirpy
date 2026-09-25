@@ -343,13 +343,30 @@ def cmd_signature(a: argparse.Namespace) -> None:
         from mir.signature.scale import load_scale
         scale = load_scale(a.scale)
 
+    # Say what was chosen before doing it, not after. A cohort run is minutes long, the cost is
+    # set almost entirely by the tier, and the core count is the one thing a cluster or container
+    # silently gets wrong -- so all three go on stderr where somebody can see them and stop early
+    # if it is not what they meant.
+    import time
+
+    from vdjtools.cores import available_cores
+
+    workers = a.threads if a.threads > 0 else available_cores()
+    workers = 1 if a.threads == 1 else min(workers, max(1, len(samples)))
+    print(f"[mir] {len(samples)} samples, tier={a.tier}"
+          f"{f' (preset {a.preset})' if a.preset else ''}, "
+          f"{workers} worker{'s' if workers != 1 else ''} of {available_cores()} available "
+          f"core{'s' if available_cores() != 1 else ''}", file=sys.stderr)
+    t0 = time.perf_counter()
     out = assemble.signature_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
                                     standardize=a.standardize, scale=scale,
                                     n_jobs=a.threads, columns=keep,
                                     on_duplicate=a.on_duplicate)
+    dt = time.perf_counter() - t0
     n_cols = len(keep) if keep else len(columns(a.tier))
     print(f"[mir] {out.height} samples x {n_cols} columns "
-          f"({a.preset or a.tier}, standardize={a.standardize})", file=sys.stderr)
+          f"({a.preset or a.tier}, standardize={a.standardize}) in {dt:.1f} s "
+          f"({dt / max(out.height, 1) * 1000:.0f} ms/sample)", file=sys.stderr)
     _write(out, a.output)
 
 

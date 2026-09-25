@@ -96,6 +96,33 @@ Library callers get the same form: any sample value may be a zero-argument calla
 `{locus: frame}`. Use `functools.partial` over a module-level function — a lambda cannot be
 pickled and the pool will refuse it.
 
+### Added — the run says what it chose, and the docs say what it costs
+
+`mir signature` now prints the sample count, the tier, the worker count **and the number of cores
+it believes it has** before it starts, and the elapsed time and per-sample cost when it finishes.
+A cohort run is minutes long and the core count is the one thing a cluster or a container silently
+gets wrong, so it goes where somebody can see it and stop early.
+
+```
+[mir] 1000 samples, tier=core (preset compact), 8 workers of 8 available cores
+[mir] 1000 samples x 86 columns (compact, standardize=reference) in 134.2 s (134 ms/sample)
+```
+
+:doc:`signature` gained a sizing section with end-to-end measurements on 1,000 samples of 10,000
+clonotypes, including on an 8-core / 32 GB Linux node:
+
+| box | preset | wall | peak RSS |
+|---|---|---:|---:|
+| 16 cores, Apple M-series | `classify` | 80 s | 356 MB |
+| 8 cores, Xeon Silver 4210R | `compact` | **134 s** | 278 MB |
+| 8 cores, Xeon Silver 4210R | `classify` | 478 s | 278 MB |
+
+Two things that table exists to say. **The tier dominates, not the column count**: `classify` (615
+columns) and `transfer` (550 columns) measure identically at 498 s, because selecting fewer
+columns does not compute less — the Pgen block is ~55% of a `standard` sample and only a smaller
+tier drops it. And **per-core speed matters more than core count**: the same sample is ~1.0
+CPU-second on an M-series core and ~4.0 on a 2019 Xeon.
+
 ### Added — `on_duplicate` on `signature` and `mir signature`
 
 Requires `vdjtools>=3.14.1`, which refuses a frame that has no `junction_nt` and repeats

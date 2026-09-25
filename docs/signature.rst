@@ -32,9 +32,116 @@ auto-detected.
 .. code-block:: bash
 
    mir signature --preset classify --describe        # the columns, reading no input
-   mir signature --preset classify --threads 0 cohort/*.tsv.gz -o sig.parquet   # every core
    mir presets                                       # the named feature sets, ranked
    mir presets classify                              # one in full: what, how, when
+
+.. _cohort-sizing:
+
+Running a cohort — what to set, and what not to
+------------------------------------------------
+
+**Nothing.** ``mir signature`` already uses every core it is allowed and reads each sample inside
+the worker that needs it. There is no tuning step, and the two knobs that exist are there for the
+cases where you want *less* than the default.
+
+.. code-block:: bash
+
+   mir signature --preset classify cohort/*.tsv.gz -o sig.parquet
+
+Measured end to end on **1,000 samples of 10,000 clonotypes** (TRB, 826 MB of AIRR TSV), with the
+command above and nothing tuned:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 14 14 16 30
+
+   * - box
+     - preset
+     - wall
+     - peak RSS
+     - note
+   * - 16 cores, Apple M-series
+     - ``classify``
+     - 80 s
+     - 356 MB
+     -
+   * - 8 cores, 32 GB, Xeon Silver 4210R
+     - ``compact``
+     - **134 s**
+     - 278 MB
+     - ``core`` tier, no Pgen block
+   * - 8 cores, 32 GB, Xeon Silver 4210R
+     - ``classify``
+     - 478 s
+     - 278 MB
+     - 795% CPU — the box is saturated
+
+**Read the preset column before the core column.** The tier is the dominant cost and the Pgen
+block is about 55% of a ``standard`` sample: ``classify`` (615 columns) and ``transfer`` (550
+columns) measure *identically* at 498 s, because selecting fewer columns does not compute less —
+only a smaller tier does. ``compact`` is ``core`` tier, carries no Pgen block, and is 3.7x faster
+on the same data.
+
+**Per-core speed matters more than core count here.** The same standard-tier sample costs about
+1.0 CPU-second on an M-series core and 4.0 on a 2019 Xeon Silver 4210R. Budget from
+``n_samples x (1.0 to 4.0) s / cores`` and measure a hundred samples before committing to a
+schedule for ten thousand.
+
+Peak memory is set by the **number of workers, not the number of samples** — each worker holds one
+sample at a time — so a 10,000-sample cohort costs what a 1,000-sample one does, and 32 GB is
+ample rather than marginal.
+
+The two knobs
+~~~~~~~~~~~~~
+
+``--threads``
+   Worker processes. ``0`` (default) means every core **this process is allowed**, which is not
+   the same as the machine's core count: under ``srun -c 8`` on a 40-core node ``os.cpu_count()``
+   says 40 and the real allowance is 8. mirpy asks
+   :func:`vdjtools.cores.available_cores`, which also reads the cgroup CPU quota, so a container
+   started with ``docker run --cpus=4`` or a Kubernetes CPU limit gets four workers rather than
+   forty. Pass ``--threads 1`` when you are already inside your own pool.
+
+``--preset``
+   The feature set, and the biggest lever on cost — roughly half of a ``standard`` sample's time
+   is the Pgen block. A preset that does not carry it is correspondingly cheaper. Start from
+   ``mir presets``.
+
+Calling it from Python
+~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`~mir.signature.signature_cohort` defaults to ``n_jobs=1`` where the CLI defaults to every
+core, and the difference is not an oversight. Workers are **spawned**, because polars cannot be
+combined with ``fork``, and a spawned worker re-imports the module that called it. A console
+script always has an importable ``__main__``; a notebook cell, a ``python -c`` and a heredoc do
+not, and the workers die on import.
+
+So: in a real ``.py`` file, guard the call and ask for cores.
+
+.. code-block:: python
+
+   from mir.signature import signature_cohort
+
+   if __name__ == "__main__":                 # required for n_jobs != 1
+       F = signature_cohort(samples, n_jobs=0)
+
+In a notebook, leave ``n_jobs=1`` or shell out to ``mir signature``. If the pool cannot start you
+get a ``RuntimeError`` naming both fixes — it does **not** fall back to one process, because a
+fallback that keeps the answer correct is exactly how a 20x slowdown once went unnoticed for
+months.
+
+On a large cohort, pass each sample as a **zero-argument callable** rather than a frame, and the
+parent never holds the cohort at all:
+
+.. code-block:: python
+
+   import functools
+   from mir.cli import _read_sample
+
+   samples = {sid: functools.partial(_read_sample, paths) for sid, paths in by_id.items()}
+
+Use ``functools.partial`` over a module-level function; a lambda cannot be pickled and the pool
+will refuse it.
 
 Three presets are marked ``recommended``: **compact** (the smallest vector that still describes a
 repertoire, usable at *n* = 50), **classify** (general-purpose, the usual random-forest / boosting
