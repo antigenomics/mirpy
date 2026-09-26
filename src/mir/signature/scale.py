@@ -268,14 +268,16 @@ class ScaleReference:
                 out[k] = _squash(float((v - self.loc[i]) / self.scale[i]), clip, squash)
         return out
 
-    def unapply(self, values: dict[str, float], *, clip: float | None = 8.0,
-                squash: str = "soft") -> dict[str, float]:
+    def unapply(self, values: dict[str, float], *, clip: float | None = 8.0) -> dict[str, float]:
         """Invert :meth:`apply` -- scaled values back to the block's natural units.
 
-        Exact for ``squash="soft"`` and for ``clip=None``, because both maps are strictly
-        increasing. It is *not* exact for ``"hard"``: a hard clip is many-to-one and there is nothing to
-        invert, so every saturated entry comes back as the bound in natural units rather than as
-        the value that went in. That asymmetry is the defect, stated as an API property.
+        Exact for the default squash and for ``clip=None``, because both maps are strictly
+        increasing. It is *not* exact for anything produced with ``squash="hard"``: a hard clip
+        is many-to-one and there is nothing to invert, so every saturated entry comes back as the
+        bound in natural units rather than as the value that went in. That asymmetry is the
+        defect, stated as an API property -- and it is why this method takes **no** ``squash``.
+        A hard clip cannot produce a value outside the bound, and below the bound the two maps
+        are the same function, so there would be nothing for the argument to select.
 
         Columns the reference does not scale are returned untouched -- they never left their
         natural units. A ``nan`` produced by ``on_unscaled="hole"`` cannot be undone; keep the

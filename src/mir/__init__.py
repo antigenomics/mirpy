@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 
-__version__ = "3.20.1"
+__version__ = "3.20.2"
 
 __all__ = ["__version__", "get_resource_path", "TCREmp", "PairedTCREmp"]
 

@@ -775,6 +775,18 @@ class TestTheBoundIsMonotone:
                 hard = ref.apply({col: float(v)}, clip=8.0, squash="hard")[col]
                 assert abs(soft) <= 8.0 and soft == hard
 
+    def test_unapply_takes_no_squash_and_does_not_pretend_to(self, ref):
+        """3.20.1 shipped this parameter accepted-and-ignored, which is the bug it was cut for.
+
+        The cut landed everywhere except the signature line, so `unapply(squash="hard")` was a
+        silent no-op in the published wheel: a caller asking for the hard inverse got the soft
+        one. A dead parameter that raises is a typo; a dead parameter that is accepted is a
+        wrong answer, which is the whole subject of this release. Pinned as an interface fact
+        rather than left to a signature review.
+        """
+        with pytest.raises(TypeError):
+            ref.unapply({COLS[0]: 1.0}, squash="hard")
+
     def test_unapply_recovers_the_raw_value(self, ref):
         raw = {COLS[0]: 5.4, COLS[1]: 1.55, COLS[2]: 173.0}      # the last one is far outside
         back = ref.unapply(ref.apply(raw, clip=3.0), clip=3.0)

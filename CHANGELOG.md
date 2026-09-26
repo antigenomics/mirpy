@@ -3,6 +3,21 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.20.2 — 2026-09-26
+
+### Fixed — `unapply` accepted a `squash` it ignored
+
+3.20.1 removed `squash` from `unapply`'s call site and its docstring but not from its signature,
+so the published wheel takes `unapply(values, squash="hard")` and quietly does the soft inverse.
+Nothing downstream is wrong — the soft and hard inverses agree everywhere a hard clip can produce
+a value — but *a parameter that is accepted and ignored is the exact defect this release is
+about*, and it shipped inside the release that was about it.
+
+It was caught by checking the published wheel rather than the working tree, which is the only
+check that could have caught it: the tests passed, `ruff` passed, and the source read correctly
+everywhere except one line. `test_unapply_takes_no_squash_and_does_not_pretend_to` now pins it as
+an interface fact.
+
 ## 3.20.1 — 2026-09-26
 
 Guards for the class of bug 3.20.0 fixed, two knobs that turned out to be spelled twice, and one
@@ -39,7 +54,11 @@ where only one entry in twenty is out of bound. `unapply` round-trips to 1.32e-1
 
 `squash="none"` was a second way to say `clip=None`, and `unapply` took a `squash` that selected
 between two identical behaviours: a hard clip cannot produce a value outside the bound, and below
-it the two maps are the same function. Both are gone. `squash` is `"soft"` or `"hard"`.
+it the two maps are the same function. `squash` is `"soft"` or `"hard"`.
+
+**Correction (3.20.2): the `unapply` half of that did not ship.** The parameter was removed from
+every call site but not from the signature, so the 3.20.1 wheel accepts `unapply(squash="hard")`
+and silently ignores it. Use 3.20.2.
 
 `SOURCES.md` is no longer tracked. It is the one markdown file whose *purpose* is internal detail
 — cluster project paths, private HuggingFace dataset names, local git-LFS checkouts, cohort
