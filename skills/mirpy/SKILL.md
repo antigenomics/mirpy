@@ -34,7 +34,7 @@ silently wrong answer. It does not repeat the reference documentation.
 | Theory T1–T7 and the maths | https://docs.isalgo.dev/mirpy/math.html |
 | Worked notebooks | https://docs.isalgo.dev/mirpy/notebooks.html |
 | How to work in this repo, open loops | `CLAUDE.md` |
-| Dataset provenance | `SOURCES.md` |
+| Dataset provenance | per-artifact `manifest.json`; HF dataset cards |
 
 ## The one invariant that matters
 

@@ -60,8 +60,9 @@ The prototype set *is* the coordinate system, so it is worth one paragraph. mirp
 real receptors per chain** — a uniform random sample (fixed ``seed=42``) of unique, productive,
 germline-resolvable clonotypes from arda-annotated real repertoires, for human TRA/TRB/TRG/TRD/
 IGH/IGK/IGL and mouse TRA/TRB. Real, not model-generated: synthetic P_gen junctions have degenerate
-lengths and embed measurably worse. Nothing is downloaded at import or build time; provenance and
-the regenerate command are in ``SOURCES.md``.
+lengths and embed measurably worse. Nothing is downloaded at import or build time; each set
+carries its provenance in the ``manifest.json`` beside it, and
+``src/mir/resources/prototypes/generate_prototypes.py`` rebuilds them.
 
 ``replicate=0`` — the first ``n`` rows — is **the** prototype set: what every preset, bundled codec
 and published number uses. To ask *"is my result an artefact of which prototypes I drew?"*, take a
@@ -149,7 +150,7 @@ adaptive-bandwidth balloon estimator with a Poisson/binomial test and BH q-value
 Prefer a biological control (e.g. pre/post-vaccination) over the P_gen background — differential
 enrichment cancels generic public convergence and isolates the antigen-specific response. Without
 one of your own, pooled healthy-donor repertoires are a single ``hf_hub_download`` away
-(``isalgo/airr_control``, read with ``vdjtools.io.read``; see ``SOURCES.md``), and
+(``isalgo/airr_control``, read with ``vdjtools.io.read``; see the dataset card), and
 :func:`~mir.density.generate_background` remains the P_gen fallback — pass ``source="arda"`` when
 the observed data is arda-annotated (one allele namespace, no cascade fallback) and
 ``species="mouse"`` for mouse. The neighbour engine defaults to ``backend="kdtree"`` (exact,

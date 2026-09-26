@@ -185,7 +185,9 @@ prototypes you drew is not what your result rests on. Below `n≈250` it starts 
 > *nested* comparison (draw `r=0` at `n=500` is a prefix of `n=1000`), which answers "how many do I
 > need", not "does it matter which".
 
-Provenance and the regenerate command are in [`SOURCES.md`](SOURCES.md).
+The regenerate command is `src/mir/resources/prototypes/generate_prototypes.py` (needs `[build]`
+and `ARDA_HOME`); the shipped TSVs are the versioned reference and need no rebuild. Per-artifact
+provenance travels in `manifest.json` beside each one.
 
 ## What's inside
 
@@ -250,7 +252,8 @@ labels, mask = denoise_and_cluster(obs_emb, res)               # noise-filter + 
 Use a **biological control** as the background when you have one (e.g. pre- vs post-vaccination,
 patient vs healthy) — differential enrichment cancels generic public convergence and isolates the
 antigen-specific response. No control of your own? Pooled healthy-donor repertoires are one fetch
-away (HF `isalgo/airr_control`, read with `vdjtools.io.read` — see [`SOURCES.md`](SOURCES.md)).
+away (HF [`isalgo/airr_control`](https://huggingface.co/datasets/isalgo/airr_control), read with
+`vdjtools.io.read`; the dataset card carries the caveats).
 Failing that, `generate_background(locus, n)` samples the vdjtools P_gen model (the ALICE regime);
 the "water level" of a naive repertoire is handled by the empirical-null calibration. Pass
 `source="arda"` there when your data is arda-annotated (same allele namespace as the prototypes),

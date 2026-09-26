@@ -3,6 +3,52 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.20.1 — 2026-09-26
+
+Guards for the class of bug 3.20.0 fixed, two knobs that turned out to be spelled twice, and one
+file that should never have been public.
+
+### Added — `tests/test_knob_audit.py`
+
+A hard clip and a flat coverage constant were both invisible *in the output*, which is the only
+place a collaborator ever looks. The blast radius of a knob is a property of a **cohort** — how
+many samples land in a tail, how many loci a reference covers — so these run on a seven-locus
+cohort at a realistic clonotype spread and assert the same shape every time: turn the knob, take
+the cells that moved, check them against the cells the knob may touch.
+
+The sharpest one states the "never silently" claim as an equality rather than a slogan: the cells
+that move between `clip=2` and `clip=8` must be a **subset of the cells `saturation()` names**. If
+a knob can move a cell no report mentions, the report is decoration.
+
+Mutation-checked — each of these fails the suite:
+
+| mutation | tests failing |
+|---|---:|
+| the soft squash reverted to a hard clip | 3 |
+| `saturation()` silently drops its worst column | 1 |
+| `on_unscaled="hole"` also holes a scaled column | 1 |
+
+At cohort scale on 40 seven-locus samples, 528 `rsig` columns, `clip=8.0`: 294 of 5,882 finite
+scaled entries (5.00%) sit beyond the bound, and the soft and hard maps differ in exactly those
+294 cells across 57 columns. **The sample ordering survives in 521/521 columns under the soft
+squash and 490/521 under the hard clip** — 31 columns whose ranking a clip destroys on a cohort
+where only one entry in twenty is out of bound. `unapply` round-trips to 1.32e-12; `n_jobs` moves
+0 cells.
+
+### Removed — two spellings of one thing, and `SOURCES.md`
+
+`squash="none"` was a second way to say `clip=None`, and `unapply` took a `squash` that selected
+between two identical behaviours: a hard clip cannot produce a value outside the bound, and below
+it the two maps are the same function. Both are gone. `squash` is `"soft"` or `"hard"`.
+
+`SOURCES.md` is no longer tracked. It is the one markdown file whose *purpose* is internal detail
+— cluster project paths, private HuggingFace dataset names, local git-LFS checkouts, cohort
+composition down to batch names and HLA schemas. It is gitignored and excluded from the sdist, and
+the references to it in the README, `docs/usage.rst`, `docs/examples.rst`, `SKILL.md` and
+`prototypes.py` now point at the per-artifact `manifest.json` or the public HF dataset card.
+
+Two CHANGELOG measurements were reworded to name what was measured rather than where.
+
 ## 3.20.0 — 2026-09-26
 
 The clip was the only step in standardising that could change a downstream result, and the only
@@ -70,7 +116,10 @@ cohort, which is `ISSUES.md` item 6 (4) in the other repo. A hard clip has nothi
 that asymmetry is now an API property rather than a surprise.
 
 `squash="hard"` reproduces an archived matrix; `clip=None` removes the bound; both reach
-`signature`, `rsig_cohort`, `signature_cohort` and `mir signature` (`--clip`, `--squash`).
+`signature`, `rsig_cohort`, `signature_cohort` and `mir signature` (`--clip`, `--squash`). Those
+are the only two spellings: a `squash="none"` would have been a second way to say `clip=None`,
+and `unapply` takes no `squash` because a hard clip cannot produce a value outside the bound and
+below it the two maps are the same function.
 
 ### Added — saturation is reported, per column and per block
 
@@ -370,7 +419,7 @@ benchmark for wall time.
 
 **`n_jobs=0` counted the machine's cores, not this process's.** Requires `vdjtools>=3.14.2`, whose
 new `vdjtools.cores.available_cores()` takes the smallest of the CPU affinity mask, the cgroup CFS
-quota and `os.cpu_count()`. Measured on an Aldan-3 `medium` node under `srun -c 8`:
+quota and `os.cpu_count()`. Measured on a SLURM cluster node under `srun -c 8`:
 `os.cpu_count()` is **40** and the real allowance is **8**, so `--threads 0` would have started 40
 interpreters to share 8 cores — several GB of overhead on a 32 GB box, for cores that do not
 exist. Containers are worse, because `docker run --cpus=N` and Kubernetes CPU limits are bandwidth
@@ -696,7 +745,7 @@ The guard is now three-way, matching what the data actually contains:
 against a corrupt table, cannot be switched off; only the guard against a silently-wrong number has
 an opt-out, and taking it has to be written down.
 
-Measured across the **6,047,716 rows** of one project's clinical AIRR store: 5,600,475 plain
+Measured across **6,047,716 rows** of one bulk-RNA-seq AIRR cohort: 5,600,475 plain
 20-amino-acid junctions, 447,241 with a stop codon, **zero** `_`, and **zero** anything else. So
 the strict default costs nothing on well-formed data. Neither predicate filters on length — a
 two-residue junction and a sixty-residue one both pass.
@@ -717,7 +766,7 @@ names the strict predicate.
 A collaborator who removes non-functional rearrangements upstream gets a vector that differs from
 ours in **exactly one column per locus**, `vsig:qc:<locus>:nonstd_aa_frac` — because `sanitise`
 reports the weight fraction it dropped, and a pre-filtered frame has nothing left to drop.
-Measured on 1,168 blood samples from a clinical AIRR cohort at `tier="standard"`: of 688 columns, **7 move** and 681 are
+Measured on 1,168 bulk-RNA-seq blood samples at `tier="standard"`: of 688 columns, **7 move** and 681 are
 bit-identical, including **all 528 `rsig` geometry columns**, which do not move because `rsig` is
 handed sanitised frames either way. Under every `recommended` preset, **zero** columns move.
 

@@ -19,8 +19,8 @@ living documentation for the three tiers. Install the extra and open one:
    * - ``examples/quickstart.py``
      - Clonotype embedding end-to-end: ``TCREmp.embed`` a VDJdb-style set, PCA-denoise, cluster
        antigen-specific TCRs, and a UMAP coloured by epitope. The epitope colouring and the F1
-       table need a local VDJdb slim dump at ``tests/assets/vdjdb.slim.txt.gz`` (gitignored — see
-       ``SOURCES.md``); without it the notebook falls back to the bundled prototypes and colours
+       table need a local VDJdb slim dump at ``tests/assets/vdjdb.slim.txt.gz`` (gitignored; fetch a
+       release from https://github.com/antigenomics/vdjdb-db); without it the notebook falls back to the bundled prototypes and colours
        by CDR3 length.
    * - ``examples/density.py``
      - Background subtraction (Theory T6): fit a density space, run balloon ``neighbor_enrichment``

@@ -131,7 +131,7 @@ def _squash(z: float, bound: float | None, kind: str = "soft") -> float:
     bound but moves every inlier too (7.6% at z=4, 24% at z=8), so every fitted reference's
     downstream consumer would see shifted values everywhere rather than only in the tail.
     """
-    if bound is None or kind == "none":
+    if bound is None:
         return z
     a = abs(z)
     if a <= bound:
@@ -141,14 +141,24 @@ def _squash(z: float, bound: float | None, kind: str = "soft") -> float:
     return math.copysign(bound + math.log1p(a - bound), z)
 
 
-def _unsquash(u: float, bound: float | None, kind: str = "soft") -> float:
-    """Inverse of :func:`_squash`. Not defined for ``kind="hard"``; returns the bound there."""
-    if bound is None or kind == "none":
+def _unsquash(u: float, bound: float | None) -> float:
+    """Inverse of :func:`_squash`.
+
+    One branch covers ``squash="hard"`` too, and not by accident: a hard clip cannot produce a
+    value with ``|u| > bound``, and below the bound the two maps are the same function. So there
+    is nothing for a ``kind`` argument to select -- what a hard clip destroys is destroyed, and
+    no inverse recovers it.
+    """
+    if bound is None:
         return u
     a = abs(u)
-    if a <= bound or kind == "hard":
+    if a <= bound:
         return u
     return math.copysign(bound + math.expm1(a - bound), u)
+
+
+#: How many of the worst columns a report or a warning names before it says "and N more".
+_TOP = 12
 
 
 def _by_block(sat) -> dict[str, float]:
@@ -229,9 +239,9 @@ class ScaleReference:
                 Wide enough that a genuine outlier stays one, narrow enough that a single
                 pathological sample cannot set a model's scale.
             squash: What happens beyond ``clip``. ``"soft"`` (default) compresses with a
-                ``log1p`` tail and stays strictly increasing; ``"none"`` leaves the z-score
-                alone; ``"hard"`` is the pre-3.20.0 ``np.clip``, kept only so an archived matrix
-                can be reproduced. Do not fit anything new on ``"hard"``.
+                ``log1p`` tail and stays strictly increasing; ``"hard"`` is the pre-3.20.0
+                ``np.clip``, kept only so an archived matrix can be reproduced. Do not fit
+                anything new on it. For no bound at all, pass ``clip=None``.
             on_unscaled: What a column with no established scale gets. ``"pass"`` (default)
                 returns it in its native units; ``"hole"`` returns ``nan``. A matrix in which
                 some columns are z-scores and others are raw is not comparable across
@@ -242,8 +252,8 @@ class ScaleReference:
         Raises:
             ValueError: If ``squash`` or ``on_unscaled`` is unknown.
         """
-        if squash not in ("soft", "hard", "none"):
-            raise ValueError(f"squash must be 'soft', 'hard' or 'none'; got {squash!r}")
+        if squash not in ("soft", "hard"):
+            raise ValueError(f"squash must be 'soft' or 'hard'; got {squash!r}")
         if on_unscaled not in ("pass", "hole"):
             raise ValueError(f"on_unscaled must be 'pass' or 'hole'; got {on_unscaled!r}")
         idx = self._idx
@@ -262,8 +272,8 @@ class ScaleReference:
                 squash: str = "soft") -> dict[str, float]:
         """Invert :meth:`apply` -- scaled values back to the block's natural units.
 
-        Exact for ``squash`` in ``("soft", "none")``, because both maps are strictly increasing.
-        It is *not* exact for ``"hard"``: a hard clip is many-to-one and there is nothing to
+        Exact for ``squash="soft"`` and for ``clip=None``, because both maps are strictly
+        increasing. It is *not* exact for ``"hard"``: a hard clip is many-to-one and there is nothing to
         invert, so every saturated entry comes back as the bound in natural units rather than as
         the value that went in. That asymmetry is the defect, stated as an API property.
 
@@ -278,7 +288,7 @@ class ScaleReference:
             if i is None or self.scale[i] <= 0 or not np.isfinite(v):
                 out[k] = v
                 continue
-            out[k] = float(_unsquash(float(v), clip, squash) * self.scale[i] + self.loc[i])
+            out[k] = float(_unsquash(float(v), clip) * self.scale[i] + self.loc[i])
         return out
 
     def saturation(self, frame, *, clip: float = 8.0):
@@ -337,7 +347,7 @@ class ScaleReference:
             return np.zeros(len(self.columns), dtype=bool)
         return np.nan_to_num(self.batch_ratio, nan=0.0) > 1.0
 
-    def report(self, scaled=None, *, clip: float = 8.0, top: int = 12) -> dict:
+    def report(self, scaled=None, *, clip: float = 8.0) -> dict:
         """What this reference can and cannot standardise.
 
         Args:
@@ -345,7 +355,6 @@ class ScaleReference:
                 also carries how much of it the bound touched -- ``frac_out_of_bound`` overall
                 and the worst columns by name. A count alone is not actionable; the names are.
             clip: The bound ``scaled`` was produced with.
-            top: How many of the worst columns to name.
         """
         out = {"columns": len(self.columns), "scaled": int(self.scaled.sum()),
                "unscaled": int((~self.scaled).sum()),
@@ -356,7 +365,7 @@ class ScaleReference:
             n, n_out = int(sat["n"].sum()), int(sat["n_out"].sum())
             out["clip"] = clip
             out["frac_out_of_bound"] = (n_out / n) if n else 0.0
-            out["out_of_bound_columns"] = sat.filter(sat["n_out"] > 0)["column"].to_list()[:top]
+            out["out_of_bound_columns"] = sat.filter(sat["n_out"] > 0)["column"].to_list()[:_TOP]
             out["out_of_bound_blocks"] = _by_block(sat)
         if self.batch_ratio is not None:
             # Both counts, always. `batch_dominated` is all-False when the ratio could not be

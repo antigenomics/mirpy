@@ -6,7 +6,7 @@ bundled files holds :data:`N_PROTOTYPES` = 10 000 rows of **real** receptors —
 sample (fixed ``seed=42``) of germline-resolvable, unique, productive clonotypes from
 arda-annotated real repertoires, de-duplicated on the ``(v_call, j_call, junction_aa)`` triple.
 Real repertoires, not model draws: synthetic P_gen junctions have degenerate lengths and embed
-measurably worse (see ``SOURCES.md``).
+measurably worse; each set's ``manifest.json`` records what it was built from.
 
 **The default set.** ``replicate=0`` — the first ``n`` rows — is *the* prototype set. It is what
 every default, preset, bundled codec and published number uses; leave it alone unless you are

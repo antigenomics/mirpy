@@ -89,6 +89,7 @@ exclude = [
   "tests/**",
   "tmp/**",
   "*.log",
+  "SOURCES.md",
 ]
 
 [tool.ruff]

@@ -254,8 +254,8 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
             unbounded z-score. See :meth:`~mir.signature.scale.ScaleReference.apply` — the bound
             compresses rather than truncating, so it can no longer silently destroy the ordering
             of the samples beyond it.
-        squash: How the bound is enforced: ``"soft"`` (strictly increasing, the default),
-            ``"none"``, or ``"hard"`` to reproduce a pre-3.20.0 matrix.
+        squash: How the bound is enforced: ``"soft"`` (strictly increasing, the default) or
+            ``"hard"`` to reproduce a pre-3.20.0 matrix. ``clip=None`` for no bound.
         on_unscaled: ``"pass"`` to return a column the reference could not scale in its native
             units, ``"hole"`` for ``nan``. A mixed-unit column is a wrong number that looks
             right; a hole is a missing one.
@@ -407,8 +407,7 @@ def _cohort(samples, one, tier, kw, n_jobs, columns, sig):
 WARN_SATURATION = 0.02
 
 
-def _warn_if_saturated(frame, scale, clip, *, above: float = WARN_SATURATION,
-                       top: int = 12) -> None:
+def _warn_if_saturated(frame, scale, clip) -> None:
     """Name the columns the bound compressed, rather than truncating them in silence.
 
     Silence is the actual failure mode here: the old hard clip produced perfectly plausible
@@ -417,19 +416,20 @@ def _warn_if_saturated(frame, scale, clip, *, above: float = WARN_SATURATION,
     in the tail is still a column whose reference does not fit this data, and the caller is the
     only one who can decide what to do about it.
     """
-    from .scale import _by_block, load_scale
+    from .scale import _TOP, _by_block, load_scale
 
     sref = scale if scale is not None else load_scale()
     if sref is None or clip is None:
         return
+    above = WARN_SATURATION
     sat = sref.saturation(frame, clip=clip)
     hit = sat.filter(sat["frac_out_of_bound"] > above)
     if not hit.height:
         return
     names = hit["column"].to_list()
-    shown = ", ".join(f"{c} {f:.1%}" for c, f in zip(names[:top],
-                                                     hit["frac_out_of_bound"].to_list()[:top]))
-    more = f" ... and {len(names) - top} more" if len(names) > top else ""
+    shown = ", ".join(f"{c} {f:.1%}" for c, f in zip(names[:_TOP],
+                                                     hit["frac_out_of_bound"].to_list()[:_TOP]))
+    more = f" ... and {len(names) - _TOP} more" if len(names) > _TOP else ""
     warnings.warn(
         f"{len(names)} of {sat.height} scaled columns have more than {above:.0%} of this cohort "
         f"beyond the clip={clip} bound, so the reference's spread does not describe this data "

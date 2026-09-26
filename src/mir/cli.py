@@ -590,10 +590,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "z-score. The bound compresses (strictly increasing, so sample ordering "
                         "survives) rather than truncating; the share of the cohort it touched is "
                         "reported on stderr. Default: 8.0")
-    s.add_argument("--squash", default="soft", choices=("soft", "none", "hard"),
+    s.add_argument("--squash", default="soft", choices=("soft", "hard"),
                    help="how the bound is enforced: 'soft' is a log1p tail and keeps the "
                         "ordering (default); 'hard' is the pre-3.20.0 np.clip and is many-to-one "
-                        "-- it is here only to reproduce an archived matrix")
+                        "-- it is here only to reproduce an archived matrix. For no bound at "
+                        "all use --clip none")
     s.add_argument("--on-unscaled", default="pass", choices=("pass", "hole"),
                    help="a column the reference could not scale: 'pass' emits it in its native "
                         "units (default), 'hole' emits nan. A mixed-unit column is a wrong "
