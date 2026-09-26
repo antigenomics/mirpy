@@ -212,6 +212,25 @@ class TCREmp:
             self._germline = MutatedGermlineDistances(self._germline, scale=self.shm_scale)
         return shm_penalty_batch(muts, iden)
 
+    def _proto_idx(self, component: str):
+        """The prototype panel resolved to germline-table rows, once per embedder per component.
+
+        The panel is fixed at construction, so resolving it inside ``matrix`` made the per-call
+        cost proportional to the prototype count: measured 2026-09-26, 3,584 ``resolve`` calls
+        per sample (14 matrix calls x 256 prototypes), **3.41 ms, 10.4% of rsig**, each one
+        running a regex through ``strip_allele``. Hoisting it is worth 18.3% of a sample and
+        changes no value -- a loop invariant moved out of the loop, not a cache: it is derived
+        from ``self._proto_v`` / ``self._proto_j``, which no code path mutates.
+        """
+        base = getattr(self._germline, "base", self._germline)
+        if not hasattr(base, "resolve_all"):        # a caller's own germline object
+            return None
+        cached = self.__dict__.setdefault("_proto_idx_cache", {})
+        if component not in cached:
+            proto = self._proto_v if component in ("V", "CDR1", "CDR2") else self._proto_j
+            cached[component] = base.resolve_all(component, proto)
+        return cached[component]
+
     def _junction_distances(self, junctions: list[str]) -> np.ndarray:
         # squared d always; embed() applies the sqrt metric uniformly across all three blocks
         return junction_distance_matrix(
@@ -300,7 +319,8 @@ class TCREmp:
         for slot, (comp, gene_col, proto_attr) in enumerate(_MODE_SPEC[self.mode]):
             kw = {"shm": shm} if (shm is not None and comp == "V") else {}
             out[:, slot::3] = self._germline.matrix(
-                comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr), **kw
+                comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr),
+                proto_idx=self._proto_idx(comp), **kw
             )
         out[:, 2::3] = self._junction_distances(clonotypes["junction_aa"].to_list())
         if self.metric == "sqrt":

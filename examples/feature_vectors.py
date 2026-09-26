@@ -171,7 +171,7 @@ def _(X, mo, spec):
         ```bash
         mir presets                                     # the table above
         mir presets {spec.name}                         # this preset in full
-        mir signature cohort/*.tsv.gz --preset {spec.name} --threads 0 -o features.parquet
+        mir signature cohort/*.tsv.gz --preset {spec.name} --jobs 0 -o features.parquet
         ```
 
         And without mirpy installed, the statistics half only:

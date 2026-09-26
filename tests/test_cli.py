@@ -154,10 +154,25 @@ def test_locus_flag_accepts_aliases(tmp_path):
 
 
 def test_signature_channels_reads_no_input(tmp_path, capsys):
-    """The vocabulary is printable without a sample — it describes the contract, not the data."""
+    """The vocabulary is printable without a sample — it describes the contract, not the data.
+
+    And it describes **this command's half**. It used to list all twenty channels including the
+    thirteen ``vsig`` ones, which ``mir signature`` has not emitted since 3.18.0 — an output whose
+    whole job is "what you will get" naming what you will not get.
+    """
     out = tmp_path / "chan.tsv"
     main(["signature", "--channels", "-o", str(out)])
     rows = out.read_text().strip().split("\n")
     assert rows[0].split("\t")[:3] == ["channel", "sig", "block"]
-    assert any(r.startswith("vsig:div\t") for r in rows)
     assert any(r.startswith("rsig:phic\t") for r in rows)
+    assert not [r for r in rows[1:] if r.startswith("vsig:")], "vsig is vdjtools' half"
+
+
+def test_signature_describe_lists_only_the_rsig_half(tmp_path):
+    """Same contract for the column dictionary as for the channel vocabulary."""
+    out = tmp_path / "cols.tsv"
+    main(["signature", "--describe", "--tier", "standard", "-o", str(out)])
+    rows = out.read_text().strip().split("\n")[1:]
+    sigs = {r.split("\t")[1] for r in rows}
+    assert sigs == {"rsig"}, sigs
+    assert len(rows) == 528

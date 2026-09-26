@@ -190,7 +190,11 @@ For an attributable channel, the last hop goes all the way back to sequences:
 
    from mir.explain import channel_drivers
 
-   channel_drivers(space, samples, y, spec, "rsig:phic")   # the clonotypes behind the channel
+   channel_drivers(report,                      # a ChannelReport, from the step above
+                   space=space,
+                   pos=pos_frames, neg=neg_frames,   # the two groups' clonotype frames
+                   candidates=candidates,            # clonotypes to rank
+                   channel="rsig:phic", top=30)      # the clonotypes behind the channel
 
 On an unattributable channel that call raises — see above.
 

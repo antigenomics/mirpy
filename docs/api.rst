@@ -391,18 +391,19 @@ non-productive fraction is the thing you want.
    ``--species``, ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``,
    ``--standardize {reference,none}``, ``--scale NAME|PATH`` (which scale reference to
    standardise against — a bundled model name or a path; a named-but-missing one raises rather
-   than silently producing an unstandardised matrix), ``--threads`` (0 = every core),
+   than silently producing an unstandardised matrix), ``--jobs`` / ``-j`` (0 = every core; renamed from ``--threads``),
    ``--describe`` (print the column dictionary and read no input), ``--channels`` (print the
    channel vocabulary and read no input), ``-o``.
 
-   This emits **both halves**. ``vdjtools signature`` emits the ``vsig`` half alone and reports how
-   many ``rsig`` columns it left to this command; the two concatenate on ``sample_id``.
+   This emits the ``rsig`` half alone — 528 columns at the ``standard`` tier. ``vdjtools
+   signature`` emits the ``vsig`` half and reports how many ``rsig`` columns it left to this
+   command; the two concatenate on ``sample_id`` for the full 688.
    :doc:`signature` covers the scale references and :doc:`channels` the vocabulary the columns
    group into.
 
 ``mir presets [NAME]``
-   The named column subsets and their ranking — ``compact`` (152), ``classify`` (615),
-   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (286), ``full`` (1403),
+   The named column subsets and their ranking — ``compact`` (86), ``classify`` (615),
+   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (271), ``full`` (1403),
    ``nuisance`` (73, ranked *avoid*). With no argument, the whole table; with a name, that preset's
    column list. A preset resolves from the frozen layout alone, so two people choosing the same
    name get the same columns in the same order.

@@ -192,20 +192,25 @@ class MutatedGermlineDistances:
     base: object
     scale: float = 1.0
 
-    def matrix(self, component: str, query, prototypes, *, shm=None) -> np.ndarray:
+    def matrix(self, component: str, query, prototypes, *, shm=None,
+               proto_idx=None) -> np.ndarray:
         """``(n_query, n_proto)`` distances, with the SHM penalty added along ``V``.
 
         Args:
             component: ``V`` / ``J`` / ``CDR1`` / ``CDR2``.
             query: Query allele names.
             prototypes: Prototype allele names.
+            proto_idx: The prototype panel pre-resolved by
+                :meth:`~mir.distances.germline.GermlineDistances.resolve_all`; forwarded
+                unchanged. See that method for why it is worth hoisting.
             shm: Per-query SHM penalty from :func:`shm_penalty_batch`, or ``None``. ``nan``
                 entries are treated as **no adjustment**, not as an unknown distance: the query
                 still has a germline V call, and that call's distance is a real, usable number.
                 Propagating the nan would replace a known quantity with an unknown one because a
                 *second*, optional quantity was missing.
         """
-        D = np.asarray(self.base.matrix(component, query, prototypes), dtype=np.float32)
+        D = np.asarray(self.base.matrix(component, query, prototypes,
+                                        proto_idx=proto_idx), dtype=np.float32)
         if component != "V" or shm is None:
             return D
         p = np.asarray(shm, dtype=np.float64)
@@ -240,7 +245,7 @@ def _demo() -> None:
 
     # The wrapper adds along V only, and a nan penalty leaves the germline distance intact.
     class _Fake:
-        def matrix(self, comp, q, p):
+        def matrix(self, comp, q, p, *, proto_idx=None):
             return np.zeros((len(q), len(p)), dtype=np.float32) + (1.0 if comp == "V" else 5.0)
 
     g = MutatedGermlineDistances(_Fake())

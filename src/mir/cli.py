@@ -14,9 +14,10 @@ Four commands. Two embed at the two scales mirpy works at:
 Two produce the portable signature — the hand-off object, whose basis is frozen rather than fitted
 on your cohort, so two people's vectors are comparable:
 
-* ``mir signature SAMPLE…`` — → one fixed-width named vector per sample (688 columns at the
-  ``standard`` tier), standardised against a frozen reference. Emits **both** halves: ``rsig``
-  (geometry, computed here) and ``vsig`` (statistics, from ``vdjtools.signature``).
+* ``mir signature SAMPLE…`` — → one fixed-width named vector per sample (528 columns at the
+  ``standard`` tier), standardised against a frozen reference. Emits **this tool's half**:
+  ``rsig``, the embedding geometry. The other half, ``vsig`` (statistics), comes from
+  ``vdjtools signature``; run both and join on ``sample_id`` for the full 688-column vector.
 * ``mir presets [NAME]``    — the named column subsets and their ranking, so a subset is chosen by
   intent rather than by reading a 1,403-row column dictionary.
 
@@ -293,6 +294,13 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
     _write(out, a.output)
 
 
+#: Samples a spawned worker needs before its ~2.1 s of fixed startup pays for itself, at the
+#: measured ~0.25 s per sample (2026-09-26, 16-core M-series). Used to cap the worker count
+#: by the work available: sixteen workers on a twenty-four sample cohort measured *slower*
+#: than staying in-process.
+_MIN_SAMPLES_PER_WORKER = 8
+
+
 def cmd_signature(a: argparse.Namespace) -> None:
     from vdjtools.signature import presets as P
 
@@ -324,11 +332,15 @@ def cmd_signature(a: argparse.Namespace) -> None:
 
     if a.channels:
         # One row per channel rather than per column: the level a finding is stated at.
-        _write(channel_table(a.tier), a.output)
+        _write(channel_table(a.tier).filter(pl.col("sig") == "rsig"), a.output)
         return
 
     if a.describe:
-        d = describe(a.tier)
+        # This command emits the rsig half, so --describe must describe the rsig half. It used
+        # to print the whole joined dictionary, which listed vsig: columns the command has not
+        # emitted since 3.18.0 -- the one output whose entire job is "the exact columns you will
+        # get" was the one telling you about columns you will not get.
+        d = describe(a.tier).filter(pl.col("sig") == "rsig")
         _write(d.filter(pl.col("column").is_in(keep)) if keep else d, a.output)
         return
 
@@ -363,8 +375,20 @@ def cmd_signature(a: argparse.Namespace) -> None:
 
     from vdjtools.cores import available_cores
 
-    workers = a.threads if a.threads > 0 else available_cores()
-    workers = 1 if a.threads == 1 else min(workers, max(1, len(samples)))
+    jobs = a.jobs
+    if a.threads is not None:
+        print("[mir] --threads is the old name for --jobs (it always meant worker processes, "
+              "never kernel threads); use --jobs. It will be removed in 4.0.", file=sys.stderr)
+        jobs = a.threads
+    workers = jobs if jobs > 0 else available_cores()
+    # A spawned worker costs ~2.1 s before its first sample -- a fresh interpreter, polars,
+    # numpy, the seven prototype panels, and a lazy `import mir.repertoire` that drags scipy --
+    # against ~0.25 s per sample after that (measured 2026-09-26, linear fit over n = 1..24 on
+    # 12 fresh processes). So a worker needs about eight samples to pay for itself, and handing
+    # sixteen workers a twenty-four sample cohort is slower than staying in-process. Cap the
+    # worker count by the work available rather than by the core count alone.
+    if jobs != 1:
+        workers = max(1, min(workers, len(samples) // _MIN_SAMPLES_PER_WORKER or 1))
     print(f"[mir] {len(samples)} samples, tier={a.tier}"
           f"{f' (preset {a.preset})' if a.preset else ''}"
           f", "
@@ -373,7 +397,7 @@ def cmd_signature(a: argparse.Namespace) -> None:
     t0 = time.perf_counter()
     out = assemble.rsig_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
                                standardize=a.standardize, scale=scale,
-                               n_jobs=a.threads, columns=keep,
+                               n_jobs=workers, columns=keep,
                                on_duplicate=a.on_duplicate)
     dt = time.perf_counter() - t0
     n_cols = out.width - 1
@@ -470,8 +494,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "One repertoire in, one row of named features out - ready for a classifier.\n"
             "\n"
-            "Emits BOTH halves of the portable repertoire signature as one vector: the\n"
-            "`vsig` statistics (from vdjtools) and the `rsig` embedding geometry (here).\n"
+            "Emits the `rsig` half of the portable repertoire signature: the embedding\n"
+            "geometry, computed here. The `vsig` statistics half comes from\n"
+            "`vdjtools signature`; run both and join on `sample_id`.\n"
             "Fixed, named and positional, so column i means the same thing in every\n"
             "matrix anyone computes - this is the object you hand a collaborator.\n"
             "Reads AIRR Rearrangement, native vdjtools, Parquet and the usual\n"
@@ -490,7 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  mir signature --channels\n"
             "\n"
             "  # all cores, one process per sample\n"
-            "  mir signature --preset classify --threads 0 cohort/*.tsv.gz -o sig.parquet\n"
+            "  mir signature --preset classify --jobs 0 cohort/*.tsv.gz -o sig.parquet\n"
             "\n"
             "PICK A PRESET rather than columns by hand (`mir presets` lists all):\n"
             "  compact    smallest vector that still describes a repertoire (n >= 50)\n"
@@ -534,9 +559,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "assay-specific. Default: the bundled deep-tcr reference")
     s.add_argument("--preset", default=None,
                    help="named feature set; overrides --tier (see `mir presets`)")
-    s.add_argument("--threads", type=int, default=0,
-                   help="worker processes over samples; 0 = every core (the default). Pass 1 to "
+    s.add_argument("--jobs", "-j", type=int, default=0,
+                   help="worker PROCESSES over samples; 0 = every core (the default). Pass 1 to "
                         "stay in-process, which is what you want inside your own pool")
+    # Renamed in 3.19.0. It never controlled threads: it was wired straight to `n_jobs`, so
+    # `--threads 16` started 16 processes that each went on to claim 16 kernel threads in
+    # vdjtools' Pgen batch -- two independent claims on one machine, and the slowest of the
+    # configurations once memory is counted. Hidden rather than deleted so existing scripts keep
+    # working for one release; it is not a second knob, it is the old name for this one.
+    s.add_argument("--threads", type=int, default=None, help=argparse.SUPPRESS)
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
                    help="a sample with no junction_nt that repeats (junction_aa, v_call, j_call, "
                         "c_call) cannot say whether those rows are two clonotypes or one: error "

@@ -218,9 +218,16 @@ def _model(species: str, locus: str, n_prototypes: int):
     """Cache the embedder per (species, locus, K) — construction reads the bundled panel."""
     key = (species, locus, n_prototypes)
     if key not in _MODELS:
+        from vdjtools.signature.cohort import in_pool_worker
+
         from mir.embedding.tcremp import TCREmp
 
-        _MODELS[key] = TCREmp.from_defaults(species, locus, n_prototypes=n_prototypes)
+        # Inside a pool worker, take one seqtree thread rather than the whole machine. The
+        # junction kernel's `threads=0` means "every core", so n_jobs workers each opening one
+        # thread per core is n_jobs x cores threads on cores cores -- measured 2026-09-26 as the
+        # reason `n_jobs=16` returned 1.03x wall for 4.7x the CPU on a 16-core box.
+        _MODELS[key] = TCREmp.from_defaults(species, locus, n_prototypes=n_prototypes,
+                                            threads=1 if in_pool_worker() else 0)
     return _MODELS[key]
 
 
@@ -328,21 +335,35 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
 
 def _one(item, tier, kw):
     """One sample's joined row. Module-level so a worker process can unpickle it."""
+    from vdjtools.signature.cohort import resolve_sample
+
     sid, sample = item
-    return {"sample_id": sid, **signature(sample, tier=tier, **kw)}
+    return {"sample_id": sid, **signature(resolve_sample(sample), tier=tier, **kw)}
 
 
 def _one_rsig(item, tier, kw):
     """One sample's rsig row -- geometry only, no vsig computed at all."""
-    sid, sample = item
-    if callable(sample) and not isinstance(sample, (dict, pl.DataFrame)):
-        sample = sample()
     from vdjtools.signature import blocks as VB
+    from vdjtools.signature.cohort import resolve_sample
 
-    frames = _locus_frames(sample)
-    if kw.pop("sanitise", True):
-        frames = {k: VB.sanitise(v, on_duplicate=kw.pop("on_duplicate", "error"))[0]
-                  for k, v in frames.items()}
+    sid, sample = item
+    frames = _locus_frames(resolve_sample(sample))
+    # `kw` belongs to the caller and is reused for every sample in this worker, so popping from
+    # it is destructive twice over. Copy first, then pop freely.
+    #
+    # This one line carried three bugs, all of them the same mistake at a different scope:
+    #   - the pops sat INSIDE the comprehension below, so the first locus consumed the caller's
+    #     on_duplicate and every later locus silently fell back to "error";
+    #   - with sanitise=False the on_duplicate pop never ran at all, so it stayed in kw and was
+    #     forwarded to rsig(), which has no such parameter -> TypeError;
+    #   - and popping from the shared dict meant the first SAMPLE drained it for all the rest.
+    # A one-locus, one-sample test passes against every one of those. The guards in
+    # tests/test_rsig_cohort_kwargs.py use two loci and four samples for exactly that reason.
+    kw = dict(kw)
+    do_sanitise = kw.pop("sanitise", True)
+    on_duplicate = kw.pop("on_duplicate", "error")
+    if do_sanitise:
+        frames = {k: VB.sanitise(v, on_duplicate=on_duplicate)[0] for k, v in frames.items()}
         frames = {k: v for k, v in frames.items() if v.height}
     scale = kw.pop("scale", None)
     standardize = kw.pop("standardize", "reference")

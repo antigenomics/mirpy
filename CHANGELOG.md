@@ -3,6 +3,111 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.19.0 — 2026-09-26
+
+Three correctness bugs in `rsig_cohort`'s keyword handling, a flag that never did what it was
+named, and the last of the "emits both halves" documentation.
+
+### Fixed — `rsig_cohort` lost `on_duplicate` after the first locus, and after the first sample
+
+`_one_rsig` popped `sanitise` and `on_duplicate` from the caller's `kw` *inside* a per-locus dict
+comprehension. One line, three bugs, three scopes:
+
+1. `pop` is destructive, so the **first locus** consumed the caller's `on_duplicate` and every
+   locus after it silently fell back to `"error"`. A one-locus sample honoured
+   `on_duplicate="sum"`; a two-locus one raised on its second locus — the TRA+TRB donor the
+   Quickstart advertises joining. `vsig_cohort` on the same input was fine, which made it look
+   like a data problem.
+2. With `sanitise=False` the `on_duplicate` pop never ran at all, so the key stayed in `kw` and was
+   forwarded to `rsig()`, which has no such parameter: `TypeError: rsig() got an unexpected
+   keyword argument 'on_duplicate'`.
+3. `kw` is shared across every sample a worker handles, so the **first sample** drained it for all
+   the rest.
+
+Fixed by copying `kw` before popping, and hoisting both pops out of the comprehension.
+`signature_cohort` was unaffected — it forwards to `signature()`, which declares both parameters.
+
+A single-locus, single-sample test passes against all three bugs. `tests/test_rsig_cohort_kwargs.py`
+therefore uses two loci with the duplicate in the **second**, and four samples.
+
+### Fixed — `signature_cohort` could not take a deferred sample
+
+The zero-argument-callable-per-sample path is what keeps peak memory at `O(n_jobs)` samples rather
+than the whole cohort, and it was documented on `rsig_cohort`, `signature_cohort` and vdjtools'
+`vsig_cohort` — but implemented only in `_one_rsig`. The other two died on `AttributeError:
+'function' object has no attribute 'columns'`. Now all three go through
+`vdjtools.signature.cohort.resolve_sample` (vdjtools 3.16.0), which is the single definition.
+
+### BREAKING — `--threads` is now `--jobs` / `-j`
+
+It never controlled threads. It was wired straight to `n_jobs`, so `mir signature --threads 16`
+started sixteen **processes**, each of which went on to claim sixteen kernel threads inside
+vdjtools' Pgen batch — two independent claims on one machine, and the slowest configuration once
+memory is counted. `--threads` still works, is hidden from `--help`, prints a note, and will be
+removed in 4.0.
+
+### Fixed — `--describe` and `--channels` described the other half too
+
+Since 3.18.0 this command emits `rsig` only, but `--describe` still printed all 688 columns and
+`--channels` all 20 channels. The one output whose entire job is "the exact columns you will get"
+was naming 160 columns you will not get. Both are filtered to `rsig`; `vdjtools signature` is the
+mirror image as of vdjtools 3.16.0.
+
+### Fixed — documentation that still said "both halves"
+
+`src/mir/cli.py` (module docstring and argparse description), `README.md`, `docs/api.rst`,
+`docs/signature.rst`, `examples/feature_vectors.py`. Preset widths corrected against live values:
+`compact` 86 (was documented 152), `bcell` 271 (was 286). `docs/signature.rst`'s `automodule` now
+includes `rsig_cohort`, and `docs/channels.rst` shows `channel_drivers`' real signature
+(`report` positional, then keyword-only `space` / `pos` / `neg` / `candidates` / `channel`).
+
+Measurements quoted for the **joined** 615-column `classify` vector are unchanged and still stand —
+they are now labelled as joined, with the half each column lives in named, rather than reading as
+though one CLI produced all of them.
+
+### Changed — `rsig` is 1.49x faster, and every one of its 528 columns is bit-identical
+
+`GermlineDistances.matrix` resolved the **prototype panel** on every call — 3,584 `resolve()`
+calls per sample (14 matrix calls x 256 prototypes), each running a regex through `strip_allele`
+and `allele_with_default`. The panel is fixed at construction, so this was a loop invariant inside
+the loop, measured at 3.41 ms and 10.4% of a sample. `TCREmp` now resolves it once per embedder
+via the new `GermlineDistances.resolve_all`, and passes it as `matrix(..., proto_idx=...)`.
+
+Measured on a seven-locus sample, min of 8, **1.49x** — and **0 of 528 columns moved**, asserted
+against the un-hoisted path in the same process. This is not a cache: the value is derived from
+the embedder's own fixed panel, which nothing mutates.
+
+While measuring, one long-standing suspicion was **refuted and is now recorded as dead** so it is
+not re-attempted: the `dict.setdefault` factorize at `germline.py:136` is 9,800 calls and
+**0.58 ms, 1.8% of a sample**, not the ~12% it was thought to be, and `np.unique(...,
+return_inverse=True)` returns **1.12x** on it — 0.05 ms — while raising `TypeError` on a null
+`v_call`, which the dict handles. The dict stays.
+
+### Fixed — a pool worker claimed every core for its kernel threads too
+
+`TCREmp` defaults to `threads=0`, meaning every core, and nothing told it that it was running
+inside a pool. At `--jobs 16` on a 16-core box that is 16 processes x 16 seqtree threads. Workers
+now take one kernel thread (`vdjtools.signature.cohort.in_pool_worker`, new in vdjtools 3.16.0).
+
+### Fixed — the worker count is capped by the work, not just by the core count
+
+A spawned worker costs **~2.1 s before its first sample** — a fresh interpreter, polars, numpy,
+seven prototype panels, and a lazy `import mir.repertoire` that drags in scipy (586–656 ms of it)
+— against ~0.25 s per sample afterwards (linear fit, n = 1..24 over 12 fresh processes). So a
+worker needs roughly eight samples to pay for itself, and `--jobs 0` on a small cohort was
+measurably **slower** than staying in-process: on 24 samples, `n_jobs=16` returned 1.03x wall for
+**4.7x the CPU** against a warm serial baseline. The CLI now caps workers at
+`n_samples // 8`. Large cohorts are unaffected; small ones stop paying for a pool they cannot use.
+
+### Changed — where the time actually goes
+
+`vsig:pgen` on IGH is **96.6%** of a `standard`-tier seven-locus sample (measured 2026-09-26, 120
+samples at the real cohort shape, median 1,388 clonotypes), and it is the D trim state space: IGH
+carries 9,212 `(D allele, ndel5, ndel3)` states against TRB's 297, matching the 31x per-junction
+cost ratio to the digit. `rsig` is roughly a twelfth of the pair. vdjtools 3.16.0 records the four
+candidate fixes that are already measured dead — including conditioning Pgen on the observed V/J,
+which buys **1.0x** on IGH and shifts every `frac_atypical` against a frozen reference.
+
 ## 3.18.0 — 2026-09-26
 
 ### BREAKING — `mir signature` emits the geometry half only

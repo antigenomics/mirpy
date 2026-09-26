@@ -64,6 +64,24 @@ And the join, when you want the whole vector:
    F = (pl.read_parquet("rsig.parquet")
           .join(pl.read_parquet("vsig.parquet"), on="sample_id", how="inner"))
 
+.. warning::
+
+   **That join is mixed-scale.** ``mir signature`` standardises its half against the frozen scale
+   reference; ``vdjtools signature`` cannot, because the reference ships *here* and vdjtools does
+   not depend on mirpy — so its half arrives raw, with the flat ``DEFAULT_CSTAR = 0.20`` and
+   ``vsig:pgen:*:frac_atypical`` as ``nan``. Measured on one synthetic 600-clonotype TRB sample at
+   ``tier="core"``: ``vsig:div:TRB:1D_c`` reads **1.9502** standardised against **2.2495** raw.
+   ``vdjtools signature`` says so on stderr as of vdjtools 3.16.0.
+
+   For a standardised pair in one call, use :func:`~mir.signature.signature_cohort` from Python —
+   it applies the reference to both halves. The two-CLI route is right when you want the halves
+   separately, or when you are standardising yourself downstream.
+
+   The 3.18.0 claim that "the join is exact, not approximate" is about **rsig** and still holds:
+   the scale reference standardises per column, so an ``rsig`` column's value is identical whether
+   or not the other half was computed beside it. It says nothing about the ``vsig`` half arriving
+   unstandardised from the other CLI.
+
 Files sharing a sample id (the name up to the first dot) are joined into one multi-locus sample, so
 a donor sequenced on TRA and TRB is one signature with both loci filled rather than two half-empty
 rows. AIRR Rearrangement, native vdjtools, Parquet and the usual third-party exports are
@@ -121,11 +139,19 @@ command above and nothing tuned:
      - 278 MB
      - 795% CPU — the box is saturated
 
-**Read the preset column before the core column.** The tier is the dominant cost and the Pgen
-block is about 55% of a ``standard`` sample: ``classify`` (615 columns) and ``transfer`` (550
-columns) measure *identically* at 498 s, because selecting fewer columns does not compute less —
-only a smaller tier does. ``compact`` is ``core`` tier, carries no Pgen block, and is 3.7x faster
-on the same data.
+**Read the preset column before the core column.** The tier is the dominant cost, and within a
+``standard`` tier the ``vsig:pgen`` block is the bill. How large a share depends on how much IGH
+the sample carries: 55% on this amplicon-heavy SRA cohort, and **96.6%** on a seven-locus bulk
+RNA-seq sample where IGH is ~30% of the clonotypes (measured 2026-09-26, 120 samples, median
+1,388 clonotypes). IGH costs 31x TRB per junction because it has 31x the D-trim states, 9,212
+against 297 — see :func:`vdjtools.signature.blocks.pgen_block`, which records what that rules out.
+
+``classify`` (615 joined columns) and ``transfer`` (550) measured *identically* at 498 s here
+because at that time selecting fewer columns did not compute less. **That is no longer true**:
+from vdjtools 3.16.0 a preset that keeps no ``vsig:pgen`` column skips the block entirely
+(``nuisance`` went 1,283 ms → 41 ms per sample, 31x), and ``vsig(columns=...)`` /
+``vsig_cohort(columns=...)`` give the same control from Python. ``compact`` is ``core`` tier,
+carries no Pgen block at all, and is 3.7x faster on the same data.
 
 **Per-core speed matters more than core count here.** The same standard-tier sample costs about
 1.0 CPU-second on an M-series core and 4.0 on a 2019 Xeon Silver 4210R. Budget from
@@ -139,13 +165,18 @@ ample rather than marginal.
 The two knobs
 ~~~~~~~~~~~~~
 
-``--threads``
-   Worker processes. ``0`` (default) means every core **this process is allowed**, which is not
+``--jobs`` / ``-j``
+   Worker **processes**. ``0`` (default) means every core **this process is allowed**, which is not
    the same as the machine's core count: under ``srun -c 8`` on a 40-core node ``os.cpu_count()``
    says 40 and the real allowance is 8. mirpy asks
    :func:`vdjtools.cores.available_cores`, which also reads the cgroup CPU quota, so a container
    started with ``docker run --cpus=4`` or a Kubernetes CPU limit gets four workers rather than
-   forty. Pass ``--threads 1`` when you are already inside your own pool.
+   forty. Pass ``--jobs 1`` when you are already inside your own pool.
+
+   Renamed from ``--threads`` in 3.19.0. The old name is still accepted for one release and prints
+   a note. It never controlled threads: it was wired straight to ``n_jobs``, so ``--threads 16``
+   started sixteen processes that each went on to claim sixteen kernel threads inside vdjtools'
+   Pgen batch — two independent claims on the same cores.
 
 ``--preset``
    The feature set, and the biggest lever on cost — roughly half of a ``standard`` sample's time
@@ -232,7 +263,8 @@ That is the whole pipeline. Everything after it is your analysis.
 
 Run on the 1,764-sample SRA cohort in |airr_benchmark| this takes roughly 0.6 s per sample on eight
 cores, and a 20-sample subset produced **615 columns with every ``sample_id`` matching its metadata
-row**. See :doc:`notebooks` for the runnable version.
+row** — 514 ``rsig`` from ``mir signature`` and 101 ``vsig`` from ``vdjtools signature``, joined on
+``sample_id``. See :doc:`notebooks` for the runnable version.
 
 .. |airr_benchmark| raw:: html
 
@@ -250,7 +282,9 @@ distinct reasons, which you separate with the mask columns ``vsig:mask:<locus>:p
 
 There is also a third, which is a property of the shipped artifact rather than of your data, and it
 is worth knowing before you see it. Measured on 20 samples of the SRA cohort with
-``--preset classify``: 28 of 615 columns are ``nan`` for **every** sample, and 20 of those 28 are
+``--preset classify``, on the **joined** 615-column vector — 27 of the 28 live in the ``vsig``
+half, which is ``vdjtools signature``'s output, not this command's: 28 of 615 columns are ``nan``
+for **every** sample, and 20 of those 28 are
 the coverage-standardised diversity block -- ``vsig:div:{0D_c,1D_c,2D_c,clonality}`` -- on exactly
 the five loci the bundled scale reference has no coverage constant for: IGH, IGK, IGL, TRG and TRD.
 The remaining eight are ``vsig:pgen:frac_atypical`` on those same five loci, ``vsig:shm`` on IGH and
@@ -696,7 +730,8 @@ So a reference is chosen by assay, not by preference:
 **If your data is bulk RNA-seq, pass** ``--scale blood`` (or ``--scale tissue``). The default is
 the amplicon fit, and on the five loci it does not cover, every coverage-standardised diversity
 column comes back ``nan``.
-Measured on 20 samples of the SRA cohort with ``--preset classify``: **28 of 615 columns are nan
+Measured on 20 samples of the SRA cohort with ``--preset classify``, on the **joined** 615-column
+vector: **28 of 615 columns are nan
 under the default and 3 under every RNA-seq reference** -- the 25 recovered are
 ``vsig:div:{0D_c,1D_c,2D_c,clonality}`` and ``vsig:pgen:frac_atypical`` on IGH, IGK, IGL, TRG and
 TRD.
@@ -829,7 +864,7 @@ choices, documents each, and **ranks** it:
      - Classical repertoire statistics only. Needs no embedding, so vdjtools alone suffices.
    * - ``bcell``
      - *specific*
-     - 286
+     - 271
      - B-cell receptor work: the immunoglobulin loci with somatic hypermutation and isotype.
    * - ``geometry``
      - *specific*
@@ -889,7 +924,7 @@ API
 ---
 
 .. automodule:: mir.signature
-   :members: signature, signature_cohort, rsig, columns, describe, channels, channel,
+   :members: signature, signature_cohort, rsig, rsig_cohort, columns, describe, channels, channel,
              channel_spec, channel_table, load_reference, self_test
    :undoc-members:
    :show-inheritance:

@@ -32,7 +32,7 @@ dependencies = [
   "seqtree>=1.0.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  "vdjtools>=3.15.0",
+  "vdjtools>=3.16.0",
 ]
 license = { text = "GPL-3.0-or-later" }
 
