@@ -6,7 +6,7 @@ value does not depend on whether the other half was computed beside it — so a 
 ``sample_id`` is exactly the un-split vector.
 
 What that separation buys is not symmetric. At ``tier="standard"`` mirpy's half is **528 of the
-688 columns** and costs about **8% of the runtime**; vdjtools' half is 160 columns and ~94% of the
+689 columns** and costs about **8% of the runtime**; vdjtools' half is 161 columns and ~94% of the
 cost, nearly all of it the Pgen block. So ``mir signature`` emitting both by default meant paying
 twelve times over for a half that another tool already owns.
 """
@@ -61,7 +61,7 @@ def test_the_halves_partition_the_tier_exactly(sample):
     v = vsig(sample, tier="standard")
     assert set(r) | set(v) == set(both)
     assert not (set(r) & set(v))
-    assert len(r) == 528 and len(v) == 160 and len(both) == 688
+    assert len(r) == 528 and len(v) == 161 and len(both) == 689
 
 
 def test_splitting_does_not_move_a_single_value(sample):
@@ -87,7 +87,7 @@ def test_each_cohort_function_emits_its_own_half(sample):
     """``rsig_cohort`` is this tool's; ``signature_cohort`` is the join the scale fitting needs."""
     c = {"S1": sample, "S2": sample}
     assert rsig_cohort(c, tier="standard").width - 1 == 528
-    assert signature_cohort(c, tier="standard").width - 1 == 688
+    assert signature_cohort(c, tier="standard").width - 1 == 689
 
 
 def test_an_explicit_column_list_is_intersected_with_the_half_not_overridden(sample):

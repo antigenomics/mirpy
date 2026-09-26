@@ -23,6 +23,7 @@ import polars as pl
 import pytest
 
 from mir.signature import rsig_cohort
+from vdjtools.signature.cohort import WORKER_ENV
 from vdjtools.signature.cohort import slices as _slices
 
 _AA = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
@@ -116,11 +117,12 @@ def test_the_work_really_happens_in_several_processes(tmp_path):
     without measuring time, is *where the work ran*. Each sample records its own PID as it is
     built, so a serial fallback leaves exactly one file and a working pool leaves several.
 
-    Timing cannot do this job reliably here, and the reason is measured rather than assumed:
-    ``n_jobs=1`` is not serial, because the native Pgen batch threads internally. The machine is
-    already largely saturated before the first worker starts, so the honest speedup from four
-    workers is 1.19x on an 8-core Xeon and 1.42x on a 16-core Mac -- and a bar that both clear
-    sits uncomfortably close to the 1.0x that means "never ran".
+    Timing cannot do this job at all against the obvious baseline, and the reason is measured
+    rather than assumed: ``n_jobs=1`` is not serial, because the junction kernel threads
+    internally over every core while each worker deliberately takes one thread. Four workers are
+    therefore **0.79x** one in-process pass, not 1.4x -- so a live pool and a dead one both read
+    below 1.0 there and cannot be told apart. The benchmark below times the pool against a
+    baseline that can separate them; this test needs no clock.
     """
     import functools
 
@@ -139,34 +141,65 @@ def test_the_work_really_happens_in_several_processes(tmp_path):
 
 
 @pytest.mark.benchmark
-def test_more_workers_is_actually_faster():
-    """Indicative, not a gate -- and the bar is low for a measured reason, not for slack.
+def test_the_pool_scales_over_the_work_a_single_worker_can_do():
+    """The pool's scaling gate -- and it is measured against the right baseline.
 
-    ``n_jobs=1`` is **not serial**: the native Pgen batch threads internally, and one in-process
-    pass over 20 samples measured 3.95 s wall against 25.39 s of CPU, about 6.4 cores busy. So
-    most of the machine is already working before a single worker starts, and the real speedup
-    from four workers is modest and platform-dependent -- **1.42x on 16 Mac cores, 1.19x on 8
-    Xeon cores**, against the 1.00x that a dead pool returns (measured: 2.25 s at ``n_jobs=4``
-    against 2.26 s at ``n_jobs=1``, before the fix).
+    The obvious assertion, "four workers beat one process", is **false here by design** and was
+    asserted anyway until 3.20.0. ``rsig``'s junction kernel releases the GIL and threads itself
+    over every core, and since 3.19.0 a spawned worker deliberately takes **one** seqtree thread
+    rather than all of them -- otherwise ``n_jobs`` workers each open one thread per core and a
+    16-core box is asked for 256. So the two layers are alternatives, not multipliers, and the
+    one process that keeps the kernel is the faster of the two.
 
-    1.19x and 1.00x are too close to separate reliably, which is why the real guard is
-    :func:`test_the_work_really_happens_in_several_processes` and this test is marked
-    ``benchmark`` and kept out of the default run. Do not promote it to a gate.
+    Measured 2026-09-26, 16-core M-series, 48 synthetic TRB samples x 20,000 clonotypes,
+    ``rsig_cohort(tier="standard")``:
+
+    ===============================  ========  =============
+    configuration                    wall      per sample
+    ===============================  ========  =============
+    ``n_jobs=1``, kernel all cores    1.74 s     36 ms
+    ``n_jobs=1``, kernel one thread   5.89 s    123 ms
+    ``n_jobs=4``, one thread each     2.22 s     46 ms
+    ===============================  ========  =============
+
+    The kernel's own threading is worth **3.4x** and the pool is **0.79x** against it -- which is
+    the finding in both repos' ISSUES item 3, reproduced on this repo's own fixture. What the
+    pool *does* buy is 5.89 -> 2.22 s, **2.65x** over the work one worker can do alone, and that
+    is the number worth gating: a dead pool reads 1.0x here, where against the all-cores baseline
+    a dead pool and a live one both read below 1.0 and cannot be told apart.
+
+    So both arms run with the kernel capped, which is what every worker gets. ``n_jobs`` is for
+    memory (``O(n_jobs)`` samples resident with deferred reads) and for cold-kernel cohorts of
+    many small samples -- not for wall clock on one warm box.
     """
     import time
 
-    c = cohort(48, n_clonotypes=5000)
+    from mir.signature import assemble
+
+    c = cohort(48, n_clonotypes=20000)
     rsig_cohort(cohort(1, n_clonotypes=50), tier="standard", n_jobs=1)   # warm lazy imports
 
-    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=1); serial = time.perf_counter() - t0
-    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=4); parallel = time.perf_counter() - t0
-    speedup = serial / parallel
-    assert speedup > 1.1, (
-        f"48 samples took {serial:.2f} s in process and {parallel:.2f} s on four workers -- "
-        f"{speedup:.2f}x, below even the 1.19x measured on an 8-core Xeon. At ~1.0x the pool is "
-        "not running at all. Check test_the_work_really_happens_in_several_processes first: it "
-        "answers the same question without timing.")
+    # Cap the parent's kernel the way `_chunk` caps a worker's, so the ratio below is the pool
+    # and nothing else. The embedder is cached per (species, locus, K), so it has to be dropped
+    # for the new thread count to take -- and dropped again afterwards, or every later test in
+    # this process inherits a one-thread embedder.
+    os.environ[WORKER_ENV] = "1"
+    assemble._MODELS.clear()
+    try:
+        t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=1)
+        one = time.perf_counter() - t0
+    finally:
+        del os.environ[WORKER_ENV]
+        assemble._MODELS.clear()
 
+    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=4)
+    four = time.perf_counter() - t0
+    speedup = one / four
+    assert speedup > 2.0, (
+        f"48 samples took {one:.2f} s on one worker's worth of kernel and {four:.2f} s on four "
+        f"workers -- {speedup:.2f}x, against 2.65x measured on 16 Mac cores. At ~1.0x the pool "
+        "is not running at all. Check test_the_work_really_happens_in_several_processes first: "
+        "it answers the same question without timing.")
 
 
 # ----------------------------------------------------------------- deferred samples

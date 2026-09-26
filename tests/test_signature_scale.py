@@ -95,9 +95,12 @@ class TestApply:
         row = {c: 7.0 for c in COLS}
         assert thin.apply(row) == row
 
-    def test_clipping_bounds_an_extreme_value(self, ref):
-        out = ref.apply({COLS[0]: 1e9}, clip=8.0)
-        assert out[COLS[0]] == 8.0
+    def test_the_bound_compresses_an_extreme_value_instead_of_truncating_it(self, ref):
+        """The 3.20.0 change. Two different outliers must not become the same number."""
+        a = ref.apply({COLS[0]: 1e9}, clip=8.0)[COLS[0]]
+        b = ref.apply({COLS[0]: 2e9}, clip=8.0)[COLS[0]]
+        assert 8.0 < a < b                                   # bounded region, still ordered
+        assert ref.apply({COLS[0]: 1e9}, clip=8.0, squash="hard")[COLS[0]] == 8.0
 
     def test_output_is_roughly_unit_scale(self, ref):
         c = cohort(seed=4)
@@ -686,3 +689,221 @@ class TestKmerSpaces:
         assert after["full"][:len(before["full"])] == before["full"], (
             "full tier moved -- an existing vector's column i would change meaning")
         assert len(after["full"]) == len(before["full"]) + 231
+
+
+class TestTheBoundIsMonotone:
+    """mirpy ISSUES item 5. The clip was the only step in standardising that could change a
+    downstream result, because it was the only one that was not a per-column affine map.
+
+    Everything asserted here is about *not destroying information*: the transform is strictly
+    increasing, so the sample ordering survives it; it is invertible, so the raw values are
+    recoverable from the scaled ones; and it leaves every inlier exactly where the previous
+    release put it, so the change costs nothing to anyone it did not affect.
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def ref():
+        return S.fit_scale(cohort(seed=11), min_n_obs=10)
+
+    def test_the_scaled_order_is_the_raw_order_column_by_column(self, ref):
+        """The invariant that makes a reference swap provably unable to reorder anything.
+
+        Asserted on the **ranks**, not on ``spearmanr(...) == 1.0``. Spearman is a Pearson
+        correlation of ranks and comes back 0.9999999999999999 at some sample sizes even for a
+        perfectly monotone map -- measured at n=10 here -- so an exact float comparison against
+        it tests scipy's accumulation order rather than this transform. Equal argsorts plus no
+        ties *is* the definition of strictly increasing, with no float in it.
+        """
+        from scipy import stats
+
+        c = cohort(n=300, seed=12)
+        for col in COLS:
+            raw = c[col].to_numpy().copy()
+            # push a quarter of the column far outside the bound, both tails
+            raw[:40] += np.linspace(50, 400, 40)
+            raw[40:75] -= np.linspace(50, 300, 35)
+            got = np.array([ref.apply({col: float(v)}, clip=2.0)[col] for v in raw])
+            assert len(set(got.tolist())) == len(got), f"{col}: the squash created a tie"
+            # (these values are well separated; for the float64 floor see the test below)
+            assert np.array_equal(np.argsort(raw, kind="stable"),
+                                  np.argsort(got, kind="stable")), f"{col}: order moved"
+            assert stats.spearmanr(raw, got).statistic == pytest.approx(1.0, abs=1e-12)
+
+    def test_the_only_ties_it_can_create_are_at_the_float_rounding_floor(self, ref):
+        """The honest limit of "strictly increasing", and the size of the gap to the hard clip.
+
+        The map is strictly increasing on the reals, but it is evaluated in float64: beyond the
+        bound its derivative is ``1/(1 + |z| - b)``, so at ``|z| ~ 11`` it compresses four-fold
+        and two raw values a few ULPs apart can land on the same double. Measured on a real
+        four-locus matrix (10 samples x 528 columns): the soft squash merged **13** adjacent
+        pairs, the largest separated by **9.253e-16** relative -- about four float64 epsilons.
+        The hard clip merged **714**, the largest separated by **0.4948**, i.e. half the value.
+
+        So the claim is not "never ties", it is "ties only what float64 could not keep apart
+        anyway", and that is fourteen orders of magnitude from what a clip does.
+        """
+        i = ref.columns.index(COLS[0])
+        loc, sc = float(ref.loc[i]), float(ref.scale[i])
+        # values sitting at z ~ 11, well outside the bound, spaced 1e-12 apart in relative terms
+        base = loc + 11.0 * sc
+        raw = base * (1.0 + np.arange(200) * 1e-12)
+        got = np.array([ref.apply({COLS[0]: float(v)}, clip=8.0)[COLS[0]] for v in raw])
+        assert len(set(got.tolist())) == len(got), "a 1e-12 relative gap must survive the squash"
+        assert np.all(np.diff(got) > 0)
+
+        hard = np.array([ref.apply({COLS[0]: float(v)}, clip=8.0, squash="hard")[COLS[0]]
+                         for v in raw])
+        assert len(set(hard.tolist())) == 1, "...where the clip merges all 200 into one number"
+
+    def test_a_hard_clip_is_what_creates_the_ties(self, ref):
+        """The counter-example, so the test above is known to be testing something."""
+        from scipy import stats
+
+        raw = np.linspace(-500, 500, 200)
+        got = np.array([ref.apply({COLS[0]: float(v)}, clip=2.0, squash="hard")[COLS[0]]
+                        for v in raw])
+        assert len(set(got.tolist())) < len(got)
+        assert stats.spearmanr(raw, got).statistic < 1.0 - 1e-6
+
+    def test_every_inlier_is_bit_identical_to_the_hard_clip(self, ref):
+        """The migration cost. Inside the bound the two maps are the same function."""
+        c = cohort(n=200, seed=13)
+        for col in COLS:
+            for v in c[col].to_numpy():
+                soft = ref.apply({col: float(v)}, clip=8.0)[col]
+                hard = ref.apply({col: float(v)}, clip=8.0, squash="hard")[col]
+                assert abs(soft) <= 8.0 and soft == hard
+
+    def test_unapply_recovers_the_raw_value(self, ref):
+        raw = {COLS[0]: 5.4, COLS[1]: 1.55, COLS[2]: 173.0}      # the last one is far outside
+        back = ref.unapply(ref.apply(raw, clip=3.0), clip=3.0)
+        assert all(back[k] == pytest.approx(v, rel=1e-12, abs=1e-12) for k, v in raw.items())
+
+    def test_clip_none_is_an_unbounded_z_score(self, ref):
+        i = ref.columns.index(COLS[0])
+        z = (1e6 - ref.loc[i]) / ref.scale[i]
+        assert ref.apply({COLS[0]: 1e6}, clip=None)[COLS[0]] == pytest.approx(float(z))
+
+    def test_an_unknown_squash_or_on_unscaled_raises(self, ref):
+        with pytest.raises(ValueError, match="squash"):
+            ref.apply({COLS[0]: 1.0}, squash="tanh")
+        with pytest.raises(ValueError, match="on_unscaled"):
+            ref.apply({COLS[0]: 1.0}, on_unscaled="drop")
+
+
+class TestSayingWhichColumnsWereScaled:
+    """The other half of item 5: an unscaled column passes through in native units, and nothing
+    in the emitted matrix says which columns those are."""
+
+    def test_on_unscaled_hole_marks_the_column_a_caller_cannot_otherwise_detect(self):
+        thin = S.fit_scale(cohort(n=40), min_n_obs=10_000)          # nothing clears the floor
+        row = {c: 7.0 for c in COLS} | {"vsig:invented:XX:col": 3.0}
+        assert thin.apply(row) == row                               # the default, unchanged
+        holed = thin.apply(row, on_unscaled="hole")
+        assert all(np.isnan(holed[c]) for c in COLS)
+        assert holed["vsig:invented:XX:col"] == 3.0                 # unknown != known-unscaled
+
+    def test_saturation_counts_the_entries_the_bound_touched(self):
+        ref = S.fit_scale(cohort(seed=14), min_n_obs=10)
+        c = cohort(n=100, seed=15)
+        scaled = pl.DataFrame([ref.apply({k: float(v) for k, v in row.items() if k in COLS},
+                                         clip=1.0)
+                               for row in c.iter_rows(named=True)])
+        sat = ref.saturation(scaled, clip=1.0)
+        assert sat.height == 3 and set(sat["column"]) == set(COLS)
+        # a robust z beyond 1 SD is roughly a third of a normal column, and every row is finite
+        assert all(0.2 < f < 0.5 for f in sat["frac_out_of_bound"])
+        assert all(n == 100 for n in sat["n"])
+        assert sat["frac_out_of_bound"].to_list() == sorted(sat["frac_out_of_bound"].to_list(),
+                                                            reverse=True)
+
+    def test_saturation_excludes_the_columns_the_reference_never_scaled(self):
+        """8 is a number of standard deviations. On a pass-through column it means nothing."""
+        thin = S.fit_scale(cohort(n=40), min_n_obs=10_000)
+        assert thin.saturation(cohort(n=10), clip=8.0).height == 0
+
+    def test_report_names_the_columns_rather_than_counting_them(self):
+        ref = S.fit_scale(cohort(seed=16), min_n_obs=10)
+        c = cohort(n=60, seed=17)
+        scaled = pl.DataFrame([ref.apply({k: float(v) for k, v in row.items() if k in COLS},
+                                         clip=0.5)
+                               for row in c.iter_rows(named=True)])
+        rep = ref.report(scaled, clip=0.5)
+        assert rep["clip"] == 0.5 and 0.0 < rep["frac_out_of_bound"] < 1.0
+        assert set(rep["out_of_bound_columns"]) <= set(COLS) and rep["out_of_bound_columns"]
+        assert set(rep["out_of_bound_blocks"]) <= {"vsig:depth", "vsig:div", "rsig:phic"}
+        assert "frac_out_of_bound" not in ref.report()               # only when given data
+
+
+def test_the_cohort_path_names_the_saturated_columns(recwarn):
+    """Silence was the failure. A cohort half-truncated in one block used to look perfectly fine.
+
+    Driven through ``rsig_cohort`` rather than ``apply`` because the cohort path is where a
+    caller meets this: one sample cannot have a per-column saturation *fraction*.
+    """
+    import warnings
+
+    from mir.signature import rsig_cohort
+
+    rng = np.random.default_rng(0)
+    aa = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
+
+    def mk(seed):
+        r = np.random.default_rng(seed)
+        ln = r.integers(10, 18, 150)
+        return {"TRB": pl.DataFrame({
+            "junction_aa": ["C" + "".join(aa[r.integers(0, 20, k)]) + "F" for k in ln],
+            "v_call": [f"TRBV{v}*01" for v in r.integers(1, 28, 150)],
+            "j_call": [f"TRBJ{v}*01" for v in r.integers(1, 13, 150)],
+            "duplicate_count": r.integers(1, 200, 150)})}
+
+    del rng
+    c = {f"S{i}": mk(i) for i in range(6)}
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        out = rsig_cohort(c, tier="core", n_jobs=1, clip=0.05)
+    msgs = [str(x.message) for x in w if issubclass(x.category, UserWarning)
+            and "beyond the clip" in str(x.message)]
+    assert msgs, "a saturated cohort must say so"
+    assert "rsig:" in msgs[0] and "%" in msgs[0]              # named columns, with the share
+    assert "Blocks:" in msgs[0]
+
+    # ...and it stays quiet when the bound is not being hit.
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        rsig_cohort(c, tier="core", n_jobs=1, clip=1e6)
+    assert not [x for x in w if "beyond the clip" in str(x.message)]
+    assert out.height == 6
+
+
+class TestComparingReferences:
+    """item 5 (5). There is no reference that dominates, so the choice has to be a table."""
+
+    def test_every_installed_reference_gets_scored(self):
+        from mir.signature.scale import MODELS, _RES
+
+        raw = cohort(n=60, seed=21)
+        t = S.compare_references(raw)
+        installed = [n for n, f in MODELS.items() if (_RES / f).exists()]
+        assert set(t["reference"]) == set(installed) and t.height == len(installed)
+        assert t.columns == ["reference", "columns_scaled", "median_n_obs",
+                             "frac_out_of_bound", "median_centre_shift"]
+        assert t["frac_out_of_bound"].to_list() == sorted(t["frac_out_of_bound"].to_list())
+
+    def test_a_reference_fitted_on_the_cohort_itself_is_centred_and_unbounded(self):
+        """The degenerate case, which is what makes the numbers readable on a real one."""
+        raw = cohort(n=400, seed=22)
+        own = S.fit_scale(raw, min_n_obs=10)
+        t = S.compare_references(raw, [own], clip=8.0)
+        assert t.height == 1
+        assert t["columns_scaled"][0] == 3
+        assert t["frac_out_of_bound"][0] == 0.0          # nothing is 8 robust SDs from its own median
+        assert t["median_centre_shift"][0] < 1e-9        # ...and the centre is the median
+
+    def test_a_shifted_cohort_shows_up_as_a_centre_shift(self):
+        own = S.fit_scale(cohort(n=400, seed=23), min_n_obs=10)
+        moved = cohort(n=100, seed=24).with_columns(
+            [(pl.col(c) + 4.0 * float(own.scale[own.columns.index(c)])) for c in COLS])
+        t = S.compare_references(moved, [own], clip=8.0)
+        assert t["median_centre_shift"][0] == pytest.approx(4.0, abs=0.3)

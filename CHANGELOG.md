@@ -3,6 +3,140 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 3.20.0 — 2026-09-26
+
+The clip was the only step in standardising that could change a downstream result, and the only
+one nobody could see. This is `ISSUES.md` item 5, items (1), (2), (4) and (7).
+
+### Changed — the bound compresses instead of truncating, and the ordering survives it
+
+Centring and scaling is a per-column affine map. It **cannot** change the output of a downstream
+model that standardises its own input, and it cannot change a rank correlation at all, because
+`scale > 0` makes it strictly increasing. So of everything a scale reference does, exactly two
+things can move a result: which columns it scales at all, and what happens at the bound.
+
+`np.clip(z, -8, 8)` is **many-to-one**. Every sample past the bound collapsed onto one value, the
+ordering was gone for good, and nothing in the matrix said so. Scoring one cohort against two
+shipped references, the share of finite entries sitting *at* the bound:
+
+| block | reference A | reference B |
+|---|---:|---:|
+| `rsig:div` | 71.41 % | 2.50 % |
+| `vsig:len` | 49.84 % | 3.15 % |
+| `vsig:pgen` | 16.79 % | 0.03 % |
+| **`rsig:contrast`** | **5.35 %** | **19.28 %** |
+| all columns | 8.74 % | 3.44 % |
+
+Reference B is better on every block but one — and that one block was what a transfer model rested
+on: fitted on ~900 samples, scored once on a held-out ~50-sample cohort with a binary clinical
+outcome, `rsig:contrast` alone went **AUC 0.7216 → 0.4108**, and a 528-column arm containing it
+0.7676 → 0.4459. Choosing a reference was choosing which columns to truncate.
+
+The bound is now identity inside and a `log1p` tail outside:
+
+```
+z -> z                                     |z| <= b
+z -> sign(z) * (b + log1p(|z| - b))        |z| >  b
+```
+
+Two properties, both pinned by tests rather than asserted:
+
+- **The scaled order is the raw order, column by column.** Asserted as equal `argsort`s plus no
+  ties, which *is* strictly-increasing with no float in it — `spearmanr` comes back
+  0.9999999999999999 at some sample sizes even for a perfectly monotone map (measured at n=10),
+  so pinning `== 1.0` would test scipy's accumulation order rather than this transform.
+  `squash="hard"` is kept in the suite as the counter-example that does tie. This is what makes a
+  reference swap provably unable to reorder anything.
+
+  The claim is exact on the reals and *float-bounded* in practice, and the size of that caveat is
+  the point. Beyond the bound the tail compresses by `1/(1 + |z| - b)`, so at `|z| ~ 11` two raw
+  values a few ULPs apart can land on the same double. Measured on a real 10-sample four-locus
+  matrix (528 columns, 2,998 finite scaled entries, 1,060 of them outside the bound):
+
+  | transform | adjacent raw pairs merged | largest relative gap merged |
+  |---|---:|---:|
+  | soft squash | 13 | 9.253e-16 (~4 float64 epsilons) |
+  | hard clip | 714 | **0.4948** |
+
+  Not "never ties" — "ties only what float64 could not keep apart anyway", which is fourteen
+  orders of magnitude from merging two values that differ by half.
+- **Every value with `|z| <= clip` is bit-identical to what 3.19.0 returned.** Only the tail moved,
+  and every value in it used to be the same number. That is why the `log1p` tail was chosen over
+  `b*tanh(z/b)`, which keeps a hard bound but shifts inliers too (7.6% at z=4, 24% at z=8) and
+  would move every value in every fitted reference's downstream consumer.
+
+It is also invertible: `ScaleReference.unapply()` returns the natural units without recomputing a
+cohort, which is `ISSUES.md` item 6 (4) in the other repo. A hard clip has nothing to invert, and
+that asymmetry is now an API property rather than a surprise.
+
+`squash="hard"` reproduces an archived matrix; `clip=None` removes the bound; both reach
+`signature`, `rsig_cohort`, `signature_cohort` and `mir signature` (`--clip`, `--squash`).
+
+### Added — saturation is reported, per column and per block
+
+Silent truncation was the actual failure: the numbers looked perfectly plausible. Four surfaces,
+all answering "how much of my cohort did the bound touch":
+
+- `ScaleReference.saturation(frame)` — `column`, `block`, `n`, `n_out`, `frac_out_of_bound`,
+  worst first, excluding the columns the reference never scaled (on a pass-through column, 8 is
+  not a number of standard deviations).
+- `ScaleReference.report(frame)` — the same folded into the reference's own summary, naming the
+  worst columns rather than counting them.
+- `rsig_cohort` / `signature_cohort` warn above 2 % of a column, with the column list and the
+  per-block shares. 2 % because the reference corpora put 0.4–3 % of samples past *five* robust
+  deviations, so 2 % past eight is already anomalous — and the block that took the AUC above sat
+  at 5.35 %.
+- `mir signature` prints the share on stderr every run.
+
+All four are exact only because the squash is monotone: `|scaled| > clip` holds exactly when
+`|z| > clip`, so the flag survives the transform. Under the hard clip the same question needed a
+float equality against the bound.
+
+### Added — `compare_references()`, so picking a reference is a measurement
+
+No shipped reference dominates: the one that covers more of your columns can be the one that
+compresses the block your model rests on, which is exactly the trade-off above. `ISSUES.md` item 5
+(5). Scores a **raw** cohort against every installed reference and returns one row each —
+`columns_scaled`, `median_n_obs`, `frac_out_of_bound`, `median_centre_shift` (the cohort's own
+median in robust standard deviations, which is the assay-mismatch number).
+
+### Added — `on_unscaled="hole"`
+
+A column the reference could not scale passes through in its native units. That is correct and
+deliberate, and it is invisible: a caller reading a 689-column frame cannot tell which columns are
+z-scores and which are raw. `apply(..., on_unscaled="hole")` returns `nan` for those instead. **A
+hole is a missing number; an unmarked mixed-unit column is a wrong number that looks right.** An
+*unknown* column still passes through — the reference has nothing to say about it.
+
+### Changed — `signature()` no longer fakes an unreachable coverage level
+
+A partial `cstar` dict (the shipped amplicon reference carries TRA and TRB only) used to be
+completed with `C* = 1.0` so the diversity block would fail its own estimability check and mask
+out. vdjtools 3.18.0 gives the hole directly, with a warning naming the loci, so the workaround is
+gone along with the wasted `estimate_d` call per uncovered locus. Requires `vdjtools>=3.18.0`.
+
+Tier widths follow vdjtools' new `vsig:qc:-:cstar_fallback_frac`: `core` 153, `standard` **689**,
+`full` 1404; the `rsig` half is unchanged at 528. Only the `nuisance` preset gains the column.
+
+### Fixed — the pool benchmark measured against a baseline it cannot beat
+
+`test_more_workers_is_actually_faster` asserted four workers beat one process, which has been
+**false by design** since 3.19.0 capped a spawned worker to one seqtree thread. Measured
+2026-09-26, 16 cores, 48 synthetic TRB samples x 20,000 clonotypes, `rsig_cohort(tier="standard")`:
+
+| configuration | wall | per sample |
+|---|---:|---:|
+| `n_jobs=1`, kernel all cores | 1.74 s | 36 ms |
+| `n_jobs=1`, kernel one thread | 5.89 s | 123 ms |
+| `n_jobs=4`, one thread each | 2.22 s | 46 ms |
+
+The kernel's own threading is worth **3.4x** and the pool is **0.79x** against it — both repos'
+`ISSUES.md` item 3, reproduced on this repo's fixture. What the pool does buy is 5.89 -> 2.22 s,
+**2.65x** over the work one worker can do alone, and that is what the benchmark gates now: a dead
+pool reads 1.0x there, where against the all-cores baseline a live pool and a dead one both read
+below 1.0 and cannot be told apart. `n_jobs` is for memory and for cold-kernel cohorts of many
+small samples, not for wall clock on one warm box.
+
 ## 3.19.0 — 2026-09-26
 
 Three correctness bugs in `rsig_cohort`'s keyword handling, a flag that never did what it was

@@ -21,6 +21,13 @@ Three rules the estimator follows, each because the alternative silently corrupt
   Below ``min_n_obs`` the column ships as "unscaled" and passes through, rather than carrying a
   confident-looking number derived from almost nothing.
 
+One thing here is **not** an estimate, and it is the only step that can change a downstream
+result: the bound applied to a z-score. Everything else the reference does is a per-column affine
+map, which cannot reorder samples and cannot move a model that standardises its own input. Until
+3.20.0 the bound was ``np.clip`` -- many-to-one, so every sample past it collapsed onto one value
+and the caller could not see it had happened. It is a strictly increasing squash now, and
+:meth:`ScaleReference.saturation` reports how much of a cohort it touched.
+
 It also measures the two constants the statistics half cannot pick for itself: the per-locus
 coverage level ``cstar`` at which Hill numbers are compared, and the Pgen quantile below which a
 clonotype counts as atypical. Both are quantiles of what the corpus actually attains, not values
@@ -29,6 +36,7 @@ chosen by taste — a textbook ``C* = 0.95`` puts every real repertoire into ext
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -109,6 +117,50 @@ CSTAR_QUANTILE = 0.10
 COVERAGE_CEILING = 0.99
 
 
+def _squash(z: float, bound: float | None, kind: str = "soft") -> float:
+    """Compress ``|z| > bound`` without creating ties.
+
+    ``soft`` is identity inside the bound and ``sign(z)*(b + log1p(|z| - b))`` outside:
+    continuous at ``b`` (``log1p(0) == 0``), derivative ``1/(1 + |z| - b) > 0`` everywhere
+    outside, so the map is strictly increasing on the whole real line and the inlier scale is
+    preserved *exactly* -- which is what makes it the least disruptive change to an already
+    fitted reference. It is bounded in practice rather than in principle: the largest finite
+    float64 maps to about 698, and a z-score that large is a data error, not an outlier.
+
+    ``b*tanh(z/b)`` was the alternative and was rejected on that last point: it keeps a hard
+    bound but moves every inlier too (7.6% at z=4, 24% at z=8), so every fitted reference's
+    downstream consumer would see shifted values everywhere rather than only in the tail.
+    """
+    if bound is None or kind == "none":
+        return z
+    a = abs(z)
+    if a <= bound:
+        return z
+    if kind == "hard":
+        return math.copysign(bound, z)
+    return math.copysign(bound + math.log1p(a - bound), z)
+
+
+def _unsquash(u: float, bound: float | None, kind: str = "soft") -> float:
+    """Inverse of :func:`_squash`. Not defined for ``kind="hard"``; returns the bound there."""
+    if bound is None or kind == "none":
+        return u
+    a = abs(u)
+    if a <= bound or kind == "hard":
+        return u
+    return math.copysign(bound + math.expm1(a - bound), u)
+
+
+def _by_block(sat) -> dict[str, float]:
+    """``{block: share of its finite entries beyond the bound}``, worst first, zeros dropped."""
+    agg = {}
+    for blk, n, n_out in zip(sat["block"], sat["n"], sat["n_out"]):
+        a, b = agg.get(blk, (0, 0))
+        agg[blk] = (a + n, b + n_out)
+    out = {k: v[1] / v[0] for k, v in agg.items() if v[1]}
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
 @dataclass(frozen=True)
 class ScaleReference:
     """Per-column location and scale, plus the constants the blocks need."""
@@ -136,17 +188,88 @@ class ScaleReference:
         """Mask of columns with a usable scale."""
         return self.scale > 0
 
-    def apply(self, values: dict[str, float], *, clip: float = 8.0) -> dict[str, float]:
+    def apply(self, values: dict[str, float], *, clip: float | None = 8.0,
+              squash: str = "soft", on_unscaled: str = "pass") -> dict[str, float]:
         """Rescale one sample's columns against the reference.
 
-        Unknown columns and columns without an established scale pass through untouched, so a
-        caller always gets back exactly the keys it handed in. A hole stays a hole: ``nan`` is
-        not something to centre.
+        Unknown columns and columns without an established scale pass through untouched by
+        default, so a caller always gets back exactly the keys it handed in. A hole stays a hole:
+        ``nan`` is not something to centre.
+
+        **The squash is strictly increasing, and that is the whole contract** (``squash="soft"``,
+        the default since 3.20.0). Everything else a reference does is a per-column affine map,
+        which cannot reorder samples and cannot change a downstream model that standardises its
+        own input. The bound was the one exception: ``np.clip`` is many-to-one, so every sample
+        past it collapsed onto the same value and the ordering was gone for good, with no way for
+        the caller to see it had happened. Measured on one cohort scored against two shipped
+        references, the share of finite entries sitting **at** the bound went 71.41% / 2.50% on
+        ``rsig:div`` and 5.35% / 19.28% on ``rsig:contrast`` -- and the block whose saturation
+        rose took a transfer AUC on a held-out cohort from 0.7216 to 0.4108. Choosing a reference
+        was choosing which columns to truncate.
+
+        So the bound now compresses instead of truncating: identity inside, a ``log1p`` tail
+        outside. Two properties follow, and both are pinned by tests:
+
+        * **The scaled order of a column is its raw order** -- equal ranks -- so a reference
+          swap is provably unable to reorder anything. Strictly increasing on the reals; in
+          float64 the tail compresses by ``1/(1 + |z| - b)``, so values a few ULPs apart can
+          still land on the same double. Measured on a real 10-sample four-locus matrix: the
+          squash merged **13** adjacent pairs, the largest separated by **9.253e-16** relative
+          (about four epsilons); the hard clip merged **714**, the largest separated by
+          **0.4948**.
+        * **Every value with** ``|z| <= clip`` **is bit-identical to what 3.19.0 returned.** The
+          tail is the only thing that moved, and every value in it was previously one number.
+
+        The map is also invertible -- see :meth:`unapply` -- which is what makes raw and scaled
+        derivable from one another without recomputing a cohort.
 
         Args:
             values: ``{column: value}``, e.g. from :func:`mir.signature.signature`.
-            clip: Bound in robust standard deviations. Wide enough that a genuine outlier stays
-                one, narrow enough that a single pathological sample cannot set a model's scale.
+            clip: Bound in robust standard deviations, or ``None`` for an unbounded z-score.
+                Wide enough that a genuine outlier stays one, narrow enough that a single
+                pathological sample cannot set a model's scale.
+            squash: What happens beyond ``clip``. ``"soft"`` (default) compresses with a
+                ``log1p`` tail and stays strictly increasing; ``"none"`` leaves the z-score
+                alone; ``"hard"`` is the pre-3.20.0 ``np.clip``, kept only so an archived matrix
+                can be reproduced. Do not fit anything new on ``"hard"``.
+            on_unscaled: What a column with no established scale gets. ``"pass"`` (default)
+                returns it in its native units; ``"hole"`` returns ``nan``. A matrix in which
+                some columns are z-scores and others are raw is not comparable across
+                references, and the caller cannot see which is which from the numbers -- a hole
+                is a missing number, an unmarked mixed-unit column is a wrong number that looks
+                right. ``"hole"`` never touches an unknown column, only a known-but-unscaled one.
+
+        Raises:
+            ValueError: If ``squash`` or ``on_unscaled`` is unknown.
+        """
+        if squash not in ("soft", "hard", "none"):
+            raise ValueError(f"squash must be 'soft', 'hard' or 'none'; got {squash!r}")
+        if on_unscaled not in ("pass", "hole"):
+            raise ValueError(f"on_unscaled must be 'pass' or 'hole'; got {on_unscaled!r}")
+        idx = self._idx
+        out = {}
+        for k, v in values.items():
+            i = idx.get(k)
+            if i is None or not np.isfinite(v):
+                out[k] = v
+            elif self.scale[i] <= 0:
+                out[k] = np.nan if on_unscaled == "hole" else v
+            else:
+                out[k] = _squash(float((v - self.loc[i]) / self.scale[i]), clip, squash)
+        return out
+
+    def unapply(self, values: dict[str, float], *, clip: float | None = 8.0,
+                squash: str = "soft") -> dict[str, float]:
+        """Invert :meth:`apply` -- scaled values back to the block's natural units.
+
+        Exact for ``squash`` in ``("soft", "none")``, because both maps are strictly increasing.
+        It is *not* exact for ``"hard"``: a hard clip is many-to-one and there is nothing to
+        invert, so every saturated entry comes back as the bound in natural units rather than as
+        the value that went in. That asymmetry is the defect, stated as an API property.
+
+        Columns the reference does not scale are returned untouched -- they never left their
+        natural units. A ``nan`` produced by ``on_unscaled="hole"`` cannot be undone; keep the
+        raw frame if you need that.
         """
         idx = self._idx
         out = {}
@@ -155,8 +278,52 @@ class ScaleReference:
             if i is None or self.scale[i] <= 0 or not np.isfinite(v):
                 out[k] = v
                 continue
-            out[k] = float(np.clip((v - self.loc[i]) / self.scale[i], -clip, clip))
+            out[k] = float(_unsquash(float(v), clip, squash) * self.scale[i] + self.loc[i])
         return out
+
+    def saturation(self, frame, *, clip: float = 8.0):
+        """Per-column share of finite entries beyond the bound, measured on scaled values.
+
+        The question this answers is "how much of my cohort did the bound touch", and it is
+        answerable from the emitted matrix alone **because the squash is strictly monotone**:
+        ``|scaled| > clip`` holds exactly when ``|z| > clip``, so the flag survives the
+        transform. Under the pre-3.20.0 hard clip the same question needed ``|scaled| == clip``,
+        which is a float equality on a value the caller may have round-tripped through a file.
+
+        Columns this reference does not scale are excluded, not reported as zero: they pass
+        through in native units, where 8 is not a number of standard deviations and the
+        comparison is meaningless.
+
+        Args:
+            frame: A ``pl.DataFrame`` of scaled values, one row per sample -- what
+                :func:`mir.signature.signature_cohort` or :func:`mir.signature.rsig_cohort`
+                returns with ``standardize="reference"``.
+            clip: The bound the frame was scaled with.
+
+        Returns:
+            ``pl.DataFrame`` with ``column``, ``block`` (``<sig>:<channel>``), ``n`` finite
+            entries, ``n_out`` beyond the bound and ``frac_out_of_bound``, worst first.
+        """
+        import polars as pl
+
+        rows = []
+        for c in frame.columns:
+            i = self._idx.get(c)
+            if i is None or self.scale[i] <= 0:
+                continue
+            v = frame[c].fill_null(np.nan).to_numpy().astype(float)
+            fin = np.isfinite(v)
+            n = int(fin.sum())
+            if not n:
+                continue
+            n_out = int((np.abs(v[fin]) > clip).sum())
+            sig, channel = c.split(":")[:2]
+            rows.append({"column": c, "block": f"{sig}:{channel}", "n": n, "n_out": n_out,
+                         "frac_out_of_bound": n_out / n})
+        if not rows:
+            return pl.DataFrame(schema={"column": pl.Utf8, "block": pl.Utf8, "n": pl.Int64,
+                                        "n_out": pl.Int64, "frac_out_of_bound": pl.Float64})
+        return pl.DataFrame(rows).sort("frac_out_of_bound", descending=True)
 
     @property
     def batch_dominated(self) -> np.ndarray:
@@ -170,12 +337,27 @@ class ScaleReference:
             return np.zeros(len(self.columns), dtype=bool)
         return np.nan_to_num(self.batch_ratio, nan=0.0) > 1.0
 
-    def report(self) -> dict:
-        """What this reference can and cannot standardise."""
+    def report(self, scaled=None, *, clip: float = 8.0, top: int = 12) -> dict:
+        """What this reference can and cannot standardise.
+
+        Args:
+            scaled: Optional frame of values this reference just scaled. Given one, the report
+                also carries how much of it the bound touched -- ``frac_out_of_bound`` overall
+                and the worst columns by name. A count alone is not actionable; the names are.
+            clip: The bound ``scaled`` was produced with.
+            top: How many of the worst columns to name.
+        """
         out = {"columns": len(self.columns), "scaled": int(self.scaled.sum()),
                "unscaled": int((~self.scaled).sum()),
                "median_n_obs": int(np.median(self.n_obs)),
                "loci_with_cstar": sorted(self.cstar), "min_n_obs": self.meta.get("min_n_obs")}
+        if scaled is not None:
+            sat = self.saturation(scaled, clip=clip)
+            n, n_out = int(sat["n"].sum()), int(sat["n_out"].sum())
+            out["clip"] = clip
+            out["frac_out_of_bound"] = (n_out / n) if n else 0.0
+            out["out_of_bound_columns"] = sat.filter(sat["n_out"] > 0)["column"].to_list()[:top]
+            out["out_of_bound_blocks"] = _by_block(sat)
         if self.batch_ratio is not None:
             # Both counts, always. `batch_dominated` is all-False when the ratio could not be
             # measured at all — every group below the floor, which is what a reference drawn a
@@ -755,3 +937,62 @@ def load_kmer_spaces(path: "str | Path | None" = None):
     if not p.exists():
         raise FileNotFoundError(f"no k-mer spaces at {p}")
     return _load(p)
+
+
+def compare_references(cohort, refs=None, *, clip: float = 8.0):
+    """Score one **raw** cohort against several references, so the choice is a measurement.
+
+    Picking a reference is currently picking which columns get truncated, and that choice is
+    invisible until it shows up downstream: switching one cohort between two shipped references
+    moved a block's saturation from 5.35% to 19.28%, and a transfer model resting on that block
+    went from AUC 0.7216 to 0.4108 on a held-out cohort. Reference B was better on every other
+    block. There is no reference that dominates, so the trade-off has to be looked at rather than
+    preferred.
+
+    Four numbers per reference, which are the four ways a reference can fail to describe a
+    cohort:
+
+    * ``columns_scaled`` -- coverage. A column the reference never established passes through in
+      native units, so a reference that scales 394 of your columns and one that scales 1,377 are
+      producing different kinds of matrix.
+    * ``median_n_obs`` -- how much corpus is behind those columns.
+    * ``frac_out_of_bound`` -- how much of *this* cohort the bound compresses. Above a few per
+      cent the reference's spread does not describe your data.
+    * ``median_centre_shift`` -- the median over scaled columns of the cohort's own median in
+      robust standard deviations. This is the assay-mismatch number: a cohort centred four
+      deviations from the reference is not the population the reference was fitted on.
+
+    Args:
+        cohort: A ``pl.DataFrame`` of **unstandardised** values -- ``signature_cohort`` or
+            ``rsig_cohort`` with ``standardize="none"``. Passing an already-scaled frame silently
+            measures the reference against itself.
+        refs: Names from :data:`MODELS`, paths, or :class:`ScaleReference` objects. Default: every
+            installed model.
+        clip: The bound to score against.
+
+    Returns:
+        ``pl.DataFrame``, one row per reference, most out-of-bound last.
+    """
+    import polars as pl
+
+    if refs is None:
+        refs = [n for n, f in MODELS.items() if (_RES / f).exists()]
+    rows = []
+    for r in refs:
+        name = r if isinstance(r, str) else getattr(r, "meta", {}).get("name", "reference")
+        ref = r if isinstance(r, ScaleReference) else load_scale(r)
+        if ref is None:
+            continue
+        scaled = pl.DataFrame([ref.apply({k: v for k, v in row.items() if k != "sample_id"},
+                                         clip=clip)
+                               for row in cohort.iter_rows(named=True)])
+        sat = ref.saturation(scaled, clip=clip)
+        n, n_out = int(sat["n"].sum()), int(sat["n_out"].sum())
+        idx = [ref.columns.index(c) for c in sat["column"]]
+        centres = [abs(float(np.nanmedian(scaled[c].fill_null(np.nan).to_numpy())))
+                   for c in sat["column"]]
+        rows.append({"reference": name, "columns_scaled": sat.height,
+                     "median_n_obs": int(np.median(ref.n_obs[idx])) if idx else 0,
+                     "frac_out_of_bound": (n_out / n) if n else 0.0,
+                     "median_centre_shift": float(np.median(centres)) if centres else float("nan")})
+    return pl.DataFrame(rows).sort("frac_out_of_bound")

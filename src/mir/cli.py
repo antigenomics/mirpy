@@ -17,7 +17,7 @@ on your cohort, so two people's vectors are comparable:
 * ``mir signature SAMPLE…`` — → one fixed-width named vector per sample (528 columns at the
   ``standard`` tier), standardised against a frozen reference. Emits **this tool's half**:
   ``rsig``, the embedding geometry. The other half, ``vsig`` (statistics), comes from
-  ``vdjtools signature``; run both and join on ``sample_id`` for the full 688-column vector.
+  ``vdjtools signature``; run both and join on ``sample_id`` for the full 689-column vector.
 * ``mir presets [NAME]``    — the named column subsets and their ranking, so a subset is chosen by
   intent rather than by reading a 1,403-row column dictionary.
 
@@ -394,9 +394,15 @@ def cmd_signature(a: argparse.Namespace) -> None:
           f", "
           f"{workers} worker{'s' if workers != 1 else ''} of {available_cores()} available "
           f"core{'s' if available_cores() != 1 else ''}", file=sys.stderr)
+    try:
+        clip = None if str(a.clip).lower() in ("none", "off") else float(a.clip)
+    except ValueError:
+        raise SystemExit(f"--clip takes a number of robust standard deviations or 'none'; "
+                         f"got {a.clip!r}") from None
     t0 = time.perf_counter()
     out = assemble.rsig_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
                                standardize=a.standardize, scale=scale,
+                               clip=clip, squash=a.squash, on_unscaled=a.on_unscaled,
                                n_jobs=workers, columns=keep,
                                on_duplicate=a.on_duplicate)
     dt = time.perf_counter() - t0
@@ -404,7 +410,29 @@ def cmd_signature(a: argparse.Namespace) -> None:
     print(f"[mir] {out.height} samples x {n_cols} columns "
           f"({a.preset or a.tier}, standardize={a.standardize}) in {dt:.1f} s "
           f"({dt / max(out.height, 1) * 1000:.0f} ms/sample)", file=sys.stderr)
+    # How much of the matrix the bound touched, every run. The bound is the only step in
+    # standardising that is not a per-column affine map, i.e. the only one that can change a
+    # downstream result -- so it is the one number about the scaling worth printing unasked.
+    if a.standardize == "reference" and clip is not None:
+        _report_saturation(out, scale, clip)
     _write(out, a.output)
+
+
+def _report_saturation(out, scale, clip: float) -> None:
+    """One stderr line: what fraction of the scaled matrix sits in the compressed tail."""
+    from mir.signature.scale import _by_block, load_scale
+
+    sref = scale if scale is not None else load_scale()
+    if sref is None:
+        return
+    sat = sref.saturation(out, clip=clip)
+    if not sat.height:
+        return
+    n, n_out = int(sat["n"].sum()), int(sat["n_out"].sum())
+    blocks = _by_block(sat)
+    worst = ", ".join(f"{k} {v:.1%}" for k, v in list(blocks.items())[:4]) or "none"
+    print(f"[mir] clip={clip} touched {n_out}/{n} scaled entries ({n_out / max(n, 1):.2%}) "
+          f"across {sat.height} columns; worst blocks: {worst}", file=sys.stderr)
 
 
 def cmd_presets(a: argparse.Namespace) -> None:
@@ -557,6 +585,19 @@ def build_parser() -> argparse.ArgumentParser:
                         "artifact. The rotation is the same for every model; what differs is the "
                         "per-column scale and the per-locus coverage constant, which are "
                         "assay-specific. Default: the bundled deep-tcr reference")
+    s.add_argument("--clip", default="8.0", metavar="B",
+                   help="bound in robust standard deviations, or 'none' for an unbounded "
+                        "z-score. The bound compresses (strictly increasing, so sample ordering "
+                        "survives) rather than truncating; the share of the cohort it touched is "
+                        "reported on stderr. Default: 8.0")
+    s.add_argument("--squash", default="soft", choices=("soft", "none", "hard"),
+                   help="how the bound is enforced: 'soft' is a log1p tail and keeps the "
+                        "ordering (default); 'hard' is the pre-3.20.0 np.clip and is many-to-one "
+                        "-- it is here only to reproduce an archived matrix")
+    s.add_argument("--on-unscaled", default="pass", choices=("pass", "hole"),
+                   help="a column the reference could not scale: 'pass' emits it in its native "
+                        "units (default), 'hole' emits nan. A mixed-unit column is a wrong "
+                        "number that looks right")
     s.add_argument("--preset", default=None,
                    help="named feature set; overrides --tier (see `mir presets`)")
     s.add_argument("--jobs", "-j", type=int, default=0,

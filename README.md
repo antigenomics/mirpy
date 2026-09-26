@@ -454,14 +454,14 @@ mir signature --channels                # what each group of columns measures; r
 ```python
 from mir.signature import signature, signature_cohort, channel_spec, describe, MODELS
 
-F = signature_cohort(samples, tier="standard")   # one row per sample, 688 named columns
+F = signature_cohort(samples, tier="standard")   # one row per sample, 689 named columns
 describe("standard")                             # the column dictionary
 ```
 
 Two halves, concatenated on `sample_id` and namespaced so they never collide: `vsig` (statistics of
 the clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig`
 (geometry — every column a linear functional, a norm, or a mixture coefficient of `Φ`). A column is
-`<sig>:<channel>:<locus>:<feature>`; the tiers `core` (152) ⊂ `standard` (688) ⊂ `full` (1403) are
+`<sig>:<channel>:<locus>:<feature>`; the tiers `core` (153) ⊂ `standard` (689) ⊂ `full` (1404) are
 exact **index subsets** of one frozen order. The **channel** — the second field — is the level a
 finding is stated at: twenty names covering the whole vector, so "the classifier found something"
 becomes "IGH diversity and isotype composition carry it". See

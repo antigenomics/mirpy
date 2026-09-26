@@ -210,7 +210,7 @@ def _(mo):
         """
         ## Reading the result: channels
 
-        688 columns is too many to think about one at a time. The second field of a column name is
+        689 columns is too many to think about one at a time. The second field of a column name is
         its **channel** -- the named group of columns that measures one thing -- and it is the level
         a finding is usually stated at: not "column 412 moved" but "IGH diversity moved".
         """

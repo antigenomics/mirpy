@@ -28,7 +28,7 @@ The signature has two halves and **each tool emits its own**:
      - what it measures
    * - ``vsig``
      - ``vdjtools signature``
-     - 160 cols
+     - 161 cols
      - statistics: diversity, clonality, length, Pgen, isotype, SHM
    * - ``rsig``
      - ``mir signature``
@@ -36,11 +36,11 @@ The signature has two halves and **each tool emits its own**:
      - geometry: where the repertoire sits in the frozen prototype space
 
 Each command emits its own half and nothing else. Run both and join on ``sample_id`` to get the
-688-column **portable signature**; the join is exact rather than approximate, because the scale
+689-column **portable signature**; the join is exact rather than approximate, because the scale
 reference standardises **per column** — a column's value is identical whether or not the other
 half was computed beside it.
 
-``mir signature`` is the cheap half: 528 of the 688 columns for about a twelfth of the runtime,
+``mir signature`` is the cheap half: 528 of the 689 columns for about a twelfth of the runtime,
 because vdjtools' Pgen block is ~94% of the cost of the pair.
 
 Quickstart
@@ -377,8 +377,104 @@ choices is denominator-aware — the alternative silently lies about shallow sam
        eigenvalue in any PCA
 
 On top of that every column is rescaled against a frozen reference (median and
-:math:`1.4826\cdot\mathrm{MAD}`, clipped), which is what makes two people's matrices comparable
-rather than each being internally consistent and mutually meaningless.
+:math:`1.4826\cdot\mathrm{MAD}`, with a bounded tail), which is what makes two people's matrices
+comparable rather than each being internally consistent and mutually meaningless.
+
+.. _the-bound:
+
+The bound is the only step that can change a result
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Centring and scaling is a per-column affine map. It **cannot** change the output of a downstream
+model that standardises its own input — any ``StandardScaler`` plus a linear or tree pipeline —
+and it cannot change a rank correlation at all, because :math:`\sigma > 0` makes it strictly
+increasing. So of everything a reference does, only two things can move a result: which columns it
+scales at all, and what it does at the bound.
+
+Until 3.20.0 the bound was :math:`\mathrm{clip}(z, -8, 8)`, and a clip is **many-to-one**: every
+sample past it collapses onto the same number and the ordering is gone for good, with nothing in
+the matrix to say it happened. That is not hypothetical. Scoring one cohort against two shipped
+references, the share of finite entries sitting *at* the bound:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 20
+
+   * - block
+     - reference A
+     - reference B
+   * - ``rsig:div``
+     - 71.41 %
+     - 2.50 %
+   * - ``vsig:len``
+     - 49.84 %
+     - 3.15 %
+   * - ``rsig:contrast``
+     - 5.35 %
+     - **19.28 %**
+   * - all columns
+     - 8.74 %
+     - 3.44 %
+
+Reference B is better on every block but one — and that one block was what a transfer model rested
+on: fitted on ~900 samples, scored once on a held-out ~50-sample cohort, ``rsig:contrast`` alone
+went **AUC 0.7216 → 0.4108**. Choosing a reference was choosing which columns to truncate, with no
+way for the caller to see that they had made that choice.
+
+Two things changed, and neither touches a fitted artifact:
+
+**The bound compresses instead of truncating.** Identity inside, a :math:`\log(1+x)` tail outside:
+
+.. math::
+
+   z \mapsto \begin{cases} z & |z| \le b \\
+   \operatorname{sign}(z)\,\bigl(b + \log(1 + |z| - b)\bigr) & |z| > b \end{cases}
+
+Strictly increasing on the whole real line, so **the scaled order of a column is its raw order**
+— a reference swap is provably unable to reorder anything — and it is invertible, so :meth:`~mir.signature.scale.ScaleReference.unapply` recovers
+the natural units without recomputing the cohort. Every value with :math:`|z| \le b` is
+bit-identical to what 3.19.0 returned; only the tail moved, and every value in it used to be one
+number. ``squash="hard"`` reproduces the old map for an archived matrix; ``clip=None`` removes the
+bound entirely.
+
+**Saturation is reported, per column and per block.**
+:meth:`~mir.signature.scale.ScaleReference.saturation` gives the table, ``report(frame)`` folds it
+into the reference's own summary, the cohort functions warn above 2 % naming the columns, and
+``mir signature`` prints the share on stderr every run. Asking *how much of my cohort did the bound
+touch* is answerable from the emitted matrix alone, precisely because the squash is monotone:
+:math:`|scaled| > b` holds exactly when :math:`|z| > b`.
+
+A column the reference could not scale still passes through in its own units by default, which is
+correct but invisible; ``on_unscaled="hole"`` turns those into declared ``nan`` instead. A hole is
+a missing number, an unmarked mixed-unit column is a wrong number that looks right.
+
+Choosing a reference, as a measurement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+No shipped reference dominates — the one that covers more of your columns can be the one that
+compresses the block your model rests on. :func:`~mir.signature.compare_references` scores a
+**raw** cohort against every installed reference, so the trade-off is a table rather than a
+preference:
+
+.. code-block:: python
+
+   from mir.signature import compare_references, rsig_cohort
+
+   raw = rsig_cohort(samples, tier="core", standardize="none")
+   compare_references(raw)
+
+.. code-block:: text
+
+   reference           columns_scaled  median_n_obs  frac_out_of_bound  median_centre_shift
+   tissue                           7         13101             0.000%                 2.37
+   blood                            7         22970            14.286%                 4.42
+   deep-tcr                         7          4065            36.905%                 6.40
+
+Four numbers, one per way a reference can fail to describe a cohort: how many of your columns it
+establishes at all, how much corpus is behind them, how much of *this* cohort the bound
+compresses, and how far your cohort's centre sits from the reference's in robust standard
+deviations. The last is the assay-mismatch number — a cohort centred four deviations out is not
+the population the reference was fitted on.
 
 Geometry is not transformed, and that is not an oversight
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -434,7 +530,8 @@ Not "enough for 90% of the variance". In a repertoire matrix the leading varianc
 depth, batch and V-gene usage, so a variance-ranked criterion ranks nuisance first.
 
 Measured on the emitted signature matrix — 14,553 samples × 1,369 columns across 182 studies,
-robust median/MAD scaling with clipping (``benchmark_signature_dimension.py``):
+robust median/MAD scaling with a hard clip, which is what shipped at the time
+(``benchmark_signature_dimension.py``):
 
 .. list-table::
    :header-rows: 1
@@ -567,7 +664,7 @@ The question asked is only whether the string is a plain amino-acid string.
 **What pre-filtering actually changes.** Exactly one column per locus,
 ``vsig:qc:<locus>:nonstd_aa_frac``, because ``sanitise`` reports the weight fraction it dropped and
 a pre-filtered frame has nothing left to drop. Measured on 1,168 blood samples from a clinical AIRR cohort at
-``tier="standard"``: of 688 columns, **7 move** and 681 are bit-identical — including all 528
+``tier="standard"``: of 689 columns, **7 move** and 682 are bit-identical — including all 528
 ``rsig`` geometry columns, which do not move because ``rsig`` is handed sanitised frames either
 way. Under ``compact``, ``transfer`` or ``classify`` — every ``recommended`` preset — **zero
 columns move**, because they drop the ``qc`` block. If you want the column honest on a pre-filtered
@@ -848,7 +945,7 @@ choices, documents each, and **ranks** it:
      - what it is
    * - ``compact``
      - **recommended**
-     - 152
+     - 86
      - The smallest vector that still describes a repertoire. Start here.
    * - ``transfer``
      - **recommended**
@@ -872,11 +969,11 @@ choices, documents each, and **ranks** it:
      - Embedding coordinates only — no count statistics at all.
    * - ``full``
      - *specific*
-     - 1403
+     - 1404
      - Every contract column. For feature selection, not for fitting.
    * - ``nuisance``
      - ``avoid``
-     - 73
+     - 74
      - Sequencing protocol only. A control, not a feature set.
 
 Every preset resolves to a column list from the frozen layout alone — block names, loci, tier. No

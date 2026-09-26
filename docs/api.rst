@@ -129,8 +129,8 @@ Two halves, concatenated on ``sample_id`` and namespaced so they never collide:
 
 Both share one frozen column contract, imported from
 :mod:`vdjtools.signature.layout`: a column name is always ``<sig>:<block>:<locus>:<feature>``
-(``-`` for a cross-locus column), and the tiers ``core`` (152) ⊂ ``standard`` (688) ⊂ ``full``
-(1403) are exact **index subsets** of one column order.
+(``-`` for a cross-locus column), and the tiers ``core`` (153) ⊂ ``standard`` (689) ⊂ ``full``
+(1404) are exact **index subsets** of one column order.
 
 **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
 statistic the sample is too shallow to estimate is ``nan`` plus a ``mask:`` column — because a model
@@ -397,14 +397,14 @@ non-productive fraction is the thing you want.
 
    This emits the ``rsig`` half alone — 528 columns at the ``standard`` tier. ``vdjtools
    signature`` emits the ``vsig`` half and reports how many ``rsig`` columns it left to this
-   command; the two concatenate on ``sample_id`` for the full 688.
+   command; the two concatenate on ``sample_id`` for the full 689.
    :doc:`signature` covers the scale references and :doc:`channels` the vocabulary the columns
    group into.
 
 ``mir presets [NAME]``
    The named column subsets and their ranking — ``compact`` (86), ``classify`` (615),
-   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (271), ``full`` (1403),
-   ``nuisance`` (73, ranked *avoid*). With no argument, the whole table; with a name, that preset's
+   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (271), ``full`` (1404),
+   ``nuisance`` (74, ranked *avoid*). With no argument, the whole table; with a name, that preset's
    column list. A preset resolves from the frozen layout alone, so two people choosing the same
    name get the same columns in the same order.
 

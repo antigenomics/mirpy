@@ -15,6 +15,8 @@ frozen reference — each yields ``nan`` and a mask column, because a model that
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 import polars as pl
@@ -24,11 +26,6 @@ from . import blocks as B
 #: Which slot of ``Φ`` each identity block reads, and how many components each tier keeps.
 #: Widths come from the layout, so the contract has exactly one home.
 _SLOT_OF = {"phiv": "V", "phij": "J", "phic": "C"}
-
-#: Stand-in coverage level for a locus where none could be established. Deliberately
-#: unreachable, so the diversity block fails its own estimability check and masks out instead of
-#: reporting an extrapolation as a measurement.
-_UNREACHABLE_COVERAGE = 1.0
 
 #: Columns that switch :meth:`mir.embedding.tcremp.TCREmp.embed` onto SHM-aware V distances, by
 #: being present. That is the right embedding for a B-cell study and the wrong one here: the
@@ -232,7 +229,8 @@ def _model(species: str, locus: str, n_prototypes: int):
 
 
 def signature(sample, *, tier: str = "standard", species: str = "human", weight: str = "log2p1",
-              reference=None, scale=None, standardize: str = "reference", clip: float = 8.0,
+              reference=None, scale=None, standardize: str = "reference",
+              clip: float | None = 8.0, squash: str = "soft", on_unscaled: str = "pass",
               sanitise: bool = True, prefiltered: bool = False,
               on_duplicate: str = "error", **vsig_kw) -> dict[str, float]:
     """Both halves of one sample's signature, concatenated — the hand-off object.
@@ -252,7 +250,15 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
         standardize: ``"reference"`` to rescale against it, ``"none"`` for raw values. Asking for
             ``"reference"`` when none is installed raises rather than silently handing back raw
             numbers that look standardised.
-        clip: Bound in robust standard deviations when standardising.
+        clip: Bound in robust standard deviations when standardising, or ``None`` for an
+            unbounded z-score. See :meth:`~mir.signature.scale.ScaleReference.apply` — the bound
+            compresses rather than truncating, so it can no longer silently destroy the ordering
+            of the samples beyond it.
+        squash: How the bound is enforced: ``"soft"`` (strictly increasing, the default),
+            ``"none"``, or ``"hard"`` to reproduce a pre-3.20.0 matrix.
+        on_unscaled: ``"pass"`` to return a column the reference could not scale in its native
+            units, ``"hole"`` for ``nan``. A mixed-unit column is a wrong number that looks
+            right; a hole is a missing one.
         sanitise: Drop unusable clonotypes first. Leave this on. Turning it off no longer
             contaminates the geometry silently — ``TCREmp.embed`` now refuses a junction outside
             the 20 standard amino acids — but it does mean the call raises rather than returning
@@ -299,24 +305,16 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
     # rather than having to know that a hand-picked coverage level would put every sample into
     # extrapolation.
     #
-    # The dict must cover EVERY locus. measure_constants deliberately omits a locus whose
-    # reference draw had no singleton tail, and a partial dict is indexed positionally
-    # downstream — so a missing key is a KeyError rather than a graceful skip. Filling the gaps
-    # with an unreachable level is the honest completion: that locus's diversity then fails its
-    # own estimability check and masks out, which is exactly what "we could not establish a
-    # coverage level here" should look like.
+    # A partial dict is fine and is the common case: measure_constants deliberately omits a
+    # locus whose reference draw had no singleton tail, and the amplicon reference carries TRA
+    # and TRB only. Since vdjtools 3.18.0 a missing locus establishes no level and gets a hole
+    # (nan diversity, mask:*:estimable = 0) plus a warning naming the loci -- so this used to
+    # need a stand-in "unreachable" level of 1.0 to force the same outcome through the
+    # estimability check, and does not any more.
     if sref is not None:
         vsig_kw.setdefault("pgen_q05", sref.pgen_q05 or None)
         if sref.cstar:
             vsig_kw.setdefault("cstar", sref.cstar)
-
-    # Complete the dict AFTER the defaults, and unconditionally — a caller may pass a partial one
-    # straight from measure_constants, which is the common case when fitting a reference.
-    if isinstance(vsig_kw.get("cstar"), dict):
-        from vdjtools.signature.layout import LOCI
-
-        given = vsig_kw["cstar"]
-        vsig_kw["cstar"] = {loc: given.get(loc, _UNREACHABLE_COVERAGE) for loc in LOCI}
 
     # Resolve a deferred sample ONCE: vsig is handed the raw `sample` and rsig the sanitised
     # frames, so leaving it deferred here would read the same files twice per sample.
@@ -330,7 +328,9 @@ def signature(sample, *, tier: str = "standard", species: str = "human", weight:
     out = {**vsig(sample, tier=tier, weight=weight, prefiltered=prefiltered,
                   on_duplicate=on_duplicate, **vsig_kw),
            **rsig(frames, tier=tier, species=species, weight=weight, reference=reference)}
-    return sref.apply(out, clip=clip) if standardize == "reference" else out
+    if standardize != "reference":
+        return out
+    return sref.apply(out, clip=clip, squash=squash, on_unscaled=on_unscaled)
 
 
 def _one(item, tier, kw):
@@ -368,13 +368,15 @@ def _one_rsig(item, tier, kw):
     scale = kw.pop("scale", None)
     standardize = kw.pop("standardize", "reference")
     clip = kw.pop("clip", 8.0)
+    squash = kw.pop("squash", "soft")
+    on_unscaled = kw.pop("on_unscaled", "pass")
     out = rsig(frames, tier=tier, **kw)
     if standardize == "reference":
         from .scale import load_scale
 
         sref = scale if scale is not None else load_scale()
         if sref is not None:
-            out = sref.apply(out, clip=clip)
+            out = sref.apply(out, clip=clip, squash=squash, on_unscaled=on_unscaled)
     return {"sample_id": sid, **out}
 
 
@@ -392,7 +394,50 @@ def _cohort(samples, one, tier, kw, n_jobs, columns, sig):
     want = columns if columns is not None else L.columns(tier, sig)
     if columns is not None and sig is not None:
         want = [c for c in want if c.startswith(f"{sig}:")]
-    return pl.DataFrame(rows).select(["sample_id", *want])
+    out = pl.DataFrame(rows).select(["sample_id", *want])
+    if kw.get("standardize", "reference") == "reference":
+        _warn_if_saturated(out, kw.get("scale"), kw.get("clip", 8.0))
+    return out
+
+
+#: Share of a column's finite entries beyond the bound at which the cohort path speaks up. The
+#: reference corpora put 0.4-3% of samples past *five* robust deviations, so 2% past eight is
+#: already anomalous -- and the block that took a transfer AUC from 0.7216 to 0.4108 when a
+#: reference was swapped sat at 5.35%, comfortably above this.
+WARN_SATURATION = 0.02
+
+
+def _warn_if_saturated(frame, scale, clip, *, above: float = WARN_SATURATION,
+                       top: int = 12) -> None:
+    """Name the columns the bound compressed, rather than truncating them in silence.
+
+    Silence is the actual failure mode here: the old hard clip produced perfectly plausible
+    numbers, so a cohort could be half-truncated in one block and nothing downstream could tell.
+    The squash no longer destroys the ordering, but a column where a fiftieth of the cohort sits
+    in the tail is still a column whose reference does not fit this data, and the caller is the
+    only one who can decide what to do about it.
+    """
+    from .scale import _by_block, load_scale
+
+    sref = scale if scale is not None else load_scale()
+    if sref is None or clip is None:
+        return
+    sat = sref.saturation(frame, clip=clip)
+    hit = sat.filter(sat["frac_out_of_bound"] > above)
+    if not hit.height:
+        return
+    names = hit["column"].to_list()
+    shown = ", ".join(f"{c} {f:.1%}" for c, f in zip(names[:top],
+                                                     hit["frac_out_of_bound"].to_list()[:top]))
+    more = f" ... and {len(names) - top} more" if len(names) > top else ""
+    warnings.warn(
+        f"{len(names)} of {sat.height} scaled columns have more than {above:.0%} of this cohort "
+        f"beyond the clip={clip} bound, so the reference's spread does not describe this data "
+        f"there: {shown}{more}. Values are compressed, not truncated -- the ordering survives "
+        f"and ScaleReference.saturation(frame) gives the full table -- but a reference fitted on "
+        f"a corpus like yours would not do this. Blocks: "
+        f"{', '.join(f'{k} {v:.1%}' for k, v in _by_block(hit).items())}.",
+        UserWarning, stacklevel=3)
 
 
 def rsig_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
@@ -401,7 +446,7 @@ def rsig_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
 
     The counterpart to ``vdjtools.signature.vsig_cohort``. One tool per half -- join the two
     frames on ``sample_id`` for the full portable signature. Cheap relative to the pair: at
-    ``tier="standard"`` this is 528 of the 688 columns for roughly a twelfth of the cost, because
+    ``tier="standard"`` this is 528 of the 689 columns for roughly a twelfth of the cost, because
     vdjtools' Pgen block dominates the other half.
 
     Args:
@@ -412,7 +457,13 @@ def rsig_cohort(samples, *, tier: str = "standard", n_jobs: int = 1,
         n_jobs: Worker processes; ``1`` in-process, ``0`` every core this process may use.
         columns: Explicit subset, intersected with the ``rsig`` half.
         **kw: Passed through to :func:`rsig` (plus ``sanitise``, ``scale``, ``standardize``,
-            ``clip``, ``on_duplicate``).
+            ``clip``, ``squash``, ``on_unscaled``, ``on_duplicate``).
+
+    Warns:
+        UserWarning: When more than :data:`WARN_SATURATION` of the cohort sits beyond the clip
+            bound in some column, naming them. Standardising against a reference whose spread
+            does not describe your data is not an error and is sometimes the right call, but it
+            used to be invisible.
     """
     return _cohort(samples, _one_rsig, tier, kw, n_jobs, columns, "rsig")
 
