@@ -188,7 +188,8 @@ def test_there_is_no_contrast_group_and_no_frozen_naive_vector():
                    if q.name.startswith(("scale_", "rsig_v", "kmer_spaces"))
                    or q.name == "build_rsig.py")
     assert stale == [], f"the old frozen artifacts are still installed: {stale}"
-    assert sorted(q.stem for q in res.glob("*.npz")) == ["rsig_memory", "rsig_naive"]
+    assert sorted(q.stem for q in res.glob("*.npz")) == [
+        "rsig_memory", "rsig_naive", "rsig_synthetic-blood", "rsig_synthetic-tissue"]
 
 
 # ------------------------------------------------------------- 4. holes, and the corpus
@@ -354,3 +355,43 @@ def test_rao_is_emitted_for_a_locus_the_corpus_does_not_model(corpus):
     assert np.isfinite(chan["rsig:div:TRB:rao"]), "a computable channel was reported as a hole"
     # ...while its raw features stay absent, because only those are indexed by the rotation
     assert not [c for c in raw if ":TRB:" in c]
+
+
+def test_the_rsig_manifest_records_the_depth_range_it_was_drawn_across():
+    """Both halves must be drawn across the same depths, so both must record which.
+
+    The rsig manifest carried no depth field at all, which made the one thing a reader needs in
+    order to know whether a corpus covers their samples -- the range of depths it saw -- readable
+    only from the vsig half. `depth` and the five `pair:` log-ratios are estimated from the draw;
+    nothing about them extrapolates to a cohort two decades deeper or shallower.
+    """
+    art, _ = synthesize("memory", loci=("TRG",), n_samples=24, size=80, seed=5, n_components=4,
+                        depth_spread=50.0)
+    assert art.meta["depth_spread"] == {"TRG": 50.0}
+    assert art.meta["depth_spread_requested"] == 50.0
+
+    default, _ = synthesize("memory", loci=("TRG",), n_samples=24, size=80, seed=5, n_components=4)
+    assert default.meta["depth_spread"]["TRG"] == pytest.approx(94 / 22)
+    assert default.meta["depth_spread_requested"] is None
+    # the override is not cosmetic: a 50x draw has to reach the corpus's own depth ceiling
+    i = art.fits["TRG"].columns.index("rsig:depth:TRG:n_eff")
+    assert art.fits["TRG"].bounds[0.01][1][i] > default.fits["TRG"].bounds[0.01][1][i]
+
+
+def test_the_rsig_half_of_a_cohort_corpus_records_the_same_bands_as_the_vsig_half():
+    """A `vsig_<name>`/`rsig_<name>` pair is only joinable if both drew the same repertoires.
+
+    Both halves resolve the corpus name through the one `corpus_plan`, and both write the manifest
+    through the one `corpus_meta`, so the cohort, the per-locus depth spread, the singleton-fraction
+    band and the germline fingerprint cannot disagree between them. They did have the room to: the
+    rsig manifest carried no depth field at all before 4.1.0.
+    """
+    art, _ = synthesize("synthetic-tissue", loci=("TRG",), n_samples=24, n_components=4, seed=9)
+    v, _ = C.synthesize("synthetic-tissue", loci=("TRG",), n_samples=24, n_components=4, seed=9)
+    assert art.name == v.name == "synthetic-tissue"
+    for key in ("regime", "cohort", "richness_band", "expanded_count_band", "singleton_frac_band",
+                "depth_spread", "size_per_locus", "models", "seed"):
+        assert art.meta[key] == v.meta[key], key
+    assert art.meta["cohort"] == "tissue"
+    assert art.meta["expanded_count_band"] == {"TRG": [2.85, 4.42, 6.82, 13.29, 102.00]}
+    assert art.meta["mir_version"] and "vdjtools_version" not in art.meta

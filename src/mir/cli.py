@@ -407,12 +407,12 @@ def cmd_corpus(a: argparse.Namespace) -> None:
 
     from mir.signature import synthesize
 
-    size = a.size
-    if size not in ("n_eff", "p05", "p95"):
+    size = None if a.size == "auto" else a.size
+    if a.size not in ("auto", "n_eff", "p05", "p95"):
         try:
-            size = int(size)
+            size = int(a.size)
         except ValueError:
-            raise SystemExit(f"--size must be an integer or one of n_eff, p05, p95; "
+            raise SystemExit(f"--size must be an integer or one of auto, n_eff, p05, p95; "
                              f"got {a.size!r}") from None
     n_samples = a.samples
     if a.smoke:
@@ -424,6 +424,7 @@ def cmd_corpus(a: argparse.Namespace) -> None:
     art, _rows = synthesize(a.corpus, n_samples=n_samples, size=size, seed=a.seed,
                             n_components=ks, mode=a.winsorize, winsor_p=a.winsor_p,
                             source=a.source, species=a.species, n_jobs=a.jobs,
+                            depth_spread=a.depth_spread,
                             progress=lambda loc, d, t: print(
                                 f"  {loc:4s} {d}/{t}  {time.time() - t0:5.0f}s",
                                 file=sys.stderr, flush=True), **kw)
@@ -552,6 +553,7 @@ def build_parser() -> argparse.ArgumentParser:
             "installs the library.\n"),
         epilog=(
             "  mir corpus --corpus naive  -o naive.npz\n"
+            "  mir corpus --corpus synthetic-blood  -o synthetic-blood.npz\n"
             "  mir corpus --corpus memory --size n_eff --components 0.95 -o memory.npz\n"
             "  mir corpus --smoke -o /tmp/smoke.npz          # minutes, not hours\n"
             "\n"
@@ -562,12 +564,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Use the SAME name and seed as `vdjtools corpus` so the two halves describe the\n"
             "same repertoires; that is what makes joining them meaningful.\n"),
     )
-    c2.add_argument("--corpus", default="naive", choices=("naive", "memory"),
-                    help="naive: every clone size 1; memory: Zipf rank-abundance clone sizes")
+    c2.add_argument("--corpus", default="naive",
+                    choices=("naive", "memory", "synthetic-blood", "synthetic-tissue"),
+                    help="naive: every clone size 1; memory: Zipf rank-abundance clone sizes; "
+                         "synthetic-blood / synthetic-tissue: the mixture of the two, drawn across "
+                         "that real cohort's measured per-locus richness, reads per clonotype and "
+                         "singleton fraction")
     c2.add_argument("-o", "--output", required=True, help="artifact path; writes .npz and .json")
     c2.add_argument("--samples", type=int, default=10_000, help="repertoires in the corpus")
-    c2.add_argument("--size", default="10000",
-                    help="receptors per repertoire: an integer, or n_eff / p05 / p95")
+    c2.add_argument("--size", default="auto",
+                    help="receptors per repertoire: an integer, or n_eff / p05 / p95. Default auto "
+                         "is the corpus's own -- 10000 for naive/memory, the centre of the cohort's "
+                         "measured richness band for a synthetic-* one")
     c2.add_argument("--components", default="128",
                     help="components per locus: an integer count, or a variance fraction")
     c2.add_argument("--winsorize", default="features", choices=("features", "pcs", "none"))
@@ -576,6 +584,12 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--loci", default=None, help="comma-separated subset (default: all seven)")
     c2.add_argument("--source", default="olga", choices=("olga", "learned", "arda"))
     c2.add_argument("--species", default="human")
+    c2.add_argument("--depth-spread", type=float, default=None,
+                    help="multiplicative depth range each repertoire's size is drawn log-uniformly "
+                         "across, around --size; default is the corpus's own (2.4x-11.0x for "
+                         "naive/memory, 43x on blood TRB and 259x on tissue IGH for the "
+                         "synthetic-* ones). --size 3162 --depth-spread 1000 spans 100 to 100000 "
+                         "receptors. Must match the vsig half to describe the same repertoires")
     c2.add_argument("--smoke", action="store_true",
                     help="reduced build (200 samples of 1000) for tests and the cmp check")
     c2.add_argument("-j", "--jobs", type=int, default=0,

@@ -89,9 +89,9 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
 # One tool per half: mirpy emits the geometry, vdjtools the statistics. Join on sample_id.
-mir corpus --corpus naive --smoke -o rsig_naive.npz             # fit a corpus; no cohort needed
-mir signature --corpus rsig_naive.npz cohort/*.tsv.gz -o rsig.parquet   # geometry half
-mir signature --corpus rsig_naive.npz --components 32 --describe        # exactly what you get
+mir corpus --corpus synthetic-blood -o rsig_synthetic-blood.npz  # fit one; no cohort needed
+mir signature --corpus synthetic-blood cohort/*.tsv.gz -o rsig.parquet  # geometry half
+mir signature --corpus synthetic-blood --components 32 --describe       # exactly what you get
 ```
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
@@ -447,16 +447,24 @@ regression, boosting or an MLP with no scaler of their own.
 Command line and library both, and they emit the same columns:
 
 ```bash
-mir corpus    --corpus naive --smoke -o rsig_naive.npz
-mir signature --corpus rsig_naive.npz cohort/*.tsv.gz -o rsig.parquet
+mir signature --corpus synthetic-blood cohort/*.tsv.gz -o rsig.parquet
+mir corpus    --corpus synthetic-tissue -o rsig_synthetic-tissue.npz   # or build your own
 ```
 
 ```python
 from mir.signature import Corpus, rsig_cohort
 
-corpus = Corpus.load("rsig_naive.npz")      # REQUIRED -- there is no default
-F = rsig_cohort(samples, corpus, n_jobs=0)  # one row per sample
+corpus = Corpus.load("rsig_synthetic-blood.npz")   # REQUIRED -- there is no default
+F = rsig_cohort(samples, corpus, n_jobs=0)         # one row per sample
 ```
+
+**Four corpora ship, all synthetic.** `synthetic-blood` and `synthetic-tissue` draw each repertoire
+as a naive/memory mixture across three quantile ladders measured per locus on that compartment --
+clonotype richness, reads per expanded clone, and the singleton fraction that stands in for the naive
+share -- so the corpus spans the depth and clone-size range real samples have (blood TRB richness 74
+to 3,162 clonotypes, n = 34,365 reference samples). `naive` and `memory` remain as the pure-regime
+references. Every receptor comes from vdjtools' bundled recombination models, so no cohort is needed
+to build or use one.
 
 Two halves, joined on `sample_id` and namespaced so they never collide: `vsig` (statistics of the
 clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig` (geometry —

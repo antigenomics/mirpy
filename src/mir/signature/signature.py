@@ -261,11 +261,11 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
     return pl.DataFrame(rows).select([c for c in want if any(c in r for r in rows)])
 
 
-def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int = 10_000,
-               size: "int | str" = C.DEFAULT_SIZE, seed: int = C.SEED,
+def synthesize(corpus_name: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int = 10_000,
+               size: "int | str | None" = None, seed: int = C.SEED,
                n_components: "int | float" = C.DEFAULT_COMPONENTS, mode: str = "features",
                winsor_p: float = 0.01, source: str = "olga", species: str = "human",
-               progress=None, n_jobs: int = 1):
+               progress=None, n_jobs: int = 1, depth_spread: "float | str | None" = None):
     """Build and fit an ``rsig`` corpus on the same synthetic repertoires ``vsig`` uses.
 
     The receptors, the seeds and the drawn depths are all
@@ -274,8 +274,17 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
     ``sample_id`` meaningful rather than merely type-correct.
 
     Args:
+        corpus_name: One of :data:`vdjtools.signature.corpus.SYNTHETIC` -- ``"naive"`` / ``"memory"``
+            for the pure regimes, ``"synthetic-blood"`` / ``"synthetic-tissue"`` for the naive/memory
+            mixture drawn across that cohort's measured per-locus richness, read-depth and
+            singleton-fraction bands.
         n_jobs: Worker **processes** (not kernel threads). ``0`` means every available core; ``1``,
             the default, runs in-process. The artifact is bit-identical at every value.
+        size: ``None`` is the corpus's own -- 10,000 for a pure regime, the geometric centre of the
+            cohort's measured richness band for a ``synthetic-*`` one.
+        depth_spread: Multiplicative depth range each repertoire's size is drawn log-uniformly
+            across, around ``size``; ``None`` is the corpus's own. Must match the ``vsig`` half's
+            value for the two to describe the same repertoires.
 
     Returns:
         ``(corpus, mats)`` -- ``mats`` being ``{locus: (matrix, columns)}``, the corpus matrix itself.
@@ -284,23 +293,24 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
 
     import mir
 
+    regime, cohort, size, depth_spread = C.corpus_plan(corpus_name, size=size,
+                                                      depth_spread=depth_spread)
     vocab = {loc: {} for loc in loci}
     # Parallel across samples, in the one shared builder: an rsig row is a pure function of its
     # sample, so a worker draws its own repertoires from the memory-mapped pools and only the row of
     # numbers comes back. ``n_jobs`` does not change a single value.
     mats = C.build_matrices(
         regime, sig="rsig", vocab=vocab, loci=loci, n_samples=n_samples, size=size, seed=seed,
-        source=source, n_jobs=n_jobs, progress=progress,
+        source=source, n_jobs=n_jobs, progress=progress, depth_spread=depth_spread, cohort=cohort,
         featurise=partial(raw_and_channels, vocab=vocab, species=species))
     return C.fit_matrices(
-        mats, vocab, sig="rsig", name=regime, mode=mode, n_components=n_components,
+        mats, vocab, sig="rsig", name=corpus_name, mode=mode, n_components=n_components,
         winsor_p=winsor_p,
-        meta={"regime": regime, "n_samples": n_samples, "seed": seed, "source": source,
-              "size": size, "species": species, "K": F.K,
-              "size_per_locus": {k: C.resolved_size(k, size) for k in loci},
-              "mir_version": mir.__version__, "loci": list(loci),
-              # The pools come out of these models; retraining one moves its locus. Gated on load.
-              "models": C.model_fingerprint(loci, source)}), mats
+        # One manifest builder for both halves: a `vsig_<name>`/`rsig_<name>` pair that disagreed
+        # about the depths or the singleton fractions would be a joinability claim nobody can check.
+        meta=C.corpus_meta(regime, cohort, loci, n_samples=n_samples, size=size, seed=seed,
+                           source=source, depth_spread=depth_spread,
+                           mir_version=mir.__version__, species=species, K=F.K)), mats
 
 
 def _demo() -> None:

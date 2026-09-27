@@ -63,11 +63,11 @@ pip install "mirpy-lib[build]"            # BioPython + arda: regenerate baked r
 ```bash
 mir embed clonotypes  SAMPLE  -o out.parquet      # per-clonotype table (e0…)
 mir embed repertoires S1 S2 … -o phi.tsv --mmd mmd.tsv   # one Φ(S) per sample per chain (phi0…)
-mir corpus --corpus naive --smoke -o rsig_naive.npz             # build + fit a corpus
-mir signature S1 S2 … --corpus rsig_naive.npz -o rsig.parquet  # geometry ONLY (rsig)
+mir corpus --corpus synthetic-blood -o rsig_sb.npz              # build + fit a corpus
+mir signature S1 S2 … --corpus synthetic-blood -o rsig.parquet  # geometry ONLY (rsig)
 # the vsig half is `vdjtools signature`, against the SAME corpus name and seed;
 # join the two on sample_id for the full vector
-mir signature --corpus rsig_naive.npz --describe   # exactly what this invocation emits
+mir signature --corpus synthetic-blood --describe   # exactly what this invocation emits
 ```
 
 - Reads anything `vdjtools.io.read` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ, parquet).
@@ -153,7 +153,7 @@ one contract: `vsig` (statistics, from `vdjtools.signature`) and `rsig` (geometr
 
 ```python
 from mir.signature import Corpus, rsig, rsig_cohort, raw_and_channels, synthesize
-corpus = Corpus.load("rsig_naive.npz")     # REQUIRED -- there is no default corpus
+corpus = Corpus.load("rsig_synthetic-blood.npz")   # REQUIRED -- no default corpus
 v = rsig({"TRB": df}, corpus)
 F = rsig_cohort(samples, corpus, n_jobs=0)
 raw, chan = raw_and_channels({"TRB": df}, corpus.vocab)    # un-rotated, natural units

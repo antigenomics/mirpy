@@ -3,6 +3,38 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.1.0 — 2026-09-27
+
+**Two corpora that describe a real compartment**, `synthetic-blood` and `synthetic-tissue`, shipped
+as `rsig_synthetic-blood.npz` / `rsig_synthetic-tissue.npz` beside the `naive` and `memory` pair.
+Requires vdjtools **>=4.1.0**, which is where the draw lives: one `corpus_plan` resolves a corpus name
+for both halves and one `corpus_meta` writes both manifests, so a `vsig_<name>`/`rsig_<name>` pair
+cannot disagree about the cohort, the three ladders, the rank correlations or the germline it was drawn
+from -- which is what makes joining them on `sample_id` mean anything.
+
+Each repertoire is a naive/memory **mixture** drawn across three quantile ladders measured per locus
+on the compartment it is named after: clonotype richness, reads per expanded clone, and the singleton
+fraction that stands in for the naive share. The construction, why reads per *expanded* clone is the
+drawable quantity, and the acceptance table are in [vdjtools'
+CHANGELOG](https://github.com/antigenomics/vdjtools/blob/master/CHANGELOG.md) and
+`docs/signature.rst`. The short version: `naive` and `memory` draw depth over 2.4x-11.0x per locus,
+while real blood TRB richness spans 43x (74 to 3,162 clonotypes, n = 34,365 samples) and tissue IGH
+259x -- and a corpus estimates its bounds, centre and per-PC scaling from its own draw, none of which
+extrapolates.
+
+### Changed: `synthesize` takes a corpus name, and the rsig manifest records its depth
+
+`mir.signature.synthesize`'s first parameter is `corpus_name` (`naive` | `memory` |
+`synthetic-blood` | `synthetic-tissue`), not `regime`. `mir corpus --corpus` accepts all four, and
+`--size` defaults to `auto` -- 10,000 for a pure regime, the cohort's median richness per locus for a
+`synthetic-*` one. `--depth-spread` is new and is **refused** on a `synthetic-*` corpus rather than
+silently ignored, because that band is measured.
+
+The rsig manifest now carries `depth_spread`, `depth_spread_requested`, `cohort`, `richness_band`,
+`expanded_count_band`, `singleton_frac_band` and `rank_corr`. It previously carried **no depth field at
+all**, which left the one thing a reader needs in order to know whether a corpus covers their samples
+readable only from the vsig half.
+
 ## 4.0.0 — 2026-09-27
 
 **Signatures rewritten from scratch.** The geometry half; the statistics half is vdjtools, which

@@ -187,10 +187,27 @@ Building a corpus
 
 .. code-block:: bash
 
+   mir corpus --corpus synthetic-blood  -o synthetic-blood_rsig.npz
+   mir corpus --corpus synthetic-tissue -o synthetic-tissue_rsig.npz
    mir corpus --corpus naive  -o naive_rsig.npz
    mir corpus --corpus memory --size n_eff --components 0.95 -o memory_rsig.npz
    mir corpus --smoke -o /tmp/smoke.npz
    mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker processes
+
+Four corpora ship, all synthetic. ``synthetic-blood`` and ``synthetic-tissue`` are the ones to reach
+for: each repertoire is a naive/memory **mixture** drawn from three quantile ladders measured per
+locus on the cohort it is named after -- richness, reads per expanded clone, and the singleton
+fraction that stands in for the naive compartment -- through that cohort's measured rank
+correlations. ``naive`` and ``memory`` are the pure regimes, and neither varies what a cohort varies:
+``memory`` at a fixed size has the same read count in every sample. The construction, the
+acceptance table and why reads per *expanded* clone is the drawable quantity are in `the vdjtools
+half <https://docs.isalgo.dev/vdjtools/signature.html#the-two-cohort-corpora-three-measured-ladders-per-locus>`_,
+since one module draws for both.
+
+Both halves must be built from the **same corpus name and seed**: they resolve the name through one
+``corpus_plan`` and write the manifest through one ``corpus_meta``, so the cohort, the three ladders,
+the rank correlations and the germline fingerprint cannot disagree between ``vsig_<name>`` and
+``rsig_<name>`` -- which is what makes joining them on ``sample_id`` meaningful.
 
 The build runs across worker **processes**, one contiguous block of samples each; ``-j/--jobs``
 defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
