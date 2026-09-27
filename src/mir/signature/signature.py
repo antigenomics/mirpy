@@ -137,9 +137,13 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
     raw: dict[str, float] = {}
     chan: dict[str, float] = {}
     for locus in L.LOCI:
-        if locus not in vocab:
-            continue
-        cols = L.raw_columns("rsig", locus, vocab.get(locus))
+        # Rao is a CHANNEL: it needs the embedder and the sample, not the rotation. So it is
+        # computed for every locus the sample has, whether or not this corpus models that locus --
+        # gating it on the vocabulary would report a hole for a number that was perfectly
+        # computable, which is the mirror image of the mistake the masks exist to prevent. Only raw
+        # features are gated on the vocabulary, because only they are indexed by the rotation.
+        modelled = locus in vocab
+        cols = L.raw_columns("rsig", locus, vocab.get(locus)) if modelled else []
         df = frames.get(locus)
         if df is None or df.height == 0:
             raw |= dict.fromkeys(cols, np.nan)
@@ -160,6 +164,9 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         n_eff = 1.0 / float(w @ w)
         mass = 1.0 - float(missing_mass(counts))
 
+        chan[f"rsig:div:{locus}:rao"] = T.log1p(F.rao_of(phi, mean_sq, n_eff))
+        if not modelled:
+            continue
         for slot, vec in F.slots(phi).items():
             raw |= {f"rsig:{slot}:{locus}:P{i + 1:03d}": float(v) for i, v in enumerate(vec)}
         raw |= {f"rsig:depth:{locus}:n_eff": T.log10(n_eff),
@@ -171,7 +178,6 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
             iso = F.isotype_shares(df, w, min_clonotypes=min_clonotypes)
             raw |= {f"rsig:band_igh:IGH:{k}": v for k, v in
                     _clr(iso, ("IgM", "IgG", "IgA"), df.height).items()}
-        chan[f"rsig:div:{locus}:rao"] = T.log1p(F.rao_of(phi, mean_sq, n_eff))
 
     chan[f"rsig:qc:{L.NO_LOCUS}:winsor_frac"] = 0.0
     return raw, chan

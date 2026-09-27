@@ -329,3 +329,20 @@ def test_a_one_part_composition_is_a_hole_rather_than_a_crash(corpus):
     raw, _ = raw_and_channels({"TRG": tiny}, corpus.vocab, min_clonotypes=10_000)
     assert np.isnan(raw["rsig:band:TRG:singleton"])
     assert np.isfinite(raw["rsig:phiv:TRG:P001"]), "the geometry itself is still measurable"
+
+
+def test_rao_is_emitted_for_a_locus_the_corpus_does_not_model(corpus):
+    """Rao needs the embedder and the sample, not the rotation.
+
+    Gating it on the corpus vocabulary reported a hole for a number that was perfectly computable --
+    the mirror image of the mistake the mask channels exist to prevent. Found by an end-to-end run:
+    a TRA/TRB/IGH corpus returned nan for ``rsig:div:IGK:rao`` on samples that had IGK.
+    """
+    rng = np.random.default_rng(12)
+    frames = {"TRG": _frame(60, "TRGV9", "TRGJ1", rng),
+              "TRB": _frame(60, "TRBV20-1", "TRBJ2-2", rng)}       # TRB is not in this corpus
+    assert "TRB" not in corpus.vocab, "fixture changed; pick a locus the corpus lacks"
+    raw, chan = raw_and_channels(frames, corpus.vocab)
+    assert np.isfinite(chan["rsig:div:TRB:rao"]), "a computable channel was reported as a hole"
+    # ...while its raw features stay absent, because only those are indexed by the rotation
+    assert not [c for c in raw if ":TRB:" in c]
