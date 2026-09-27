@@ -5,8 +5,10 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 
 ## 4.0.0 — 2026-09-27
 
-**Signatures rewritten from scratch.** The geometry half; the statistics half is vdjtools 4.0.0,
-which this release requires. No legacy path, no backward compatibility, no artifact carried over.
+**Signatures rewritten from scratch.** The geometry half; the statistics half is vdjtools, which
+this release requires at **>=4.0.1** -- the rsig fit and artifact I/O live in
+`vdjtools.signature.corpus`, which does not exist before 4.0.0, and 4.0.0 never reached PyPI.
+No legacy path, no backward compatibility, no artifact carried over.
 
 ### Performance
 
