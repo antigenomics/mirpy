@@ -274,19 +274,33 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
     ``sample_id`` meaningful rather than merely type-correct.
 
     Returns:
-        ``(corpus, rows)``.
+        ``(corpus, mats)`` -- ``mats`` being ``{locus: (matrix, columns)}``, the corpus matrix itself.
     """
     import mir
 
-    samples = C.synthesize(regime, loci=loci, n_samples=n_samples, size=size, seed=seed,
-                           source=source, fit_corpus=False, progress=progress)
     vocab = {loc: {} for loc in loci}
-    rows = [raw_and_channels(s, vocab, species=species)[0] for s in samples]
-    return C.fit(rows, vocab, sig="rsig", name=regime, mode=mode, n_components=n_components,
-                 winsor_p=winsor_p,
-                 meta={"regime": regime, "n_samples": n_samples, "seed": seed, "source": source,
-                       "size": size, "species": species, "K": F.K,
-                       "mir_version": mir.__version__, "loci": list(loci)}), rows
+    ordered, draw = C.sample_stream(regime, loci=loci, n_samples=n_samples, size=size, seed=seed,
+                                    source=source, progress=progress)
+    # One sample at a time into preallocated per-locus buffers. The samples themselves do not fit:
+    # 10,000 repertoires of ~25,000 clonotypes across seven loci is about 38 GB held at once.
+    mats = {}
+    for locus in ordered:
+        got = C.locus_matrix(vocab, "rsig", locus, n_samples)
+        if got is not None:
+            mats[locus] = got
+    for j in range(n_samples):
+        raw = raw_and_channels(draw(j), vocab, species=species)[0]
+        for locus, (buf, cols) in mats.items():
+            C.fill_row(buf, cols, j, raw)
+        if progress and (j + 1) % max(n_samples // 20, 1) == 0:
+            progress("featurise", j + 1, n_samples)
+    return C.fit_matrices(
+        mats, vocab, sig="rsig", name=regime, mode=mode, n_components=n_components,
+        winsor_p=winsor_p,
+        meta={"regime": regime, "n_samples": n_samples, "seed": seed, "source": source,
+              "size": size, "species": species, "K": F.K,
+              "size_per_locus": {k: C.resolved_size(k, size) for k in loci},
+              "mir_version": mir.__version__, "loci": list(loci)}), mats
 
 
 def _demo() -> None:
