@@ -3,6 +3,77 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.0.0 — 2026-09-27
+
+**Signatures rewritten from scratch.** The geometry half; the statistics half is vdjtools 4.0.0,
+which this release requires. No legacy path, no backward compatibility, no artifact carried over.
+
+### The defect this fixes
+
+`build_rsig.py` fitted `R_V`, `R_J` and `R_C` on `(10_000, 768)` — one row per **clonotype**, from
+the bundled prototype panel — while every one of the 399 PC columns it produced was a **repertoire**
+statistic, obtained by projecting a clone-weighted *mean* through those axes. PCA over 10,000
+receptors evaluated at a mean is not PCA of repertoires: the two maximise variance in different units
+and give different axes. A sample's coordinate averages ~400 effective clones, so variance between
+samples along those axes is of order 1/sqrt(400) of the variance being maximised.
+
+The artifact's `centre` and `scale` were fitted on **zero rows** and arrived from a separate corpus of
+real samples. Two independent fits, stitched — which is how `blood` came to pair a centre of exactly
+`0.0` with a scale plainly fitted from data on 64 `rsig:contrast` columns, putting a corpus-typical
+sample **81 robust deviations** out with 885 of 885 samples of an independent cohort outside the
+bound; and how `tissue` came to carry `blood`'s coverage constants for all seven loci to 17
+significant digits while its own location and scale had genuinely been refitted.
+
+Rotation, bounds, centre and scale now all come out of **one pass over one matrix of repertoires**,
+per locus, using the same `vdjtools.signature.corpus` module that fits the statistics half — so the
+two cannot drift into different notions of "standardised".
+
+### Added
+
+- `mir.signature.features` — `Phi` and its functionals, a pure function of one sample plus the
+  bundled prototype panel.
+- `mir.signature.signature` — `rsig`, `rsig_cohort`, `raw_and_channels`, `synthesize`. It also
+  **declares** the rsig half of the column contract, registering into vdjtools' layout at import.
+- `mir corpus` — build and fit a corpus. Draws the same synthetic repertoires from the same seeds as
+  `vdjtools corpus`, so the two halves of a corpus name describe the same repertoires.
+- `rsig:qc:-:winsor_frac` — what fraction of a row the corpus's bounds clamped. Never silent.
+
+### Removed
+
+- `signature/assemble.py`, `blocks.py`, `reference.py`, `scale.py`,
+  `resources/signature/build_rsig.py`, and all 16 bundled artifacts (**8.4 MB**: six scale
+  references, `rsig_v2.npz`, `kmer_spaces_v1.npz`).
+- **The `contrast` group — 231 columns — and nothing was lost.** It was `Psi = mass*(Phi - naive)`
+  with `naive` a separately drawn 20,000-sequence reference, because the rotation was fit-free and
+  needed an explicit subtraction point. The corpus centre now *is* that point: rotating through the
+  `naive` corpus subtracts the median `Phi` of unselected repertoires. One frozen vector and one
+  whole failure mode — a `naive` drawn against a different release of the recombination models, which
+  moved every contrast column by 0.1–1.6% per locus — replaced by choosing a corpus. `mass` remains a
+  feature, so the rotation still sees it.
+- **`signature` / `signature_cohort`.** Each half has its own artifact now, so the wrapper's only real
+  job — one scale reference over both — no longer exists. Two calls and a polars join, and the halves
+  are disjoint by construction so the join cannot collide.
+- **Tiers**, and the `mir presets` command. `--components` replaces both.
+- CLI flags `--tier`, `--preset`, `--channels`, `--standardize`, `--scale`, `--clip`, `--squash`,
+  `--on-unscaled`, `--threads`. Each is pinned by a test asserting a non-zero exit.
+- `examples/feature_vectors.py`, whose entire subject was presets.
+
+### Fixed
+
+- **A one-part composition crashed rather than holing.** When every clone-size compartment falls
+  below `min_clonotypes`, only the closing residual is left — which is no composition at all, so
+  there are no ratios to take. `clr` raised on one part; the coordinates are now `nan`, and the
+  geometry itself is still measurable beside them.
+
+### Measured while building this
+
+- **5 components reach 0.91–0.93 of the variance** on a small TRG/TRD corpus, against 0.34–0.48 for
+  the same count on the statistics half. The 256 `Phi` coordinates are correlated distances to one
+  panel, so this half is far more compressible — worth knowing before picking `--components`.
+- **Rao agrees with `mir.repertoire.rao_dispersion` to 1e-9 relative**, cross-checked rather than
+  trusted: two spellings of one telescoping identity.
+- **The corpus build is byte-identical across thread counts**, verified `cmp` on the npz.
+
 ## 3.20.2 — 2026-09-26
 
 ### Fixed — `unapply` accepted a `squash` it ignored

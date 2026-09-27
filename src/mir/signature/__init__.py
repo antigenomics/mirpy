@@ -1,136 +1,44 @@
-"""mir.signature — the geometry half of the portable repertoire signature.
+"""Repertoire signatures, geometry half (``rsig``).
 
-The column contract lives in :mod:`vdjtools.signature`, which mirpy already depends on, so
-there is one implementation of the layout, the transforms and the frozen reference rescaling
-rather than two that can drift apart. This package supplies the ``rsig`` blocks: features of
-the prototype-sum measure ``Φ(S) = Σ_σ w_σ z_σ``, each a linear functional, a norm, or a
-mixture coefficient of it.
+The column contract lives in :mod:`vdjtools.signature.layout` -- mirpy depends on vdjtools and not
+the reverse -- and is re-exported here so a caller of ``mir.signature`` need not know that. The
+``rsig`` raw groups and channels are **declared** in :mod:`mir.signature.signature`, which registers
+them into that same registry at import.
+
+Two modules:
+
+* :mod:`~mir.signature.features` -- the prototype-sum measure ``Phi`` and its functionals, a pure
+  function of one sample plus the bundled prototype panel.
+* :mod:`~mir.signature.signature` -- ``rsig`` / ``rsig_cohort`` / ``synthesize``, using
+  :mod:`vdjtools.signature.corpus` for the fit, the winsorization and the artifact. The same
+  machinery fits both halves, so they cannot drift into different notions of "standardised".
 """
-# Re-exported so a caller of ``mir.signature`` never has to know the contract is implemented in
-# vdjtools. One layout, two import paths — not two layouts.
-from vdjtools.signature.layout import (
-    CHANNELS,
+from vdjtools.signature import (
     LOCI,
-    TIERS,
-    channel,
-    channel_table,
+    NO_LOCUS,
+    SUPPORTS,
+    TRANSFORMS,
+    Channel,
+    Corpus,
+    RawGroup,
+    channel_columns,
     channels,
-    columns,
-    describe,
-    index,
     parse,
+    pc_columns,
+    raw_columns,
+    raw_groups,
+    signature_columns,
+    support_of,
 )
 
-from .assemble import rsig, signature, rsig_cohort, signature_cohort
-from .blocks import (
-    BANDS,
-    CHUNK,
-    ISOTYPE_BANDS,
-    WEIGHTS,
-    band_shares,
-    depth_block,
-    isotype_shares,
-    prototype_sum,
-    slots,
-    weights,
-)
-from .scale import (
-    MIN_N_OBS,
-    MODELS,
-    ScaleReference,
-    compare_references,
-    fit_scale,
-    load_scale,
-    measure_constants,
-    save_scale,
-    KMER_PATH,
-    load_kmer_spaces,
-)
-from .reference import (
-    DEFAULT_PATH,
-    LocusReference,
-    SignatureReference,
-    load_reference,
-    self_test,
-)
-
-def channel_spec(tier: str = "standard", *, columns: list[str] | None = None,
-                 per_locus: bool = False):
-    """The signature's channel map, as a :class:`mir.explain.ChannelSpec`.
-
-    The bridge between the two halves of "which channel carries this signal": the layout knows
-    which columns form a channel and which channels have a clonotype pre-image, and
-    :mod:`mir.explain` knows how to ablate them against a scorer. Neither needs to learn the
-    other's job::
-
-        from mir.signature import channel_spec, signature_cohort
-        from mir.explain import channel_report
-
-        F = signature_cohort(samples, tier="standard")
-        X = F.drop("sample_id").to_numpy()
-        rep = channel_report(X, channel_spec("standard", columns=F.columns[1:]),
-                             lambda B: cv_auc(B, y))
-        rep.best                              # -> "vsig:div"
-
-    Args:
-        tier: Tier to index, when ``columns`` is not given.
-        columns: Index *these* columns instead — typically ``frame.columns[1:]``, the emitted
-            frame minus ``sample_id``. Indices are positions in this list, so they line up with
-            the matrix you pass to :func:`mir.explain.channel_report`.
-        per_locus: Key by ``"<sig>:<channel>:<locus>"``, so an ablation names the locus.
-
-    Returns:
-        A :class:`mir.explain.ChannelSpec` over those columns.
-    """
-    from vdjtools.signature.layout import registry
-
-    from mir.explain import ChannelSpec
-
-    idx = channels(tier, columns=columns, per_locus=per_locus)
-    attr = {f"{b.sig}:{b.name}" for b in registry() if b.attributable}
-    keys = frozenset(k for k in idx if (k.rsplit(":", 1)[0] if per_locus else k) in attr)
-    return ChannelSpec(columns_by_name=idx, attributable=keys)
-
+from .features import BANDS, CHUNK, ISOTYPE_BANDS, K, band_shares, isotype_shares, prototype_sum
+from .features import rao_of, slots, weights
+from .signature import raw_and_channels, rsig, rsig_cohort, synthesize
 
 __all__ = [
-    "BANDS",
-    "CHANNELS",
-    "channel",
-    "channel_spec",
-    "channel_table",
-    "channels",
-    "DEFAULT_PATH",
-    "CHUNK",
-    "LOCI",
-    "TIERS",
-    "columns",
-    "describe",
-    "index",
-    "parse",
-    "ISOTYPE_BANDS",
-    "WEIGHTS",
-    "band_shares",
-    "depth_block",
-    "isotype_shares",
-    "prototype_sum",
-    "slots",
-    "KMER_PATH",
-    "MIN_N_OBS",
-    "MODELS",
-    "load_kmer_spaces",
-    "LocusReference",
-    "ScaleReference",
-    "compare_references",
-    "fit_scale",
-    "load_scale",
-    "measure_constants",
-    "save_scale",
-    "SignatureReference",
-    "load_reference",
-    "rsig",
-    "self_test",
-    "signature",
-    "rsig_cohort",
-    "signature_cohort",
+    "BANDS", "CHUNK", "Channel", "Corpus", "ISOTYPE_BANDS", "K", "LOCI", "NO_LOCUS", "RawGroup",
+    "SUPPORTS", "TRANSFORMS", "band_shares", "channel_columns", "channels", "isotype_shares",
+    "parse", "pc_columns", "prototype_sum", "rao_of", "raw_and_channels", "raw_columns",
+    "raw_groups", "rsig", "rsig_cohort", "signature_columns", "slots", "support_of", "synthesize",
     "weights",
 ]

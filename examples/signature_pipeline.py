@@ -191,15 +191,16 @@ def _(mo, pl, sig):
 
     {mo.as_html(_tab) if _rows else "none"}
 
-    The diversity block is coverage-standardised, which needs a measured coverage level `cstar`
-    per locus. The **default** scale reference (`deep-tcr`) was fitted on targeted TCR libraries,
-    so it carries `cstar` for **TRA and TRB only** -- which is why those two loci have zero dead
-    columns and the other five lose their diversity columns.
+    A locus with no productive clonotype is a hole everywhere, and `vsig:mask:<locus>:present`
+    says so. A locus that is present but too shallow to reach the coverage target loses its
+    diversity columns only, and `vsig:mask:<locus>:estimable` says *that* -- two different facts
+    that used to render as the same `nan`.
 
-    Two ways out. `--scale blood` (or `--scale tissue`) selects a reference fitted on bulk RNA-seq,
-    which carries `cstar` for all seven loci and fills the B-cell columns; that is the right choice
-    for the SRA samples here. `--standardize none` gives raw Hill numbers on all seven loci at the
-    cost of cross-cohort comparability.
+    The coverage target is a **runtime argument**, not a corpus constant: `--cstar-target` defaults
+    to this cohort's own per-locus minimum attained coverage, and `vsig:cov:<locus>:cstar` reports
+    what each sample actually reached. Until 4.0 the target lived in the scaling artifact, which is
+    how one shipped reference came to standardise tissue samples to a level measured on blood --
+    identical to 17 significant digits across all seven loci.
     """)
     return
 
@@ -210,9 +211,9 @@ def _(mo):
         """
         ## Reading the result: channels
 
-        689 columns is too many to think about one at a time. The second field of a column name is
-        its **channel** -- the named group of columns that measures one thing -- and it is the level
-        a finding is usually stated at: not "column 412 moved" but "IGH diversity moved".
+        A signature is rotated coordinates plus **channels**. The channels are the columns carried
+        in their own units and never rotated -- because a provenance number mixed with the
+        measurements it was supposed to qualify is no longer provenance. Read them first.
         """
     )
     return
@@ -220,27 +221,34 @@ def _(mo):
 
 @app.cell
 def _(mo, pl, sig):
-    from mir.signature import channel_spec, channel_table
+    from mir.signature import channel_columns
 
-    _spec = channel_spec(columns=[c for c in sig.columns if c != "sample_id"])
-    _tab = channel_table("standard").select("channel", "n_columns", "attributable", "measures")
+    _chan = [c for c in sig.columns if c in set(channel_columns("rsig"))
+             or c in set(__import__("vdjtools.signature", fromlist=["channel_columns"])
+                         .channel_columns("vsig"))]
+    _pcs = [c for c in sig.columns if ":pc:" in c]
+    _tab = pl.DataFrame({"column": _chan, "value": [sig[c][0] for c in _chan]})
 
     mo.md(f"""
-    **{len(_spec.names)} channels over {_spec.width} columns**, disjoint and exhaustive.
+    **{len(_pcs)} rotated columns and {len(_chan)} channels.**
 
-    {mo.as_html(_tab)}
+    {mo.as_html(_tab.head(12))}
 
-    `attributable` says whether "which clonotypes drive this" is a well-posed question -- true only
-    where the channel is a sum over clonotypes. A Hill number is not, so asking is a category error
-    rather than an unanswered question, and `mir.explain.channel_drivers` raises instead of
-    returning a plausible-looking list.
+    The three to read before trusting any rotated value of a row:
 
-    Hand `_spec` to `mir.explain.channel_report` with a scorer of your own to find which channel
-    carries your signal:
+    | channel | what it says |
+    |---|---|
+    | `qc:-:winsor_frac` | how much of the row the corpus's bounds clamped. Near 1.0 means this
+      sample does not belong to this corpus -- not that it is unusual |
+    | `cov:<locus>:cstar` | the coverage this sample actually attained, always emitted |
+    | `mask:<locus>:estimable` | whether the diversity columns rest on a real estimate |
+
+    Hand the rotated columns to `mir.explain.channel_report` with a scorer of your own to find
+    which block carries your signal:
 
     ```python
     from mir.explain import channel_report
-    rep = channel_report(X, _spec, lambda B: cv_auc(B, y), base=0.5, mode="both")
+    rep = channel_report(X, spec, lambda B: cv_auc(B, y), base=0.5, mode="both")
     rep.best
     ```
     """)
@@ -253,17 +261,25 @@ def _(mo):
         """
         ## The two halves
 
-        `mir signature` emits both. If you only want the statistics half and do not want mirpy's
-        embedding dependencies, `vdjtools signature` emits `vsig:` alone with the same column
-        names and the same `sample_id`, so the two are row-compatible:
+        Each tool emits its own half, against its own artifact for the **same corpus name and
+        seed**. There is no joined entry point any more: each half has its own artifact, so the
+        wrapper's only real job -- one scale reference over both -- no longer exists, and two calls
+        plus a polars join is the whole story.
 
         ```bash
-        vdjtools signature --preset classify samples/*.tsv -o vsig.tsv
-        mir       signature --preset classify samples/*.tsv -o both.tsv
+        vdjtools corpus    --corpus naive --smoke -o vsig_naive.npz
+        mir      corpus    --corpus naive --smoke -o rsig_naive.npz
+        vdjtools signature --corpus vsig_naive.npz samples/*.tsv -o vsig.tsv
+        mir      signature --corpus rsig_naive.npz samples/*.tsv -o rsig.tsv
         ```
 
-        Column names are `<sig>:<block>:<locus>:<feature>`, with `-` for cross-locus columns, and
-        the order is frozen: column *i* means the same thing in your matrix and a collaborator's.
+        ```python
+        full = vsig_frame.join(rsig_frame, on="sample_id", how="inner")
+        ```
+
+        Column names are `<sig>:<block>:<locus>:<feature>`, with `-` for cross-locus columns. The
+        two halves are disjoint by construction, so the join cannot collide -- and a matrix is
+        comparable to another one only if both were rotated through the same corpus.
         """
     )
     return

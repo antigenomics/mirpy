@@ -63,7 +63,7 @@ _MODE_SPEC: dict[str, tuple[tuple[str, str, str], tuple[str, str, str]]] = {
 
 _REQUIRED_COLS = ("v_call", "j_call", "junction_aa")
 
-#: The 20 standard amino acids, anchored -- the same predicate ``vdjtools.signature.blocks``
+#: The 20 standard amino acids, anchored -- the same predicate ``vdjtools.signature.features``
 #: sanitises on. seqtree's alphabet is WIDER than this, and that is the problem: a stop codon
 #: ``*`` and the ambiguity codes ``X``/``B``/``Z`` do not crash the distance code, they return a
 #: finite, meaningless distance, which is strictly worse than crashing.
@@ -288,7 +288,7 @@ class TCREmp:
             raise ValueError(
                 f"junction_aa has {n_oof} value(s) containing '_' (legacy out-of-frame marker); "
                 "seqtree's alphabet doesn't include it and will crash — drop non-coding "
-                "clonotypes first with vdjtools.signature.blocks.sanitise"
+                "clonotypes first with vdjtools.signature.features.sanitise"
             )
         # A stop codon does not crash -- '*' is in seqtree's alphabet, so it returns a finite,
         # meaningless distance. That is strictly worse than crashing, and it is why this guard has

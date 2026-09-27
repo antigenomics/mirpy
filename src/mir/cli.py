@@ -32,6 +32,7 @@ columns fall into, which is the level a finding is usually stated at. Both read 
 from __future__ import annotations
 
 import argparse
+import pathlib
 import sys
 
 import polars as pl
@@ -185,7 +186,7 @@ def _require_productive(enabled: bool) -> None:
 def _apply_functional_filter(sub: pl.DataFrame, enabled: bool) -> pl.DataFrame:
     """Drop unusable clonotypes unless disabled.
 
-    Uses ``vdjtools.signature.blocks.sanitise``, NOT ``preprocess.filter_functional``. The two are
+    Uses ``vdjtools.signature.features.sanitise``, NOT ``preprocess.filter_functional``. The two are
     not the same predicate and the difference matters here: ``filter_functional`` is a denylist
     (``[*atgc#~_?]``) and keeps the ambiguity codes ``X``/``B``/``Z``, while ``sanitise`` is an
     anchored allowlist of the 20 standard amino acids and drops them. ``TCREmp.embed`` refuses
@@ -196,7 +197,7 @@ def _apply_functional_filter(sub: pl.DataFrame, enabled: bool) -> pl.DataFrame:
     survive; the question asked is only whether the string is a plain amino-acid string.
     """
     _require_productive(enabled)
-    from vdjtools.signature.blocks import sanitise
+    from vdjtools.signature.features import sanitise
 
     n0 = sub.height
     sub, dropped = sanitise(sub)
@@ -301,164 +302,137 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 _MIN_SAMPLES_PER_WORKER = 8
 
 
-def cmd_signature(a: argparse.Namespace) -> None:
-    from vdjtools.signature import presets as P
+def _sample_items(a: argparse.Namespace) -> list:
+    """``[(sample_id, deferred_read)]``, grouped by id **without reading anything**.
 
-    from mir.signature import assemble, channel_table, describe
-
-    # --preset picks BOTH the tier and the column subset. mirpy is where the two halves meet, so
-    # unlike `vdjtools signature` every preset resolves here in full.
-    keep = None
-    if getattr(a, "preset", None):
-        try:
-            spec = P.get(a.preset)
-        except KeyError as e:
-            raise SystemExit(str(e)) from None
-        a.tier = spec.tier
-        # A preset may name columns from both halves. This tool emits the rsig half, so keep that
-        # part and SAY the number changed -- the mirror image of `vdjtools signature`, which keeps
-        # the vsig part of the same preset. Silently returning a short vector under the preset's
-        # name is how a feature set drifts from the thing it is called.
-        full = spec.columns()
-        keep = [c for c in full if c.startswith("rsig:")]
-        if not keep:
-            raise SystemExit(
-                f"preset {spec.name!r} selects no rsig columns (it is {'+'.join(spec.sig)}); "
-                f"use `vdjtools signature --preset {spec.name}` for the statistics half")
-        print(f"[mir] preset {spec.name!r} [{spec.rank}]: {len(keep)} rsig columns of "
-              f"{len(full)} ({len(full) - len(keep)} are vsig -- "
-              f"`vdjtools signature --preset {spec.name}` emits those), "
-              f"suggested scaling {spec.scaling}", file=sys.stderr)
-
-    if a.channels:
-        # One row per channel rather than per column: the level a finding is stated at.
-        _write(channel_table(a.tier).filter(pl.col("sig") == "rsig"), a.output)
-        return
-
-    if a.describe:
-        # This command emits the rsig half, so --describe must describe the rsig half. It used
-        # to print the whole joined dictionary, which listed vsig: columns the command has not
-        # emitted since 3.18.0 -- the one output whose entire job is "the exact columns you will
-        # get" was the one telling you about columns you will not get.
-        d = describe(a.tier).filter(pl.col("sig") == "rsig")
-        _write(d.filter(pl.col("column").is_in(keep)) if keep else d, a.output)
-        return
-
-    # A sample is one file, or several files sharing a sample id — a donor sequenced on TRA and
-    # TRB is one signature with both loci filled, not two half-empty ones.
-    #
-    # Grouped by id WITHOUT reading: the read is deferred into the worker that will use it. On
-    # 1,000 samples of 10,000 clonotypes that is the difference between 6.6 GB resident and
-    # 1.1 GB, because the alternative is for this process to materialise the whole cohort and then
-    # copy it down a pipe.
+    A sample is one file, or several files sharing a sample id -- a donor sequenced on TRA and TRB is
+    one signature with both loci filled, not two half-empty ones. The read is deferred into the
+    worker that will use it: on 1,000 samples of 10,000 clonotypes that is 1.1 GB resident instead
+    of 6.6 GB, because the alternative is for this process to materialise the whole cohort and then
+    copy it down a pipe.
+    """
     import functools
     from collections import defaultdict
 
     by_id: dict[str, list[str]] = defaultdict(list)
     for path in a.input:
         by_id[_sample_id(path)].append(str(path))
-
     if not by_id:
         raise SystemExit("no samples to sign (check inputs)")
-    samples = {sid: functools.partial(_read_sample, paths) for sid, paths in by_id.items()}
+    return [(sid, functools.partial(_read_sample, paths)) for sid, paths in by_id.items()]
 
-    scale = None
-    if a.standardize == "reference" and a.scale:
-        from mir.signature.scale import load_scale
-        scale = load_scale(a.scale)
 
-    # Say what was chosen before doing it, not after. A cohort run is minutes long, the cost is
-    # set almost entirely by the tier, and the core count is the one thing a cluster or container
-    # silently gets wrong -- so all three go on stderr where somebody can see them and stop early
-    # if it is not what they meant.
-    import time
+def _cap_workers(jobs: int, n_samples: int) -> int:
+    """Worker count, capped by the work available rather than by the core count alone.
 
+    A spawned worker costs ~2.1 s before its first sample -- a fresh interpreter, polars, numpy, the
+    prototype panels, and a lazy ``import mir.repertoire`` that drags scipy -- against ~0.25 s per
+    sample after that (measured 2026-09-26, linear fit over n = 1..24 on 12 fresh processes). So a
+    worker needs about eight samples to pay for itself, and handing sixteen workers a twenty-four
+    sample cohort measured *slower* than staying in-process.
+    """
     from vdjtools.cores import available_cores
 
-    jobs = a.jobs
-    if a.threads is not None:
-        print("[mir] --threads is the old name for --jobs (it always meant worker processes, "
-              "never kernel threads); use --jobs. It will be removed in 4.0.", file=sys.stderr)
-        jobs = a.threads
+    if jobs == 1:
+        return 1
     workers = jobs if jobs > 0 else available_cores()
-    # A spawned worker costs ~2.1 s before its first sample -- a fresh interpreter, polars,
-    # numpy, the seven prototype panels, and a lazy `import mir.repertoire` that drags scipy --
-    # against ~0.25 s per sample after that (measured 2026-09-26, linear fit over n = 1..24 on
-    # 12 fresh processes). So a worker needs about eight samples to pay for itself, and handing
-    # sixteen workers a twenty-four sample cohort is slower than staying in-process. Cap the
-    # worker count by the work available rather than by the core count alone.
-    if jobs != 1:
-        workers = max(1, min(workers, len(samples) // _MIN_SAMPLES_PER_WORKER or 1))
-    print(f"[mir] {len(samples)} samples, tier={a.tier}"
-          f"{f' (preset {a.preset})' if a.preset else ''}"
-          f", "
-          f"{workers} worker{'s' if workers != 1 else ''} of {available_cores()} available "
-          f"core{'s' if available_cores() != 1 else ''}", file=sys.stderr)
-    try:
-        clip = None if str(a.clip).lower() in ("none", "off") else float(a.clip)
-    except ValueError:
-        raise SystemExit(f"--clip takes a number of robust standard deviations or 'none'; "
-                         f"got {a.clip!r}") from None
-    t0 = time.perf_counter()
-    out = assemble.rsig_cohort(samples, tier=a.tier, species=a.species, weight=a.weight,
-                               standardize=a.standardize, scale=scale,
-                               clip=clip, squash=a.squash, on_unscaled=a.on_unscaled,
-                               n_jobs=workers, columns=keep,
-                               on_duplicate=a.on_duplicate)
-    dt = time.perf_counter() - t0
-    n_cols = out.width - 1
-    print(f"[mir] {out.height} samples x {n_cols} columns "
-          f"({a.preset or a.tier}, standardize={a.standardize}) in {dt:.1f} s "
-          f"({dt / max(out.height, 1) * 1000:.0f} ms/sample)", file=sys.stderr)
-    # How much of the matrix the bound touched, every run. The bound is the only step in
-    # standardising that is not a per-column affine map, i.e. the only one that can change a
-    # downstream result -- so it is the one number about the scaling worth printing unasked.
-    if a.standardize == "reference" and clip is not None:
-        _report_saturation(out, scale, clip)
+    return max(1, min(workers, n_samples // _MIN_SAMPLES_PER_WORKER or 1))
+
+
+def cmd_signature(a: argparse.Namespace) -> None:
+    from vdjtools.signature import layout as L
+
+    from mir.signature import rsig_cohort
+
+    art = _resolve_corpus(a.corpus)
+    ncomp = _parse_components(a.components)
+    want = [c for c in pathlib.Path(a.columns).read_text().split() if c] if a.columns else None
+
+    if a.describe:
+        cols = art.columns(ncomp)
+        if want is not None:
+            cols = [c for c in cols if c in set(want)]
+        rows = []
+        for c in cols:
+            _sig, block, locus, feature = L.parse(c)
+            rows.append({"column": c, "block": block, "locus": locus, "feature": feature,
+                         "kind": "rotated" if block == L.PC_BLOCK else "channel",
+                         "support": L.support_of(c)})
+        _write(pl.DataFrame(rows), a.output)
+        return
+
+    items = _sample_items(a)
+    jobs = _cap_workers(a.jobs, len(items))
+    print(f"[mir] {len(items)} samples | corpus {art.name} "
+          f"({art.meta.get('content_sha256', '?')[:12]}) | winsorize={a.winsorize} | "
+          f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
+    out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
+                      n_components=ncomp, species=a.species, weight=a.weight,
+                      on_duplicate=a.on_duplicate, columns=want)
     _write(out, a.output)
 
 
-def _report_saturation(out, scale, clip: float) -> None:
-    """One stderr line: what fraction of the scaled matrix sits in the compressed tail."""
-    from mir.signature.scale import _by_block, load_scale
-
-    sref = scale if scale is not None else load_scale()
-    if sref is None:
-        return
-    sat = sref.saturation(out, clip=clip)
-    if not sat.height:
-        return
-    n, n_out = int(sat["n"].sum()), int(sat["n_out"].sum())
-    blocks = _by_block(sat)
-    worst = ", ".join(f"{k} {v:.1%}" for k, v in list(blocks.items())[:4]) or "none"
-    print(f"[mir] clip={clip} touched {n_out}/{n} scaled entries ({n_out / max(n, 1):.2%}) "
-          f"across {sat.height} columns; worst blocks: {worst}", file=sys.stderr)
-
-
-def cmd_presets(a: argparse.Namespace) -> None:
-    """List the feature presets, or explain one.
-
-    `recommended` — use unless you have a reason not to. `specific` — correct for a stated purpose
-    and wrong outside it. `avoid` — a control or a measured dead end, named so that picking it is
-    deliberate rather than accidental.
-    """
-    from vdjtools.signature import presets as P
-
-    if not a.name:
-        _write(P.table().select("preset", "rank", "columns", "halves", "scaling", "summary"),
-               a.output)
-        return
+def _parse_components(spec):
+    if spec is None:
+        return None
     try:
-        spec = P.get(a.name)
-    except KeyError as e:
+        return int(spec) if "." not in spec else float(spec)
+    except ValueError:
+        raise SystemExit(f"--components must be an integer count or a fraction in (0, 1); "
+                         f"got {spec!r}") from None
+
+
+def _resolve_corpus(name: str):
+    """A bundled corpus name, or a path to an artifact. There is no default."""
+    from vdjtools.signature.corpus import Corpus
+
+    from mir.signature.signature import bundled_names, bundled_path
+
+    path = bundled_path(name)
+    if path is None:
+        have = bundled_names()
+        raise SystemExit(
+            f"no corpus named {name!r}, and no artifact at that path. "
+            + (f"Installed: {', '.join(have)}. " if have else
+               "No corpus ships with this version yet. ")
+            + "Build one with: mir corpus --corpus naive --smoke -o naive.npz")
+    try:
+        return Corpus.load(path)
+    except (FileNotFoundError, ValueError) as e:
         raise SystemExit(str(e)) from None
-    print(f"{spec.name}  [{spec.rank}]  {spec.n_columns} columns  tier={spec.tier}  "
-          f"halves={'+'.join(spec.sig)}  scaling={spec.scaling}\n")
-    for label, text in (("summary", spec.summary), ("features", spec.features),
-                        ("how it is computed", spec.how), ("use cases", spec.use_cases),
-                        ("notes", spec.notes)):
-        if text:
-            print(f"{label}:\n  {text}\n")
+
+
+def cmd_corpus(a: argparse.Namespace) -> None:
+    import time
+
+    from mir.signature import synthesize
+
+    size = a.size
+    if size not in ("n_eff", "p05", "p95"):
+        try:
+            size = int(size)
+        except ValueError:
+            raise SystemExit(f"--size must be an integer or one of n_eff, p05, p95; "
+                             f"got {a.size!r}") from None
+    n_samples = a.samples
+    if a.smoke:
+        n_samples, size = 200, 1000
+    ks = _parse_components(a.components)
+    kw = {} if not a.loci else {"loci": tuple(a.loci.split(","))}
+
+    t0 = time.time()
+    art, _rows = synthesize(a.corpus, n_samples=n_samples, size=size, seed=a.seed,
+                            n_components=ks, mode=a.winsorize, winsor_p=a.winsor_p,
+                            source=a.source, species=a.species,
+                            progress=lambda loc, d, t: print(
+                                f"  {loc:4s} {d}/{t}  {time.time() - t0:5.0f}s",
+                                file=sys.stderr, flush=True), **kw)
+    path = art.save(a.output)
+    print(f"[mir] {path}  {path.stat().st_size / 1e6:.2f} MB  k={art.k}  "
+          + "variance@k=" + str({loc: round(f.variance_at(f.k), 3)
+                                 for loc, f in art.fits.items()})
+          + f"  {time.time() - t0:.0f}s", file=sys.stderr)
+
 
 
 # --- parser ----------------------------------------------------------------
@@ -517,135 +491,95 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser(
         "signature",
-        help="clonotype tables → the portable repertoire signature (one row/sample)",
+        help="clonotype tables -> the geometry half of the portable signature (one row/sample)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "One repertoire in, one row of named features out - ready for a classifier.\n"
-            "\n"
-            "Emits the `rsig` half of the portable repertoire signature: the embedding\n"
-            "geometry, computed here. The `vsig` statistics half comes from\n"
-            "`vdjtools signature`; run both and join on `sample_id`.\n"
-            "Fixed, named and positional, so column i means the same thing in every\n"
-            "matrix anyone computes - this is the object you hand a collaborator.\n"
-            "Reads AIRR Rearrangement, native vdjtools, Parquet and the usual\n"
-            "third-party exports, auto-detected. Writes TSV, or Parquet if -o ends\n"
-            "in .parquet.\n"
-        ),
+            "Emits the `rsig` half of the portable repertoire signature: the clone-weighted\n"
+            "prototype-sum measure Phi, rotated through a named corpus. The statistics half\n"
+            "(`vsig`) comes from `vdjtools signature`; run both against the SAME corpus name\n"
+            "and join on `sample_id`.\n"),
         epilog=(
-            "START HERE\n"
-            "  # a cohort; files sharing a sample id join into one multi-locus sample\n"
-            "  mir signature --preset classify cohort/*.tsv.gz -o sig.parquet\n"
+            "A CORPUS IS REQUIRED. There is no default, because a signature is comparable to\n"
+            "another one only if both were rotated through the same corpus -- and nothing about\n"
+            "the numbers would say otherwise.\n"
             "\n"
-            "  # which columns am I about to get? reads no input at all\n"
-            "  mir signature --preset classify --describe\n"
+            "  mir corpus --corpus naive --smoke -o naive.npz      # build one (no cohort needed)\n"
+            "  mir signature --corpus naive.npz cohort/*.tsv.gz -o sig.parquet\n"
+            "  mir signature --corpus naive.npz --components 32 --describe\n"
             "\n"
-            "  # the twenty channels those columns group into, and what each measures\n"
-            "  mir signature --channels\n"
-            "\n"
-            "  # all cores, one process per sample\n"
-            "  mir signature --preset classify --jobs 0 cohort/*.tsv.gz -o sig.parquet\n"
-            "\n"
-            "PICK A PRESET rather than columns by hand (`mir presets` lists all):\n"
-            "  compact    smallest vector that still describes a repertoire (n >= 50)\n"
-            "  classify   general-purpose; the usual random-forest / boosting input\n"
-            "  transfer   for a model that must work on ANOTHER LAB's samples\n"
-            "\n"
-            "--preset overrides --tier; with neither you get all of --tier (standard).\n"
-            "Unlike `vdjtools signature`, every preset resolves here in full, because\n"
-            "mirpy is where the two halves meet.\n"
-            "\n"
-            "GOTCHAS\n"
-            "  * CDR3 vs junction. The reader prefers AIRR `junction_aa` (anchors\n"
-            "    INCLUDED) and falls back to IMGT `cdr3_aa` (anchors excluded), so a\n"
-            "    file carrying only `cdr3_aa` is two residues short everywhere --\n"
-            "    shifting the length, k-mer and Pgen features. Check your headers.\n"
-            "  * Do not PCA-project the result. Plain scaling beat projection at\n"
-            "    every rank tested.\n"
-            "  * --standardize reference (the default) is what makes your vector\n"
-            "    comparable with someone else's. Use 'none' only to inspect raw\n"
-            "    block values.\n"
-        ),
+            "READ THESE BEFORE TRUSTING A ROW:\n"
+            "  rsig:qc:-:winsor_frac    how much of the row the corpus's bounds clamped\n"
+            "  rsig:div:<locus>:rao     sequence-aware diversity, carried in its own units\n"
+            "A hole is nan, never 0.\n"),
     )
     s.add_argument("input", nargs="*",
-                   help="one or more clonotype files; files sharing a sample id (the name up to "
-                        "the first dot) are joined into one multi-locus sample")
+                   help="clonotype tables; several files of one sample_id are joined by locus")
     s.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
-    s.add_argument("--tier", default="standard", choices=("core", "standard", "full"),
-                   help="column set; the narrower tiers are exact index subsets of the wider ones")
+    s.add_argument("--corpus", required=True, metavar="NAME|PATH",
+                   help="corpus to rotate through. REQUIRED -- no default")
+    s.add_argument("--winsorize", default="features", choices=("features", "pcs", "none"),
+                   help="features: clamp raw features then rotate; pcs: rotate then clamp PC "
+                        "scores; none. Whatever is clamped is reported in rsig:qc:-:winsor_frac")
+    s.add_argument("--winsor-p", type=float, default=None, metavar="P",
+                   help="stored percentile to clamp at (0.01 or 0.05); default: as fitted")
+    s.add_argument("--components", default=None, metavar="N",
+                   help="truncate the rotation: an integer count, or a variance fraction. Exact; "
+                        "asking for more than was fitted refuses")
     s.add_argument("--species", default="human")
     s.add_argument("--weight", default="log2p1",
-                   choices=("log2p1", "duplicate_count", "distinct", "log1p", "anscombe"),
-                   help="clone-size weight g (default log2p1)")
-    s.add_argument("--standardize", default="reference", choices=("reference", "none"),
-                   help="'reference' rescales every column against the bundled reference so the "
-                        "vector is comparable with anyone else's (default); 'none' emits raw "
-                        "block values")
-    s.add_argument("--scale", default=None, metavar="MODEL|PATH",
-                   help="scale reference: a model name (deep-tcr, blood, tissue) or a path to an "
-                        "artifact. The rotation is the same for every model; what differs is the "
-                        "per-column scale and the per-locus coverage constant, which are "
-                        "assay-specific. Default: the bundled deep-tcr reference")
-    s.add_argument("--clip", default="8.0", metavar="B",
-                   help="bound in robust standard deviations, or 'none' for an unbounded "
-                        "z-score. The bound compresses (strictly increasing, so sample ordering "
-                        "survives) rather than truncating; the share of the cohort it touched is "
-                        "reported on stderr. Default: 8.0")
-    s.add_argument("--squash", default="soft", choices=("soft", "hard"),
-                   help="how the bound is enforced: 'soft' is a log1p tail and keeps the "
-                        "ordering (default); 'hard' is the pre-3.20.0 np.clip and is many-to-one "
-                        "-- it is here only to reproduce an archived matrix. For no bound at "
-                        "all use --clip none")
-    s.add_argument("--on-unscaled", default="pass", choices=("pass", "hole"),
-                   help="a column the reference could not scale: 'pass' emits it in its native "
-                        "units (default), 'hole' emits nan. A mixed-unit column is a wrong "
-                        "number that looks right")
-    s.add_argument("--preset", default=None,
-                   help="named feature set; overrides --tier (see `mir presets`)")
+                   choices=("log2p1", "log1p", "anscombe", "duplicate_count", "distinct"),
+                   help="clone-size weight g")
+    s.add_argument("--columns", default=None, metavar="FILE",
+                   help="file of column names (one per line) to restrict the output to")
     s.add_argument("--jobs", "-j", type=int, default=0,
-                   help="worker PROCESSES over samples; 0 = every core (the default). Pass 1 to "
-                        "stay in-process, which is what you want inside your own pool")
-    # Renamed in 3.19.0. It never controlled threads: it was wired straight to `n_jobs`, so
-    # `--threads 16` started 16 processes that each went on to claim 16 kernel threads in
-    # vdjtools' Pgen batch -- two independent claims on one machine, and the slowest of the
-    # configurations once memory is counted. Hidden rather than deleted so existing scripts keep
-    # working for one release; it is not a second knob, it is the old name for this one.
-    s.add_argument("--threads", type=int, default=None, help=argparse.SUPPRESS)
+                   help="worker PROCESSES over samples (0 = all cores). Processes, not threads: "
+                        "the embedder already threads inside one sample, so a pool worker takes "
+                        "one kernel thread")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
-                   help="a sample with no junction_nt that repeats (junction_aa, v_call, j_call, "
-                        "c_call) cannot say whether those rows are two clonotypes or one: error "
-                        "(default) refuses, sum adds the counts together")
+                   help="a frame with no junction_nt repeating an amino-acid clonotype key cannot "
+                        "say whether those rows are one clonotype or two")
     s.add_argument("--describe", action="store_true",
-                   help="print the column dictionary for --tier/--preset and exit; reads no input")
-    s.add_argument("--channels", action="store_true",
-                   help="print the channel vocabulary for --tier and exit -- one row per named "
-                        "group of columns, and what it measures; reads no input")
+                   help="print the columns THIS invocation emits, and exit")
     s.set_defaults(func=cmd_signature)
 
-    q = sub.add_parser(
-        "presets",
-        help="list the named feature sets with their rankings",
+    c2 = sub.add_parser(
+        "corpus",
+        help="build a synthetic corpus and fit its rotation, bounds and scaling",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "List the named feature sets for `mir signature`, with their rankings.\n"
-        ),
+            "Uses NO samples from anybody's cohort: every receptor is drawn from vdjtools'\n"
+            "bundled recombination models, so the artifact is reproducible by anyone who\n"
+            "installs the library.\n"),
         epilog=(
-            "  mir presets            # the table: name, rank, width, halves, scaling\n"
-            "  mir presets classify   # one preset in full: what, how, when, caveats\n"
+            "  mir corpus --corpus naive  -o naive.npz\n"
+            "  mir corpus --corpus memory --size n_eff --components 0.95 -o memory.npz\n"
+            "  mir corpus --smoke -o /tmp/smoke.npz          # minutes, not hours\n"
             "\n"
-            "Ranks tell you how much to trust a choice:\n"
-            "  recommended  use one of these unless you have a reason not to\n"
-            "  specific     correct for a stated purpose and wrong outside it\n"
-            "  avoid        a control or a measured dead end, named so that picking\n"
-            "               it is deliberate\n"
+            "The build is a deterministic function of (corpus, loci, samples, size, seed,\n"
+            "source) and those models, and must be byte-identical across processes and thread\n"
+            "counts -- run it twice and `cmp` the output.\n"
             "\n"
-            "The `halves` column says whether a preset needs `vsig` (statistics),\n"
-            "`rsig` (embedding geometry), or both. `mir signature` serves all three;\n"
-            "`vdjtools signature` emits only the `vsig:` columns.\n"
-        ),
+            "Use the SAME name and seed as `vdjtools corpus` so the two halves describe the\n"
+            "same repertoires; that is what makes joining them meaningful.\n"),
     )
-    q.add_argument("name", nargs="?", help="show one preset in full")
-    q.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
-    q.set_defaults(func=cmd_presets)
+    c2.add_argument("--corpus", default="naive", choices=("naive", "memory"),
+                    help="naive: every clone size 1; memory: Zipf rank-abundance clone sizes")
+    c2.add_argument("-o", "--output", required=True, help="artifact path; writes .npz and .json")
+    c2.add_argument("--samples", type=int, default=10_000, help="repertoires in the corpus")
+    c2.add_argument("--size", default="10000",
+                    help="receptors per repertoire: an integer, or n_eff / p05 / p95")
+    c2.add_argument("--components", default="128",
+                    help="components per locus: an integer count, or a variance fraction")
+    c2.add_argument("--winsorize", default="features", choices=("features", "pcs", "none"))
+    c2.add_argument("--winsor-p", type=float, default=0.01)
+    c2.add_argument("--seed", type=int, default=20260927)
+    c2.add_argument("--loci", default=None, help="comma-separated subset (default: all seven)")
+    c2.add_argument("--source", default="olga", choices=("olga", "learned", "arda"))
+    c2.add_argument("--species", default="human")
+    c2.add_argument("--smoke", action="store_true",
+                    help="reduced build (200 samples of 1000) for tests and the cmp check")
+    c2.set_defaults(func=cmd_corpus)
+
 
     return p
 

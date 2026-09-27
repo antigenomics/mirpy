@@ -1,7 +1,7 @@
-"""``signature_cohort(n_jobs=)`` must be parallel, and must say so when it cannot be.
+"""``rsig_cohort(n_jobs=)`` must be parallel, and must say so when it cannot be.
 
 The regression this file exists to prevent had three parts, and the third made the first two
-invisible. One task per sample re-pickled the scale reference once per sample. The workers were
+invisible. One task per sample re-pickled the frozen artifact once per sample. The workers were
 spawned, so a caller with no importable ``__main__`` killed every one of them. And the pool was
 wrapped in ``except (BrokenExecutor, RuntimeError): <serial loop>``, which kept the answer correct
 and turned a dead pool into a merely slow one.
@@ -22,11 +22,18 @@ import numpy as np
 import polars as pl
 import pytest
 
-from mir.signature import rsig_cohort
+from mir.signature import rsig_cohort, synthesize
 from vdjtools.signature.cohort import WORKER_ENV
 from vdjtools.signature.cohort import slices as _slices
 
 _AA = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
+
+
+@pytest.fixture(scope="module")
+def corpus():
+    """One small TRB corpus, built once. These tests are about the pool, not the fit."""
+    art, _ = synthesize("memory", loci=("TRB",), n_samples=24, size=100, seed=8, n_components=4)
+    return art
 
 
 def cohort(n_samples: int, n_clonotypes: int = 300, seed: int = 0) -> dict:
@@ -60,41 +67,37 @@ def test_slices_are_contiguous_exhaustive_and_balanced(n, workers):
 
 # ----------------------------------------------------------------- the failure must be loud
 
-def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch):
+def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch, corpus):
     """The whole point. A correctness-preserving fallback hid a 20x slowdown for months."""
-    import mir.signature.assemble as A  # noqa: F401
-
     def broken(*a, **k):
         raise RuntimeError("no workers for you")
 
     monkeypatch.setattr("concurrent.futures.ProcessPoolExecutor", broken)
     with pytest.raises(RuntimeError) as e:
-        A.rsig_cohort(cohort(4), tier="core", n_jobs=2)
+        rsig_cohort(cohort(4), corpus, n_jobs=2)
     msg = str(e.value)
     assert "n_jobs=1" in msg                      # the escape hatch is named
     assert "__main__" in msg                      # so is the actual cause
     assert "NOT falling back" in msg
 
 
-def test_no_warning_path_survives(monkeypatch, recwarn):
+def test_no_warning_path_survives(monkeypatch, recwarn, corpus):
     """A warning is not good enough: callers filter them, and sklearn makes that routine."""
-    import mir.signature.assemble as A  # noqa: F401
-
     monkeypatch.setattr("concurrent.futures.ProcessPoolExecutor",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
-        A.rsig_cohort(cohort(4), tier="core", n_jobs=2)
+        rsig_cohort(cohort(4), corpus, n_jobs=2)
     assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
 
 
 # ----------------------------------------------------------------- parallel == serial
 
 @pytest.mark.integration
-def test_parallel_matches_serial_exactly():
+def test_parallel_matches_serial_exactly(corpus):
     """Real worker processes. Parallelism that moves a number is a bug with a speedup."""
     c = cohort(6, n_clonotypes=200)
-    serial = rsig_cohort(c, tier="core", n_jobs=1)
-    parallel = rsig_cohort(c, tier="core", n_jobs=3)
+    serial = rsig_cohort(c, corpus, n_jobs=1)
+    parallel = rsig_cohort(c, corpus, n_jobs=3)
     assert parallel["sample_id"].to_list() == serial["sample_id"].to_list()   # order preserved
     assert parallel.equals(serial)
 
@@ -109,7 +112,7 @@ def _pid_probe(tmpdir, n_clonotypes, seed):
 
 
 @pytest.mark.integration
-def test_the_work_really_happens_in_several_processes(tmp_path):
+def test_the_work_really_happens_in_several_processes(tmp_path, corpus):
     """The deterministic form of "is it parallel" -- no timing, so no flake.
 
     This is the test that actually guards the regression. The bug was a pool that never started
@@ -128,7 +131,7 @@ def test_the_work_really_happens_in_several_processes(tmp_path):
 
     d = str(tmp_path)
     samples = {f"S{i:03d}": functools.partial(_pid_probe, d, 400, i) for i in range(8)}
-    out = rsig_cohort(samples, tier="core", n_jobs=4)
+    out = rsig_cohort(samples, corpus, n_jobs=4)
 
     pids = list(tmp_path.iterdir())
     assert out.height == 8
@@ -141,7 +144,7 @@ def test_the_work_really_happens_in_several_processes(tmp_path):
 
 
 @pytest.mark.benchmark
-def test_the_pool_scales_over_the_work_a_single_worker_can_do():
+def test_the_pool_scales_over_the_work_a_single_worker_can_do(corpus):
     """The pool's scaling gate -- and it is measured against the right baseline.
 
     The obvious assertion, "four workers beat one process", is **false here by design** and was
@@ -174,25 +177,25 @@ def test_the_pool_scales_over_the_work_a_single_worker_can_do():
     """
     import time
 
-    from mir.signature import assemble
+    from mir.signature import signature as A
 
     c = cohort(48, n_clonotypes=20000)
-    rsig_cohort(cohort(1, n_clonotypes=50), tier="standard", n_jobs=1)   # warm lazy imports
+    rsig_cohort(cohort(1, n_clonotypes=50), corpus, n_jobs=1)   # warm lazy imports
 
     # Cap the parent's kernel the way `_chunk` caps a worker's, so the ratio below is the pool
     # and nothing else. The embedder is cached per (species, locus, K), so it has to be dropped
     # for the new thread count to take -- and dropped again afterwards, or every later test in
     # this process inherits a one-thread embedder.
     os.environ[WORKER_ENV] = "1"
-    assemble._MODELS.clear()
+    A._model_cached.cache_clear()
     try:
-        t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=1)
+        t0 = time.perf_counter(); rsig_cohort(c, corpus, n_jobs=1)
         one = time.perf_counter() - t0
     finally:
         del os.environ[WORKER_ENV]
-        assemble._MODELS.clear()
+        A._model_cached.cache_clear()
 
-    t0 = time.perf_counter(); rsig_cohort(c, tier="standard", n_jobs=4)
+    t0 = time.perf_counter(); rsig_cohort(c, corpus, n_jobs=4)
     four = time.perf_counter() - t0
     speedup = one / four
     assert speedup > 2.0, (
@@ -204,16 +207,16 @@ def test_the_pool_scales_over_the_work_a_single_worker_can_do():
 
 # ----------------------------------------------------------------- deferred samples
 
-def test_a_deferred_sample_gives_the_same_answer_as_an_eager_one():
+def test_a_deferred_sample_gives_the_same_answer_as_an_eager_one(corpus):
     """The whole memory story rests on this: deferring the read must not change a number."""
     import functools
     import math
 
     c = cohort(3, n_clonotypes=200, seed=3)
-    eager = rsig_cohort(c, tier="core", n_jobs=1)
+    eager = rsig_cohort(c, corpus, n_jobs=1)
     deferred = rsig_cohort(
         {sid: functools.partial(_identity, frames) for sid, frames in c.items()},
-        tier="core", n_jobs=1)
+        corpus, n_jobs=1)
     assert deferred["sample_id"].to_list() == eager["sample_id"].to_list()
     for col in eager.columns[1:]:
         for a, b in zip(eager[col].to_list(), deferred[col].to_list()):
