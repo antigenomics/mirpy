@@ -153,26 +153,65 @@ def test_locus_flag_accepts_aliases(tmp_path):
         main(["embed", "clonotypes", str(src), "--locus", "nonsense", "--n-prototypes", "300"])
 
 
-def test_signature_channels_reads_no_input(tmp_path, capsys):
-    """The vocabulary is printable without a sample — it describes the contract, not the data.
+@pytest.fixture(scope="module")
+def tiny_corpus(tmp_path_factory):
+    """One small artifact, built once: these tests are about the command, not the fit."""
+    from mir.signature import synthesize
 
-    And it describes **this command's half**. It used to list all twenty channels including the
-    thirteen ``vsig`` ones, which ``mir signature`` has not emitted since 3.18.0 — an output whose
-    whole job is "what you will get" naming what you will not get.
+    art, _ = synthesize("memory", loci=("TRG",), n_samples=24, size=80, seed=4, n_components=4)
+    return str(art.save(tmp_path_factory.mktemp("corpus") / "tiny"))
+
+
+def test_signature_requires_a_corpus():
+    """No default: a signature is comparable only to one rotated through the same corpus."""
+    with pytest.raises(SystemExit):
+        main(["signature", "nope.tsv"])
+
+
+def test_describe_names_exactly_the_columns_this_invocation_emits(tmp_path, tiny_corpus):
+    """The one output whose entire job is to be right about the width.
+
+    It used to print all 688 columns while the command emitted 528 -- naming columns you would not
+    get. So it is resolved against --corpus and --components, and compared here against the real
+    emitted header rather than against a layout constant.
     """
-    out = tmp_path / "chan.tsv"
-    main(["signature", "--channels", "-o", str(out)])
-    rows = out.read_text().strip().split("\n")
-    assert rows[0].split("\t")[:3] == ["channel", "sig", "block"]
-    assert any(r.startswith("rsig:phic\t") for r in rows)
-    assert not [r for r in rows[1:] if r.startswith("vsig:")], "vsig is vdjtools' half"
+    from mir.signature import Corpus
+
+    art = Corpus.load(tiny_corpus)
+    for extra, want_k in (([], art.k["TRG"]), (["--components", "2"], 2)):
+        out = tmp_path / f"d{len(extra)}.tsv"
+        main(["signature", "--corpus", tiny_corpus, "--describe", "-o", str(out), *extra])
+        rows = out.read_text().strip().split("\n")
+        assert rows[0].split("\t")[:2] == ["column", "block"]
+        cols = [r.split("\t")[0] for r in rows[1:]]
+        assert cols == art.columns(want_k), extra
+        assert not [c for c in cols if c.startswith("vsig:")], "vsig is vdjtools' half"
+        assert sum(":pc:" in c for c in cols) == want_k
 
 
-def test_signature_describe_lists_only_the_rsig_half(tmp_path):
-    """Same contract for the column dictionary as for the channel vocabulary."""
-    out = tmp_path / "cols.tsv"
-    main(["signature", "--describe", "--tier", "standard", "-o", str(out)])
-    rows = out.read_text().strip().split("\n")[1:]
-    sigs = {r.split("\t")[1] for r in rows}
-    assert sigs == {"rsig"}, sigs
-    assert len(rows) == 528
+def test_describe_and_emit_agree_on_the_header(tmp_path, tiny_corpus):
+    src = tmp_path / "S1.TRG.tsv"
+    src.write_text("junction_aa\tv_call\tj_call\tduplicate_count\n"
+                   + "".join(f"CASS{'ACDEFGHIKLMNPQRSTVWY'[i % 20] * 3}YW\tTRGV9\tTRGJ1\t{i + 1}\n"
+                             for i in range(40)))
+    desc, emit = tmp_path / "d.tsv", tmp_path / "e.tsv"
+    main(["signature", "--corpus", tiny_corpus, "--describe", "-o", str(desc)])
+    main(["signature", "--corpus", tiny_corpus, str(src), "-o", str(emit)])
+    described = [r.split("\t")[0] for r in desc.read_text().strip().split("\n")[1:]]
+    emitted = [c for c in emit.read_text().split("\n")[0].split("\t") if c != "sample_id"]
+    assert described == emitted
+
+
+@pytest.mark.parametrize("flag", [
+    ["--tier", "core"], ["--preset", "classify"], ["--channels"], ["--standardize", "none"],
+    ["--scale", "blood"], ["--clip", "8"], ["--squash", "soft"], ["--on-unscaled", "hole"],
+    ["--threads", "4"],
+])
+def test_every_removed_flag_is_rejected(tiny_corpus, flag):
+    with pytest.raises(SystemExit):
+        main(["signature", "--corpus", tiny_corpus, "x.tsv", *flag])
+
+
+def test_the_presets_command_is_gone():
+    with pytest.raises(SystemExit):
+        main(["presets"])

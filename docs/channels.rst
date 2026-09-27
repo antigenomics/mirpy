@@ -1,218 +1,80 @@
-Channels: reading a signature
-=============================
+Channels
+========
 
-Twenty names that turn "the model found something" into a sentence with a noun in it.
+A **channel** is a named family of columns emitted in its own units, never passed through the
+rotation. The full vocabulary — including the thirteen ``vsig`` channels — is documented in
+`vdjtools' channel reference <https://docs.isalgo.dev/vdjtools/channels.html>`_; this page covers
+mirpy's two and the reason the split exists.
 
-A signature is a wide vector — 153, 689 or 1,404 columns depending on the tier. Wide vectors score
-well and explain badly. **Channels** are the interpretive layer over them: a small, fixed,
-purely structural vocabulary, the same for every sample anyone emits, in which a finding can be
-stated and compared across labs.
+Why a channel is not rotated
+----------------------------
 
-What a channel is
------------------
+A provenance number that has been mixed with the measurements it was supposed to qualify is no longer
+provenance. If ``winsor_frac`` went through a rotation, the coordinate carrying it would also carry
+geometry, and a caller could no longer ask "is this row comparable to ours at all?" — which is the
+only question that column exists to answer.
 
-A signature column is named ``<sig>:<channel>:<locus>:<feature>``. The second field is the
-**channel**: the named group of columns that measures one thing.
+The split is by *role*, not by cost: a **measurement of the repertoire** is a raw feature, transformed
+and winsorized and rotated and scaled; a **statement about the row itself** is a channel.
 
-.. code-block:: text
-
-   vsig : div : TRB : 1D_c
-   ──┬──  ─┬─   ─┬─   ──┬──
-     │     │     │      └── feature — the individual number
-     │     │     └───────── locus
-     │     └─────────────── channel — WHAT IS BEING MEASURED
-     └───────────────────── half: statistics (vsig) or geometry (rsig)
-
-Channels are **disjoint and exhaustive**: every emitted column belongs to exactly one, so a set of
-per-channel shares sums over the whole vector with nothing left over. That is what makes them
-usable as an accounting unit rather than a filing convenience.
-
-The vocabulary is a property of the contract, not of any corpus or any cohort. The same twenty
-names describe every sample anyone emits, at every tier, in every locus. Two labs therefore compare
-not just numbers but *findings*.
-
-Why the vocabulary exists
--------------------------
-
-Classical repertoire analysis answers "which summary statistic separates my groups?" by running a
-fixed menu of named statistics side by side — diversity, clonality, junction length, V usage — one
-test per statistic, and reading off which one moved. The menu **is** the explanation: every number
-has a name, so a result is a sentence.
-
-A wide feature vector scores better and explains worse. ``signature()`` returns 689 anonymous
-columns; a model trained on them reports "it separates the groups", which has no noun in it. The
-channel vocabulary restores the noun without giving up the vector:
-
-.. code-block:: text
-
-   without channels   the classifier reaches AUC 0.78
-   with channels      the classifier reaches AUC 0.78, carried by IGH diversity and
-                      IGH isotype composition; junction length adds nothing
-
-The second sentence is a hypothesis someone can test with a different assay. The first is not.
-
-The twenty channels
--------------------
-
-Printable at any time, from the library or the command line, reading no input at all:
-
-.. code-block:: bash
-
-   mir signature --channels                 # one row per channel, and what it measures
-   mir signature --channels --tier full        # sized for the tier you will emit
+The two rsig channels
+---------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 18 12 70
+   :widths: 30 10 60
 
-   * - Channel
-     - Half
-     - What it measures
-   * - ``mask``
-     - ``vsig``
-     - Which loci and which statistics this sample can support at all.
-   * - ``qc``
-     - ``vsig``
-     - How far the annotation had to reach: unrecognised V/J calls, non-standard residues.
-   * - ``depth``
-     - ``vsig``
-     - How much was sequenced — reads, observed richness, unseen-species mass.
-   * - ``div``
-     - ``vsig``
-     - Diversity at a fixed coverage level: Hill numbers, clonality, d50.
-   * - ``clon``
-     - ``vsig``
-     - Clonal dominance — the size of the largest clones as a share of the sample.
-   * - ``len``
-     - ``vsig``
-     - Junction length distribution: mean, spread, asymmetry.
-   * - ``pair``
-     - ``vsig``
-     - Relative yield between loci from one library — the α/β, γ/δ and B/T ratios.
-   * - ``iso``
-     - ``vsig``
-     - Isotype composition of the IGH repertoire (class-switch state).
-   * - ``shm``
-     - ``vsig``
-     - Somatic hypermutation load — mean V identity to germline.
-   * - ``pgen``
-     - ``vsig``
-     - How typical the repertoire's rearrangements are under the V(D)J model.
-   * - ``kmer``
-     - ``vsig``
-     - V-gene-and-junction k-mer composition, projected onto a frozen basis.
-   * - ``aa``
-     - ``vsig``
-     - Amino-acid composition of the junction.
-   * - ``pchem``
-     - ``vsig``
-     - Physicochemical profile of the junction (charge, hydrophobicity, bulk).
-   * - ``depth``
-     - ``rsig``
-     - Depth as the geometry sees it: effective clone count and observed mass.
-   * - ``div``
-     - ``rsig``
-     - Sequence-aware dispersion — Rao entropy, which a Hill number cannot express.
-   * - ``band``
-     - ``rsig``
-     - Shares of the repertoire held by clone-size bands and by isotype.
-   * - ``contrast``
-     - ``rsig``
-     - Signed deviation from unselected V(D)J output — the selection imprint.
-   * - ``phiv`` / ``phij`` / ``phic``
-     - ``rsig``
-     - Where the repertoire sits in V-gene, J-gene and junction coordinates.
+   * - channel
+     - loci
+     - what it says
+   * - ``rsig:div:<locus>:rao``
+     - 7
+     - Rao quadratic entropy in embedding coordinates, ``log1p``-stabilised and self-pair corrected.
+       A *sequence-aware* diversity: it sees that two clonotypes are one substitution apart, which no
+       Hill number can. Carried rather than rotated because the head-to-head against the statistics
+       half's coverage-standardised Hill numbers is the result, not a redundancy.
+   * - ``rsig:qc:-:winsor_frac``
+     - —
+     - What fraction of this row's finite values the corpus's bounds clamped. A value near 1.0 means
+       this sample does not belong to this corpus — not that it is unusual.
 
-Two channel names appear on both halves — ``depth`` and ``div`` — and they are **different
-measurements of the same idea**, not duplicates. ``vsig:div`` is a Hill number of the clone-size
-vector; ``rsig:div`` is Rao entropy in embedding coordinates, which can see that two clonotypes are
-one substitution apart. A channel key therefore always carries its half: ``vsig:div``, never ``div``.
+``depth`` is **not** a channel
+------------------------------
 
-Attributability: which channels can name clonotypes
-----------------------------------------------------
+``rsig:depth:<locus>:n_eff`` and ``:mass`` are raw features and go through the rotation, even though
+they look like provenance. They are measurements of the repertoire: ``n_eff`` is a Hill number of the
+clone weights the geometry actually uses, and ``mass`` is the share of the repertoire ever drawn. The
+compartment shares are depth-fragile on purpose and these two are the covariates that make that
+adjustable, so a rotation that could not see them would be worse, not cleaner.
 
-Every channel declares, at build time, whether it has a **clonotype pre-image** — whether "which
-clones drive this" is a well-posed question.
-
-- ``rsig:contrast``, ``rsig:phiv``, ``rsig:phij``, ``rsig:phic`` **are attributable.** They are
-  linear functionals of a kernel-mean over clonotypes, so the question has an answer and the
-  library will compute it.
-- Everything else **is not.** A Hill number is a summary of a distribution and a read fraction is a
-  ratio of totals; neither is a sum over clonotypes, so asking which clones drive it is a category
-  error rather than an unanswered question.
-
-This is declared, never inferred from the name. Asking an unattributable channel for its drivers
-raises instead of returning a plausible-looking list.
-
-Per-locus channels
-------------------
-
-A channel spans loci — ``vsig:div`` is the diversity channel of all seven. Ask for the finer
-grouping when the locus is part of the finding, which it usually is:
+Reading a row
+-------------
 
 .. code-block:: python
 
-   from mir.signature import channel_spec, channels
+   from mir.signature import Corpus, rsig
 
-   channels("standard")                      # {"vsig:div": [21, 22, ...], ...}
-   channel_spec("standard", per_locus=True)  # keys are "vsig:div:TRB", ...
+   corpus = Corpus.load("naive_rsig.npz")
+   row = rsig(sample, corpus)
 
-"IGH diversity moved and TRB diversity did not" is a different claim from "diversity moved", and
-usually the more useful one.
+   row["rsig:qc:-:winsor_frac"]    # did the corpus's bounds edit this sample?
+   row["rsig:div:TRB:rao"]         # sequence-aware diversity, in its own units
+   row["rsig:depth:TRB:n_eff"]     # how many clones are effectively behind this Phi?
 
-Using a channel map
+Declaring a channel
 -------------------
 
-``channel_spec()`` hands :mod:`mir.explain` the name → column-index map that a bare matrix does not
-carry. An ablation against any scorer of yours then reports channel names rather than column
-indices:
+``rsig`` registers its groups and channels into vdjtools' registry at import of
+:mod:`mir.signature.signature`, with
+:func:`~vdjtools.signature.layout.register_raw` and
+:func:`~vdjtools.signature.layout.register_channel`. The contract lives in vdjtools because mirpy
+depends on vdjtools and not the reverse; nothing in vdjtools imports ``mir``.
 
 .. code-block:: python
 
-   from mir.explain import channel_report
-   from mir.signature import channel_spec, signature_cohort
+   from mir.signature import channel_columns, channels, raw_groups, support_of
 
-   F = signature_cohort(samples, tier="standard")
-   X = F.drop("sample_id").to_numpy()
-   spec = channel_spec("standard", columns=F.columns[1:])
-
-   rep = channel_report(X, spec, lambda B: cv_auc(B, y), base=0.5, mode="both")
-   rep.frame()        # one row per channel: score, delta_in, delta_out, rank
-   rep.best           # -> "vsig:div"
-
-The scorer is yours — a cross-validated AUC, a Cox C-index, anything that maps a column block to a
-number where higher is better. The library never sees your labels and ships no scorers of its own,
-because the model choice belongs to the analysis.
-
-For an attributable channel, the last hop goes all the way back to sequences:
-
-.. code-block:: python
-
-   from mir.explain import channel_drivers
-
-   channel_drivers(report,                      # a ChannelReport, from the step above
-                   space=space,
-                   pos=pos_frames, neg=neg_frames,   # the two groups' clonotype frames
-                   candidates=candidates,            # clonotypes to rank
-                   channel="rsig:phic", top=30)      # the clonotypes behind the channel
-
-On an unattributable channel that call raises — see above.
-
-Read the two deltas together:
-
-``delta_in``
-   Does this channel carry signal **on its own**? Marginal, so it is inflated by correlation
-   between channels — two redundant channels both look important.
-``delta_out``
-   Is this channel's signal **anywhere else**? Conditional, and deflated by the same correlation.
-
-High in / high out means irreplaceable. High in / near-zero out means **redundant** — the signal is
-duplicated elsewhere in the vector, which is itself a finding.
-
-Channels and the reference
---------------------------
-
-Channels are orthogonal to which scale reference you use. Choosing ``blood`` over ``deep-tcr``
-changes the location and scale a column is standardised against; it does not move a column into a
-different channel, add a channel, or remove one. The vocabulary is fixed by the contract, and the
-contract is frozen — see :doc:`signature` for what is fitted on data and what is not.
+   [g.name for g in raw_groups("rsig")]   # phiv, phij, phic, depth, band, band_igh
+   [c.name for c in channels("rsig")]     # div, qc
+   support_of("rsig:phiv:TRB:P001")       # 'nonneg' -- a mean of distances
+   support_of("rsig:band:TRB:top")        # 'real'   -- a clr coordinate

@@ -127,23 +127,26 @@ Two halves, concatenated on ``sample_id`` and namespaced so they never collide:
    Geometry — every column a linear functional, a norm, or a mixture coefficient of the
    prototype-sum measure. Computed here.
 
-Both share one frozen column contract, imported from
-:mod:`vdjtools.signature.layout`: a column name is always ``<sig>:<block>:<locus>:<feature>``
-(``-`` for a cross-locus column), and the tiers ``core`` (153) ⊂ ``standard`` (689) ⊂ ``full``
-(1404) are exact **index subsets** of one column order.
+Both share one column contract, imported from :mod:`vdjtools.signature.layout`: a column name is
+always ``<sig>:<block>:<locus>:<feature>`` (``-`` for a cross-locus column). What a signature emits
+per locus is ``<sig>:pc:<locus>:PCnn`` — rotated coordinates — plus **channels**, which are carried
+in their own units and never rotated.
 
 **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
 statistic the sample is too shallow to estimate is ``nan`` plus a ``mask:`` column — because a model
 that reads "absent" as "zero" reads an unsequenced chain as biology.
 
-**The rotation is fit-free.** It is the PCA of the bundled prototype panel embedded against itself —
-zero samples, so nobody's coordinates move when a reference is refreshed, and it covers all seven
-loci. Only location and scale come from data. See :doc:`signature` for which scale reference to use.
+**The rotation comes from a corpus, and a corpus is required.** Bounds, centre, scale, rotation and
+per-PC scaling all come out of one pass over one matrix of repertoires. There is no default corpus: a
+signature is comparable to another one only if both were rotated through the same one, and nothing
+about the numbers would say otherwise. Until 4.0 the rotation was fit-free — fitted on 10,000
+individual clonotypes from the prototype panel — while every column it produced was a repertoire
+statistic; :doc:`signature` records what that cost.
 
 **The full API for this package is on its own page** — see :doc:`signature`, which documents
-``mir.signature``, ``mir.signature.assemble``, ``mir.signature.blocks``, ``mir.signature.reference``
-and ``mir.signature.scale`` alongside the measurements behind each design choice. It is not repeated
-here so that every symbol has one canonical entry.
+``mir.signature``, ``mir.signature.features`` and ``mir.signature.signature`` alongside the
+measurements behind each design choice. It is not repeated here so that every symbol has one
+canonical entry.
 
 Explainable readouts (``mir.explain``)
 --------------------------------------
@@ -360,7 +363,7 @@ Command-line interface (``mir``)
 --------------------------------
 
 ``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with four
-commands: two embedding scales, plus the portable signature and its column presets.
+commands: two embedding scales, plus the portable signature and the corpus it is rotated through.
 
 Both ``embed`` commands drop non-coding clonotypes (stop codon / legacy out-of-frame
 ``junction_aa``) before embedding, and there is **no flag to disable it**: a stop codon is in
@@ -385,28 +388,27 @@ non-productive fraction is the thing you want.
    ``--threads``, ``--seed``, ``-o``.
 
 ``mir signature INPUT...``
-   AIRR clonotype tables → **one fixed-width named feature vector per sample**, standardised
-   against a frozen reference so a downstream model needs no scaler of its own. This is the command
-   to send a collaborator. Flags: ``--tier {core,standard,full}``, ``--preset NAME``,
-   ``--species``, ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``,
-   ``--standardize {reference,none}``, ``--scale NAME|PATH`` (which scale reference to
-   standardise against — a bundled model name or a path; a named-but-missing one raises rather
-   than silently producing an unstandardised matrix), ``--jobs`` / ``-j`` (0 = every core; renamed from ``--threads``),
-   ``--describe`` (print the column dictionary and read no input), ``--channels`` (print the
-   channel vocabulary and read no input), ``-o``.
+   AIRR clonotype tables → **one fixed-width named feature vector per sample**, rotated through a
+   named corpus so a downstream model needs no scaler of its own. This is the command to send a
+   collaborator. Flags: ``--corpus NAME|PATH`` (**required** — there is no default),
+   ``--winsorize {features,pcs,none}``, ``--winsor-p P``, ``--components N`` (an integer count or a
+   variance fraction), ``--species``,
+   ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``, ``--columns FILE``,
+   ``--jobs`` / ``-j`` (0 = every core; worker **processes**), ``--on-duplicate {error,sum}``,
+   ``--describe`` (print the columns *this invocation* emits and read no input), ``-o``.
 
-   This emits the ``rsig`` half alone — 528 columns at the ``standard`` tier. ``vdjtools
-   signature`` emits the ``vsig`` half and reports how many ``rsig`` columns it left to this
-   command; the two concatenate on ``sample_id`` for the full 689.
-   :doc:`signature` covers the scale references and :doc:`channels` the vocabulary the columns
-   group into.
+   This emits the ``rsig`` half alone. ``vdjtools signature`` emits the ``vsig`` half; run both
+   against the **same corpus name and seed** and join on ``sample_id``. :doc:`signature` covers the
+   corpora and :doc:`channels` the columns that are carried rather than rotated.
 
-``mir presets [NAME]``
-   The named column subsets and their ranking — ``compact`` (86), ``classify`` (615),
-   ``transfer`` (550), ``geometry`` (514), ``statistics`` (101), ``bcell`` (271), ``full`` (1404),
-   ``nuisance`` (74, ranked *avoid*). With no argument, the whole table; with a name, that preset's
-   column list. A preset resolves from the frozen layout alone, so two people choosing the same
-   name get the same columns in the same order.
+``mir corpus``
+   Build a synthetic corpus and fit its rotation, bounds and scaling. Uses **no samples from
+   anybody's cohort** — every receptor is drawn from vdjtools' bundled recombination models — so the
+   artifact is reproducible by anyone who installs the library, and the build is byte-identical
+   across processes and thread counts. Flags: ``--corpus {naive,memory}``, ``-o/--output``,
+   ``--samples N``, ``--size {N,n_eff,p05,p95}``, ``--components N``, ``--winsorize``,
+   ``--winsor-p``, ``--seed``, ``--loci``, ``--source {olga,learned,arda}``, ``--species``,
+   ``--smoke``.
 
 .. automodule:: mir.cli
    :members: main, build_parser

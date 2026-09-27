@@ -32,7 +32,13 @@ def _():
     import mir.signature as S
     from vdjtools.model import load_bundled
     from vdjtools.model.generate import generate
-    return S, generate, load_bundled, np, pl
+
+    # A deliberately tiny corpus so this notebook runs in seconds. Real ones are 10,000
+    # repertoires -- see `mir corpus --help`. A corpus is REQUIRED: there is no default, because a
+    # signature is comparable to another one only if both were rotated through the same one.
+    corpus, _rows = S.synthesize("memory", loci=("TRB",), n_samples=30, size=120, seed=1,
+                                 n_components=6)
+    return S, corpus, generate, load_bundled, np, pl
 
 
 @app.cell
@@ -54,8 +60,13 @@ def _(mo):
 def _(S, pl):
     # Read from the registry, not from a table typed into this notebook: if a block's transform
     # changes, this cell changes with it.
-    S.describe(tier="full").group_by(["sig", "transform"]).len().sort(["sig", "len"],
-                                                                     descending=[False, True])
+    pl.DataFrame([{"sig": g.sig, "group": g.name,
+                   "features": len(g.features) or "germline-wide",
+                   "transform": (g.dynamic[0] if g.dynamic
+                                 else ", ".join(sorted({v[0] for v in g.features.values()}))),
+                   "support": (g.dynamic[1] if g.dynamic
+                               else ", ".join(sorted({v[1] for v in g.features.values()})))}
+                  for g in S.raw_groups()])
     return
 
 
@@ -84,8 +95,10 @@ def _(mo):
 
 @app.cell
 def _(S, pl):
-    S.describe(tier="full").filter(pl.col("sig") == "rsig").group_by(
-        ["block", "transform", "magnitude"]).len().sort(["block", "transform"])
+    pl.DataFrame([{"group": g.name, "loci": len(g.emitted_loci),
+                   "features": len(g.features), "support":
+                   ", ".join(sorted({v[1] for v in g.features.values()}))}
+                  for g in S.raw_groups("rsig")])
     return
 
 
@@ -117,7 +130,7 @@ def _(mo):
 
 
 @app.cell
-def _(S, generate, load_bundled, n_donors, np, pl):
+def _(S, generate, load_bundled, n_donors, np, pl, corpus):
     model = load_bundled("TRB", source="olga")
 
     def clones(n, seed):
@@ -135,7 +148,7 @@ def _(S, generate, load_bundled, n_donors, np, pl):
     rows, lab = [], []
     for _l in range(10):
         for _d in range(per_lab):
-            r = S.rsig({"TRB": clones(400, 1000 + _l * 100 + _d)}, tier="standard")
+            r = S.rsig({"TRB": clones(400, 1000 + _l * 100 + _d)}, corpus)
             rows.append(r)
             lab.append(_l)
     cols = [c for c in rows[0] if c.startswith("rsig:") and np.isfinite(rows[0][c])]

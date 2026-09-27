@@ -89,12 +89,9 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
 # One tool per half: mirpy emits the geometry, vdjtools the statistics. Join on sample_id.
-mir signature cohort/*.tsv.gz -o rsig.parquet                  # geometry; vdjtools emits vsig
-mir signature --preset classify --scale blood cohort/*.tsv.gz -o rsig.parquet
-mir signature --describe --preset classify        # the column dictionary; reads no input
-mir signature --channels                          # the channel vocabulary; reads no input
-mir presets                                       # the named feature sets, ranked
-mir presets classify                              # what one preset is, and when to use it
+mir corpus --corpus naive --smoke -o rsig_naive.npz             # fit a corpus; no cohort needed
+mir signature --corpus rsig_naive.npz cohort/*.tsv.gz -o rsig.parquet   # geometry half
+mir signature --corpus rsig_naive.npz --components 32 --describe        # exactly what you get
 ```
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
@@ -450,52 +447,45 @@ regression, boosting or an MLP with no scaler of their own.
 Command line and library both, and they emit the same columns:
 
 ```bash
-mir signature --preset classify --scale blood cohort/*.tsv.gz -o sig.parquet
-mir signature --channels                # what each group of columns measures; reads no input
+mir corpus    --corpus naive --smoke -o rsig_naive.npz
+mir signature --corpus rsig_naive.npz cohort/*.tsv.gz -o rsig.parquet
 ```
 
 ```python
-from mir.signature import signature, signature_cohort, channel_spec, describe, MODELS
+from mir.signature import Corpus, rsig_cohort
 
-F = signature_cohort(samples, tier="standard")   # one row per sample, 689 named columns
-describe("standard")                             # the column dictionary
+corpus = Corpus.load("rsig_naive.npz")      # REQUIRED -- there is no default
+F = rsig_cohort(samples, corpus, n_jobs=0)  # one row per sample
 ```
 
-Two halves, concatenated on `sample_id` and namespaced so they never collide: `vsig` (statistics of
-the clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig`
-(geometry — every column a linear functional, a norm, or a mixture coefficient of `Φ`). A column is
-`<sig>:<channel>:<locus>:<feature>`; the tiers `core` (153) ⊂ `standard` (689) ⊂ `full` (1404) are
-exact **index subsets** of one frozen order. The **channel** — the second field — is the level a
-finding is stated at: twenty names covering the whole vector, so "the classifier found something"
-becomes "IGH diversity and isotype composition carry it". See
-[**Channels**](https://docs.isalgo.dev/mirpy/channels.html).
+Two halves, joined on `sample_id` and namespaced so they never collide: `vsig` (statistics of the
+clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig` (geometry —
+functionals of `Φ`). A column is `<sig>:<block>:<locus>:<feature>`. What comes out per locus is
+`<sig>:pc:<locus>:PCnn` plus **channels**, which are carried in their own units and never rotated:
+`rsig:div:*:rao` (sequence-aware diversity) and `rsig:qc:-:winsor_frac` (how much of the row the
+corpus's bounds clamped). See [**Channels**](https://docs.isalgo.dev/mirpy/channels.html).
 
-**The rotation is fit-free.** The map reducing `Φ` to coordinates is the PCA of the *bundled
-prototype panel* — zero samples enter it, so nobody's coordinates move when a reference is
-refreshed. Only location and scale come from data, and those are what `--scale` selects:
+**A corpus is required, and it fixes everything that is fitted.** Bounds, centre, scale, rotation
+and per-PC scaling all come out of one pass over one matrix of repertoires. There is no default: a
+signature is comparable to another one only if both were rotated through the same corpus, and
+nothing about the numbers would say otherwise.
 
-| `--scale` | fitted on | scaled columns |
-|---|---|--:|
-| `deep-tcr` *(default)* | targeted deep TCR sequencing, 4,080 samples | 394 / 1403 |
-| `blood` | public SRA bulk RNA-seq, blood — 23,234 samples in 947 studies | 1377 / 1403 |
-| `tissue` | public SRA bulk RNA-seq, tissue — 13,577 samples in 1,024 studies | 1360 / 1403 |
+Until 4.0 the rotation was *fit-free* — the PCA of the bundled prototype panel, 10,000 individual
+**clonotypes** — while every one of the 399 PC columns it produced was a **repertoire** statistic,
+and its centre and scale were fitted on zero rows of that artifact and arrived from a separate
+corpus. Two independent fits, stitched; one shipped reference paired a centre of exactly `0.0` with
+a scale plainly fitted from data and put a corpus-typical sample **81 robust deviations** out.
 
-`deep-tcr` covers TRA and TRB only; the RNA-seq references cover all seven loci, which is what
-fills the B-cell columns. Each also ships an unweighted variant (`blood-unweighted`,
-`tissue-unweighted`): the default gives every **study** one vote, the unweighted variant every
-**sample**, so a single 3,000-sample submission would otherwise set the coordinates for everyone.
-Weighted is the default and it is not close — held-out-study agreement at 640 study groups passes
-**0.843–0.857** of columns against **0.533–0.551** unweighted. Take the unweighted fit only when
-your own cohort *is* one large study and you want its scale rather than a cross-study consensus.
+The two synthetic corpora need no cohort at all and are reproducible by anyone who installs the
+library — `naive` (every clone size 1, what the recombination model emits) and `memory` (Zipf
+rank-abundance clone sizes). `deep-tcr`, `blood` and `tissue` are fitted on real cohorts.
 
 **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
 statistic the sample is too shallow to estimate is `nan` plus a `mask:` column, because a model that
-reads "absent" as "zero" reads an unsequenced chain as biology. What the signature does *not* fix is
-batch: the spread transfers across cohorts and the offset does not, so `fit_scale(..., group=...)`
-hands you the list of batch-sensitive columns rather than leaving you to find it.
+reads "absent" as "zero" reads an unsequenced chain as biology.
 
-Full documentation — presets, transforms, what is fitted and what is not, and the end-to-end recipe
-for a folder of AIRR files: [**Signature**](https://docs.isalgo.dev/mirpy/signature.html).
+Full documentation — the corpora, the supports that decide which tail is trimmed, what is fitted and
+what is not: [**Signature**](https://docs.isalgo.dev/mirpy/signature.html).
 
 ## Exposure trajectory, generative loop, digital twin
 
