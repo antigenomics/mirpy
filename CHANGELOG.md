@@ -3,7 +3,7 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
-## 4.1.0 — 2026-09-27
+## 4.1.0 — 2026-09-28
 
 **Two corpora that describe a real compartment**, `synthetic-blood` and `synthetic-tissue`, shipped
 as `rsig_synthetic-blood.npz` / `rsig_synthetic-tissue.npz` beside the `naive` and `memory` pair.

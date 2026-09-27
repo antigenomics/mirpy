@@ -24,7 +24,10 @@ Quickstart
 
 .. code-block:: bash
 
-   # build a corpus once -- uses no samples from anybody's cohort
+   # four corpora ship with the wheel; name one, no build and no cohort needed
+   mir signature --corpus synthetic-blood cohort/*.tsv.gz -o rsig.tsv
+
+   # or build your own -- still uses no samples from anybody's cohort
    mir corpus --corpus naive --smoke -o naive_rsig.npz
 
    mir signature --corpus naive_rsig.npz cohort/*.tsv.gz -o rsig.tsv

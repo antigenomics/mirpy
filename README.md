@@ -484,9 +484,11 @@ and its centre and scale were fitted on zero rows of that artifact and arrived f
 corpus. Two independent fits, stitched; one shipped reference paired a centre of exactly `0.0` with
 a scale plainly fitted from data and put a corpus-typical sample **81 robust deviations** out.
 
-The two synthetic corpora need no cohort at all and are reproducible by anyone who installs the
-library — `naive` (every clone size 1, what the recombination model emits) and `memory` (Zipf
-rank-abundance clone sizes). `deep-tcr`, `blood` and `tissue` are fitted on real cohorts.
+All four shipped corpora need no cohort at all and are reproducible by anyone who installs the
+library — `synthetic-blood` and `synthetic-tissue` (the naive/memory mixture drawn across a
+compartment's measured per-locus ladders), plus the pure regimes `naive` (every clone size 1, what
+the recombination model emits) and `memory` (Zipf rank-abundance clone sizes). `deep-tcr`, `blood`
+and `tissue` will be fitted on real cohorts and are not shipped yet.
 
 **Holes are never zeros.** An unsequenced locus, a compartment below its clonotype floor, or a
 statistic the sample is too shallow to estimate is `nan` plus a `mask:` column, because a model that
