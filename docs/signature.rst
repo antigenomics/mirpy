@@ -190,10 +190,23 @@ Building a corpus
    mir corpus --corpus naive  -o naive_rsig.npz
    mir corpus --corpus memory --size n_eff --components 0.95 -o memory_rsig.npz
    mir corpus --smoke -o /tmp/smoke.npz
+   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker processes
+
+The build runs across worker **processes**, one contiguous block of samples each; ``-j/--jobs``
+defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
+builder, so a sample is the same repertoire in either -- its generator is seeded from
+``(seed, locus, index)``, which is also why the artifact is identical at every ``--jobs``.
+
+.. note::
+
+   ``--jobs`` is worker **processes**; ``POLARS_MAX_THREADS`` / ``OMP_NUM_THREADS`` are **kernel
+   threads**. mirpy shipped a ``--threads`` wired straight to the process count for several
+   releases -- 16 processes each claiming 16 threads -- so the distinction is stated wherever a
+   concurrency flag appears.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
-vdjtools' bundled recombination models, and is required to be byte-identical across processes and
-thread counts:
+vdjtools' bundled recombination models, and is required to be byte-identical across processes,
+worker counts and thread counts:
 
 .. code-block:: bash
 

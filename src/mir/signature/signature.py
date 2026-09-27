@@ -265,7 +265,7 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
                size: "int | str" = C.DEFAULT_SIZE, seed: int = C.SEED,
                n_components: "int | float" = C.DEFAULT_COMPONENTS, mode: str = "features",
                winsor_p: float = 0.01, source: str = "olga", species: str = "human",
-               progress=None):
+               progress=None, n_jobs: int = 1):
     """Build and fit an ``rsig`` corpus on the same synthetic repertoires ``vsig`` uses.
 
     The receptors, the seeds and the drawn depths are all
@@ -273,27 +273,25 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
     *same* repertoires -- which is what makes joining ``vsig_<name>`` and ``rsig_<name>`` on
     ``sample_id`` meaningful rather than merely type-correct.
 
+    Args:
+        n_jobs: Worker **processes** (not kernel threads). ``0`` means every available core; ``1``,
+            the default, runs in-process. The artifact is bit-identical at every value.
+
     Returns:
         ``(corpus, mats)`` -- ``mats`` being ``{locus: (matrix, columns)}``, the corpus matrix itself.
     """
+    from functools import partial
+
     import mir
 
     vocab = {loc: {} for loc in loci}
-    ordered, draw = C.sample_stream(regime, loci=loci, n_samples=n_samples, size=size, seed=seed,
-                                    source=source, progress=progress)
-    # One sample at a time into preallocated per-locus buffers. The samples themselves do not fit:
-    # 10,000 repertoires of ~25,000 clonotypes across seven loci is about 38 GB held at once.
-    mats = {}
-    for locus in ordered:
-        got = C.locus_matrix(vocab, "rsig", locus, n_samples)
-        if got is not None:
-            mats[locus] = got
-    for j in range(n_samples):
-        raw = raw_and_channels(draw(j), vocab, species=species)[0]
-        for locus, (buf, cols) in mats.items():
-            C.fill_row(buf, cols, j, raw)
-        if progress and (j + 1) % max(n_samples // 20, 1) == 0:
-            progress("featurise", j + 1, n_samples)
+    # Parallel across samples, in the one shared builder: an rsig row is a pure function of its
+    # sample, so a worker draws its own repertoires from the memory-mapped pools and only the row of
+    # numbers comes back. ``n_jobs`` does not change a single value.
+    mats = C.build_matrices(
+        regime, sig="rsig", vocab=vocab, loci=loci, n_samples=n_samples, size=size, seed=seed,
+        source=source, n_jobs=n_jobs, progress=progress,
+        featurise=partial(raw_and_channels, vocab=vocab, species=species))
     return C.fit_matrices(
         mats, vocab, sig="rsig", name=regime, mode=mode, n_components=n_components,
         winsor_p=winsor_p,

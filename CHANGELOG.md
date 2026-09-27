@@ -8,6 +8,18 @@ greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on bran
 **Signatures rewritten from scratch.** The geometry half; the statistics half is vdjtools 4.0.0,
 which this release requires. No legacy path, no backward compatibility, no artifact carried over.
 
+### Performance
+
+`synthesize` now runs on the shared `vdjtools.signature.corpus.build_matrices`, so the rsig corpus
+is built **across samples** in worker processes: each worker draws its own repertoires from
+memory-mapped pools and returns one row of numbers. The artifact is bit-identical at every `n_jobs`,
+because a sample is a pure function of its index. `mir corpus -j/--jobs` exposes it -- worker
+**processes**, `0` = the whole allocation; the help text says which layer it reaches.
+
+Measured on a 16-core M-series laptop, one seven-locus sample of 10,000 clonotypes per locus:
+`raw_and_channels` is **0.136 s**, so the rsig row was never the expensive part of a build. What was
+expensive is receptor generation, which is shared with vdjtools and is now parallel there.
+
 ### The defect this fixes
 
 `build_rsig.py` fitted `R_V`, `R_J` and `R_C` on `(10_000, 768)` — one row per **clonotype**, from

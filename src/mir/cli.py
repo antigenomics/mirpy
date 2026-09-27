@@ -423,7 +423,7 @@ def cmd_corpus(a: argparse.Namespace) -> None:
     t0 = time.time()
     art, _rows = synthesize(a.corpus, n_samples=n_samples, size=size, seed=a.seed,
                             n_components=ks, mode=a.winsorize, winsor_p=a.winsor_p,
-                            source=a.source, species=a.species,
+                            source=a.source, species=a.species, n_jobs=a.jobs,
                             progress=lambda loc, d, t: print(
                                 f"  {loc:4s} {d}/{t}  {time.time() - t0:5.0f}s",
                                 file=sys.stderr, flush=True), **kw)
@@ -578,6 +578,9 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--species", default="human")
     c2.add_argument("--smoke", action="store_true",
                     help="reduced build (200 samples of 1000) for tests and the cmp check")
+    c2.add_argument("-j", "--jobs", type=int, default=0,
+                    help="worker PROCESSES across samples (not kernel threads): 0 = every core, "
+                         "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
 
 
