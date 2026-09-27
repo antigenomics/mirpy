@@ -298,7 +298,9 @@ def synthesize(regime: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int 
         meta={"regime": regime, "n_samples": n_samples, "seed": seed, "source": source,
               "size": size, "species": species, "K": F.K,
               "size_per_locus": {k: C.resolved_size(k, size) for k in loci},
-              "mir_version": mir.__version__, "loci": list(loci)}), mats
+              "mir_version": mir.__version__, "loci": list(loci),
+              # The pools come out of these models; retraining one moves its locus. Gated on load.
+              "models": C.model_fingerprint(loci, source)}), mats
 
 
 def _demo() -> None:

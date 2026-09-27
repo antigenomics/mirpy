@@ -86,6 +86,25 @@ two cannot drift into different notions of "standardised".
   trusted: two spellings of one telescoping identity.
 - **The corpus build is byte-identical across thread counts**, verified `cmp` on the npz.
 
+### Added: the shipped corpora, and a gate on the germline they were drawn from
+
+`rsig_naive` and `rsig_memory` ship in `src/mir/resources/signature/` — 10,000 synthetic repertoires
+each at 10,000 receptors, all seven human loci, `k = 128` per locus, 1.62 MB. Variance reached at 128
+components runs from **0.9887** (IGH, `naive`) to **0.9992** (IGK), against 0.377–0.854 for the
+statistics half, because the geometry half's raw features are a few hundred embedding coordinates
+rather than a few thousand sparse usage shares.
+
+The manifest records `models`, a per-locus hash of the **cut segments the generator drew from**, and
+`Corpus.verify` refuses an artifact whose hash no longer matches the installed models. It replaces a
+comparison against the library version, which was both too strict — a patch release invalidated every
+corpus — and unable to see the thing that matters: repairing `TRBV4-3*02`'s anchor (vdjtools 4.0.0)
+changed what every TRB pool contains while leaving the declared model version identical.
+
+The `resources/signature/` directory is back, and `test_there_is_no_contrast_group_and_no_frozen_naive_vector`
+now names what must stay gone — the prototype-cloud rotation, the frozen `naive` vector and the six
+scale references — rather than asserting the directory does not exist. A corpus artifact is the
+opposite of those: fitted on repertoires, named in every output, and gated on its germline.
+
 ## 3.20.2 — 2026-09-26
 
 ### Fixed — `unapply` accepted a `squash` it ignored

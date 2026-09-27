@@ -179,8 +179,16 @@ def test_there_is_no_contrast_group_and_no_frozen_naive_vector():
     root = __import__("pathlib").Path(mir.signature.__file__).parent
     for gone in ("assemble.py", "blocks.py", "reference.py", "scale.py"):
         assert not (root / gone).exists(), gone
-    assert not (root.parent / "resources" / "signature").exists(), \
-        "the old frozen artifacts are still installed"
+    res = root.parent / "resources" / "signature"
+    # The directory is back, but only for corpus artifacts. What must never return is a FROZEN
+    # reference: the prototype-cloud rotation, the naive vector and the six scale references were the
+    # defect, and a corpus is the opposite of them -- fitted on repertoires, named in the output, and
+    # gated on the germline it was drawn from.
+    stale = sorted(q.name for q in res.glob("*")
+                   if q.name.startswith(("scale_", "rsig_v", "kmer_spaces"))
+                   or q.name == "build_rsig.py")
+    assert stale == [], f"the old frozen artifacts are still installed: {stale}"
+    assert sorted(q.stem for q in res.glob("*.npz")) == ["rsig_memory", "rsig_naive"]
 
 
 # ------------------------------------------------------------- 4. holes, and the corpus
