@@ -53,6 +53,8 @@ pairwise alignment distance (Theory T1).
    paired = PairedTCREmp.from_defaults("human", ("TRA", "TRB"))
    Xp = paired.embed({"TRA": tra_df, "TRB": trb_df})
 
+.. _which-prototypes:
+
 Which prototypes?
 ~~~~~~~~~~~~~~~~~
 
@@ -310,6 +312,59 @@ automatic (CUDA → MPS → CPU; override with ``device=`` or ``MIR_DEVICE``).
    emb = encoder.encode(sample["junction_aa"].to_list())     # …or the full-space embedding
 
 Training scripts and shipped bundles live in the companion analysis repo; this tier is experimental.
+
+Performance and parallelism
+---------------------------
+
+mirpy is CPU-parallel by default and reaches for the GPU only in :mod:`mir.ml`. The knobs, by hot
+path:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 24 16 38
+
+   * - Stage
+     - Knob
+     - Default
+     - Notes
+   * - Embedding (junction distance)
+     - ``TCREmp(..., threads=N)``
+     - ``0``, all cores
+     - The C++ ``seqtree.gapblock`` scorer. Releases the GIL; about 530 million pairs per second on
+       16 cores. ``threads=1`` for a serial run.
+   * - Density kNN and balloon estimator
+     - ``neighbor_enrichment(..., backend=...)``
+     - ``"kdtree"``, all cores
+     - Exact and multithreaded, 5 to 9 times faster than the BallTree baseline. ``"ann"``
+       (pynndescent) is about 30 times faster past 1e5 clones, with the **observed** side
+       approximate and the **background** side always exact. ``"exact"`` is the single-core BallTree
+       baseline, for reproducing older runs.
+   * - Clustering
+     - ``cluster(..., n_jobs=-1)``
+     - sklearn default, 1
+     - Forwarded to DBSCAN, OPTICS or HDBSCAN, and parallelises their neighbour search.
+   * - BLAS: PCA, RFF, matmul
+     - ``OMP_NUM_THREADS``, ``OPENBLAS_NUM_THREADS``
+     - all cores
+     - numpy and sklearn use the platform BLAS. Cap these if you are oversubscribing the machine.
+   * - Neural codecs
+     - ``pick_device()``, ``device=``, ``MIR_DEVICE``
+     - CUDA, then MPS, then CPU
+     - Every ``train_*`` entry point and every codec takes ``device=``; ``MIR_DEVICE=cuda:1`` pins
+       the second GPU. The torch-free paths -- :mod:`mir.density`, :mod:`mir.repertoire` -- never
+       touch the GPU.
+
+As a rule: leave embedding at ``threads=0``, leave density on ``kdtree`` and switch to ``ann`` only
+at whole-repertoire scale.
+
+.. note::
+
+   The approximate backend is deliberately asymmetric. A recall below 1 undercounts the **observed**
+   neighbourhood, which biases enrichment *down* and is therefore conservative. Undercounting the
+   **background** would shrink the expected count and inflate both fold-change and significance,
+   which is the one direction an enrichment test must never err in -- so the background occupancy is
+   computed exactly whatever the backend.
+
 
 Benchmark harness & reproducing the paper
 ------------------------------------------

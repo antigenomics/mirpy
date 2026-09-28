@@ -23,7 +23,13 @@ extensions = [
     "sphinx.ext.mathjax",     # the math section renders client-side; no LaTeX in the build
     "sphinx.ext.graphviz",    # schematics are dot, drawn natively (a TikZ pass would need LaTeX)
     "themed_graphviz",        # docs/_ext: one dot source -> a light and a dark rendering
+    "sphinx_design",          # the landing page's card grids
+    "sphinx_copybutton",      # a copy button on every code block
 ]
+
+# Copy the command, not the shell prompt or the REPL chevrons, when a block shows them.
+copybutton_prompt_text = r">>> |\.\.\. |\$ "
+copybutton_prompt_is_regex = True
 
 # SVG so the schematics stay sharp and selectable; needs the `dot` binary at build time.
 graphviz_output_format = "svg"

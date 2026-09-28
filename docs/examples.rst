@@ -47,5 +47,5 @@ living documentation for the three tiers. Install the extra and open one:
        carry ~59% of the variance and *none* of them reproduces across a group-disjoint refit.
 
 The full benchmark suite (VDJdb Table S1, density, repertoire / TCGA cohorts) and its result docs
-live in the companion `2026-mirpy-analysis <https://github.com/antigenomics>`_ repository; this repo
+live in the companion ``2026-mirpy-analysis`` repository; this repo
 keeps the library, its tests, and these bundled-data examples.

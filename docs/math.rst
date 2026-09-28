@@ -1289,34 +1289,34 @@ others, and which ones decides what may still be computed downstream.*
      - mixture linearity
      - use
    * - replicate averaging (rarefaction)
-     - ✔
-     - ✔ (with the exact :math:`v_{\text{rep}}` gap)
-     - ✔
+     - yes
+     - yes (with the exact :math:`v_{\text{rep}}` gap)
+     - yes
      - matched-depth comparison
    * - global scalar rescale
-     - ✔ (up to scale)
-     - ✘
-     - ✔
+     - yes (up to scale)
+     - no
+     - yes
      - magnitude-carrying blocks
    * - centring / PCA projection
-     - ✔
-     - ✘
-     - ✔ (affine, same shift per band)
+     - yes
+     - no
+     - yes (affine, same shift per band)
      - visualisation, Cox input
    * - per-column standardisation
-     - ✘
-     - ✘
-     - ✘
+     - no
+     - no
+     - no
      - **never** on a magnitude block
    * - orthogonal projection
-     - ✔ (on the retained subspace)
-     - ✘
-     - ✔
+     - yes (on the retained subspace)
+     - no
+     - yes
      - nuisance removal
    * - sub-probability scaling :math:`(1-M_0)`
-     - ✔ (as a signed contrast)
-     - ✘
-     - ✔
+     - yes (as a signed contrast)
+     - no
+     - yes
      - deficient coverage
 
 Two rows deserve to be read twice.
