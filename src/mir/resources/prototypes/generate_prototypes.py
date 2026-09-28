@@ -3,7 +3,8 @@
 
 Populates ``mir/resources/prototypes/`` with one TSV per (species, locus): ``N_PROTOTYPES`` rows
 of ``v_call, j_call, junction_aa`` sampled from **productive real reads annotated by arda**
-(``vdjtools.model.data.prepare(..., "functional")`` over the ``isalgo/airr_model_read`` FASTQs →
+(``vdjtools.model.data.prepare(..., "functional")`` over the FASTQs of the **private**
+HuggingFace dataset ``isalgo/airr_model_read`` →
 ``arda rnaseq map``). This gives arda IMGT allele names (one coordinate frame with arda-annotated
 query data → no germline-distance fallback) **and** the real CDR3 junction manifold, which embeds
 far better than synthetic P_gen junctions: EM-learned generative models produce degenerate
