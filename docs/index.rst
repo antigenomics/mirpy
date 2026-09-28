@@ -58,6 +58,20 @@ PyPI package ``mirpy-lib``, import name ``mir``. Pure Python; the heavy lifting 
       Why the prototype embedding is a coordinate system, what the repertoire vector knows, and
       what distance between two repertoires means.
 
+   .. grid-item-card:: Worked examples
+      :link: notebooks
+      :link-type: doc
+
+      Six runnable notebooks. Start with the signature pipeline: a folder of AIRR files to one
+      table you can join with your metadata.
+
+   .. grid-item-card:: Glossary
+      :link: glossary
+      :link-type: doc
+
+      Every term this documentation uses. The immunology and signature vocabularies are defined
+      once, in vdjtools' glossary, and linked from here.
+
 Install
 -------
 
@@ -276,5 +290,4 @@ on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
    :caption: Worked examples
    :maxdepth: 2
 
-   examples
    notebooks

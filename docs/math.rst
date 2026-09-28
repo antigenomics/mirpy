@@ -204,7 +204,7 @@ Squared versus root metric
 ``metric="squared"`` (the default, and the published space) uses :math:`d`; ``metric="sqrt"`` uses
 :math:`\rho = \sqrt{d}`. The latter is the metrically tidier choice — :math:`\sqrt{d}` satisfies the
 triangle inequality for a wider class of :math:`d` and makes the space of negative type, hence
-Hilbert-embeddable (``prop:schoenberg``) — and benchmarked as a wash, so the default stays put.
+Hilbert-embeddable (``prop:schoenberg``) — and measured to make no difference, so the default stays.
 
 **Call.** :meth:`mir.embedding.tcremp.TCREmp.embed` → ``(n, 3K)``;
 :func:`mir.distances.junction.junction_distance_matrix` for the junction block alone.

@@ -14,10 +14,10 @@ Install & the data model
    pip install "mirpy-lib[bench]"   # + benchmark harness (matplotlib, huggingface_hub, lifelines)
    pip install "mirpy-lib[ann]"     # + approximate-NN density backend (pynndescent)
    pip install "mirpy-lib[ml]"      # + neural codecs (torch)
-   pip install "mirpy-lib[examples]"# + marimo notebooks (marimo, matplotlib, umap-learn)
+   pip install "mirpy-lib[examples]"  # + marimo notebooks (marimo, matplotlib, umap-learn)
 
-Requires ``vdjtools>=3.0.0`` and ``seqtree>=0.3.0``; ``mir`` itself is a pure-Python
-``py3-none-any`` wheel. A clonotype table is a polars frame; clone sizes live in
+Requires ``vdjtools>=4.3.0`` and ``seqtree>=1.0.0``, both installed for you; ``mir`` itself is a
+pure-Python ``py3-none-any`` wheel. A clonotype table is a polars frame; clone sizes live in
 ``duplicate_count`` (repertoire-level embeddings weight by them):
 
 .. code-block:: python
@@ -113,7 +113,7 @@ Pick prototype counts / PCA dims from the per-chain presets, and denoise with PC
    mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
    #   input:  any format vdjtools.io reads; locus inferred (or pass --locus)
    #   output: one row per clonotype (id columns + e0…), TSV or (recommended for the wide raw
-   #           embedding) Parquet.  --n-prototypes / --mode / --pca / --threads for the knobs.
+   #           embedding) Parquet.  --n-prototypes / --mode / --pca / --threads are the options.
 
 Clustering antigen-specific TCRs
 --------------------------------
@@ -316,8 +316,8 @@ Training scripts and shipped bundles live in the companion analysis repo; this t
 Performance and parallelism
 ---------------------------
 
-mirpy is CPU-parallel by default and reaches for the GPU only in :mod:`mir.ml`. The knobs, by hot
-path:
+mirpy is CPU-parallel by default and uses the GPU only in :mod:`mir.ml`. The settings that
+control it, per hot path:
 
 .. list-table::
    :header-rows: 1

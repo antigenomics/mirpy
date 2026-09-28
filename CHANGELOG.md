@@ -90,6 +90,39 @@ A channel is pass-through: the rotation is indexed by `raw_columns` and nothing 
 `corpus.apply` fills every registered channel from the sample. Every artifact already published
 gains these columns with **no refit and no new download**.
 
+### Added: `mir signature --min-clonotypes N`
+
+The estimability floor was reachable from Python (`rsig(..., min_clonotypes=5)`) and from the
+command's own epilog, which told readers to use a `--min-clonotypes` flag the parser did not
+define. It defines it now. `tests/test_cli_flags_are_documented.py` pins both directions: every
+flag the help text names must exist, and every flag that changes an answer must appear in
+`docs/cli.rst`.
+
+### Documentation
+
+- **`examples/signature_pipeline.py` ran a command that no longer exists.** It invoked
+  `mir signature --preset classify` — a flag deleted in 4.0.0 — swallowed the non-zero exit into a
+  status line, and then failed reading the file the command had not written. Rewritten against the
+  real interface: `--corpus blood --components 32`, both halves run and joined for real at the end,
+  and a failing subprocess now raises instead of rendering as status. It also described `mir
+  signature` as emitting both halves and showed `vsig:` columns, which it has not done since 4.0.0.
+- **`examples/signature.py`** described the `contrast` block and a frozen naive vector, both
+  removed in 4.0.0, and closed by saying no corpus-fitted rotation ships — which is what 4.0.0
+  changed. Corrected, with what replaced each.
+- **`docs/examples.rst` deleted.** It duplicated `docs/notebooks.rst`, linked a
+  `examples/feature_vectors.py` that no longer exists, and described presets and a `nuisance`
+  control removed in 4.0.0. `notebooks.rst` is now the single worked-examples page and lists all
+  six notebooks.
+- **Corpus claims corrected.** The docs said four corpora ship with the wheel; nine are published,
+  and since 4.2.0 the artifacts are release assets fetched on first use.
+- **`--named`, `--winsor-p`, `--on-duplicate` and `--min-clonotypes`** added to `docs/cli.rst`,
+  which had documented six of the ten options that change an answer.
+- A plain-language introduction to what the geometry half measures, ahead of the mathematics; the
+  glossary now delegates the shared signature vocabulary to vdjtools' glossary explicitly rather
+  than leaving it undefined in both.
+- `tests/test_examples_wiring.py` checks every notebook's cell graph statically — a cell may not
+  consume a name no cell provides, and no name may be defined twice.
+
 ## 4.2.0 — 2026-09-28
 
 The `rsig` half of the three real corpora, and the mechanism that ships them. Requires vdjtools

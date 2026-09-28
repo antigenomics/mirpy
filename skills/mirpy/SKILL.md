@@ -71,6 +71,8 @@ mir signature S1 S2 … --corpus blood -o rsig.parquet         # geometry ONLY (
 # the vsig half is `vdjtools signature`, against the SAME corpus name and seed;
 # join the two on sample_id for the full vector
 mir signature --corpus blood --describe   # exactly what this invocation emits
+mir signature S1 S2 --corpus blood --min-clonotypes 20   # raise the div/disp estimability floor
+mir corpus --fetch all                    # pre-warm the artifact cache (install-time step)
 ```
 
 - Reads anything `vdjtools.io.read` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ, parquet).
@@ -92,7 +94,7 @@ mir signature --corpus blood --describe   # exactly what this invocation emits
 | `get_preset` / `ChainPreset` | Recommended `n_prototypes` + PC counts per chain. Compact chains (IGK/IGL/TRG) 1000/~20 PCs; diverse (IGH/TR*) 2000/~65 PCs at 95% var, ~220–300 at 99%. |
 | `pca_denoise` | PCA compaction of an embedding matrix (T3). |
 
-Knobs on `TCREmp`, all defaulting to the published space: `metric="squared"` (vs `"sqrt"`),
+Options on `TCREmp`, all defaulting to the published space: `metric="squared"` (vs `"sqrt"`),
 `matrix=` a custom `seqtree.SubstitutionMatrix`, `alignment="gapblock"` (vs paper-exact `"sw"`,
 validation-only), `mode="vjcdr3"` (vs `"cdr123"`), `threads=0` (all cores).
 
@@ -160,6 +162,7 @@ Rao of a one-clonotype locus is arithmetically `0.0` and is a presence mask wear
 name — it sat ~29 robust deviations below the 1st percentile and produced a Cox hazard ratio of 739
 per SD at p = 7e-155 off **one patient** (Spearman with the outcome: −0.023). The **geometry is
 still computed** there; `Phi` is measurable from three clonotypes when its dispersion is not.
+The floor is `min_clonotypes=5` in `rsig`/`rsig_cohort` and `--min-clonotypes N` on the CLI.
 
 **Adding a channel does not invalidate a fitted corpus** — the rotation is indexed by `raw_columns`
 only, and `corpus.apply` fills every registered channel from the sample. No refit, no re-download.

@@ -1,8 +1,8 @@
 # mirpy -- from a folder of AIRR TSV files to one table you can join with your metadata.
 #
-# 2026-09-24. The whole stakeholder pipeline and nothing else: point `mir signature` at a
-# directory, get one row per sample, join it to your own sheet on `sample_id`, done. Every
-# other notebook here is about the method; this one is about the four commands.
+# 2026-09-28. The whole pipeline and nothing else: point `mir signature` at a directory, get one
+# row per sample, join it to your own sheet on `sample_id`, done. Every other notebook here is
+# about the method; this one is about the commands.
 #
 # Data: `isalgo/airr_benchmark`, folder `sra/` -- 1,764 per-sample AIRR TSVs plus `meta.tsv`
 # (PMID, Run, BioProject, Sample). Auto-downloads and caches; a local `./data_dump/` copy wins.
@@ -27,18 +27,41 @@ def _(mo):
         """
         # A folder of AIRR files to a joinable table
 
-        You have a directory of per-sample AIRR TSVs and a metadata sheet. You want one row per
-        sample, with named feature columns, that you can join to that sheet and analyse.
+        You have a directory of per-sample AIRR TSVs and a metadata sheet. You want **one row per
+        sample**, with named feature columns, that you can join to that sheet and hand to a
+        classifier or a regression.
 
-        That is one command:
+        That is one command per half of the signature:
 
         ```bash
-        mir signature --preset classify samples/*.tsv -o sig.tsv
+        mir      signature --corpus blood samples/*.tsv -o rsig.tsv   # geometry  (this library)
+        vdjtools signature --corpus blood samples/*.tsv -o vsig.tsv   # statistics (vdjtools)
         ```
 
-        `sample_id` is the file name up to the first dot, so `samples/SRR8364167.tsv` becomes
-        `SRR8364167`. Name the files after the key your metadata already uses and the join needs
-        no mapping table. The rest of this notebook runs exactly that on a real cohort.
+        and one join. `sample_id` is the file name up to the first dot, so `samples/SRR8364167.tsv`
+        becomes `SRR8364167`. Name the files after the key your metadata already uses and the join
+        needs no mapping table.
+
+        ## The two things to understand before running it
+
+        **What the halves measure.** The *statistics* half (`vsig`) is the classical repertoire
+        summary: how diverse, how clonal, which V and J genes, what junction lengths, which
+        isotypes. The *geometry* half (`rsig`) is where the receptors sit in sequence space --
+        each clonotype is placed by its similarity to a fixed panel of reference receptors, and
+        the sample is summarised by the clone-size-weighted average of those placements. Two
+        donors can have identical diversity and still occupy different regions of sequence space,
+        which is what the second half is for.
+
+        **What `--corpus` does, and why it is required.** Raw repertoire features live on wildly
+        different scales (reads in the millions, a frequency in `[0, 1]`) and are strongly
+        correlated with each other and with sequencing depth. A *corpus* is a large published
+        reference collection of repertoires; the signature is expressed relative to it. That makes
+        your matrix and a collaborator's directly comparable, with neither of you fitting a scaler.
+        There is no default corpus, because two matrices rotated through different corpora are not
+        comparable and nothing about the numbers would say so. `blood` is fitted on 11,117 real
+        blood samples; pick the one that matches how your samples were produced.
+
+        The rest of this notebook runs exactly those commands on a real cohort.
         """
     )
     return
@@ -55,6 +78,8 @@ def _():
 
     REPO = "isalgo/airr_benchmark"
     HF_FOLDER = "sra"
+    CORPUS = "blood"       # bulk blood samples -> the blood corpus; fetched and cached on first use
+    COMPONENTS = 32        # how many rotated coordinates per locus to keep
 
     def local_base(nb_dir):
         """`./data_dump/airr_benchmark/sra/` if present, else None (then we fetch)."""
@@ -64,7 +89,8 @@ def _():
                 return cand
         return None
 
-    return HF_FOLDER, Path, REPO, local_base, pl, subprocess, sys, tarfile
+    return (COMPONENTS, CORPUS, HF_FOLDER, Path, REPO, local_base, pl,
+            subprocess, sys, tarfile)
 
 
 @app.cell
@@ -97,33 +123,43 @@ def _(HF_FOLDER, Path, REPO, local_base, mo, tarfile):
 @app.cell
 def _(mo):
     n_samples = mo.ui.slider(10, 200, value=20, step=10,
-                            label="samples to run (roughly 0.6 s each on eight cores)")
+                            label="samples to run (roughly 0.4 s each)")
     n_samples
     return (n_samples,)
 
 
 @app.cell
-def _(files, mo, n_samples, subprocess, sys, work):
+def _(COMPONENTS, CORPUS, files, mo, n_samples, subprocess, sys, work):
     # --- THE COMMAND ------------------------------------------------------------------------
-    # Exactly what a stakeholder types, run through subprocess so the notebook shows the real
-    # CLI rather than a Python re-implementation of it.
+    # What you would type, run through subprocess so the notebook shows the real CLI rather than
+    # a Python re-implementation of it. A failure raises: a command that did not run must not
+    # render as a status line.
     subset = files[: n_samples.value]
-    sig_path = work / f"sig_{len(subset)}.tsv"
+    sig_path = work / f"rsig_{len(subset)}_{CORPUS}.tsv"
 
     if not sig_path.exists():
-        _cmd = [sys.executable, "-m", "mir.cli", "signature", "--preset", "classify",
+        _cmd = [sys.executable, "-m", "mir.cli", "signature",
+                "--corpus", CORPUS, "--components", str(COMPONENTS),
                 *[str(p) for p in subset], "-o", str(sig_path)]
         _r = subprocess.run(_cmd, capture_output=True, text=True)
-        _tail = _r.stderr.strip().splitlines()[-1:] or [""]
-        _msg = _tail[0]
+        if _r.returncode != 0:
+            raise RuntimeError(f"mir signature failed ({_r.returncode}):\n{_r.stderr}")
+        _msg = (_r.stderr.strip().splitlines() or [""])[0]
     else:
         _msg = "cached"
 
     mo.md(f"""
     ```bash
-    mir signature --preset classify samples/*.tsv -o sig.tsv
+    mir signature --corpus {CORPUS} --components {COMPONENTS} samples/*.tsv -o rsig.tsv
     ```
-    {len(subset)} samples -> `{sig_path.name}`. {_msg}
+    {len(subset)} samples -> `{sig_path.name}`
+
+    ```
+    {_msg}
+    ```
+
+    The stderr line is the provenance of the matrix: which corpus, that corpus's content hash,
+    what was clamped, how wide the result is. Keep it with the file.
     """)
     return sig_path, subset
 
@@ -137,7 +173,7 @@ def _(meta_path, mo, pl, sig_path):
 
     unmatched = full["PMID"].null_count()
     mo.md(f"""
-    `sig.tsv` is **{sig.height} rows x {sig.width} columns**; joined to metadata on
+    `rsig.tsv` is **{sig.height} rows x {sig.width} columns**; joined to metadata on
     `sample_id == Run` it is **{full.width} columns**, with **{unmatched} unmatched**.
 
     That table is the deliverable. Everything after this is your analysis.
@@ -148,7 +184,7 @@ def _(meta_path, mo, pl, sig_path):
 @app.cell
 def _(full, mo, pl):
     mo.ui.table(full.select("sample_id", "PMID", "BioProject",
-                            *[c for c in full.columns if c.startswith("vsig:div:TRB")][:3]
+                            *[c for c in full.columns if c.startswith("rsig:pc:TRB")][:3]
                             ).head(10).with_columns(pl.selectors.float().round(3)))
     return
 
@@ -159,12 +195,21 @@ def _(mo):
         """
         ## What the `nan` columns mean
 
-        A hole is never filled with zero -- `nan` means *not estimable*. Most holes are a property
-        of the sample (the locus is absent, or too shallow for that estimator) and you separate
-        those with the `vsig:mask:<locus>:present` / `:estimable` columns.
+        A missing value is never filled with zero -- `nan` means **not estimable**, and a zero
+        would be a number a model would happily learn from. Most holes are a property of the
+        sample rather than of the software, and two different facts are kept apart:
 
-        One class of hole is a property of the **shipped reference**, not of your data, and it is
-        worth seeing once so it is never mistaken for a bug.
+        | column | says |
+        |---|---|
+        | `rsig:mask:<locus>:present` | the locus has at least one productive clonotype |
+        | `rsig:mask:<locus>:estimable` | it has enough clonotypes for the dispersion estimators |
+
+        A blood sample with no gamma-delta T cells has no TRG locus to measure; a sample with
+        three TRG clonotypes has a locus but cannot support a variance. The first is
+        `present = 0`, the second `present = 1, estimable = 0`. Both render as `nan` in the
+        feature columns, and the masks are what tell them apart -- which is why the masks are
+        **features in their own right**, not diagnostics: which donors sit below the floor tracks
+        real lymphocyte content.
         """
     )
     return
@@ -187,20 +232,13 @@ def _(mo, pl, sig):
             .sort("n", descending=True)) if _rows else pl.DataFrame()
 
     mo.md(f"""
-    **{len(_dead)} of {len(_cols)} columns are `nan` for every sample.** Per block:
+    **{len(_dead)} of {len(_cols)} columns are `nan` for every sample in this subset.** Per block:
 
     {mo.as_html(_tab) if _rows else "none"}
 
-    A locus with no productive clonotype is a hole everywhere, and `vsig:mask:<locus>:present`
-    says so. A locus that is present but too shallow to reach the coverage target loses its
-    diversity columns only, and `vsig:mask:<locus>:estimable` says *that* -- two different facts
-    that used to render as the same `nan`.
-
-    The coverage target is a **runtime argument**, not a corpus constant: `--cstar-target` defaults
-    to this cohort's own per-locus minimum attained coverage, and `vsig:cov:<locus>:cstar` reports
-    what each sample actually reached. Until 4.0 the target lived in the scaling artifact, which is
-    how one shipped reference came to standardise tissue samples to a level measured on blood --
-    identical to 17 significant digits across all seven loci.
+    Read that as a description of the cohort, not of the library. These are amplicon libraries
+    with one locus amplified per run, so every other locus is legitimately absent -- and a locus
+    that no sample in the subset observed is a hole for all of them.
     """)
     return
 
@@ -211,9 +249,15 @@ def _(mo):
         """
         ## Reading the result: channels
 
-        A signature is rotated coordinates plus **channels**. The channels are the columns carried
-        in their own units and never rotated -- because a provenance number mixed with the
-        measurements it was supposed to qualify is no longer provenance. Read them first.
+        A signature is **rotated coordinates plus channels**.
+
+        The rotated coordinates (`rsig:pc:<locus>:PC01`, …) are the signature proper: correlated
+        raw features re-expressed as uncorrelated axes ordered by how much variation each one
+        carries across the corpus. They are the columns a model consumes, and they are not
+        individually interpretable -- `PC01` is a direction, not a quantity.
+
+        The **channels** are carried in their own units and never rotated, because a number whose
+        job is to qualify a measurement must not be mixed into the measurement. Read them first.
         """
     )
     return
@@ -223,9 +267,7 @@ def _(mo):
 def _(mo, pl, sig):
     from mir.signature import channel_columns
 
-    _chan = [c for c in sig.columns if c in set(channel_columns("rsig"))
-             or c in set(__import__("vdjtools.signature", fromlist=["channel_columns"])
-                         .channel_columns("vsig"))]
+    _chan = [c for c in sig.columns if c in set(channel_columns("rsig"))]
     _pcs = [c for c in sig.columns if ":pc:" in c]
     _tab = pl.DataFrame({"column": _chan, "value": [sig[c][0] for c in _chan]})
 
@@ -234,17 +276,20 @@ def _(mo, pl, sig):
 
     {mo.as_html(_tab.head(12))}
 
-    The three to read before trusting any rotated value of a row:
+    The ones to read before trusting any rotated value of a row:
 
     | channel | what it says |
     |---|---|
-    | `qc:-:winsor_frac` | how much of the row the corpus's bounds clamped. Near 1.0 means this
-      sample does not belong to this corpus -- not that it is unusual |
-    | `cov:<locus>:cstar` | the coverage this sample actually attained, always emitted |
-    | `mask:<locus>:estimable` | whether the diversity columns rest on a real estimate |
+    | `rsig:qc:-:winsor_frac` | the fraction of the row the corpus's bounds clamped. A value near
+      1.0 means this sample lies outside the corpus's range, so the standardisation is
+      extrapolating -- pick a closer corpus rather than proceeding |
+    | `rsig:mask:<locus>:present`, `:estimable` | whether the locus was there, and whether it had
+      enough clonotypes to measure |
+    | `rsig:div:<locus>:*` | how spread out the sample's receptors are in the embedding, in the
+      embedding's own units |
 
-    Hand the rotated columns to `mir.explain.channel_report` with a scorer of your own to find
-    which block carries your signal:
+    To find *which* block carries your signal, hand the matrix to `mir.explain.channel_report`
+    with a scorer of your own:
 
     ```python
     from mir.explain import channel_report
@@ -259,30 +304,53 @@ def _(mo, pl, sig):
 def _(mo):
     mo.md(
         """
-        ## The two halves
+        ## Both halves
 
-        Each tool emits its own half, against its own artifact for the **same corpus name and
-        seed**. There is no joined entry point any more: each half has its own artifact, so the
-        wrapper's only real job -- one scale reference over both -- no longer exists, and two calls
-        plus a polars join is the whole story.
+        Each tool emits its own half against its own artifact for the **same corpus name**. There
+        is no joined entry point: two commands and a polars join is the whole story.
 
         ```bash
-        vdjtools corpus    --corpus naive --smoke -o vsig_naive.npz
-        mir      corpus    --corpus naive --smoke -o rsig_naive.npz
-        vdjtools signature --corpus vsig_naive.npz samples/*.tsv -o vsig.tsv
-        mir      signature --corpus rsig_naive.npz samples/*.tsv -o rsig.tsv
+        pip install vdjtools mirpy-lib
+
+        vdjtools signature --corpus blood --components 32 samples/*.tsv -o vsig.tsv
+        mir      signature --corpus blood --components 32 samples/*.tsv -o rsig.tsv
         ```
 
         ```python
         full = vsig_frame.join(rsig_frame, on="sample_id", how="inner")
         ```
 
-        Column names are `<sig>:<block>:<locus>:<feature>`, with `-` for cross-locus columns. The
-        two halves are disjoint by construction, so the join cannot collide -- and a matrix is
-        comparable to another one only if both were rotated through the same corpus.
+        Column names are `<half>:<block>:<locus>:<feature>`, with `-` in the locus position for
+        columns that span loci. The two halves are disjoint by construction, so the join cannot
+        collide. The next cell runs both and joins them.
         """
     )
     return
+
+
+@app.cell
+def _(COMPONENTS, CORPUS, mo, pl, sig, subprocess, subset, sys, work):
+    # --- BOTH HALVES, for real --------------------------------------------------------------
+    _vsig_path = work / f"vsig_{len(subset)}_{CORPUS}.tsv"
+    if not _vsig_path.exists():
+        _cmd = [sys.executable, "-m", "vdjtools.cli", "signature",
+                "--corpus", CORPUS, "--components", str(COMPONENTS),
+                *[str(p) for p in subset], "-o", str(_vsig_path)]
+        _r = subprocess.run(_cmd, capture_output=True, text=True)
+        if _r.returncode != 0:
+            raise RuntimeError(f"vdjtools signature failed ({_r.returncode}):\n{_r.stderr}")
+
+    vsig = pl.read_csv(_vsig_path, separator="\t")
+    both = vsig.join(sig, on="sample_id", how="inner")
+
+    mo.md(f"""
+    `vsig` is **{vsig.width} columns**, `rsig` is **{sig.width}**, and the join is
+    **{both.width}** on **{both.height} samples** -- so the two halves share exactly the
+    `sample_id` key and nothing else.
+
+    That joined table is the model-ready matrix.
+    """)
+    return both, vsig
 
 
 if __name__ == "__main__":

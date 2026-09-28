@@ -6,7 +6,16 @@ A *signature* is a fixed-order, name-addressed feature vector for one repertoire
 <https://github.com/antigenomics/vdjtools>`_ and shares the same contract, the same corpus machinery
 and the same column grammar.
 
-Everything in this half rests on one object:
+**What this half measures, in words.** The statistics half asks *how* diverse a repertoire is. This
+half asks *where* its receptors are. Every clonotype is placed at a point in a fixed coordinate
+system by measuring how similar it is to each of a panel of 256 reference receptors --- so two
+clonotypes that use related V and J genes and have similar junctions land near each other,
+regardless of whether they share a single identical sequence. The repertoire is then summarised by
+the average of those points, weighted by clone size. Two donors can have identical diversity,
+clonality and gene usage and still sit in different regions of this space, which is why both halves
+exist.
+
+Formally, everything in this half rests on one object:
 
 .. math::
 
@@ -14,7 +23,8 @@ Everything in this half rests on one object:
 
 ``z_\sigma`` is a clonotype's vector of distances to a fixed, bundled prototype panel — ``K = 256``
 receptors per locus, embedded by germline V/J distance plus junction gapblock alignment — and
-``w_\sigma`` is its normalised clone weight. ``TCREmp.embed`` interleaves the three components per
+``w_\sigma`` is its normalised clone weight, so :math:`\Phi` is a weighted average of positions and
+not a sum of counts. ``TCREmp.embed`` interleaves the three components per
 prototype as ``[V, J, junction]``, so ``Φ[0::3]``, ``Φ[1::3]`` and ``Φ[2::3]`` are the exact V / J /
 junction slots. Literal column strides, not an attribution model, which is what makes "how much of
 this distance is V?" answerable without SHAP, sampling or a surrogate.
@@ -24,8 +34,11 @@ Quickstart
 
 .. code-block:: bash
 
-   # four corpora ship with the wheel; name one, no build and no cohort needed
-   mir signature --corpus synthetic-blood cohort/*.tsv.gz -o rsig.tsv
+   # nine corpora are published; name one and the artifact is fetched on first use
+   mir signature --corpus blood cohort/*.tsv.gz -o rsig.tsv
+
+   # pre-warm the cache instead of fetching lazily -- the install-time step
+   mir corpus --fetch all
 
    # or build your own -- still uses no samples from anybody's cohort
    mir corpus --corpus naive --smoke -o naive_rsig.npz
@@ -46,7 +59,7 @@ Joining the two halves
 
 There is **no joined entry point**, deliberately. Each half has its own artifact, so the wrapper's
 only real job — applying one scale reference over both — no longer exists. Two calls and a polars
-join is the whole story:
+join is the entire procedure:
 
 .. code-block:: python
 
@@ -197,12 +210,21 @@ Building a corpus
    mir corpus --smoke -o /tmp/smoke.npz
    mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker processes
 
-Four corpora ship, all synthetic. ``synthetic-blood`` and ``synthetic-tissue`` are the ones to reach
-for: each repertoire is a naive/memory **mixture** drawn from three quantile ladders measured per
-locus on the cohort it is named after -- richness, reads per expanded clone, and the singleton
-fraction that stands in for the naive compartment -- through that cohort's measured rank
-correlations. ``naive`` and ``memory`` are the pure regimes, and neither varies what a cohort varies:
-``memory`` at a fixed size has the same read count in every sample. The construction, the
+Nine corpora are published: four **synthetic** --- ``naive``, ``memory``, ``synthetic-blood``,
+``synthetic-tissue`` --- and five **real**, fitted on repertoires (``blood``, ``tissue``,
+``deep-tcr``, and an uncapped variant of the first two). The commands above **build** a synthetic
+one, which needs no cohort and no download; every published artifact, real or synthetic, is instead
+fetched on first use from a release and cached, so ``--corpus blood`` needs no build at all. Match
+the corpus to how your samples were produced --- the `selection table
+<https://docs.isalgo.dev/vdjtools/signature.html#choosing-a-corpus>`_ in the vdjtools half is the
+same for both halves.
+
+Among the synthetic four, ``synthetic-blood`` and ``synthetic-tissue`` are the ones to reach for:
+each repertoire is a naive/memory **mixture** drawn from three quantile ladders measured per locus
+on the compartment it is named after -- richness, reads per expanded clone, and the singleton
+fraction that stands in for the naive compartment -- through that compartment's measured rank
+correlations. ``naive`` and ``memory`` are the pure regimes, and neither varies what a real cohort
+varies: ``memory`` at a fixed size has the same read count in every sample. The construction, the
 acceptance table and why reads per *expanded* clone is the drawable quantity are in `the vdjtools
 half <https://docs.isalgo.dev/vdjtools/signature-methods.html#the-two-cohort-corpora-three-measured-ladders-per-locus>`_,
 since one module draws for both.

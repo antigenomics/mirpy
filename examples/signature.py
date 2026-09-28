@@ -47,10 +47,18 @@ def _(mo):
         """
         # The portable signature — geometry half
 
-        `mir.signature` contributes `rsig`: coordinates, norms and mixture coefficients of the
-        prototype-sum measure $\\Phi(S) = \\sum_\\sigma w_\\sigma z_\\sigma$. Its partner is
-        `vdjtools.signature` (`vsig`), which contributes statistics of the clone-size vector.
-        They share one column contract and one transform registry.
+        `mir.signature` contributes `rsig`, the **geometry** of a repertoire: where its receptors
+        sit in sequence space. Each clonotype $\\sigma$ is placed at a point $z_\\sigma$ by its
+        similarity to a fixed panel of reference receptors, and the sample is summarised by the
+        clone-size-weighted average of those points, $\\Phi(S) = \\sum_\\sigma w_\\sigma
+        z_\\sigma$, in three interleaved slots — V, J and junction. Around that sit the sample's
+        effective depth, its clone-size and isotype composition, and how *spread out* its receptors
+        are in the embedding.
+
+        Its partner is `vdjtools.signature` (`vsig`), which contributes the classical statistics of
+        the clone-size vector: diversity, clonality, gene usage, junction lengths. Two donors can
+        have identical diversity and occupy different regions of sequence space, which is why both
+        halves exist. They share one column contract and one transform registry.
         """
     )
     return
@@ -106,17 +114,23 @@ def _(S, pl):
 def _(mo):
     mo.md(
         """
-        Where `rsig` *does* transform, the quantity has stopped being a coordinate: the block
-        **norms** ($\\lVert\\Phi\\rVert$, Rao dispersion) are non-negative right-skewed magnitudes,
-        so they take `log1p`; `band` is a genuine closed composition, so it takes `clr` and ships
-        $k-1$ parts.
+        Where `rsig` *does* transform, the quantity has stopped being a coordinate.
 
-        And one block breaks the pattern on purpose. `contrast` — $\\Psi = \\text{mass}\\cdot(\\Phi -
-        \\text{naive})$ — carries `magnitude=True`: **one frozen scalar RMS for the whole block, and
-        no centring at all**. Per-column z-scoring would give every coordinate unit variance, which
-        makes a sample sitting near zero — an immune desert, a repertoire that has barely moved
-        from naive — indistinguishable from a typical one. How far a repertoire is from naive *is*
-        what that block exists to carry.
+        `depth` holds two such quantities. The effective sample size $n_\\text{eff}$ is a count
+        spanning orders of magnitude across a cohort, so it takes `log10`; the mass fraction is a
+        proportion in $(0, 1)$, so it takes `logit`. `band` and `band_igh` are genuine **closed
+        compositions** — clone-size and isotype shares that sum to one — so they take the centred
+        log-ratio `clr` and ship $k-1$ parts, because the $k$-th is determined by the others and
+        including it would make the block singular.
+
+        There used to be a third case here: a `contrast` block carrying $\\Phi$ minus a frozen
+        naive reference vector, on one scalar scale with no centring, so that a repertoire which
+        had barely moved from naive stayed visibly near zero. It is gone as of 4.0.0, and nothing
+        was lost — **the corpus centre is the subtraction point**. Subtracting a corpus median is
+        the same operation done against a reference that was measured on repertoires rather than
+        frozen into the wheel, and it removed a failure mode with it: the old naive vector was
+        drawn against one release of the bundled recombination models, so rebuilding those models
+        moved every contrast column by 0.1–1.6% per locus with nothing in the output saying so.
         """
     )
     return
@@ -264,9 +278,14 @@ def _(mo, np, r_comp, stability):
         * Null anything you chose by looking at the labels: a maximum over 64 components reached
           AUC 0.84 by chance on a 26-vs-7 contrast ($p = 0.20$).
 
-        This is also why no corpus-fitted rotation ships in the artifact: the `phiv` / `phij` /
-        `phic` bases come from the prototype cloud — zero samples, so no corpus to be unstable
-        with respect to.
+        None of this argues against shipping a rotation — it argues for saying which corpus fitted
+        it. Before 4.0.0 the shipped rotation was fitted on 10,000 individual *clonotypes* while
+        every column it produced was a *repertoire* statistic, and its centre and scale came from a
+        separate fit on real samples: two independent fits, stitched, with nothing in the artifact
+        recording either. Now bounds, centre, scale and rotation all come from one pass over one
+        matrix of repertoires, the corpus is named in the artifact and in the command's stderr line,
+        and the instability measured above is a property you can quote about a named reference
+        rather than an unknown.
         """
     )
     return

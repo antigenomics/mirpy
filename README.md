@@ -23,6 +23,7 @@
   <a href="https://docs.isalgo.dev/mirpy/cli.html">Commands</a> ·
   <a href="https://docs.isalgo.dev/mirpy/api.html">API</a> ·
   <a href="https://docs.isalgo.dev/mirpy/math.html">Theory</a> ·
+  <a href="https://docs.isalgo.dev/mirpy/notebooks.html">Examples</a> ·
   <a href="https://docs.isalgo.dev/mirpy/glossary.html">Glossary</a>
 </b></p>
 
@@ -51,6 +52,7 @@ Optional extras, each for one job:
 pip install "mirpy-lib[ann]"     # pynndescent: approximate neighbours at whole-repertoire scale
 pip install "mirpy-lib[ml]"      # torch: the neural codecs and the learned set encoder
 pip install "mirpy-lib[bench]"   # the benchmark harness and theory experiments
+pip install "mirpy-lib[examples]"  # marimo, matplotlib, umap-learn: to run the notebooks
 ```
 
 ## Three scales
@@ -187,20 +189,24 @@ CPU-parallel by default; the GPU is used only by `mir.ml`. Embedding runs the C+
 Density defaults to an exact multicore kd-tree; the approximate backend is about 30× faster past 1e5
 clones and is deliberately asymmetric — only the observed side is approximate, which biases
 enrichment down, while the background is always exact.
-[Full knob table](https://docs.isalgo.dev/mirpy/usage.html#performance-and-parallelism).
+[Full table of parallelism settings](https://docs.isalgo.dev/mirpy/usage.html#performance-and-parallelism).
 
 ## Examples
 
-Six self-contained [marimo](https://marimo.io) notebooks, all running on bundled data:
+Six runnable [marimo](https://marimo.io) notebooks — plain Python files, so they diff like
+source:
 
 ```bash
 pip install "mirpy-lib[examples]"
-marimo edit examples/quickstart.py
+marimo edit examples/signature_pipeline.py     # start here
 ```
 
-`quickstart` (embed, denoise, cluster, UMAP) · `density` (background subtraction) · `theory`
-(supplementary S1–S3) · `trajectory_and_twin` · `feature_vectors` · `signature`. See the
-[gallery](https://docs.isalgo.dev/mirpy/examples.html).
+`signature_pipeline` (a folder of AIRR files to a joinable table — **read this one first**) ·
+`quickstart` (embed, denoise, cluster, UMAP) · `signature` (how the halves differ, and how many
+components survive a refit) · `density` (enrichment against a background model) ·
+`trajectory_and_twin` (time courses and counterfactual donors) · `theory` (the results the
+library rests on). See the
+[gallery](https://docs.isalgo.dev/mirpy/notebooks.html).
 
 ## Development
 

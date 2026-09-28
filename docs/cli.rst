@@ -127,8 +127,23 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--winsorize``
      - ``features``, ``pcs`` or ``none``. Whatever is clamped is reported in
        ``rsig:qc:-:winsor_frac``.
+   * - ``--winsor-p``
+     - Which stored percentile to clamp at, ``0.01`` or ``0.05``. Defaults to whichever the
+       artifact was fitted with; both are stored, so switching needs no refit.
+   * - ``--on-duplicate``
+     - ``error`` (default) or ``sum``. A frame with no ``junction_nt`` that repeats an amino-acid
+       clonotype key cannot say whether those rows are one clonotype or two, so the library refuses
+       rather than guessing.
    * - ``--describe``
      - Print the columns **this** invocation emits, and exit.
+   * - ``--named``
+     - Also emit the reportable raw blocks under their own names (``depth``, ``band``,
+       ``band_igh``), beside the rotated components. Values carry their declared transform, not a
+       natural scale.
+   * - ``--min-clonotypes``
+     - The floor below which a locus's whole ``div``/``disp`` family is a hole, default ``5``. A
+       dispersion measured on three clonotypes is not a measurement; the geometry itself is still
+       computed there.
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``

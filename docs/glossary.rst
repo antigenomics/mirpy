@@ -1,10 +1,16 @@
 Glossary
 ========
 
-Terms as this documentation uses them. The repertoire-immunology vocabulary -- clonotype, junction,
-locus, Pgen -- is defined in
-`vdjtools' glossary <https://docs.isalgo.dev/vdjtools/glossary.html>`_; this page covers what mirpy
-adds on top.
+Terms as this documentation uses them. Two other vocabularies are defined once, in
+`vdjtools' glossary <https://docs.isalgo.dev/vdjtools/glossary.html>`_, and not repeated here:
+
+* the **repertoire-immunology** terms --- clonotype, junction, locus, isotype, SHM, Pgen, coverage,
+  Hill number, richness, singleton;
+* the **signature** terms the two halves share, because the column contract lives in vdjtools ---
+  channel, named block, principal component, rotation, winsorization, support, robust z-score,
+  hole, and the transforms ``clr`` / ``logit`` / ``arcsine``.
+
+This page covers what mirpy adds on top.
 
 .. glossary::
    :sorted:

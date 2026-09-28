@@ -65,7 +65,8 @@ Distances (``mir.distances``)
 ``mir.distances.junction``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Junction distance via `seqtree.gapblock` (metric / matrix / alignment knobs).
+Junction distance via `seqtree.gapblock` (choice of metric, substitution matrix and alignment
+parameters).
 
 .. automodule:: mir.distances.junction
    :members:

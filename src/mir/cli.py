@@ -381,7 +381,8 @@ def cmd_signature(a: argparse.Namespace) -> None:
           f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
     out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
                       n_components=ncomp, species=a.species, weight=a.weight,
-                      on_duplicate=a.on_duplicate, named=blocks, columns=want)
+                      on_duplicate=a.on_duplicate, named=blocks, columns=want,
+                      min_clonotypes=a.min_clonotypes)
     _write(out, a.output)
 
 
@@ -572,6 +573,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
                    help="a frame with no junction_nt repeating an amino-acid clonotype key cannot "
                         "say whether those rows are one clonotype or two")
+    s.add_argument("--min-clonotypes", type=int, default=5, metavar="N",
+                   help="a locus with fewer distinct clonotypes than this has its whole div/disp "
+                        "family holed (nan), because a dispersion measured on three clonotypes is "
+                        "not a measurement. The geometry itself is still computed")
     s.add_argument("--named", default=None, metavar="BLOCKS",
                    help="also emit the reportable raw blocks in their own right: 'all', or a "
                         "comma-separated list (depth,band,band_igh). Values carry their declared "
