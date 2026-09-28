@@ -204,7 +204,7 @@ fraction that stands in for the naive compartment -- through that cohort's measu
 correlations. ``naive`` and ``memory`` are the pure regimes, and neither varies what a cohort varies:
 ``memory`` at a fixed size has the same read count in every sample. The construction, the
 acceptance table and why reads per *expanded* clone is the drawable quantity are in `the vdjtools
-half <https://docs.isalgo.dev/vdjtools/signature.html#the-two-cohort-corpora-three-measured-ladders-per-locus>`_,
+half <https://docs.isalgo.dev/vdjtools/signature-methods.html#the-two-cohort-corpora-three-measured-ladders-per-locus>`_,
 since one module draws for both.
 
 Both halves must be built from the **same corpus name and seed**: they resolve the name through one

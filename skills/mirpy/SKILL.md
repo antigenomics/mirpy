@@ -27,8 +27,11 @@ silently wrong answer. It does not repeat the reference documentation.
 
 | You need | Go to |
 |---|---|
+| Install to a first result, offline | https://docs.isalgo.dev/mirpy/getting-started.html |
 | Runnable walkthroughs, every module | https://docs.isalgo.dev/mirpy/usage.html |
+| Every `mir` command and flag | https://docs.isalgo.dev/mirpy/cli.html |
 | Every symbol, autodoc'd | https://docs.isalgo.dev/mirpy/api.html |
+| A term's precise meaning here | https://docs.isalgo.dev/mirpy/glossary.html |
 | The portable signature, end to end | https://docs.isalgo.dev/mirpy/signature.html |
 | The channel vocabulary | https://docs.isalgo.dev/mirpy/channels.html |
 | Theory T1–T7 and the maths | https://docs.isalgo.dev/mirpy/math.html |
