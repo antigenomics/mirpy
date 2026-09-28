@@ -3,6 +3,93 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.3.0 — 2026-09-28
+
+The geometry half emits embedding **diversity**, not only Rao — and stops emitting a presence mask
+under a diversity name. `ISSUES.md` items 11, 12 and 13. Requires vdjtools >= 4.3.0.
+
+### Fixed: Rao of a sub-`min_clonotypes` locus was `0.0`, and that is not a measurement
+
+`rsig:div:<L>:rao` came out as exactly `0.0` when a locus held a single clonotype. The arithmetic is
+right — a one-point set has no dispersion — and the column is then not a diversity read-out. It is
+`mask:<L>:present` in different units, sitting at the bottom of a distribution whose other values
+are around 16.
+
+On 885 bulk blood RNA-seq samples over seven loci it affected TRD in 118 samples (13.3%), TRG in 8,
+IGH in 1 and IGK in 1. Against the non-zero distribution (1st percentile 16.43, median 16.63), a
+single-clonotype locus lands about **29 robust deviations** below the 1st percentile after
+standardising, and nothing in the output said the value was categorically different from its
+neighbours.
+
+Both consequences were found by a check rather than by a failure:
+
+- A Cox screen over 261 channels returned a **hazard ratio of 739 per standard deviation at
+  p = 7e-155** for `rsig:div:IGH:rao` against overall survival on 838 patients and 305 events — off
+  **one patient**. The Spearman correlation between that channel and survival is **-0.023**: there
+  is no monotone association at all, and the fit was reading a single extreme point.
+- A downstream baseline moved by **0.077 ROC-AUC** in one direction and 0.054 in the other, from
+  four values in one cohort.
+
+The family is now a **hole** below the same floor `band_shares` has always used to drop a
+compartment rather than zero it, with `mask` carrying the reason. `features.rao_of` still returns
+the raw zero for a caller who wants it.
+
+The **geometry is still computed** below the floor: `Phi` is perfectly measurable from three
+clonotypes even when its dispersion is not, so holing the raw features would have thrown away a
+measurable embedding to fix an unmeasurable diversity.
+
+### Added: the embedding-diversity family
+
+Rao is the metric-space analogue of Simpson diversity, and it was the only such read-out the
+geometry half gave up — everything else it knew was inside a rotated component, which has no name a
+domain reader can use. That is the wrong way round: the reason to embed a repertoire is that a
+counting index cannot see that two clonotypes are one substitution apart.
+
+Per locus, all from the chunked pass that already computes `Phi`:
+
+| channel | what it is the analogue of |
+|---|---|
+| `div:<L>:q_v`, `q_j`, `q_c` | Simpson per germline component. The strides are literal column offsets, so "how much of this is V-driven" needs no attribution model — and the three sum to `rao` |
+| `div:<L>:q_frac_v/j/c` | a composition of *where* the diversity lives, in clr coordinates. No counting analogue exists |
+| `div:<L>:evenness` | normalised Shannon / clonality, composition held fixed. Bounded, far less depth-fragile than richness |
+| `div:<L>:eff_dim` | **richness** — directions of receptor space occupied. 1,000 clones in one convergent cluster occupy few; 1,000 unrelated clones occupy many |
+| `div:<L>:eff_dim_pr` | the order-2 version, led by the dominant directions |
+| `div:<L>:q_top`, `q_singleton`, `q_ratio_top` | the diversity *of* a clone-size compartment, rather than its share, which `band` already carries |
+| `disp:<L>:top_singleton`, `cos_top_singleton`, `norm` | a displacement, which no index has |
+| `disp:IGH:IgG_IgM`, `IgA_IgM` and cosines | class-switch geometry |
+
+Only ever **within** one locus: each locus has its own prototype panel, so `Phi(TRA)` and `Phi(TRB)`
+are vectors in different spaces and a distance between them is arithmetic without a meaning.
+
+**Cost, measured on this box at the shipped `K = 256` (so `p = 768`).** Added to the `Phi` pass, per
+locus: 3.3 ms at 50 clonotypes, 3.9 ms at 200, 25.3 ms at 700, 34.3 ms at 2,500, 61.9 ms at 10,000.
+A realistic seven-locus blood sample (two deep loci, five shallow) pays roughly **125 ms**, which
+about doubles `rsig`'s own per-sample cost and adds under a tenth to a full signature run.
+
+Nearly all of that is one eigendecomposition. Two exact identities keep the rest free: `sum lambda`
+is the trace of the covariance and `sum lambda^2` is its squared Frobenius norm, so `eff_dim_pr`
+costs two reductions and no spectrum. `eff_dim` needs eigenvalues, and is taken on the **smaller**
+of the `p x p` covariance and the `n x n` weighted Gram — they have identical non-zero eigenvalues,
+and eigendecomposition is cubic (25.7 ms at 768, 0.29 ms at 100), which is what makes a shallow
+locus cheap. The accumulator itself is the `p x p` second moment rather than the Gram, because that
+is what keeps the pass **linear in sequencing depth**.
+
+### Added: `mask` on the geometry half, and `named=` on `rsig`
+
+`rsig:mask:<L>:present` / `:estimable`, under the same names and the same convention as the
+statistics half — two products, one convention. `mask` is a **feature block**, not diagnostics:
+which loci a donor resolved is biology, and adding the presence flags moved an external ROC-AUC
+from 0.6243 to 0.6676 on the cohort where it was measured.
+
+`rsig(..., named=True)` returns the reportable raw blocks — `depth`, `band`, `band_igh` — matching
+`vsig`.
+
+### Note: no corpus is invalidated
+
+A channel is pass-through: the rotation is indexed by `raw_columns` and nothing else, and
+`corpus.apply` fills every registered channel from the sample. Every artifact already published
+gains these columns with **no refit and no new download**.
+
 ## 4.2.0 — 2026-09-28
 
 The `rsig` half of the three real corpora, and the mechanism that ships them. Requires vdjtools

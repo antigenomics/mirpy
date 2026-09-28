@@ -347,16 +347,29 @@ def cmd_signature(a: argparse.Namespace) -> None:
     art = _resolve_corpus(a.corpus)
     ncomp = _parse_components(a.components)
     want = [c for c in pathlib.Path(a.columns).read_text().split() if c] if a.columns else None
+    blocks = ()
+    if a.named is not None:
+        blocks = True if a.named.strip().lower() == "all" else tuple(
+            b for b in (x.strip() for x in a.named.split(",")) if b)
+        try:
+            L.resolve_named(art.sig, blocks)
+        except ValueError as e:
+            sys.exit(f"mir signature: {e}")
 
     if a.describe:
-        cols = art.columns(ncomp)
+        cols = art.columns(ncomp, named=blocks)
         if want is not None:
             cols = [c for c in cols if c in set(want)]
+        named_set = set(L.named_columns(art.sig, blocks, art.vocab) if blocks else ())
+        spec = {(r["block"], r["feature"]): r for r in L.channel_table(art.sig)}
         rows = []
         for c in cols:
             _sig, block, locus, feature = L.parse(c)
+            kind = ("rotated" if block == L.PC_BLOCK
+                    else "named" if c in named_set else "channel")
             rows.append({"column": c, "block": block, "locus": locus, "feature": feature,
-                         "kind": "rotated" if block == L.PC_BLOCK else "channel",
+                         "kind": kind,
+                         "transform": spec.get((block, feature), {}).get("transform", "none"),
                          "support": L.support_of(c)})
         _write(pl.DataFrame(rows), a.output)
         return
@@ -368,7 +381,7 @@ def cmd_signature(a: argparse.Namespace) -> None:
           f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
     out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
                       n_components=ncomp, species=a.species, weight=a.weight,
-                      on_duplicate=a.on_duplicate, columns=want)
+                      on_duplicate=a.on_duplicate, named=blocks, columns=want)
     _write(out, a.output)
 
 
@@ -528,8 +541,10 @@ def build_parser() -> argparse.ArgumentParser:
             "\n"
             "READ THESE BEFORE TRUSTING A ROW:\n"
             "  rsig:qc:-:winsor_frac    how much of the row the corpus's bounds clamped\n"
-            "  rsig:div:<locus>:rao     sequence-aware diversity, carried in its own units\n"
-            "A hole is nan, never 0.\n"),
+            "  rsig:mask:<locus>:*      present / estimable -- a FEATURE block, not diagnostics\n"
+            "  rsig:div:<locus>:*       embedding diversity, carried in its own units\n"
+            "A hole is nan, never 0. A locus below --min-clonotypes holes its whole div/disp\n"
+            "family rather than reporting a plausible 0.0.\n"),
     )
     s.add_argument("input", nargs="*",
                    help="clonotype tables; several files of one sample_id are joined by locus")
@@ -557,6 +572,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
                    help="a frame with no junction_nt repeating an amino-acid clonotype key cannot "
                         "say whether those rows are one clonotype or two")
+    s.add_argument("--named", default=None, metavar="BLOCKS",
+                   help="also emit the reportable raw blocks in their own right: 'all', or a "
+                        "comma-separated list (depth,band,band_igh). Values carry their declared "
+                        "transform, not a natural scale")
     s.add_argument("--describe", action="store_true",
                    help="print the columns THIS invocation emits, and exit")
     s.set_defaults(func=cmd_signature)

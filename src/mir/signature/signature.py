@@ -40,15 +40,33 @@ def _register() -> None:
     L.register_raw(
         *(L.RawGroup("rsig", slot, L.feats("none", "nonneg", *names)) for slot in _SLOTS),
         L.RawGroup("rsig", "depth", {**L.feats("log10", "nonneg", "n_eff"),
-                                     **L.feats("logit", "real", "mass")}),
-        L.RawGroup("rsig", "band", L.feats("clr", "real", "singleton", "top")),
+                                     **L.feats("logit", "real", "mass")}, named=True),
+        L.RawGroup("rsig", "band", L.feats("clr", "real", "singleton", "top"), named=True),
         L.RawGroup("rsig", "band_igh", L.feats("clr", "real", "IgM", "IgG", "IgA"),
-                   loci=("IGH",)),
+                   loci=("IGH",), named=True),
     )
     L.register_channel(
-        # Rao is carried, not rotated: it is a diversity read-out in its own units, and the point of
-        # emitting it beside the Hill numbers of the statistics half is the head-to-head.
-        L.Channel("rsig", "div", {"rao": "nonneg"}),
+        # Carried, not rotated: these are diversity read-outs in their own units, and the point of
+        # emitting them beside the Hill numbers of the statistics half is the head-to-head. A
+        # channel is pass-through, so ADDING ONE DOES NOT INVALIDATE A FITTED CORPUS -- the
+        # rotation is indexed by `raw_columns` and nothing else, and `corpus.apply` fills every
+        # registered channel from the sample. Every artifact already published gains these columns
+        # with no refit.
+        L.Channel("rsig", "div", {
+            "rao": "nonneg", "q_v": "nonneg", "q_j": "nonneg", "q_c": "nonneg",
+            "q_frac_v": "real", "q_frac_j": "real", "q_frac_c": "real",
+            "evenness": "real", "eff_dim": "nonneg", "eff_dim_pr": "nonneg",
+            "q_top": "nonneg", "q_singleton": "nonneg", "q_ratio_top": "nonneg"}),
+        # Displacements between compartment centroids, within one locus only -- see
+        # `features.displacement_channels` for why never between two.
+        L.Channel("rsig", "disp", {"top_singleton": "nonneg", "cos_top_singleton": "real",
+                                   "norm": "nonneg"}),
+        L.Channel("rsig", "disp", {"IgG_IgM": "nonneg", "cos_IgG_IgM": "real",
+                                   "IgA_IgM": "nonneg", "cos_IgA_IgM": "real"}, loci=("IGH",)),
+        # The same channel under the same name as the statistics half: two products, one
+        # convention. It is also what makes holing the div family safe -- the moment a shallow
+        # locus stops being a plausible 0.0, something has to say it was absent.
+        L.Channel("rsig", "mask", {"present": "unit", "estimable": "unit"}),
         L.Channel("rsig", "qc", {"winsor_frac": "unit"}, loci=()),
     )
     _REGISTERED = True
@@ -145,6 +163,23 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
 
     raw: dict[str, float] = {}
     chan: dict[str, float] = {}
+
+    def hole(locus: str, *, present: float) -> None:
+        """Every div and disp channel of this locus is a hole, and the mask says why.
+
+        A hole, never a zero. Rao of a single-clonotype locus is arithmetically 0.0 and is not a
+        diversity measurement -- it is `mask:present` in different units, sitting ~29 robust
+        deviations below the 1st percentile of the real values. Emitted as a number it was read as
+        one: a Cox screen returned a hazard ratio of 739 per SD at p = 7e-155 off four such
+        samples, against a Spearman correlation with the outcome of -0.023.
+        """
+        for c in L.channel_columns("rsig"):
+            _sig, block, loc, _feat = L.parse(c)
+            if loc == locus and block in ("div", "disp"):
+                chan[c] = np.nan
+        chan[f"rsig:mask:{locus}:present"] = present
+        chan[f"rsig:mask:{locus}:estimable"] = 0.0
+
     for locus in L.LOCI:
         # Rao is a CHANNEL: it needs the embedder and the sample, not the rotation. So it is
         # computed for every locus the sample has, whether or not this corpus models that locus --
@@ -156,24 +191,37 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         df = frames.get(locus)
         if df is None or df.height == 0:
             raw |= dict.fromkeys(cols, np.nan)
-            chan[f"rsig:div:{locus}:rao"] = np.nan
+            hole(locus, present=0.0)
             continue
         counts = df["duplicate_count"].to_numpy()
         try:
             w = F.weights(counts, weight)
         except ValueError:                       # every clone weight zero: nothing to embed
             raw |= dict.fromkeys(cols, np.nan)
-            chan[f"rsig:div:{locus}:rao"] = np.nan
+            hole(locus, present=1.0)
             continue
 
         # The SHM columns must not reach the embedder: their presence silently switches it to
         # SHM-aware V distances, a different coordinate system under the same column names.
-        phi, mean_sq = F.prototype_sum(df.drop(*F._SHM_COLUMNS, strict=False),
-                                       _model(species, locus), w, chunk=chunk)
-        n_eff = 1.0 / float(w @ w)
+        clean = df.drop(*F._SHM_COLUMNS, strict=False)
+        masks = {k: np.asarray(pred(counts), dtype=bool) for k, pred in F.BANDS.items()}
+        if locus == "IGH":
+            masks |= F.isotype_masks(df)
+        acc = F.dispersion_pass(clean, _model(species, locus), w, band_masks=masks, chunk=chunk)
+        phi, n_eff = acc.phi, acc.n_eff
         mass = 1.0 - float(missing_mass(counts))
 
-        chan[f"rsig:div:{locus}:rao"] = T.log1p(F.rao_of(phi, mean_sq, n_eff))
+        # The DISPERSION is what a handful of clonotypes cannot support; `Phi` itself is fine from
+        # three of them. So the div/disp family is holed below the floor and the geometry below is
+        # computed regardless -- holing the raw features here instead would throw away a measurable
+        # embedding to fix an unmeasurable diversity, which is the opposite trade.
+        if df.height < min_clonotypes:
+            hole(locus, present=1.0)
+        else:
+            chan |= F.diversity_channels(acc, locus)
+            chan |= F.displacement_channels(acc, locus)
+            chan[f"rsig:mask:{locus}:present"] = 1.0
+            chan[f"rsig:mask:{locus}:estimable"] = 1.0
         if not modelled:
             continue
         for slot, vec in F.slots(phi).items():
@@ -192,10 +240,18 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
     return raw, chan
 
 
+#: How `vdjtools.signature.corpus.fit_cohort` turns this half's frames into feature rows. A
+#: registry rather than an import, because nothing in vdjtools may import mir -- mirpy depends on
+#: vdjtools and not the reverse. Registered here rather than inside `_register`, which runs before
+#: this function is defined.
+C.register_featuriser("rsig", raw_and_channels)
+
+
 def rsig(sample, corpus: C.Corpus, *, mode: "str | None" = None,
          winsor_p: "float | None" = None, n_components: "int | float | None" = None,
          species: str = "human", weight: str = "log2p1", sanitise: bool = True,
          on_duplicate: str = "error", min_clonotypes: int = 5, chunk: int = F.CHUNK,
+         named: "bool | tuple[str, ...]" = (),
          columns: "list[str] | None" = None) -> dict[str, float]:
     """The geometry half of the signature for one sample.
 
@@ -209,8 +265,14 @@ def rsig(sample, corpus: C.Corpus, *, mode: "str | None" = None,
         weight: Clone-size weight.
         sanitise: Drop non-productive clonotypes first.
         on_duplicate: ``"error"`` or ``"sum"`` for a repeated amino-acid clonotype key.
-        min_clonotypes: Compartment presence floor.
+        min_clonotypes: Compartment presence floor, and the floor below which the whole ``div``
+            and ``disp`` family of a locus is a hole rather than a number. A one-clonotype locus
+            has a Rao of exactly ``0.0`` -- arithmetically right, and not a diversity measurement.
         chunk: Rows embedded per pass.
+        named: Also return the reportable raw blocks (``band``, ``band_igh``, ``depth``) --
+            ``True`` for all of them, or an explicit sequence. ``()`` emits the rotated columns
+            and channels only. Values carry their declared transform;
+            :func:`~vdjtools.signature.layout.channel_table` reports which.
         columns: Restrict the output to these columns, in layout order.
     """
     from vdjtools.signature.features import sanitise as vsanitise
@@ -224,10 +286,11 @@ def rsig(sample, corpus: C.Corpus, *, mode: "str | None" = None,
                   if v.height}
     raw, chan = raw_and_channels(frames, corpus.vocab, species=species, weight=weight,
                                  min_clonotypes=min_clonotypes, chunk=chunk)
-    out = C.apply(raw, chan, corpus, mode=mode, winsor_p=winsor_p, n_components=n_components)
+    out = C.apply(raw, chan, corpus, mode=mode, winsor_p=winsor_p, n_components=n_components,
+                  named=named)
     if columns is None:
         return out
-    want = [c for c in corpus.columns(n_components) if c in set(columns)]
+    want = [c for c in corpus.columns(n_components, named=named) if c in set(columns)]
     return {c: out[c] for c in want}
 
 
@@ -266,7 +329,8 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
     rows = parallel_rows(items, functools.partial(_one, corpus=corpus,
                                                  kw={**kw, "columns": columns}), n_jobs)
     want = ["sample_id", *(columns if columns is not None
-                           else corpus.columns(kw.get("n_components")))]
+                           else corpus.columns(kw.get("n_components"),
+                                               named=kw.get("named", ())))]
     return pl.DataFrame(rows).select([c for c in want if any(c in r for r in rows)])
 
 

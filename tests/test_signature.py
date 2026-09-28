@@ -150,7 +150,7 @@ def test_the_prototype_index_hoist_changes_no_raw_feature(corpus):
 def test_rsig_registers_its_groups_into_the_vdjtools_registry():
     names = {g.name for g in L.raw_groups("rsig")}
     assert names == {"phiv", "phij", "phic", "depth", "band", "band_igh"}, names
-    assert {c.name for c in L.channels("rsig")} == {"div", "qc"}
+    assert {c.name for c in L.channels("rsig")} == {"div", "disp", "mask", "qc"}
     # the two halves are disjoint, which is what lets them join on sample_id
     assert not ({g.name for g in L.raw_groups("vsig")} & {"phiv", "phij", "phic"})
 

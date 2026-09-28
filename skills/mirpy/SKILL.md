@@ -147,6 +147,29 @@ with phenotype.
 
 ### `mir.signature` — the portable signature, geometry half
 
+**4.3.0 — the `div`/`disp`/`mask` channel families.** `rsig` emits embedding diversity, not only
+Rao: `q_v`/`q_j`/`q_c` (Rao per `Phi` stride — **`[0::3]`, `[1::3]`, `[2::3]`, never `[0:K]` blocks**;
+reading them as blocks is the likeliest single bug here and produces plausible numbers, caught only
+by the three summing to `rao`), `q_frac_*` (clr of those), `evenness` = `Q(w)/Q(uniform)`, `eff_dim`
+/`eff_dim_pr` (spectrum of the weighted covariance = richness as directions occupied), `q_top`/
+`q_singleton`/`q_ratio_top`, plus `disp:*` centroid distances and cosines. **Never across two loci** —
+each locus has its own prototype panel, so `Phi(TRA)` and `Phi(TRB)` live in different spaces.
+
+**A sub-`min_clonotypes` locus holes the whole `div`/`disp` family and sets `mask:estimable = 0`.**
+Rao of a one-clonotype locus is arithmetically `0.0` and is a presence mask wearing a diversity
+name — it sat ~29 robust deviations below the 1st percentile and produced a Cox hazard ratio of 739
+per SD at p = 7e-155 off **one patient** (Spearman with the outcome: −0.023). The **geometry is
+still computed** there; `Phi` is measurable from three clonotypes when its dispersion is not.
+
+**Adding a channel does not invalidate a fitted corpus** — the rotation is indexed by `raw_columns`
+only, and `corpus.apply` fills every registered channel from the sample. No refit, no re-download.
+
+**Cost**: the family rides the existing `Phi` pass (`features.dispersion_pass`). `eff_dim_pr` needs
+no spectrum at all (`sum lambda` = trace, `sum lambda^2` = squared Frobenius norm); `eff_dim` takes
+eigenvalues of the **smaller** of the `p x p` covariance and the `n x n` Gram. Measured at K=256:
+3.3 ms at 50 clonotypes, 34 ms at 2,500, 62 ms at 10,000 per locus; ~125 ms for a realistic
+seven-locus sample.
+
 Full reference: **https://docs.isalgo.dev/mirpy/signature.html** and
 **https://docs.isalgo.dev/mirpy/channels.html**. What follows is the surface and the traps.
 
