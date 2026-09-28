@@ -63,24 +63,33 @@ _register()
 _RES = __import__("pathlib").Path(__file__).resolve().parent.parent / "resources" / "signature"
 
 
+#: The repo whose release assets carry the rsig artifacts. The vsig half lives in vdjtools' releases;
+#: each half is published by the library that owns it, so a corpus name resolves to two downloads from
+#: two repos rather than one repo having to know about the other's layout.
+CORPUS_REPO = "antigenomics/mirpy"
+
+
 def bundled_names() -> list[str]:
-    """Corpus names with an installed rsig artifact."""
-    if not _RES.is_dir():
-        return []
-    return sorted(p.stem.removeprefix("rsig_") for p in _RES.glob("rsig_*.npz"))
+    """Every corpus name this version knows -- installed, cached, or downloadable."""
+    from vdjtools.signature.corpus import corpora_index, corpus_cache_dir
+
+    got = {p.stem.removeprefix("rsig_") for p in _RES.glob("rsig_*.npz")} if _RES.is_dir() else set()
+    cache = corpus_cache_dir()
+    if cache.is_dir():
+        got |= {p.stem.removeprefix("rsig_") for p in cache.glob("rsig_*.npz")}
+    return sorted(got | set(corpora_index(_RES)))
 
 
 def bundled_path(name):
-    """Resolve a bundled corpus name or a filesystem path to an artifact, else ``None``."""
-    from pathlib import Path
+    """Resolve a corpus name or a filesystem path to an ``rsig`` artifact, else ``None``.
 
-    direct = Path(name)
-    if direct.suffix == ".npz" and direct.exists():
-        return direct
-    if direct.with_suffix(".npz").exists():
-        return direct.with_suffix(".npz")
-    cand = _RES / f"rsig_{name}.npz"
-    return cand if cand.exists() else None
+    Downloads on first use if the name is in the shipped index and not yet cached. One resolver,
+    shared with the vsig half, so the two cannot disagree about precedence -- a local path always
+    wins over a download.
+    """
+    from vdjtools.signature.corpus import resolve_artifact
+
+    return resolve_artifact(name, sig="rsig", res_dir=_RES, repo=CORPUS_REPO)
 
 
 def _model(species: str, locus: str):

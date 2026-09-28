@@ -89,9 +89,9 @@ mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
 
 # the portable signature  ->  one fixed, named, standardised feature vector per sample
 # One tool per half: mirpy emits the geometry, vdjtools the statistics. Join on sample_id.
-mir corpus --corpus synthetic-blood -o rsig_synthetic-blood.npz  # fit one; no cohort needed
-mir signature --corpus synthetic-blood cohort/*.tsv.gz -o rsig.parquet  # geometry half
-mir signature --corpus synthetic-blood --components 32 --describe       # exactly what you get
+mir signature --corpus blood cohort/*.tsv.gz -o rsig.parquet   # fetched on first use
+mir signature --corpus blood --components 32 --describe        # exactly what you get
+mir corpus --fetch all                                         # pre-warm the corpus cache
 ```
 
 `mir embed clonotypes -h` / `mir embed repertoires -h` list every flag (species, locus,
@@ -458,13 +458,18 @@ corpus = Corpus.load("rsig_synthetic-blood.npz")   # REQUIRED -- there is no def
 F = rsig_cohort(samples, corpus, n_jobs=0)         # one row per sample
 ```
 
-**Four corpora ship, all synthetic.** `synthetic-blood` and `synthetic-tissue` draw each repertoire
-as a naive/memory mixture across three quantile ladders measured per locus on that compartment --
-clonotype richness, reads per expanded clone, and the singleton fraction that stands in for the naive
-share -- so the corpus spans the depth and clone-size range real samples have (blood TRB richness 74
-to 3,162 clonotypes, n = 34,365 reference samples). `naive` and `memory` remain as the pure-regime
-references. Every receptor comes from vdjtools' bundled recombination models, so no cohort is needed
-to build or use one.
+**Nine corpora, all at 256 components per locus.** Three are fitted on real repertoires -- `blood`
+(11,117 bulk RNA-seq blood samples, 947 study groups), `tissue` (21,131 / 1,934) and `deep-tcr` (3,936
+amplicon samples, TRA+TRB) -- each with an uncapped variant so the per-study cap's effect is
+measurable. `synthetic-blood` and `synthetic-tissue` draw each repertoire as a naive/memory mixture
+across three quantile ladders measured per locus on that compartment (richness, reads per expanded
+clone, and the singleton fraction that stands in for the naive share), so they span the real depth
+range while needing no cohort to rebuild; `naive` and `memory` remain the pure-regime references.
+
+Artifacts are **fetched on first use** rather than bundled: at k=256 the nine corpora are ~110 MB
+across both halves, so the wheel carries a few KB of index and downloads what you name into
+`~/.cache/vdjtools/signature`, verified against the shipped SHA-256. `mir corpus --fetch all`
+pre-warms it.
 
 Two halves, joined on `sample_id` and namespaced so they never collide: `vsig` (statistics of the
 clone-size vector, from [vdjtools](https://github.com/antigenomics/vdjtools)) and `rsig` (geometry —

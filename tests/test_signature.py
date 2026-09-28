@@ -188,8 +188,18 @@ def test_there_is_no_contrast_group_and_no_frozen_naive_vector():
                    if q.name.startswith(("scale_", "rsig_v", "kmer_spaces"))
                    or q.name == "build_rsig.py")
     assert stale == [], f"the old frozen artifacts are still installed: {stale}"
-    assert sorted(q.stem for q in res.glob("*.npz")) == [
-        "rsig_memory", "rsig_naive", "rsig_synthetic-blood", "rsig_synthetic-tissue"]
+    # Artifacts are release assets fetched on first use since 4.2.0 -- ~110 MB across nine corpora and
+    # both halves is not wheel payload -- so what the resources dir must carry is the INDEX. Any .npz
+    # that is here is a dev convenience, not the contract; what ships is `corpora.json`.
+    from vdjtools.signature.corpus import corpora_index
+
+    idx = corpora_index(res)
+    if idx:
+        for name, entry in idx.items():
+            assert len(entry["npz"]["sha256"]) == 64 and entry["npz"]["bytes"] > 100_000, name
+        from mir.signature.signature import bundled_names
+
+        assert set(idx) <= set(bundled_names())
 
 
 # ------------------------------------------------------------- 4. holes, and the corpus

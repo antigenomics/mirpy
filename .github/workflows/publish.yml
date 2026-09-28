@@ -6,11 +6,17 @@ on:
       - published
   workflow_dispatch:
 
+# Only a version tag publishes. Corpus artifacts are attached to their own `corpora-*` release, and
+# without this guard creating that release fires this workflow and tries to upload whatever version
+# pyproject happens to carry -- a release that is not a release of the package.
 permissions:
   contents: read
 
 jobs:
   build:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'v') }}
     name: Build sdist + wheel
     runs-on: ubuntu-latest
     steps:
@@ -32,11 +38,13 @@ jobs:
           path: dist/
 
   publish:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'v') }}
     name: Publish To PyPI
     needs: [build]
     # Only a published GitHub Release publishes to PyPI; workflow_dispatch runs build as a dry run
     # (no upload, never enters the pypi environment) so the release build can be tested.
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

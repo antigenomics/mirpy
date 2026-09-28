@@ -3,6 +3,34 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.2.0 — 2026-09-28
+
+The `rsig` half of the three real corpora, and the mechanism that ships them. Requires vdjtools
+**>=4.2.0**, which owns the fit and the resolver.
+
+**Five new corpora**: `blood` (11,117 samples, 947 study_ids), `blood-uncapped` (22,441), `tissue`
+(21,131 / 1,934), `tissue-uncapped` (33,874) and `deep-tcr` (3,936 amplicon samples, TRA + TRB). All
+nine corpora are now fitted at **k=256** per locus, up from 128, and the full rotation ships —
+truncating downward at apply time is exact, so a wider artifact serves every narrower request.
+
+**Artifacts are no longer bundled in the wheel.** At k=256 an `rsig` artifact is ~3.1 MB and the pair
+of halves across nine corpora is ~110 MB, so the wheel carries a few KB of `corpora.json` — every
+corpus name with its size and SHA-256 — and the library fetches an artifact on first use into
+`$VDJTOOLS_CORPUS_DIR` (default `~/.cache/vdjtools/signature`), verified against that digest. One
+resolver serves both halves, so they cannot disagree about precedence: a local path always beats a
+download. `mir corpus --fetch all` pre-warms the cache, which is the install-time step.
+
+`publish.yml` publishes **only for a `v*` tag** now: without that guard, creating the `corpora-*`
+release fires it and tries to upload whatever version `pyproject` carries.
+
+The two halves of a corpus are published by the library that owns each — `vsig` in vdjtools' release
+assets, `rsig` in mirpy's — so neither repo has to know the other's layout, and they share one cache
+directory because a `vsig`/`rsig` pair belongs in one place.
+
+A real corpus's manifest carries no cohort label, no dataset name and no accession: the population is
+recorded as rule text with aggregate counts, per-locus read floors and the measured read band. A
+rotation is about features and components.
+
 ## 4.1.0 — 2026-09-28
 
 **Two corpora that describe a real compartment**, `synthetic-blood` and `synthetic-tissue`, shipped

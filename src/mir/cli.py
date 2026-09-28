@@ -407,6 +407,24 @@ def cmd_corpus(a: argparse.Namespace) -> None:
 
     from mir.signature import synthesize
 
+    if a.fetch:
+        from vdjtools.signature.corpus import corpora_index, corpus_cache_dir, fetch_artifact
+
+        from mir.signature.signature import CORPUS_REPO, _RES, bundled_names
+        idx = corpora_index(_RES)
+        if not idx:
+            raise SystemExit("this version ships no corpus index, so there is nothing to fetch; "
+                             f"the corpora it knows are {', '.join(bundled_names()) or '(none)'}")
+        for nm in (sorted(idx) if a.fetch == "all" else [a.fetch]):
+            if nm not in idx:
+                raise SystemExit(f"no published corpus named {nm!r}; have {', '.join(sorted(idx))}")
+            p = fetch_artifact(nm, sig="rsig", res_dir=_RES, repo=CORPUS_REPO)
+            print(f"[mir] {p}  {p.stat().st_size / 1e6:.2f} MB", file=sys.stderr)
+        print(f"[mir] cache: {corpus_cache_dir()}", file=sys.stderr)
+        return
+    if not a.output:
+        raise SystemExit("-o/--output is required when building a corpus (--fetch does not use it)")
+
     size = None if a.size == "auto" else a.size
     if a.size not in ("auto", "n_eff", "p05", "p95"):
         try:
@@ -570,7 +588,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "synthetic-blood / synthetic-tissue: the mixture of the two, drawn across "
                          "that real cohort's measured per-locus richness, reads per clonotype and "
                          "singleton fraction")
-    c2.add_argument("-o", "--output", required=True, help="artifact path; writes .npz and .json")
+    c2.add_argument("-o", "--output", help="artifact path; writes .npz and .json. Required "
+                                          "unless --fetch, which downloads into the cache instead")
+    c2.add_argument("--fetch", metavar="NAME|all",
+                    help="download a published corpus instead of building one, into the cache "
+                         "($VDJTOOLS_CORPUS_DIR or ~/.cache/vdjtools/signature); `all` pre-warms "
+                         "every corpus, which is the install-time step since an artifact is "
+                         "otherwise fetched on first use")
     c2.add_argument("--samples", type=int, default=10_000, help="repertoires in the corpus")
     c2.add_argument("--size", default="auto",
                     help="receptors per repertoire: an integer, or n_eff / p05 / p95. Default auto "
