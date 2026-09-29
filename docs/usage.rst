@@ -16,7 +16,7 @@ Install & the data model
    pip install "mirpy-lib[ml]"      # + neural codecs (torch)
    pip install "mirpy-lib[examples]"  # + marimo notebooks (marimo, matplotlib, umap-learn)
 
-Requires ``vdjtools>=4.3.0`` and ``seqtree>=1.0.0``, both installed for you; ``mir`` itself is a
+Requires ``vdjtools>=4.6.0`` and ``seqtree>=1.0.0``, both installed for you; ``mir`` itself is a
 pure-Python ``py3-none-any`` wheel. A clonotype table is a polars frame; clone sizes live in
 ``duplicate_count`` (repertoire-level embeddings weight by them):
 

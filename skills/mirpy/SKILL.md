@@ -149,6 +149,8 @@ with phenotype.
 
 ### `mir.signature` — the portable signature, geometry half
 
+**4.4.0 — the per-item-loop audit.** No API change. `shm_penalty_batch` was a per-row loop behind a docstring that said "vectorised" (3.3x-3.9x on the mutation path, 43.4x on the identity path), and the isotype channels spent 76% of their time in `strip_allele` rather than matching bands (`isotype_masks` 21.7x, `isotype_shares` 14.9x at 200,000 clonotypes). Requires **vdjtools >= 4.6.0** as a hard floor: `strip_allele_values` does not exist before it. Measurements and the seven sites deliberately left alone are in CLAUDE.md.
+
 **4.3.0 — the `div`/`disp`/`mask` channel families.** `rsig` emits embedding diversity, not only
 Rao: `q_v`/`q_j`/`q_c` (Rao per `Phi` stride — **`[0::3]`, `[1::3]`, `[2::3]`, never `[0:K]` blocks**;
 reading them as blocks is the likeliest single bug here and produces plausible numbers, caught only

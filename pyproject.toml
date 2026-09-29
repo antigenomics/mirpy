@@ -36,7 +36,7 @@ dependencies = [
   # `vdjtools.signature.corpus`, which does not exist before 4.0.0, and 4.0.0 never
   # reached PyPI. On the old `>=3.18.0` pip would have resolved vdjtools 3.18.1 beside
   # mirpy 4.0.0 and every signature entry point would have failed on import.
-  "vdjtools>=4.3.0",
+  "vdjtools>=4.6.0",
 ]
 license = { text = "GPL-3.0-or-later" }
 
@@ -46,7 +46,7 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
-build = ["vdjtools[model]>=4.2.0", "biopython"]
+build = ["vdjtools[model]>=4.6.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +

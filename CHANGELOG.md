@@ -3,6 +3,99 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.4.0 — 2026-09-29
+
+Every module read for one pattern: Python iterating over *data* where a batched call, a polars
+expression or a table gather does the same work. Requires vdjtools >= 4.6.0, which is a **hard
+floor** — `strip_allele_values` does not exist before it.
+
+mirpy is pure Python by design (hatchling, no extension), so "make it native" here means reaching
+into seqtree's or vdjtools' C++ rather than adding a build. Both fixes below did the opposite of
+what that suggests, and the measurements say why.
+
+### Fixed: `shm_penalty_batch` said "vectorised" and was a per-row loop
+
+It called the scalar `shm_penalty` once per clonotype, which re-parsed the mutation string and
+made **one seqtree `penalty` call per substitution** — so a BCR repertoire of 10^5 clonotypes
+carrying ~15 mutations each made ~1.5 million calls to answer 676 distinct questions. It sits on
+`TCREmp.embed`, so it ran for every frame carrying `v_mutations` or `v_identity`.
+
+The parse is one polars pass and the penalties one gather from a `(26, 26)` table built once:
+
+| cohort | was | now | gain |
+|---|---|---|---|
+| 10,000 x 15 mutations | 32.7 ms | 10.0 ms | 3.3x |
+| 100,000 x 15 mutations | 324.3 ms | 83.2 ms | **3.9x** |
+| 200,000 x 18 mutations | 748.2 ms | 210.0 ms | 3.6x |
+| 200,000, identity only | 87.2 ms | 2.0 ms | **43.4x** |
+
+`shm_penalty` stays the scalar reference and `tests/test_shm.py` asserts the two agree with `==`,
+not a tolerance: every BLOSUM62 penalty is a small integer, so a float64 sum of them is exact
+however it is ordered, and a tolerance would hide a mis-indexed table — the one bug this rewrite
+could plausibly introduce. **This module had no tests at all**, which is the other half of why the
+docstring and the code disagreed for as long as they did.
+
+Three things the rewrite had to keep, each now pinned:
+
+- **J, O and U are letters and are not in BLOSUM62.** The scalar path raised because seqtree
+  rejected the pair; a lookup table with a silent default would return a finite, plausible penalty
+  instead. `nan` marks them and both paths raise together.
+- **A non-letter token is dropped in silence** (`23V`, `A23`, `AB`) because `parse_mutations`
+  requires the first and last characters to be letters. Telling that case from the one above is
+  the only reason the alpha check survives — and it now runs on the **null rows alone**, which is
+  worth 31.3 ms of a 113.5 ms pass, because a well-formed spec has none.
+- **Truthiness of the raw value, never of its string form.** The scalar path branches on
+  `if mutations:`, so an int `0` takes the identity path while `3` does not. Casting to string
+  first would make `"0"` truthy and score that row from the wrong branch — plausibly, and with
+  nothing about the number to show it had.
+
+### Fixed: the isotype channels spent their time stripping allele suffixes, not matching bands
+
+`isotype_masks` and `isotype_shares` each materialised the whole allele-stripped `c_call` column
+into a Python list and ran one `in` test per clonotype per band. **The membership tests were not
+the cost.** Profiled on 200,000 rows: `strip_allele` 100.7 ms, the three `is_in` tests 3.7 ms, the
+`to_list()` 5.0 ms, the Python `in` tests 25.9 ms. Replacing only the comprehensions moved
+132.2 ms to 134.8 — nothing, which is how the real cause surfaced.
+
+`strip_allele` is a polars *expression*, so it resolves the allele suffix once per row, and a
+`c_call` column carries a few dozen distinct values however deep the repertoire is. vdjtools 4.6.0
+adds `strip_allele_values`, which resolves it once per distinct call; both functions now share one
+pass through it:
+
+| clonotypes | `isotype_masks` | `isotype_shares` |
+|---|---|---|
+| 10,000 | 8.63 -> 1.20 ms (7.2x) | 7.66 -> 1.32 ms (5.8x) |
+| 50,000 | 30.85 -> 2.29 ms (13.5x) | 32.80 -> 2.88 ms (11.4x) |
+| 200,000 | 132.23 -> 6.10 ms (**21.7x**) | 124.89 -> 8.39 ms (**14.9x**) |
+
+Output is identical on plain calls, nulls, comma ambiguity, surrounding whitespace, a single
+occupied band, a band under the floor, and a frame with no `c_call`. `isotype_shares` takes its
+masks from `isotype_masks` rather than from a second copy of the same comprehension — two copies
+is how the two came to be able to disagree about a null.
+
+### Measured and deliberately left alone, with the numbers
+
+So nobody re-derives this. Every other module iterates over **structure** — loci, samples,
+donors, prototypes, PCs, channels, columns, epochs, minibatches — which is not the same thing as
+iterating over data, and each step is a real numpy or torch operation.
+
+| site | measured | why it stays |
+|---|---|---|
+| `signature.features.dispersion_pass` | chunked running sums, `(n, 3K)` never held | already the target shape: BLAS inside, linear in depth |
+| `embedding.TCREmp.embed` | preallocated output, one batched call per block | polars-vectorised validation, seqtree threads released |
+| `distances.germline.matrix` | resolves distinct alleles, `proto_idx` hoisted | previously audited; `np.unique` measured at 1.12x and rejected |
+| `density` neighbour lists | flatten + one `bincount` | the ragged lists are scipy/pynndescent's return shape |
+| `bench.metrics` purity map | 20.7 ms at 200,000 | one dict lookup per clonotype, once per benchmark |
+| `bench.eval` kmer matrix fill | 467.9 ms at 900 samples x 8,000 kmers | over the **vocabulary**, and the 900 `kmer_profile` calls dominate |
+| `bench.theory._hamming1_counts` | length-blocked around a batched `hamming_matrix` | already audited, and carries its own ceiling note |
+
+**Two paths iterate per pair because no batch exists upstream**, not because nobody looked:
+`distances.junction`'s `alignment="sw"` backend and `bench.theory.junction_dissimilarity_sw` both
+call BioPython's `PairwiseAligner` per pair, which has no batched API. Both are opt-in validation
+paths against the paper's exact Smith-Waterman; the default `gapblock` backend is one seqtree call
+with the GIL released. `resources/*/build_*.py` keep their `iter_rows` and their O(n^2) alignments
+because they are offline artifact builders run once.
+
 ## 4.3.0 — 2026-09-28
 
 The geometry half emits embedding **diversity**, not only Rao — and stops emitting a presence mask

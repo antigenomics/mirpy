@@ -61,6 +61,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
+import polars as pl
 
 #: Typical IMGT V-region length in amino acids, used to turn a scalar identity into a mutation
 #: count. Real V regions run ~95-100 aa; the constant only sets the scale of the scalar path and
@@ -154,6 +155,33 @@ def shm_penalty(mutations: str | None = None, *, identity: float | None = None,
     return float(max(1.0 - identity, 0.0) * v_length * lam)
 
 
+@lru_cache(maxsize=1)
+def _penalty_table() -> np.ndarray:
+    """The whole BLOSUM62 penalty domain as a ``(26, 26)`` table, indexed by ``ord(aa) - 65``.
+
+    :func:`substitution_penalty` is a seqtree call per substitution, and the batch path made one
+    per mutation per clonotype: a real BCR repertoire carries ~15 mutations on each of ~10^5
+    clonotypes, so ~1.5 million calls to answer 676 distinct questions. ``nan`` marks the
+    upper-case codes BLOSUM62 does not define (J, O and U, and no others), so an unsupported
+    residue stays *detectable* rather than silently scoring 0 — the scalar path raises on
+    those, so this one must too.
+    """
+    m = _matrix()
+    t = np.full((26, 26), np.nan)
+    for i in range(26):
+        for j in range(26):
+            try:
+                t[i, j] = m.penalty(chr(65 + i), chr(65 + j))
+            except ValueError:
+                pass                                # BLOSUM62 does not define this pair
+    return t
+
+
+#: Upper-case residue to its row in :func:`_penalty_table`, built from the table's own index so
+#: the two cannot disagree about what is defined.
+_AA_INDEX = {chr(65 + i): i for i in range(26)}
+
+
 def shm_penalty_batch(mutations=None, identity=None, *, v_length: int = V_REGION_AA,
                       lambda_scalar: float | None = None) -> np.ndarray:
     """Vectorised :func:`shm_penalty` over a batch of clonotypes.
@@ -161,15 +189,89 @@ def shm_penalty_batch(mutations=None, identity=None, *, v_length: int = V_REGION
     Either argument may be ``None``; per row, a mutation spec wins over an identity. Rows with
     neither are ``nan``, which :class:`MutatedGermlineDistances` turns into "no SHM adjustment"
     rather than into a distance — see there for why those are different.
+
+    This was a ``for`` loop calling :func:`shm_penalty` per row while its own first line said
+    "vectorised", which put a string parse and one seqtree call per substitution on the embedding
+    path of every frame carrying mutation evidence: **3.10 microseconds per clonotype** at 15
+    mutations, 309.9 ms for 100,000. The parse is one polars pass now and the penalties one
+    gather from :func:`_penalty_table`. :func:`shm_penalty` stays the scalar reference, and
+    ``test_shm.py`` asserts the two agree — exactly, not within a tolerance, because every
+    penalty is a small integer and a float64 sum of those is exact however it is ordered.
     """
     n = len(mutations) if mutations is not None else len(identity)
-    out = np.empty(n, dtype=np.float64)
     lam = mean_shm_penalty() if lambda_scalar is None else lambda_scalar
-    for i in range(n):
-        m = mutations[i] if mutations is not None else None
-        d = identity[i] if identity is not None else None
-        out[i] = shm_penalty(m, identity=d, v_length=v_length, lambda_scalar=lam)
+    if mutations is not None and identity is not None and len(identity) != n:
+        raise ValueError(f"mutations has {n} entries and identity {len(identity)}")
+    out = np.full(n, np.nan, dtype=np.float64)
+
+    if identity is not None:
+        # `pl.Series` turns a None into a null and `to_numpy` a null into nan, which is the same
+        # answer the scalar path's `identity is None or not np.isfinite(identity)` gives.
+        idt = pl.Series(values=list(identity), dtype=pl.Float64, strict=False).to_numpy()
+        ok = np.isfinite(idt)
+        out[ok] = np.maximum(1.0 - idt[ok], 0.0) * v_length * lam
+
+    if mutations is not None:
+        # Truthiness of the RAW value, never of its string form: the scalar path branches on
+        # `if mutations:`, so an int 0 takes the identity path while an int 3 does not. Casting
+        # to string first would make "0" truthy and score that row from the wrong branch —
+        # plausibly, and with nothing about the number to show it had. One `bool()` per row is
+        # ~0.03 us against the 3.10 us this function used to spend on each of them.
+        has = np.fromiter((bool(m) for m in mutations), dtype=bool, count=n)
+        if has.any():
+            out[has] = _spec_penalties([m for m, h in zip(mutations, has) if h])
     return out
+
+
+def _spec_penalties(specs: list) -> np.ndarray:
+    """Summed BLOSUM62 penalty per mutation spec, for specs already known to be truthy.
+
+    Reproduces :func:`parse_mutations` as one polars pass: separators normalised, split, trimmed,
+    tokens under three characters dropped, then the first and last characters upper-cased and
+    required to be letters. A token that survives all that while naming a residue BLOSUM62 does
+    not define raises, exactly as the per-row path did when seqtree rejected it.
+    """
+    n = len(specs)
+    tok = (
+        pl.DataFrame({"s": pl.Series(values=specs, strict=False).cast(pl.String, strict=False)})
+        .with_row_index("row")
+        .with_columns(pl.col("s").str.replace_all("[; ]", ",").str.split(",").alias("t"))
+        .drop("s")
+        # `empty_as_null` is pinned, not inherited: polars 2.0 flips the default to False,
+        # and an empty token between two separators ("A23V,,S31N") is exactly what this
+        # parser meets. Either value is dropped by the length filter below, so pinning it
+        # keeps that true across the version change rather than relying on it.
+        .explode("t", empty_as_null=True)
+        .with_columns(pl.col("t").str.strip_chars())
+        .filter(pl.col("t").str.len_chars() >= 3)
+        .with_columns(a=pl.col("t").str.slice(0, 1).str.to_uppercase(),
+                      b=pl.col("t").str.slice(-1, 1).str.to_uppercase())
+        .with_columns(
+            ai=pl.col("a").replace_strict(_AA_INDEX, default=None, return_dtype=pl.Int64),
+            bi=pl.col("b").replace_strict(_AA_INDEX, default=None, return_dtype=pl.Int64))
+    )
+    if tok.height == 0:
+        return np.zeros(n, dtype=np.float64)
+    # A null index is either a first/last character that is not a letter, which
+    # `parse_mutations` skips in silence, or a letter outside A-Z, which seqtree rejected. Only
+    # the second is an error, and telling them apart needs `str.isalpha()`'s own domain
+    # (`\p{L}`) — so that regex runs on the null rows ALONE. It was 31.3 ms of a
+    # 113.5 ms pass when applied to all 1.5M tokens, and a well-formed spec has no null rows at
+    # all.
+    null = pl.col("ai").is_null() | pl.col("bi").is_null()
+    undefined = tok.filter(null).filter(
+        pl.col("a").str.contains(r"^\p{L}$") & pl.col("b").str.contains(r"^\p{L}$"))
+    if undefined.height == 0:
+        tok = tok.filter(~null) if tok.select(null.any()).item() else tok
+        pen = _penalty_table()[tok["ai"].to_numpy(), tok["bi"].to_numpy()]
+        if np.isfinite(pen).all():
+            return np.bincount(tok["row"].to_numpy(), weights=pen, minlength=n)
+        undefined = tok.filter(~np.isfinite(pen))
+    raise ValueError(
+        f"mutation spec names a residue BLOSUM62 does not define, e.g. "
+        f"{undefined['t'].unique().head(5).to_list()}. The defined upper-case codes are "
+        f"ABCDEFGHIKLMNPQRSTVWXYZ; J, O and U are not among them."
+    )
 
 
 @dataclass
