@@ -149,6 +149,8 @@ with phenotype.
 
 ### `mir.signature` — the portable signature, geometry half
 
+**4.4.1 — the `vdjtools` floor is 4.7.0.** No change in `mir`. vdjtools 4.7.0 answers the V/J boundary off the germline rather than off the argmax recombination history (`model.germline_boundary`; `v.end` 71.79 % -> 92.89 % exact on 8,132 human TRB junctions with external nucleotide truth). Nothing here calls it — read it from vdjtools directly if you need a V/J boundary, and never from `Scenario.v_end`.
+
 **4.4.0 — the per-item-loop audit.** No API change. `shm_penalty_batch` was a per-row loop behind a docstring that said "vectorised" (3.3x-3.9x on the mutation path, 43.4x on the identity path), and the isotype channels spent 76% of their time in `strip_allele` rather than matching bands (`isotype_masks` 21.7x, `isotype_shares` 14.9x at 200,000 clonotypes). Requires **vdjtools >= 4.6.0** as a hard floor: `strip_allele_values` does not exist before it. Measurements and the seven sites deliberately left alone are in CLAUDE.md.
 
 **4.3.0 — the `div`/`disp`/`mask` channel families.** `rsig` emits embedding diversity, not only

@@ -3,6 +3,15 @@
 All notable changes to `mirpy-lib` (import `mir`). This project follows semantic versioning; the v3 line is a
 greenfield ML/embedding rewrite (the classical v1.x/v2 toolkit is frozen on branch `legacy-v2`).
 
+## 4.4.1 — 2026-09-29
+
+Nothing in `mir` changed. The `vdjtools` floor moves to **4.7.0**, which answers the V/J boundary
+off the germline rather than off the argmax recombination history
+([vdjtools#182](https://github.com/antigenomics/vdjtools/issues/182)): `v.end` in VDJdb's residue
+convention goes from 71.79 % exact to **92.89 %** on 8,132 human TRB junctions with external
+nucleotide truth. mirpy does not call it — the floor moves because mirpy's CI and docs install
+`vdjtools` from PyPI, so keeping it current is how mirpy exercises the version its users resolve.
+
 ## 4.4.0 — 2026-09-29
 
 Every module read for one pattern: Python iterating over *data* where a batched call, a polars
