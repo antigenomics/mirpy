@@ -14,9 +14,8 @@
   <a href="https://pypi.org/project/mirpy-lib/"><img alt="PyPI" src="https://img.shields.io/pypi/v/mirpy-lib.svg"></a>
   <a href="https://pypi.org/project/mirpy-lib/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/mirpy-lib.svg"></a>
   <a href="https://github.com/antigenomics/mirpy/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/antigenomics/mirpy/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/antigenomics/mirpy/actions/workflows/docs.yml"><img alt="docs build" src="https://github.com/antigenomics/mirpy/actions/workflows/docs.yml/badge.svg"></a>
+  <a href="https://docs.isalgo.dev/mirpy/"><img alt="docs" src="https://github.com/antigenomics/mirpy/actions/workflows/docs.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPLv3-green"></a>
-  <a href="https://docs.isalgo.dev/mirpy/"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.isalgo.dev-blue"></a>
 </p>
 
 <p align="center"><b>
