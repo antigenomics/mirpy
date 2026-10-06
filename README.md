@@ -237,3 +237,26 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 (`mirpy-lib` 2.x); its functionality lives on in
 [vdjtools](https://github.com/antigenomics/vdjtools) and
 [vdjmatch](https://github.com/antigenomics/vdjmatch).
+
+### Running signatures across samples
+
+```bash
+mir signature --corpus blood --jobs 8 samples/*.tsv -o signatures.parquet
+```
+
+`--jobs` controls worker processes. It defaults to 1; use 0 to request all available
+cores or a positive count to set the budget explicitly. Each spawned worker uses one
+thread per numerical kernel. Workers read one sample at a time, retain their fitted
+resources, and return only a feature row. Embeddings use fixed 4,096-row blocks
+(24 MiB per float64 block at 256 prototypes). Output follows input order. No sample-count
+heuristic changes an explicit worker budget.
+
+For the Python cohort API, pass picklable zero-argument readers to defer file loading
+into workers. Passing already-loaded frames keeps those frames in the parent too.
+The CLI sets kernel thread limits before imports, including at `--jobs 1`. Direct
+Python calls retain the calling process's Polars and BLAS settings at `n_jobs=1`.
+
+Density analysis also accepts an explicit kernel budget:
+`neighbor_enrichment(observed, background, threads=8)`. Background counts are exact with both
+KD-tree and ANN observation queries, including points tied at the selected radius. Only ANN
+observation-neighbor recall is approximate.

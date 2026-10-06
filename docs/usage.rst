@@ -382,3 +382,15 @@ data via ``examples/theory.py``; the full benchmark suite lives in the ``2026-mi
    X = model.embed(df)                                   # df is already AIRR-named
    labels = cluster(pca_denoise(X, n_components=50))
    metrics = cluster_metrics(labels, df["epitope"])      # {epitope: AntigenMetric}
+
+Density resource budgets
+------------------------
+
+``neighbor_enrichment(..., threads=N)`` bounds KD-tree and ANN worker threads. Zero uses the
+available CPU allocation; the exact BallTree reference backend is single-threaded. KD-tree
+balloon queries retain only the kth distance, avoiding an observation-count by neighbor-count
+output buffer. Both density backends count background occupancy exactly, including tied distances;
+ANN approximation applies only to observation-neighbor recall.
+
+``cv_cindex`` warns when convergence or a lack of admissible pairs makes a fold unscorable.
+Unexpected implementation errors propagate instead of silently becoming missing scores.

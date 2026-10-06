@@ -34,8 +34,9 @@ from vdjtools.signature import transform as T
 from vdjtools.signature.features import WEIGHTS
 
 #: Rows embedded per pass. Bounds **memory**, not time: ``Phi`` and the Rao accumulator are both
-#: running sums, so the full ``(n, 3K)`` matrix is never held.
-CHUNK = 50_000
+#: running sums, so the full ``(n, 3K)`` matrix is never held. At K=256, one float64
+#: block uses 24 MiB. A fixed row budget, independent of depth or worker count.
+CHUNK = 4_096
 
 #: Prototypes per locus. The panel is a bundled resource and this is its size; changing it changes
 #: the raw column set, which the corpus artifact's load-time check will refuse rather than reindex.

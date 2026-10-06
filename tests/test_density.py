@@ -442,3 +442,45 @@ def test_ann_fixed_radius_background_count_is_exact():
     assert np.array_equal(ra.n_bg, rx.n_bg)
     # and with the background counted properly, nothing in a homogeneous blob is "enriched"
     assert ra.fold.max() < 3.0 and enriched_mask(ra).sum() == 0
+
+
+def test_kdtree_thread_budget_preserves_exact_result():
+    from mir.density import neighbor_enrichment
+    rng = np.random.default_rng(41)
+    obs, bg = rng.normal(size=(100, 3)), rng.normal(size=(200, 3))
+    one = neighbor_enrichment(obs, bg, threads=1)
+    two = neighbor_enrichment(obs, bg, threads=2)
+    for name in ("n_obs", "n_bg", "expected", "pvalue"):
+        np.testing.assert_array_equal(getattr(one, name), getattr(two, name))
+    with pytest.raises(ValueError, match="threads"):
+        neighbor_enrichment(obs, bg, threads=-1)
+
+
+def test_ann_balloon_counts_all_background_ties(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from mir.density import _ann_neighbors
+    class Index:
+        def __init__(self, data, **kw):
+            self.data = data
+            assert kw["n_jobs"] == 2
+        def query(self, queries, k):
+            from scipy.spatial.distance import cdist
+            d = cdist(queries, self.data)
+            idx = np.argsort(d, axis=1)[:, :k]
+            return idx, np.take_along_axis(d, idx, axis=1)
+    monkeypatch.setitem(sys.modules, "pynndescent", SimpleNamespace(NNDescent=Index))
+    obs = np.array([[0.0], [2.0], [4.0]])
+    bg = np.zeros((10, 1))
+    rad, _, counts, count_obs, _ = _ann_neighbors(obs, bg, None, 1, 2, threads=2)
+    np.testing.assert_array_equal(counts, [10, 10, 10])
+    np.testing.assert_array_equal(rad, [0, 2, 4])
+    assert np.all(count_obs() >= 0)
+
+
+def test_ann_single_observation_has_no_self_neighbour():
+    pytest.importorskip("pynndescent")
+    from mir.density import neighbor_enrichment
+    result = neighbor_enrichment(np.array([[0.0]]), np.array([[0.0], [1.0]]),
+                                 backend="ann", threads=1)
+    np.testing.assert_array_equal(result.n_obs, [0])

@@ -268,12 +268,15 @@ Traps
 * **The SHM columns must never reach the embedder.** ``v_identity`` and ``v_mutations`` silently
   switch ``TCREmp.embed`` to SHM-aware V distances, which is a different coordinate system under the
   same column names — the numbers move and nothing says so. They are dropped before embedding.
-* **``chunk`` bounds memory, not the answer.** ``Φ`` and the Rao accumulator are running sums, so the
-  full ``(n, 3K)`` matrix is never held and the result is chunk-independent.
-* **``--jobs`` is processes.** The embedder already threads inside one sample, so a pool worker
-  deliberately takes one kernel thread. ``n_jobs=1`` is therefore **not** serial, and four workers
-  measured 0.79x one in-process pass — which is why the parallelism test checks *where the work ran*
-  (by PID) rather than how long it took.
+* **``chunk`` bounds memory.** The default is 4,096 rows: 24 MiB per float64 embedding
+  block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
+  Changing block size preserves the calculation up to floating-point rounding.
+* **``--jobs`` is processes.** The default is 1; 0 requests all available cores.
+  Positive counts are limited only by the number of samples, without a sample-count
+  heuristic. Spawned workers use one thread per numerical kernel, with limits set
+  before import. Each worker loads its resources once, reads one sample at a time,
+  and returns a feature row. Available workers take the next sample; output order
+  remains the input order. ``n_jobs=1`` retains the caller's kernel thread settings.
 * **A pool that cannot start raises.** It does not fall back to one process: a correctness-preserving
   fallback turned a dead pool into a merely slow one and hid a 20x regression here for months.
 

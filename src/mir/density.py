@@ -374,7 +374,7 @@ def calibrate_radius(
     return r
 
 
-def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: int = 0):
+def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: int = 0, threads: int = 1):
     """Approximate neighbour queries (pynndescent) for whole-repertoire scale.
 
     Returns ``(rad, radius_out, n_bg, count_obs, lists_obs)`` matching the exact BallTree path:
@@ -387,8 +387,7 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     The *background* occupancy is always exact — undercounting it would shrink the expected
     count and inflate fold and significance, which is the one direction this must never err in.
     In the fixed-radius branch that is a scipy radius count (no kNN truncation to saturate);
-    in the balloon branch the occupancy is ``k`` by construction, so only the radius itself
-    (a genuine kNN query) rides the approximate index.
+    the balloon radius and background count both use an exact KD-tree, including tied neighbours.
 
     For large N where exact trees are slow; use ``backend='exact'`` for small or
     reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
@@ -399,36 +398,35 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     obs = np.ascontiguousarray(obs, dtype=np.float32)  # pynndescent prefers float32
     bg = np.ascontiguousarray(bg, dtype=np.float32)
     n_obs_total, n_bg_total = len(obs), len(bg)
-    obs_index = NNDescent(obs, metric="euclidean",
-                          n_neighbors=min(k_max, n_obs_total - 1), random_state=seed)
-    if radius is None:  # balloon: radius = k-th bg-neighbour distance, occupancy == k
-        bg_index = NNDescent(bg, metric="euclidean",
-                             n_neighbors=min(max(k_max, 16), n_bg_total - 1), random_state=seed)
+    obs_index = (NNDescent(obs, metric="euclidean",
+                          n_neighbors=min(k_max, n_obs_total - 1), random_state=seed, n_jobs=threads)
+                 if n_obs_total > 1 else None)
+    bg_tree = cKDTree(bg)
+    if radius is None:
         k = min(max(int(round(lambda0 * n_bg_total / n_ref)), 1), n_bg_total)
-        rad = bg_index.query(obs, k=k)[1][:, -1].astype(np.float64)
-        n_bg = np.full(n_obs_total, k, dtype=np.int64)
+        # Request only the kth distance: returning all k neighbours is O(n_obs * k) memory.
+        rad = bg_tree.query(obs, k=[k], workers=threads)[0][:, 0]
         radius_out = float(np.median(rad))
-    else:  # fixed global radius
+    else:
         rad = np.full(n_obs_total, float(radius), dtype=np.float64)
-        # Exact radius count, not a k_max-truncated kNN list: this is a *counting* query, which
-        # is what a KD-tree does natively, and it is strictly cheaper than the NNDescent build
-        # it replaces. Saturating it would inflate fold rather than deflate it.
-        n_bg = cKDTree(bg).query_ball_point(
-            obs, float(radius), return_length=True, workers=-1).astype(np.int64)
         radius_out = float(radius)
-    oi, od = obs_index.query(obs, k=min(k_max, n_obs_total))  # self included (dist ~0)
-    within = od <= rad[:, None]
-    if bool(within.all(axis=1).any()):
+    n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=threads).astype(np.int64)
+    if obs_index is None:  # one observation has no other observation neighbours
+        oi, od = np.zeros((1, 1), dtype=np.int64), np.zeros((1, 1))
+    else:
+        oi, od = obs_index.query(obs, k=min(k_max, n_obs_total))
+    within = (od <= rad[:, None]) & (oi != np.arange(n_obs_total)[:, None])
+    if bool((od <= rad[:, None]).all(axis=1).any()) and k_max < n_obs_total:
         import warnings
 
         warnings.warn(f"ANN neighbour ball saturated at k_max={k_max} for some clonotypes; their "
                       "counts are undercounted — raise k_max or use backend='exact'.", stacklevel=2)
 
     def _count_obs():
-        return (within.sum(1) - 1).astype(np.int64)
+        return within.sum(1).astype(np.int64)
 
     def _lists_obs():
-        return [oi[i][within[i]] for i in range(n_obs_total)]
+        return [np.append(oi[i][within[i]], i) for i in range(n_obs_total)]
 
     return rad, radius_out, n_bg, _count_obs, _lists_obs
 
@@ -448,8 +446,12 @@ def neighbor_enrichment(
     backend: str = "kdtree",
     k_max: int = 96,
     seed: int = 0,
+    threads: int = 0,
 ) -> EnrichmentResult:
     """Continuous neighbour-enrichment test in one embedding coordinate system.
+
+    ``threads`` bounds KD-tree and ANN worker threads; ``0`` uses the available CPU allocation.
+    The BallTree reference backend remains single-threaded.
 
     Two neighbourhood-scale modes (appendix §T.6):
 
@@ -527,6 +529,12 @@ def neighbor_enrichment(
             "zero-background ball cannot produce an infinite fold."
         )
 
+    from vdjtools.cores import available_cores
+
+    if threads < 0:
+        raise ValueError("threads must be non-negative (0 means available cores)")
+    threads = threads or available_cores()
+
     if backend == "exact":
         from sklearn.neighbors import BallTree
 
@@ -554,23 +562,22 @@ def neighbor_enrichment(
         if radius is None:
             k = int(round(lambda0 * n_bg_total / n_ref))
             k = min(max(k, 1), n_bg_total)
-            d = bg_tree.query(obs, k=k, workers=-1)[0]
-            rad = d[:, -1] if d.ndim == 2 else d  # cKDTree returns 1-D for k==1
+            rad = bg_tree.query(obs, k=[k], workers=threads)[0][:, 0]
             radius_out = float(np.median(rad))
         else:
             rad = np.full(n_obs_total, float(radius))
             radius_out = float(radius)
-        n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=-1).astype(np.int64)
+        n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=threads).astype(np.int64)
 
         def _count_obs():
-            return (obs_tree.query_ball_point(obs, rad, return_length=True, workers=-1) - 1).astype(np.int64)
+            return (obs_tree.query_ball_point(obs, rad, return_length=True, workers=threads) - 1).astype(np.int64)
 
         def _lists_obs():
             return [np.asarray(x, dtype=np.intp)
-                    for x in obs_tree.query_ball_point(obs, rad, workers=-1)]
+                    for x in obs_tree.query_ball_point(obs, rad, workers=threads)]
     elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
         rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
-            obs, bg, radius, lambda0, n_ref, k_max=k_max, seed=seed)
+            obs, bg, radius, lambda0, n_ref, k_max=k_max, seed=seed, threads=threads)
     else:
         raise ValueError(f"backend must be 'exact', 'kdtree', or 'ann', got {backend!r}")
     p_bg = (n_bg + pseudocount) / (n_bg_total + pseudocount)

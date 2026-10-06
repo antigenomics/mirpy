@@ -26,10 +26,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 # Filenames whose content is internal by design. Matched against the basename, case-insensitively.
-PRIVATE = re.compile(
-    r"^(SOURCES|CLAUDE|TODO|NOTES|ROADMAP|STATUS|AGENTS|NULLS|PLAN)\.md$|^ISSUES.*\.md$",
-    re.IGNORECASE,
-)
+PRIVATE = re.compile(r"^(?!readme\.md$).*\.md$", re.IGNORECASE)
 
 
 # Every working-note name, as the sdist exclude and the gitignore must both spell them.
@@ -86,5 +83,5 @@ def test_the_matcher_can_actually_fail():
     assert PRIVATE.match("SOURCES.md") and PRIVATE.match("ISSUES_ext.md")
     assert PRIVATE.match("claude.md"), "matching must be case-insensitive"
     assert not PRIVATE.match("README.md")
-    assert not PRIVATE.match("CHANGELOG.md")
-    assert not PRIVATE.match("SKILL.md")
+    assert PRIVATE.match("CHANGELOG.md")
+    assert PRIVATE.match("SKILL.md")
