@@ -95,11 +95,7 @@ def _with_locus(df: pl.DataFrame) -> pl.DataFrame:
         return df
     from vdjtools import io
 
-    try:
-        return io.add_locus(df)
-    except Exception:
-        # Fallback: the IMGT locus is the v_call's first 3 characters (TRB/TRA/IGH/…).
-        return df.with_columns(pl.col("v_call").str.slice(0, 3).alias("locus"))
+    return io.add_locus(df)
 
 
 def _emb_frame(X, prefix: str) -> pl.DataFrame:

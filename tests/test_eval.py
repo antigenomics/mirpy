@@ -136,3 +136,13 @@ def test_kmer_matrix_is_a_fixed_width_baseline():
     # the two samples sharing a junction are closer than either is to the third
     d01 = np.linalg.norm(M[0] - M[1])
     assert d01 < np.linalg.norm(M[0] - M[2]) and d01 < np.linalg.norm(M[1] - M[2])
+
+
+def test_cox_does_not_hide_programming_errors(monkeypatch):
+    lifelines = pytest.importorskip("lifelines")
+    from mir.bench.eval import cv_cindex
+    def broken(*args, **kwargs):
+        raise RuntimeError("broken scorer")
+    monkeypatch.setattr(lifelines.CoxPHFitter, "fit", broken)
+    with pytest.raises(RuntimeError, match="broken scorer"):
+        cv_cindex(np.arange(1, 21), np.ones(20), block=np.arange(20))

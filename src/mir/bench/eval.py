@@ -56,7 +56,9 @@ def held_out_auc(Xtr, ytr, Xte, yte, *, pca_cols: int = 0) -> float:
 
 
 def cv_auc(X, y, *, pca_cols: int = 0, n_splits: int = 5, n_repeats: int = 10, seed: int = 0):
-    """Repeated stratified k-fold AUC as ``(mean, std)`` — a CI, not a single-split point estimate.
+    """Repeated stratified k-fold AUC as ``(mean, std)`` across folds.
+
+    The standard deviation describes fold variability; it is not a confidence interval.
 
     A single 70/30 split at small ``n`` has AUC SD ≈ 0.5/√n_test (~0.1 for n_test≈30), so point
     estimates are near-meaningless; repeated CV exposes whether two methods' intervals separate.
@@ -111,6 +113,8 @@ def cv_cindex(durations, events, *, base=None, block=None, n_pc: int = 0,
     ``cv_cindex(dur, evt, base=C, block=None)``.
     """
     from lifelines import CoxPHFitter
+    from lifelines.exceptions import ConvergenceError
+    import warnings
     from lifelines.utils import concordance_index
     from sklearn.decomposition import PCA
     from sklearn.model_selection import KFold
@@ -143,7 +147,8 @@ def cv_cindex(durations, events, *, base=None, block=None, n_pc: int = 0,
             cph = CoxPHFitter(penalizer=penalizer).fit(dtr, "_T", "_E")
             risk = cph.predict_partial_hazard(dte)
             sc.append(concordance_index(dur[te], -risk, evt[te]))
-        except Exception:
+        except (ConvergenceError, ZeroDivisionError) as exc:
+            warnings.warn(f"Cox fold could not be scored: {exc}", RuntimeWarning, stacklevel=2)
             sc.append(np.nan)
     return float(np.nanmean(sc)) if np.isfinite(sc).any() else float("nan")
 

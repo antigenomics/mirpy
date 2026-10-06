@@ -6,6 +6,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Numerical kernels stay single-threaded; tests exercise explicit native budgets separately.
+env:
+  POLARS_MAX_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  RAYON_NUM_THREADS: "1"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python:
     name: Python ${{ matrix.python }} (${{ matrix.os }})
@@ -20,12 +33,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       # mirpy is pure Python (py3-none-any, no C build); native code comes from the
       # seqtree / vdjtools wheels pulled as dependencies.
       - name: Install package
         run: pip install -e ".[dev,bench]"
       - name: Test (fast tier)
-        run: pytest tests/ -q -m "not integration and not benchmark"
+        run: pytest tests/ -q --durations=25 -m "not integration and not benchmark"
 
   # One extra leg with the optional tiers installed, because the fast tier above skips every
   # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash
@@ -43,4 +58,4 @@ jobs:
       - name: Install package with [ml] + [ann] + BioPython
         run: pip install -e ".[dev,bench,ml,ann]" biopython
       - name: Test (including integration)
-        run: pytest tests/ -q -m "not benchmark"
+        run: pytest tests/ -q --durations=25 -m "not benchmark"
