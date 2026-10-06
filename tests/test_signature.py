@@ -405,3 +405,21 @@ def test_the_rsig_half_of_a_cohort_corpus_records_the_same_bands_as_the_vsig_hal
     assert art.meta["cohort"] == "tissue"
     assert art.meta["expanded_count_band"] == {"TRG": [2.85, 4.42, 6.82, 13.29, 102.00]}
     assert art.meta["mir_version"] and "vdjtools_version" not in art.meta
+
+
+def test_dispersion_batches_preserve_all_accumulators():
+    from mir.embedding.tcremp import TCREmp
+
+    df = _frame(200, 'TRBV20-1', 'TRBJ2-2', np.random.default_rng(17))
+    counts = df['duplicate_count'].to_numpy()
+    w = F.weights(counts)
+    model = TCREmp.from_defaults('human', 'TRB', n_prototypes=32, threads=1)
+    masks = {'larger': counts > np.median(counts), 'smaller': counts <= np.median(counts)}
+    whole = F.dispersion_pass(df, model, w, band_masks=masks, chunk=1000)
+    batched = F.dispersion_pass(df, model, w, band_masks=masks, chunk=17)
+    for field in ('phi', 'mean_sq', 'stride_sq', 'second', 'uni_phi', 'uni_mean_sq', 'n_eff'):
+        np.testing.assert_allclose(getattr(batched, field), getattr(whole, field),
+                                   rtol=1e-12, atol=1e-9)
+    for band in masks:
+        for a, b in zip(batched.bands[band], whole.bands[band]):
+            np.testing.assert_allclose(a, b, rtol=1e-12, atol=1e-9)

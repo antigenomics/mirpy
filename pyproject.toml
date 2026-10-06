@@ -24,7 +24,7 @@ classifiers = [
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "embedding", "prototypes", "VDJdb"]
 dependencies = [
   "numpy",
-  "polars",
+  "polars>=1.0,<2",
   "scikit-learn",
   "scipy",          # density-ratio enrichment tests (mir.density) + theory fits
   # 1.0.0 is where seqtree began guaranteeing semver. The old `>=0.3.0` floor was five
@@ -70,7 +70,7 @@ docs = [
 ]
 
 [project.scripts]
-mir = "mir.cli:main"
+mir = "mir._cli:main"
 
 [project.urls]
 Homepage      = "https://github.com/antigenomics/mirpy"
@@ -86,6 +86,7 @@ packages = ["src/mir"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
+    "**/*.md", "!**/README.md", "!README.md",
   ".github/**",
   ".idea/**",
   ".vscode/**",

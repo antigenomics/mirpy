@@ -295,13 +295,6 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
     _write(out, a.output)
 
 
-#: Samples a spawned worker needs before its ~2.1 s of fixed startup pays for itself, at the
-#: measured ~0.25 s per sample (2026-09-26, 16-core M-series). Used to cap the worker count
-#: by the work available: sixteen workers on a twenty-four sample cohort measured *slower*
-#: than staying in-process.
-_MIN_SAMPLES_PER_WORKER = 8
-
-
 def _sample_items(a: argparse.Namespace) -> list:
     """``[(sample_id, deferred_read)]``, grouped by id **without reading anything**.
 
@@ -320,23 +313,6 @@ def _sample_items(a: argparse.Namespace) -> list:
     if not by_id:
         raise SystemExit("no samples to sign (check inputs)")
     return [(sid, functools.partial(_read_sample, paths)) for sid, paths in by_id.items()]
-
-
-def _cap_workers(jobs: int, n_samples: int) -> int:
-    """Worker count, capped by the work available rather than by the core count alone.
-
-    A spawned worker costs ~2.1 s before its first sample -- a fresh interpreter, polars, numpy, the
-    prototype panels, and a lazy ``import mir.repertoire`` that drags scipy -- against ~0.25 s per
-    sample after that (measured 2026-09-26, linear fit over n = 1..24 on 12 fresh processes). So a
-    worker needs about eight samples to pay for itself, and handing sixteen workers a twenty-four
-    sample cohort measured *slower* than staying in-process.
-    """
-    from vdjtools.cores import available_cores
-
-    if jobs == 1:
-        return 1
-    workers = jobs if jobs > 0 else available_cores()
-    return max(1, min(workers, n_samples // _MIN_SAMPLES_PER_WORKER or 1))
 
 
 def cmd_signature(a: argparse.Namespace) -> None:
@@ -375,7 +351,7 @@ def cmd_signature(a: argparse.Namespace) -> None:
         return
 
     items = _sample_items(a)
-    jobs = _cap_workers(a.jobs, len(items))
+    jobs = a.jobs
     print(f"[mir] {len(items)} samples | corpus {art.name} "
           f"({art.meta.get('content_sha256', '?')[:12]}) | winsorize={a.winsorize} | "
           f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
@@ -566,10 +542,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="clone-size weight g")
     s.add_argument("--columns", default=None, metavar="FILE",
                    help="file of column names (one per line) to restrict the output to")
-    s.add_argument("--jobs", "-j", type=int, default=0,
-                   help="worker PROCESSES over samples (0 = all cores). Processes, not threads: "
-                        "the embedder already threads inside one sample, so a pool worker takes "
-                        "one kernel thread")
+    s.add_argument("--jobs", "-j", type=int, default=1,
+                   help="worker processes over samples (default: 1, 0 = all available cores). "
+                        "Each spawned worker uses one kernel thread; explicit counts are "
+                        "limited only by the number of samples")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
                    help="a frame with no junction_nt repeating an amino-acid clonotype key cannot "
                         "say whether those rows are one clonotype or two")

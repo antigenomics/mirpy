@@ -110,19 +110,12 @@ def bundled_path(name):
     return resolve_artifact(name, sig="rsig", res_dir=_RES, repo=CORPUS_REPO)
 
 
-def _model(species: str, locus: str):
-    """The embedder for one locus. One thread inside a pool worker, every core outside it."""
-    from vdjtools.signature.cohort import in_pool_worker
-
-    return _model_cached(species, locus, 1 if in_pool_worker() else 0)
-
-
 @functools.lru_cache(maxsize=16)
-def _model_cached(species: str, locus: str, threads: int):
-    """A frozen bundled resource keyed by its own identity, bounded, immutable in-process."""
+def _model(species: str, locus: str):
+    """One immutable prototype panel per locus; parallelism is across samples."""
     from mir.embedding.tcremp import TCREmp
 
-    return TCREmp.from_defaults(species, locus, n_prototypes=F.K, threads=threads)
+    return TCREmp.from_defaults(species, locus, n_prototypes=F.K, threads=1)
 
 
 def _clr(shares: dict[str, float], keep: tuple[str, ...], m: int) -> dict[str, float]:

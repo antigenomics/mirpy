@@ -220,3 +220,10 @@ experiments/runs/
 # file to publish, so it lives here and stays local. Public provenance -- what a shipped artifact
 # is and how to regenerate it -- belongs in the docstring of whatever loads it.
 /SOURCES.md
+
+# Local prose and agent state; only README files are public Markdown.
+*.md
+!README.md
+!readme.md
+.agents/
+.codex/

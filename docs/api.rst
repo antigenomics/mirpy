@@ -190,7 +190,7 @@ Generative loop (``mir.generate``)
 
 A fitted (optionally class-conditional) density over ``RepertoireDescriptor`` vectors: sample new
 synthetic donor states, or evolve one along a coordinate via the fitted covariance's conditional
-mean — the mechanical half of the generative loop (ROADMAP Phase 2).
+mean — the mechanical half of the generative loop.
 
 .. automodule:: mir.generate
    :members:
