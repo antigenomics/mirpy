@@ -32,11 +32,9 @@ dependencies = [
   "seqtree>=1.0.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  # >=4.0.1 is a hard floor, not a preference: the rsig half fits and loads through
-  # `vdjtools.signature.corpus`, which does not exist before 4.0.0, and 4.0.0 never
-  # reached PyPI. On the old `>=3.18.0` pip would have resolved vdjtools 3.18.1 beside
-  # mirpy 4.0.0 and every signature entry point would have failed on import.
-  "vdjtools>=4.7.0",
+  # 4.9.0 supplies bounded signature workers, eager projected AIRR reads, and
+  # native thread budgets used by this release. Keep the build extra in sync.
+  "vdjtools>=4.9.0",
 ]
 license = { text = "GPL-3.0-or-later" }
 
@@ -46,7 +44,7 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
-build = ["vdjtools[model]>=4.7.0", "biopython"]
+build = ["vdjtools[model]>=4.9.0", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +
