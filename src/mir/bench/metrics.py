@@ -51,7 +51,9 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
             — the paper's ``eps := (distance at knee) × (dataset-specific factor)`` (Fig 1); the
             raw knee over-merges in the PCA embedding, so ~0.3–0.4 recovers tight antigen clusters.
         min_samples: core-point / density threshold, shared by all three methods.
-        **kwargs: passed to the underlying estimator (e.g. ``min_cluster_size`` for HDBSCAN,
+        **kwargs: passed to the underlying estimator. Negative ``n_jobs`` values select
+            workers relative to the allocation; ``None`` is serial and ``0`` uses the allocation
+            (e.g. ``min_cluster_size`` for HDBSCAN,
             ``cluster_method`` / ``xi`` for OPTICS).
 
     HDBSCAN is a variable-density estimator — the persistent cluster tree (Hartigan level sets)
@@ -60,8 +62,12 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     """
     from vdjtools.cores import kernel_threads
 
+    from numbers import Integral
+
     n_jobs = kwargs.pop("n_jobs", 0)
-    kwargs["n_jobs"] = kernel_threads(1 if n_jobs is None else 0 if n_jobs == -1 else n_jobs)
+    if isinstance(n_jobs, Integral) and n_jobs < 0:
+        n_jobs = max(1, kernel_threads(0) + 1 + n_jobs)
+    kwargs["n_jobs"] = kernel_threads(1 if n_jobs is None else n_jobs)
     if method == "dbscan":
         if eps is None:
             eps = estimate_dbscan_eps(X, k=k) * eps_factor

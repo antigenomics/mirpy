@@ -624,19 +624,24 @@ def neighbor_enrichment(
     if a.shape[0] != n_obs_total:
         raise ValueError(f"abundance length {a.shape[0]} != N_obs {n_obs_total}")
     g = _WEIGHTS[weight](a)
-    # Bound even a fully dense block to one million edges, before Python lists and gathers.
-    # One query can still contain N neighbours; total exact work remains quadratic in a dense ball.
-    chunk = max(1, _WEIGHTED_MAX_EDGES // n_obs_total)
+    # Count first: sparse rows share large blocks while dense blocks retain the edge bound.
+    # One complete neighbourhood can exceed the cap; dense exact work remains quadratic.
+    offsets = np.empty(n_obs_total + 1, dtype=np.int64)
+    offsets[0] = 0
+    np.cumsum(_count_obs() + 1, out=offsets[1:])
     n_obs = np.empty(n_obs_total, dtype=np.int64)
     S = np.empty(n_obs_total, dtype=np.float64)
-    for start in range(0, n_obs_total, chunk):
-        stop = min(start + chunk, n_obs_total)
+    start = 0
+    while start < n_obs_total:
+        stop = max(start + 1, int(np.searchsorted(
+            offsets, offsets[start] + _WEIGHTED_MAX_EDGES, side="right")) - 1)
         idx = _lists_obs(start, stop)
         counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=stop-start)
         cols = np.concatenate(idx)
         rows = np.repeat(np.arange(stop-start), counts)
         n_obs[start:stop] = counts - 1  # exclude self
         S[start:stop] = np.bincount(rows, weights=g[cols], minlength=stop-start) - g[start:stop]
+        start = stop
     mean_g = float(g.mean())
     phi = float((g * g).mean() / mean_g)  # dispersion index E[g²]/E[g] (=1 for g≡1)
 

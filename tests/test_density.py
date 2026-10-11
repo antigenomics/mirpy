@@ -488,11 +488,13 @@ def test_ann_single_observation_has_no_self_neighbour():
 
 
 @pytest.mark.parametrize('backend', ['exact', 'kdtree', pytest.param('ann', marks=pytest.mark.integration)])
-def test_weighted_dense_balls_are_reduced_in_bounded_blocks(monkeypatch, backend):
+@pytest.mark.parametrize('sparse', [False, True])
+@pytest.mark.parametrize('edge_cap', [20, 120])
+def test_weighted_dense_balls_are_reduced_in_bounded_blocks(monkeypatch, backend, sparse, edge_cap):
     import mir.density as density
     if backend == 'ann':
         pytest.importorskip('pynndescent')
-    obs = np.zeros((40, 3))
+    obs = np.arange(120, dtype=float).reshape(40, 3) * 10 if sparse else np.zeros((40, 3))
     bg = np.zeros((80, 3))
     abundance = np.arange(1, 41, dtype=float)
     baseline = neighbor_enrichment(obs, bg, radius=1, abundance=abundance,
@@ -517,11 +519,12 @@ def test_weighted_dense_balls_are_reduced_in_bounded_blocks(monkeypatch, backend
                     return method(points, *args, **kw)
                 return query
         monkeypatch.setattr(module, name, TreeProbe)
-    monkeypatch.setattr(density, '_WEIGHTED_MAX_EDGES', 120)  # three rows per dense block
+    monkeypatch.setattr(density, '_WEIGHTED_MAX_EDGES', edge_cap)
     blocked = neighbor_enrichment(obs, bg, radius=1, abundance=abundance,
                                  weight='log1p', backend=backend, threads=1)
     for field in ('n_obs', 'n_bg', 'expected', 'fold', 'pvalue', 'qvalue', 'score'):
         np.testing.assert_array_equal(getattr(blocked, field), getattr(baseline, field))
-    np.testing.assert_array_equal(blocked.n_obs, np.full(40, 39))
+    np.testing.assert_array_equal(blocked.n_obs, np.full(40, 0 if sparse else 39))
     if backend != "ann":
-        assert max(sizes) <= 3 and sum(sizes) == 40
+        block_size = min(40, edge_cap) if sparse else max(1, edge_cap // 40)
+        assert max(sizes) == block_size and sum(sizes) == 40

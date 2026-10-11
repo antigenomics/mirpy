@@ -80,3 +80,16 @@ else:
     raise AssertionError('conflicting one-shot Torch pool accepted')
 """
     subprocess.run([sys.executable, '-c', code], check=True, timeout=30)
+
+
+@pytest.mark.parametrize('jobs,expected', [(-1, 4), (-2, 3), (-4, 1), (-10, 1), (None, 1)])
+def test_cluster_relative_worker_budget(monkeypatch, jobs, expected):
+    import mir.bench.metrics as metrics
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 4)
+    class Estimator:
+        def __init__(self, **kw):
+            assert kw['n_jobs'] == expected
+        def fit_predict(self, X):
+            return np.zeros(len(X), dtype=int)
+    monkeypatch.setattr(metrics, 'DBSCAN', Estimator)
+    assert metrics.cluster(np.zeros((5, 3)), eps=1, n_jobs=jobs).shape == (5,)
