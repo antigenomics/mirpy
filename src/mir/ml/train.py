@@ -20,11 +20,20 @@ from mir.ml.encoder import SequenceEncoder
 from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
 
 
-def pick_device(device: str | None = None) -> torch.device:
+def pick_device(device: str | None = None, *, threads: int = 1) -> torch.device:
     """Best available accelerator: explicit ``device`` override, else CUDA, else Apple ``mps``, else ``cpu``.
 
     Set ``MIR_DEVICE`` (e.g. ``cuda:1``) to override without threading ``device=`` through every call.
     """
+    from vdjtools.cores import kernel_threads
+
+    torch.set_num_threads(kernel_threads(threads))
+    if torch.get_num_interop_threads() != 1:
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError as exc:
+            raise RuntimeError("Torch inter-op pool was already configured with multiple threads; "
+                               "start a fresh interpreter and import mir before Torch") from exc
     if device is None:
         device = os.environ.get("MIR_DEVICE")
     if device is not None:

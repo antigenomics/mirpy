@@ -58,6 +58,10 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     rather than DBSCAN's single global ``eps`` slice — so it is the natural choice when local
     density spans orders of magnitude across antigen ridges (appendix ``sec:dens-depth``).
     """
+    from vdjtools.cores import kernel_threads
+
+    n_jobs = kwargs.pop("n_jobs", 0)
+    kwargs["n_jobs"] = kernel_threads(1 if n_jobs is None else 0 if n_jobs == -1 else n_jobs)
     if method == "dbscan":
         if eps is None:
             eps = estimate_dbscan_eps(X, k=k) * eps_factor

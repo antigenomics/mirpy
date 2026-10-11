@@ -30,6 +30,8 @@ Three knobs, all defaulting to the published v3 coordinate system:
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 import numpy as np
 import seqtree
 from seqtree.gapblock import positions_prior, score_matrix
@@ -117,6 +119,6 @@ def junction_distance_matrix(
         gap_open=2 * bl.scale(),
         gap_extend=1,
         gap_prior=positions_prior(gap_positions),
-        threads=threads,
+        threads=kernel_threads(threads),
     )
     return _apply_metric(sm, metric)
