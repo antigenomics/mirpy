@@ -34,6 +34,7 @@ def test_density_rejects_excessive_threads(monkeypatch):
 
 
 def test_ann_fresh_runtime_owns_requested_budget():
+    pytest.importorskip('pynndescent')
     import subprocess
     import sys
     code = """import mir
