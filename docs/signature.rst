@@ -208,7 +208,7 @@ Building a corpus
    mir corpus --corpus naive  -o naive_rsig.npz
    mir corpus --corpus memory --size n_eff --components 0.95 -o memory_rsig.npz
    mir corpus --smoke -o /tmp/smoke.npz
-   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker processes
+   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker threads
 
 Nine corpora are published: four **synthetic** --- ``naive``, ``memory``, ``synthetic-blood``,
 ``synthetic-tissue`` --- and five **real**, fitted on repertoires (``blood``, ``tissue``,
@@ -234,17 +234,17 @@ Both halves must be built from the **same corpus name and seed**: they resolve t
 the rank correlations and the germline fingerprint cannot disagree between ``vsig_<name>`` and
 ``rsig_<name>`` -- which is what makes joining them on ``sample_id`` meaningful.
 
-The build runs across worker **processes**, one contiguous block of samples each; ``-j/--jobs``
+The build runs across worker **threads**, one contiguous block of samples each; ``-j/--jobs``
 defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
 builder, so a sample is the same repertoire in either -- its generator is seeded from
 ``(seed, locus, index)``, which is also why the artifact is identical at every ``--jobs``.
 
 .. note::
 
-   ``--jobs`` is worker **processes**; ``POLARS_MAX_THREADS`` / ``OMP_NUM_THREADS`` are **kernel
-   threads**. mirpy shipped a ``--threads`` wired straight to the process count for several
-   releases -- 16 processes each claiming 16 threads -- so the distinction is stated wherever a
-   concurrency flag appears.
+   ``--jobs`` selects worker threads. Each worker uses serial numerical kernels and
+   shares read-only resources in the calling interpreter. Corpus pool generation
+   retains its reference sampler and frozen random stream; its Python sampling stage
+   remains limited by the GIL.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
 vdjtools' bundled recombination models, and is required to be byte-identical across processes,
@@ -271,14 +271,12 @@ Traps
 * **``chunk`` bounds memory.** The default is 4,096 rows: 24 MiB per float64 embedding
   block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
   Changing block size preserves the calculation up to floating-point rounding.
-* **``--jobs`` is processes.** The default is 1; 0 requests all available cores.
-  Positive counts are limited only by the number of samples, without a sample-count
-  heuristic. Spawned workers use one thread per numerical kernel, with limits set
-  before import. Each worker loads its resources once, reads one sample at a time,
-  and returns a feature row. Available workers take the next sample; output order
-  remains the input order. ``n_jobs=1`` retains the caller's kernel thread settings.
-* **A pool that cannot start raises.** It does not fall back to one process: a correctness-preserving
-  fallback turned a dead pool into a merely slow one and hid a 20x regression here for months.
+* **``--jobs`` selects threads.** The default is 1; 0 requests allocated cores.
+  Positive counts must fit that allocation and are capped by sample count. Workers
+  share frozen resources and read one sample at a time; output follows input order.
+  Deferred readers may be closures. Callbacks must not mutate shared resources.
+* **A pool that cannot start raises.** Startup and calculation errors propagate;
+  there is no serial fallback.
 
 API
 ---

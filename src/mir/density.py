@@ -56,6 +56,10 @@ Typical usage::
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
+_WEIGHTED_MAX_EDGES = 1_000_000
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -104,7 +108,7 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
     if space == "junction" and hasattr(model, "_proto_junction"):
         return junction_distance_matrix(
             df["junction_aa"].to_list(), model._proto_junction,
-            gap_positions=model._gap_positions, threads=model.threads,
+            gap_positions=model._gap_positions, threads=kernel_threads(model.threads),
             metric=getattr(model, "metric", "squared"),      # match the model's coordinate options
             matrix=getattr(model, "_matrix", None),
             alignment=getattr(model, "_alignment", "gapblock"),
@@ -392,7 +396,18 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     For large N where exact trees are slow; use ``backend='exact'`` for small or
     reproducibility-critical runs. Needs ``pynndescent`` (the ``[ann]`` extra).
     """
-    from pynndescent import NNDescent
+    import os
+    import sys
+
+    if len(obs) > 1:
+        if "numba" not in sys.modules:
+            os.environ["NUMBA_NUM_THREADS"] = str(threads)
+        from numba import config
+        if config.NUMBA_NUM_THREADS != threads:
+            raise RuntimeError("Numba's initialized pool differs from this ANN budget; "
+                               "use threads=" + str(config.NUMBA_NUM_THREADS) +
+                               " within the allocation, or start a fresh interpreter")
+        from pynndescent import NNDescent
     from scipy.spatial import cKDTree
 
     obs = np.ascontiguousarray(obs, dtype=np.float32)  # pynndescent prefers float32
@@ -405,12 +420,12 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     if radius is None:
         k = min(max(int(round(lambda0 * n_bg_total / n_ref)), 1), n_bg_total)
         # Request only the kth distance: returning all k neighbours is O(n_obs * k) memory.
-        rad = bg_tree.query(obs, k=[k], workers=threads)[0][:, 0]
+        rad = bg_tree.query(obs, k=[k], workers=1)[0][:, 0]
         radius_out = float(np.median(rad))
     else:
         rad = np.full(n_obs_total, float(radius), dtype=np.float64)
         radius_out = float(radius)
-    n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=threads).astype(np.int64)
+    n_bg = bg_tree.query_ball_point(obs, rad, return_length=True, workers=1).astype(np.int64)
     if obs_index is None:  # one observation has no other observation neighbours
         oi, od = np.zeros((1, 1), dtype=np.int64), np.zeros((1, 1))
     else:
@@ -425,8 +440,8 @@ def _ann_neighbors(obs, bg, radius, lambda0, n_ref, *, k_max: int = 96, seed: in
     def _count_obs():
         return within.sum(1).astype(np.int64)
 
-    def _lists_obs():
-        return [np.append(oi[i][within[i]], i) for i in range(n_obs_total)]
+    def _lists_obs(start=0, stop=None):
+        return [np.append(oi[i][within[i]], i) for i in range(start, n_obs_total if stop is None else stop)]
 
     return rad, radius_out, n_bg, _count_obs, _lists_obs
 
@@ -529,11 +544,7 @@ def neighbor_enrichment(
             "zero-background ball cannot produce an infinite fold."
         )
 
-    from vdjtools.cores import available_cores
-
-    if threads < 0:
-        raise ValueError("threads must be non-negative (0 means available cores)")
-    threads = threads or available_cores()
+    threads = kernel_threads(threads)
 
     if backend == "exact":
         from sklearn.neighbors import BallTree
@@ -553,8 +564,9 @@ def neighbor_enrichment(
         def _count_obs():
             return (obs_tree.query_radius(obs, rad, count_only=True) - 1).astype(np.int64)
 
-        def _lists_obs():
-            return obs_tree.query_radius(obs, rad, return_distance=False)
+        def _lists_obs(start=0, stop=None):
+            radius_block = rad[start:stop] if np.ndim(rad) else rad
+            return obs_tree.query_radius(obs[start:stop], radius_block, return_distance=False)
     elif backend == "kdtree":  # exact, multithreaded scipy cKDTree — 5-9x faster than BallTree
         from scipy.spatial import cKDTree
 
@@ -572,9 +584,9 @@ def neighbor_enrichment(
         def _count_obs():
             return (obs_tree.query_ball_point(obs, rad, return_length=True, workers=threads) - 1).astype(np.int64)
 
-        def _lists_obs():
+        def _lists_obs(start=0, stop=None):
             return [np.asarray(x, dtype=np.intp)
-                    for x in obs_tree.query_ball_point(obs, rad, workers=threads)]
+                    for x in obs_tree.query_ball_point(obs[start:stop], rad[start:stop], workers=threads)]
     elif backend == "ann":  # approximate NN (pynndescent) for whole-repertoire scale
         rad, radius_out, n_bg, _count_obs, _lists_obs = _ann_neighbors(
             obs, bg, radius, lambda0, n_ref, k_max=k_max, seed=seed, threads=threads)
@@ -612,14 +624,24 @@ def neighbor_enrichment(
     if a.shape[0] != n_obs_total:
         raise ValueError(f"abundance length {a.shape[0]} != N_obs {n_obs_total}")
     g = _WEIGHTS[weight](a)
-    idx = _lists_obs()  # neighbour index lists (exact BallTree or approximate ANN)
-    # vectorised weighted mass: flatten the ragged neighbour lists and one bincount, instead of a
-    # Python sum per point (the whole-repertoire hot path — ~400k points).
-    counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=n_obs_total)
-    cols = np.concatenate(idx) if n_obs_total else np.empty(0, dtype=np.intp)
-    rows = np.repeat(np.arange(n_obs_total), counts)
-    n_obs = counts - 1                                            # exclude self
-    S = np.bincount(rows, weights=g[cols], minlength=n_obs_total) - g  # weighted mass, excl self
+    # Count first: sparse rows share large blocks while dense blocks retain the edge bound.
+    # One complete neighbourhood can exceed the cap; dense exact work remains quadratic.
+    offsets = np.empty(n_obs_total + 1, dtype=np.int64)
+    offsets[0] = 0
+    np.cumsum(_count_obs() + 1, out=offsets[1:])
+    n_obs = np.empty(n_obs_total, dtype=np.int64)
+    S = np.empty(n_obs_total, dtype=np.float64)
+    start = 0
+    while start < n_obs_total:
+        stop = max(start + 1, int(np.searchsorted(
+            offsets, offsets[start] + _WEIGHTED_MAX_EDGES, side="right")) - 1)
+        idx = _lists_obs(start, stop)
+        counts = np.fromiter((ix.size for ix in idx), dtype=np.int64, count=stop-start)
+        cols = np.concatenate(idx)
+        rows = np.repeat(np.arange(stop-start), counts)
+        n_obs[start:stop] = counts - 1  # exclude self
+        S[start:stop] = np.bincount(rows, weights=g[cols], minlength=stop-start) - g[start:stop]
+        start = stop
     mean_g = float(g.mean())
     phi = float((g * g).mean() / mean_g)  # dispersion index E[g²]/E[g] (=1 for g≡1)
 

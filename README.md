@@ -244,19 +244,25 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 mir signature --corpus blood --jobs 8 samples/*.tsv -o signatures.parquet
 ```
 
-`--jobs` controls worker processes. It defaults to 1; use 0 to request all available
-cores or a positive count to set the budget explicitly. Each spawned worker uses one
-thread per numerical kernel. Workers read one sample at a time, retain their fitted
-resources, and return only a feature row. Embeddings use fixed 4,096-row blocks
-(24 MiB per float64 block at 256 prototypes). Output follows input order. No sample-count
-heuristic changes an explicit worker budget.
+`--jobs` selects worker threads: 1 runs without a pool, 0 uses allocated cores, and
+positive counts must fit that allocation. Workers share frozen resources and use
+serial inner kernels. They read one sample at a time; output follows input order.
+Embeddings use fixed 4,096-row blocks (24 MiB at 256 prototypes).
 
-For the Python cohort API, pass picklable zero-argument readers to defer file loading
-into workers. Passing already-loaded frames keeps those frames in the parent too.
-The CLI sets kernel thread limits before imports, including at `--jobs 1`. Direct
-Python calls retain the calling process's Polars and BLAS settings at `n_jobs=1`.
+The Python cohort API accepts zero-argument readers, including closures and lambdas,
+to defer file loading. Callbacks must not mutate shared resources. Import `mir` before
+numerical libraries so their persistent pools start with one thread.
 
 Density analysis also accepts an explicit kernel budget:
 `neighbor_enrichment(observed, background, threads=8)`. Background counts are exact with both
 KD-tree and ANN observation queries, including points tied at the selected radius. Only ANN
 observation-neighbor recall is approximate.
+
+### CPU budgets
+
+Import `mir` before numerical libraries in each fresh worker. Persistent numerical
+pools default to one thread; native embedding and density kernels receive explicit
+allocation-aware budgets. Use `threads=1` for serial execution, `threads=0` for the
+allocated CPUs, or a positive count within that allocation. Sample thread workers
+use one kernel thread each. Excessive or nested budgets raise instead of spawning
+unrestricted pools. See the usage guide for already-initialized Polars/Numba pools.

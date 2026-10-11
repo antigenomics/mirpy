@@ -15,6 +15,8 @@ actual v3 pipeline distances (``seqtree.gapblock`` junction dissimilarity):
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 from collections import Counter
 from dataclasses import dataclass
 
@@ -203,7 +205,7 @@ def _hamming1_counts(seqs, threads: int = 0) -> np.ndarray:
     # (thousands), chunk the rows if this is ever pointed at a full repertoire.
     for idx in by_len.values():
         block = [seqs[i] for i in idx]
-        d = np.asarray(hamming_matrix(block, block, threads=threads))
+        d = np.asarray(hamming_matrix(block, block, threads=kernel_threads(threads)))
         out[idx] = (d == 1).sum(axis=1)
     return out
 

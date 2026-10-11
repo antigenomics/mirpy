@@ -165,7 +165,7 @@ def test_ann_backend_matches_exact():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         rx = neighbor_enrichment(obs, bg, backend="exact")
-        ra = neighbor_enrichment(obs, bg, backend="ann")
+        ra = neighbor_enrichment(obs, bg, backend="ann", threads=1)
     mx, ma = enriched_mask(rx), enriched_mask(ra)
     jac = (mx & ma).sum() / max((mx | ma).sum(), 1)
     assert jac > 0.9                                    # ann hit set ~ exact hit set
@@ -435,7 +435,7 @@ def test_ann_fixed_radius_background_count_is_exact():
     truth = cKDTree(bg).query_ball_point(obs, radius, return_length=True)
     assert truth.min() > 96, "test is only meaningful if the ball saturates the old k_max"
 
-    ra = neighbor_enrichment(obs, bg, backend="ann", radius=radius)
+    ra = neighbor_enrichment(obs, bg, backend="ann", radius=radius, threads=1)
     assert np.array_equal(ra.n_bg, truth)               # exact, not capped
 
     rx = neighbor_enrichment(obs, bg, backend="exact", radius=radius)
@@ -470,6 +470,7 @@ def test_ann_balloon_counts_all_background_ties(monkeypatch):
             idx = np.argsort(d, axis=1)[:, :k]
             return idx, np.take_along_axis(d, idx, axis=1)
     monkeypatch.setitem(sys.modules, "pynndescent", SimpleNamespace(NNDescent=Index))
+    monkeypatch.setitem(sys.modules, "numba", SimpleNamespace(config=SimpleNamespace(NUMBA_NUM_THREADS=2)))
     obs = np.array([[0.0], [2.0], [4.0]])
     bg = np.zeros((10, 1))
     rad, _, counts, count_obs, _ = _ann_neighbors(obs, bg, None, 1, 2, threads=2)
@@ -484,3 +485,46 @@ def test_ann_single_observation_has_no_self_neighbour():
     result = neighbor_enrichment(np.array([[0.0]]), np.array([[0.0], [1.0]]),
                                  backend="ann", threads=1)
     np.testing.assert_array_equal(result.n_obs, [0])
+
+
+@pytest.mark.parametrize('backend', ['exact', 'kdtree', pytest.param('ann', marks=pytest.mark.integration)])
+@pytest.mark.parametrize('sparse', [False, True])
+@pytest.mark.parametrize('edge_cap', [20, 120])
+def test_weighted_dense_balls_are_reduced_in_bounded_blocks(monkeypatch, backend, sparse, edge_cap):
+    import mir.density as density
+    if backend == 'ann':
+        pytest.importorskip('pynndescent')
+    obs = np.arange(120, dtype=float).reshape(40, 3) * 10 if sparse else np.zeros((40, 3))
+    bg = np.zeros((80, 3))
+    abundance = np.arange(1, 41, dtype=float)
+    baseline = neighbor_enrichment(obs, bg, radius=1, abundance=abundance,
+                                  weight='log1p', backend=backend, threads=1)
+    sizes = []
+    if backend != 'ann':
+        import scipy.spatial
+        import sklearn.neighbors
+        module = sklearn.neighbors if backend == 'exact' else scipy.spatial
+        name = 'BallTree' if backend == 'exact' else 'cKDTree'
+        real = getattr(module, name)
+        class TreeProbe:
+            def __init__(self, *args, **kw):
+                self.tree = real(*args, **kw)
+            def __getattr__(self, attr):
+                method = getattr(self.tree, attr)
+                if attr not in ('query_radius', 'query_ball_point'):
+                    return method
+                def query(points, *args, **kw):
+                    if not kw.get('count_only') and not kw.get('return_length'):
+                        sizes.append(len(points))
+                    return method(points, *args, **kw)
+                return query
+        monkeypatch.setattr(module, name, TreeProbe)
+    monkeypatch.setattr(density, '_WEIGHTED_MAX_EDGES', edge_cap)
+    blocked = neighbor_enrichment(obs, bg, radius=1, abundance=abundance,
+                                 weight='log1p', backend=backend, threads=1)
+    for field in ('n_obs', 'n_bg', 'expected', 'fold', 'pvalue', 'qvalue', 'score'):
+        np.testing.assert_array_equal(getattr(blocked, field), getattr(baseline, field))
+    np.testing.assert_array_equal(blocked.n_obs, np.full(40, 0 if sparse else 39))
+    if backend != "ann":
+        block_size = min(40, edge_cap) if sparse else max(1, edge_cap // 40)
+        assert max(sizes) == block_size and sum(sizes) == 40
