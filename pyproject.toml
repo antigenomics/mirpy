@@ -32,9 +32,9 @@ dependencies = [
   "seqtree>=1.0.0",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
-  # 4.9.0 supplies bounded signature workers, eager projected AIRR reads, and
-  # native thread budgets used by this release. Keep the build extra in sync.
-  "vdjtools>=4.9.0",
+  # 5.0.1 supplies allocation validation and serial numerical import pools.
+  # Keep the build extra in sync.
+  "vdjtools>=5.0.1",
 ]
 license = { text = "GPL-3.0-or-later" }
 
@@ -44,7 +44,7 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools[model] (single arda version across the ecosystem), not pinned directly.
-build = ["vdjtools[model]>=4.9.0", "biopython"]
+build = ["vdjtools[model]>=5.0.1", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +
@@ -56,7 +56,7 @@ bench = ["kneed", "matplotlib", "seaborn", "huggingface_hub", "lifelines"]
 # the exact "kdtree"/"exact" backends need nothing here. The numba floor is load-bearing:
 # unpinned, resolvers pick a numba old enough to drag in llvmlite 0.36, which refuses to
 # build on Python >= 3.10 — so `pip install mirpy-lib[ann]` failed outright on 3.11/3.12.
-ann = ["pynndescent", "numba>=0.60"]
+ann = ["pynndescent", "numba>=0.60", "numpy<2.5"]
 # Interactive marimo notebooks (docs/examples).
 examples = ["marimo", "matplotlib", "umap-learn"]
 dev = ["pytest>=8", "pytest-cov", "psutil>=5"]

@@ -394,3 +394,33 @@ ANN approximation applies only to observation-neighbor recall.
 
 ``cv_cindex`` warns when convergence or a lack of admissible pairs makes a fold unscorable.
 Unexpected implementation errors propagate instead of silently becoming missing scores.
+
+CPU and container limits
+------------------------
+
+Import ``mir`` before NumPy, Polars, or other numerical runtimes in a fresh worker.
+The shared vdjtools runtime keeps persistent numerical pools serial and passes an
+explicit CPU budget to sequence and neighbour kernels. ``threads=1`` selects serial
+execution, ``threads=0`` selects the detected allocation, and a positive count must
+fit that allocation. CPU affinity, scheduler allocation and visible cgroup quotas
+(including parent quotas) all constrain the detected budget. A Kubernetes CPU request
+alone is not a hard CPU limit.
+
+Sample thread pools use one kernel thread per worker. Explicit requests that exceed
+the allocation, or try to create an inner parallel kernel, raise an error. A Polars
+pool initialized before the package cannot be resized: outer thread pools require a
+fresh interpreter or ``workers=1``. Initialized BLAS pools are limited at runtime;
+this does not destroy their idle OS threads.
+
+The ANN backend keeps its Numba pool for the interpreter's lifetime and uses serial
+KD-tree queries afterwards. Select its thread count on the first ANN call and retain
+that count; a conflicting initialized pool raises an error. Neural training defaults
+to one intra-op and one inter-op CPU thread; ``pick_device(threads=...)`` controls the
+intra-op budget explicitly.
+
+Weighted density reduces exact neighbor lists in bounded blocks rather than retaining
+all edges at once. A dense graph still requires quadratic total work, but temporary
+edge buffers hold at most one million candidates per block (or one complete
+neighborhood if it exceeds that size). Counts and weighted sums retain their exact
+per-row order. Sample pools share one interpreter and its frozen resources;
+use an explicit ``n_jobs`` to bound concurrent sample buffers.

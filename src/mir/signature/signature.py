@@ -300,7 +300,7 @@ def _locus_frames(sample) -> dict[str, pl.DataFrame]:
 
 
 def _one(item, corpus, kw):
-    """One sample's row. Module-level so a spawned worker can unpickle it."""
+    """One sample's row. Shared by serial and parallel cohort maps."""
     sid, sample = item
     return {"sample_id": sid, **rsig(resolve_sample(sample), corpus, **kw)}
 
@@ -310,11 +310,10 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
     """One row per sample, ``sample_id`` first.
 
     Args:
-        samples: ``{sample_id: sample}`` or an iterable of pairs. A sample may be a zero-argument
-            **picklable** callable, which defers the read into the worker and holds peak memory at
+        samples: ``{sample_id: sample}`` or an iterable of pairs. A sample may be a zero-argument callable, which defers the read into the worker and holds peak memory at
             ``O(n_jobs)`` samples rather than the whole cohort.
         corpus: A fitted corpus.
-        n_jobs: Worker processes; ``1`` in-process, ``0`` every available core.
+        n_jobs: Worker threads; ``1`` in-process, ``0`` every available core.
         columns: Restrict the output columns.
         **kw: Forwarded to :func:`rsig`.
     """
@@ -344,7 +343,7 @@ def synthesize(corpus_name: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples:
             for the pure regimes, ``"synthetic-blood"`` / ``"synthetic-tissue"`` for the naive/memory
             mixture drawn across that cohort's measured per-locus richness, read-depth and
             singleton-fraction bands.
-        n_jobs: Worker **processes** (not kernel threads). ``0`` means every available core; ``1``,
+        n_jobs: Worker **threads** (not kernel threads). ``0`` means every available core; ``1``,
             the default, runs in-process. The artifact is bit-identical at every value.
         size: ``None`` is the corpus's own -- 10,000 for a pure regime, the geometric centre of the
             cohort's measured richness band for a ``synthetic-*`` one.

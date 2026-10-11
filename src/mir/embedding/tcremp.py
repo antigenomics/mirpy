@@ -42,6 +42,8 @@ Typical usage::
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 from pathlib import Path
 
 import numpy as np
@@ -106,6 +108,7 @@ class TCREmp:
         self.species = species
         self.locus = locus
         self.mode = mode
+        kernel_threads(threads)  # validate; retain 0 so automatic budgets adapt inside workers
         self.threads = threads
         self.metric = metric
         # provenance only — the prototypes are passed in; this records *which* bundled draw they
@@ -235,7 +238,7 @@ class TCREmp:
         # squared d always; embed() applies the sqrt metric uniformly across all three blocks
         return junction_distance_matrix(
             junctions, self._proto_junction,
-            gap_positions=self._gap_positions, threads=self.threads,
+            gap_positions=self._gap_positions, threads=kernel_threads(self.threads),
             matrix=self._matrix, alignment=self._alignment,
         )
 
