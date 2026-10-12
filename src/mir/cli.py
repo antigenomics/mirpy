@@ -283,9 +283,11 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
             raise ValueError('no saved RFF spaces in --basis directory')
     else:
         models = _embedding_models(a, sample_workers=True)
-        spaces = fit_sample_spaces(items, models, n_rff=a.n_rff,
-                                   n_rff_second=a.n_rff_second if 'second' in blocks else 0,
-                                   n_components=a.n_components, seed=a.seed)
+        from vdjtools.cores import serial_kernels
+        with serial_kernels():
+            spaces = fit_sample_spaces(items, models, n_rff=a.n_rff,
+                                       n_rff_second=a.n_rff_second if 'second' in blocks else 0,
+                                       n_components=a.n_components, seed=a.seed)
     if a.save_basis:
         dest = pathlib.Path(a.save_basis)
         dest.mkdir(parents=True, exist_ok=True)

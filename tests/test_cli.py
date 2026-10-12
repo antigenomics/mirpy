@@ -279,3 +279,17 @@ def test_embedding_reader_trims_columns_without_collapsing_nt_clones_or_shm(tmp_
     assert trimmed['v_mutations'].to_list() == ['A23V','S31N']
     import numpy as np
     np.testing.assert_array_equal(m.embed(trimmed),m.embed(full))
+
+
+def test_repertoire_basis_preparation_obeys_serial_cli_budget(tmp_path,monkeypatch):
+    import mir.embedding.table as tables
+    from vdjtools.cores import kernel_threads
+    original = tables.fit_sample_spaces
+    def checked(*args,**kwargs):
+        assert kernel_threads(0) == 1
+        return original(*args,**kwargs)
+    monkeypatch.setattr(tables,'fit_sample_spaces',checked)
+    path = tmp_path/'sample.tsv'
+    _write(path,TRB)
+    main(['embed','repertoires',str(path),'--locus','TRB','--n-prototypes','16',
+          '--n-rff','16','--threads','1','-o',str(tmp_path/'rff.tsv')])
