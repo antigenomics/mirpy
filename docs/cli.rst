@@ -13,6 +13,9 @@ Conventions
 **Input.** Any format :mod:`vdjtools.io` reads: AIRR Rearrangement TSV, native vdjtools, MiXcr,
 immunoSEQ, Parquet. Several files or a glob are fine.
 
+**Species.** ``--species`` selects the receptor species for embedding, signature computation
+and synthetic corpus building; the default is ``human``. Use a basis or corpus fitted for the same species.
+
 **Output.** ``-o/--output`` writes TSV, or Parquet when the path ends in ``.parquet``. Parquet is
 worth using for the raw per-clonotype embedding, which is thousands of columns wide. Omit ``-o`` and
 the result goes to stdout.
