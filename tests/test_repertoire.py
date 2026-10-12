@@ -870,3 +870,13 @@ def test_batched_scaler_agrees_and_fit_matrix_is_released_before_calibration(mon
     np.testing.assert_allclose(space.clono.scaler.mean_,scaler.mean_,rtol=1e-12,atol=1e-12)
     np.testing.assert_allclose(space.clono.scaler.scale_,scaler.scale_,rtol=1e-12,atol=1e-12)
     np.testing.assert_allclose(space.clono.pca.components_,expected.components_,atol=2e-6)
+
+
+def test_shared_basis_rejects_empty_cloud():
+    import mir.repertoire as rep
+    from mir.embedding.tcremp import TCREmp
+    model = TCREmp.from_defaults('human','TRB',n_prototypes=16,threads=1)
+    frame = pl.DataFrame({'v_call':[],'j_call':[],'junction_aa':[]},
+                         schema={'v_call':pl.String,'j_call':pl.String,'junction_aa':pl.String})
+    with pytest.raises(ValueError,match='at least one row'):
+        rep.fit_repertoire_space(model,frame)

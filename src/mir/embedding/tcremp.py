@@ -377,11 +377,19 @@ class PairedTCREmp:
         missing = set(self._chains) - set(frames)
         if missing:
             raise ValueError(f"missing frames for loci: {sorted(missing)}")
-        parts = [self._chains[locus].embed(frames[locus]) for locus in self._chains]
-        heights = {p.shape[0] for p in parts}
+        heights = {frames[locus].height for locus in self._chains}
         if len(heights) != 1:
             raise ValueError(f"per-chain frames must have equal row counts, got {heights}")
-        return np.hstack(parts)
+        from vdjtools.cores import require_memory
+        n = next(iter(heights))
+        require_memory(8 * n * self.n_features + _COMPONENT_BYTES, 'paired clonotype embedding')
+        out = np.empty((n, self.n_features), dtype=np.float32)
+        start = 0
+        for locus, model in self._chains.items():
+            stop = start + model.n_features
+            out[:, start:stop] = model.embed(frames[locus])
+            start = stop
+        return out
 
 
 if __name__ == "__main__":

@@ -432,6 +432,8 @@ def _fit_repertoire_coordinates(model, X_fit, *, n_components=None, space="full"
 
     if n_components is None:
         n_components = get_preset(model.species, model.locus).n_components
+    if not X_fit.shape[0]:
+        raise ValueError('shared clonotype PCA fit needs at least one row')
     scaler = StandardScaler(copy=False)
     # sklearn's mean/variance pass uses float64 scratch arrays; bound them together.
     chunk = max(1, _SCALER_SCRATCH_BYTES // (32 * X_fit.shape[1]))
