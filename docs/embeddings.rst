@@ -168,3 +168,33 @@ Two RFF tables are comparable when their full basis and abundance weighting matc
 not merely their column names or widths. Preserve ``embedding_space`` when exporting,
 joining or selecting a table. Fit a sample rotation once and reuse it for held-out
 samples; fitting separate rotations does not make their PC axes comparable.
+
+Reference rotation bundles
+--------------------------
+
+``examples/reference_rotations.py`` is a fitting recipe for repeatable raw-sample
+readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
+vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
+It also saves ``feature-columns.txt`` and the per-locus RFF models in ``basis/``.
+It does not fit or replace a vsig/rsig signature corpus. Feature matrices are
+generated fresh and released after fitting rather than saved as intermediates.
+
+Each reference bundle has its own shared clonotype basis. Choose a reference
+first, embed samples through its saved basis, then apply its RFF rotation:
+
+.. code-block:: bash
+
+   mir embed repertoires samples/*.tsv --basis reference/basis --threads 2 -o rff.tsv
+   mir pca rff.tsv --rotation reference/rff-pca.npz -o pcs.tsv
+
+For statistical features, use the bundle's human gene vocabulary, ``log2p1``
+abundance weighting and declared shared coverage target. The recipe defaults to
+coverage ``0.8``. See `vdjtools' feature guide
+<https://docs.isalgo.dev/vdjtools/features.html>`_. A rotation refuses a different
+feature identity. Keep unprojected outputs when needed; loading a rotation does
+not change the underlying representation.
+
+``bundle.json`` records representations, parameters and SHA256 checksums. Verify
+these checksums before loading the trusted pickle basis files. The NumPy rotation
+files contain no executable pickle payload. Raw membership, source identifiers
+and fit diagnostics belong in private provenance, not the distributed bundle.
