@@ -168,3 +168,26 @@ def test_paired_row_mismatch_raises():
                       "junction_aa": ["CASSIRSSYEQYF"]})
     with pytest.raises(ValueError):
         m.embed({"TRA": a, "TRB": b})
+
+
+@pytest.mark.parametrize('mode',MODES)
+def test_component_batches_preserve_shm_and_row_order(monkeypatch,mode):
+    import mir.embedding.tcremp as module
+    model = TCREmp.from_defaults('human','IGH',n_prototypes=16,threads=1,mode=mode)
+    frame = pl.DataFrame({'v_call':model._proto_v[:7],'j_call':model._proto_j[:7],
+                          'junction_aa':model._proto_junction[:7],
+                          'v_mutations':['A23V','',None,'S31N','',None,'A23V']})
+    expected = model.embed(frame)
+    monkeypatch.setattr(module,'_COMPONENT_BYTES',16*model.n_prototypes*2)
+    seen = []
+    original = model._junction_distances
+    def distances(rows):
+        seen.append(len(rows))
+        return original(rows)
+    monkeypatch.setattr(model,'_junction_distances',distances)
+    got = model.embed(frame)
+    assert max(seen) == 2 and sum(seen) == 7
+    np.testing.assert_array_equal(got,expected)
+    np.testing.assert_array_equal(model.embed(frame.reverse()),expected[::-1])
+    if mode == 'vjcdr3':
+        assert np.any(got[:,0::3] != model.embed(frame.drop('v_mutations'))[:,0::3])

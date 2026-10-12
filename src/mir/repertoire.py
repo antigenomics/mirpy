@@ -397,31 +397,60 @@ def fit_repertoire_space(
     Returns:
         A :class:`RepertoireSpace` ready for :func:`sample_embedding`.
     """
-    from mir.embedding.presets import get_preset
-    from mir.ml.bundle import prototype_hash
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
-
-    if n_eigs is not None and not (0 < n_eigs <= n_rff_second):
-        raise ValueError(f"n_eigs must be in (0, n_rff_second={n_rff_second}], got {n_eigs}")
-
-    if n_components is None:
-        n_components = get_preset(model.species, model.locus).n_components
-
     # Fit the scaler+PCA on at most pca_fit_cap pooled rows. Sample the FRAME rows and embed only
     # those — bit-identical to embedding all then subsetting (embedding is row-wise, same seed picks
     # the same indices) but never materializes the full raw matrix for a huge cohort.
     if pca_fit_cap is not None and cohort_df.height > pca_fit_cap:
         rng = np.random.default_rng(seed)
         rows = rng.choice(cohort_df.height, pca_fit_cap, replace=False)
-        X_fit = _embed(model, cohort_df[rows], space)
+        fit_frame = cohort_df[rows]
     else:
-        X_fit = _embed(model, cohort_df, space)
-    scaler = StandardScaler().fit(X_fit)
-    k = min(n_components, X_fit.shape[0], X_fit.shape[1])
-    pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(X_fit))
-    clono = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
+        fit_frame = cohort_df
+    # One selected fit matrix; native embedding temporaries are bounded by bytes.
+    width = model.n_features if space == "full" else model.n_prototypes
+    from vdjtools.cores import require_memory
+    require_memory(8 * fit_frame.height * width + 16 * width**2, "shared clonotype PCA fit")
+    X_fit = np.empty((fit_frame.height, width), dtype=np.float32)
+    chunk = max(1, (32 * 1024**2) // (12 * model.n_features))
+    for start in range(0, fit_frame.height, chunk):
+        X_fit[start:start + chunk] = _embed(model, fit_frame.slice(start, chunk), space)
+    del fit_frame
+    clono = _fit_repertoire_coordinates(model, X_fit, n_components=n_components, space=space, seed=seed)
+    del X_fit
+    return _finish_repertoire_space(clono, n_rff=n_rff, n_rff_second=n_rff_second,
+                                   n_eigs=n_eigs, length_scale=length_scale, seed=seed)
 
+
+_SCALER_SCRATCH_BYTES = 128 * 1024**2
+
+
+def _fit_repertoire_coordinates(model, X_fit, *, n_components=None, space="full", seed=0):
+    """Fit the existing scaler/PCA using one owned matrix and bounded statistic scratch."""
+    from mir.embedding.presets import get_preset
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+
+    if n_components is None:
+        n_components = get_preset(model.species, model.locus).n_components
+    scaler = StandardScaler(copy=False)
+    # sklearn's mean/variance pass uses float64 scratch arrays; bound them together.
+    chunk = max(1, _SCALER_SCRATCH_BYTES // (32 * X_fit.shape[1]))
+    for start in range(0, X_fit.shape[0], chunk):
+        scaler.partial_fit(X_fit[start:start + chunk])
+    scaler.transform(X_fit, copy=False)
+    k = min(n_components, *X_fit.shape)
+    pca = PCA(n_components=k, random_state=seed, copy=False).fit(X_fit)
+    return DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
+
+
+def _finish_repertoire_space(clono, *, n_rff=2048, n_rff_second=128,
+                             n_eigs=None, length_scale=None, seed=0):
+    """Calibrate the fitted basis after the caller releases its fitting matrix."""
+    from mir.ml.bundle import prototype_hash
+
+    if n_eigs is not None and not (0 < n_eigs <= n_rff_second):
+        raise ValueError(f"n_eigs must be in (0, n_rff_second={n_rff_second}], got {n_eigs}")
+    model, space, k = clono.model, clono.space, clono.pca.n_components_
     if length_scale is None:
         length_scale = calibrate_radius(clono, seed=seed)
     rff = _make_rff(k, n_rff, length_scale, seed)
@@ -572,15 +601,27 @@ def sample_embedding(
     n_eff = float(1.0 / np.sum(w * w))
     mass = 1.0 - _missing_mass(a, missing_mass)      # aliased: the kwarg shadows the public name
 
-    mean = div = sec = None
-    if "mean" in blocks or "second" in blocks:
-        Z = space.transform_clonotypes(sample_df)          # (n, p) shared PCA coords
-    if "mean" in blocks:
-        mean = _weighted_rff_mean(space.rff, Z, w)         # Φ₁ = Σ w ψ(z)
-    if "diversity" in blocks:
-        div = _diversity_block(a, coverage)
-    if "second" in blocks and space.rff2 is not None:
-        sigma = _weighted_rff_gram(space.rff2, Z, w)       # Σ w ψ₂ψ₂ᵀ  (D₂, D₂), symmetric PSD
+    mean = np.zeros(space.rff.dim) if "mean" in blocks else None
+    div = _diversity_block(a, coverage) if "diversity" in blocks else None
+    sec = None
+    second = "second" in blocks and space.rff2 is not None
+    sigma = np.zeros((space.rff2.dim, space.rff2.dim)) if second else None
+    if mean is not None or second:
+        # Bound raw coordinates, scaler copies and float64 random features together.
+        # Each worker owns at most 32 MiB of these row-dependent arrays.
+        width = (12 * space.clono.model.n_features + 16 * space.rff.dim
+                 + 16 * (space.rff2.dim if second else 0)
+                 + 16 * space.clono.pca.n_components_)
+        chunk = max(1, min(_RFF_BLOCK, (32 * 1024**2) // width))
+        for start in range(0, sample_df.height, chunk):
+            end = min(start + chunk, sample_df.height)
+            Z = space.transform_clonotypes(sample_df.slice(start, end - start))
+            if mean is not None:
+                mean += _weighted_rff_mean(space.rff, Z, w[start:end])
+            if second:
+                sigma += _weighted_rff_gram(space.rff2, Z, w[start:end])
+            del Z
+    if second:
         n_eigs = space.meta.get("n_eigs")
         if n_eigs:
             # top-r eigenvalues (energy spectrum) — compact, rotation-invariant.

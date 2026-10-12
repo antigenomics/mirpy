@@ -59,7 +59,7 @@ def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch, co
         raise RuntimeError("no workers for you")
 
     monkeypatch.setattr("vdjtools.cores.available_cores", lambda: 2)
-    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", broken)
+    monkeypatch.setattr("multiprocessing.pool.ThreadPool", broken)
     with pytest.raises(RuntimeError) as e:
         rsig_cohort(cohort(4), corpus, n_jobs=2)
     assert "no workers for you" in str(e.value)
@@ -68,7 +68,7 @@ def test_a_pool_that_cannot_start_raises_instead_of_going_serial(monkeypatch, co
 def test_no_warning_path_survives(monkeypatch, recwarn, corpus):
     monkeypatch.setattr("vdjtools.cores.available_cores", lambda: 2)
     """A warning is not good enough: callers filter them, and sklearn makes that routine."""
-    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor",
+    monkeypatch.setattr("multiprocessing.pool.ThreadPool",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         rsig_cohort(cohort(4), corpus, n_jobs=2)

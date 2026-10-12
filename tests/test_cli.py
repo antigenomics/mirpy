@@ -27,7 +27,7 @@ def test_embed_clonotypes_writes_embedding_table(tmp_path):
     src = tmp_path / "S.tsv"
     out = tmp_path / "emb.tsv"
     _write(src, TRB)
-    main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "--pca", "3", "-o", str(out)])
+    main(["embed", "clonotypes", str(src), "--n-prototypes", "300", "-o", str(out)])
 
     got = pl.read_csv(out, separator="\t")
     assert got.height == 4                                  # one row per clonotype
@@ -41,20 +41,26 @@ def test_embed_repertoires_one_row_per_sample(tmp_path):
     _write(s1, TRB)
     _write(s2, TRB[:3])
     main(["embed", "repertoires", str(s1), str(s2), "--n-prototypes", "300",
-          "--n-rff", "32", "-o", str(out)])
+          "-o", str(out)])
 
     got = pl.read_csv(out, separator="\t")
     assert got.height == 2                                  # one Φ(S) per sample
     assert got["sample_id"].to_list() == ["P1", "P2"]       # id = filename stem
-    assert got["locus"].unique().to_list() == ["TRB"]
+    assert got["present:TRB"].to_list() == [1, 1]
     assert any(c.startswith("phi") for c in got.columns)
 
 
-def test_multiple_loci_without_flag_errors(tmp_path):
-    src = tmp_path / "mixed.tsv"
-    _write(src, [TRB[0], ("TRAV1-2*01", "TRAJ33*01", "CAVMDSNYQLIW", 5)])
-    with pytest.raises(SystemExit):
-        main(["embed", "clonotypes", str(src), "--n-prototypes", "300"])
+def test_clonotype_list_and_multiple_loci_preserve_both_ids(tmp_path):
+    s1, s2 = tmp_path/'A.tsv', tmp_path/'B.tsv'
+    _write(s1, [TRB[0], ('TRAV1-2*01','TRAJ33*01','CAVMDSNYQLIW',5)])
+    _write(s2, TRB)
+    out = tmp_path/'clones.tsv'
+    main(['embed','clonotypes',str(s1),str(s2),'--n-prototypes','32','--threads','1','-o',str(out)])
+    got = pl.read_csv(out, separator='\t')
+    assert got.height == 6
+    assert set(got['sample_id']) == {'A','B'}
+    assert got.select('sample_id','clonotype_id').unique().height == 6
+    assert set(got['locus']) == {'TRA','TRB'}
 
 
 def test_embed_clonotypes_filters_non_coding_by_default(tmp_path):
@@ -101,43 +107,26 @@ def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):
     _write(s1, TRB)
     _write(s2, [("TRBV10-3*01", "TRBJ2-7*01", "CASSIRS_YEQYF", 3)])   # all non-coding
     main(["embed", "repertoires", str(s1), str(s2), "--n-prototypes", "300",
-          "--n-rff", "32", "-o", str(out)])
+          "-o", str(out)])
 
     got = pl.read_csv(out, separator="\t")
-    assert got["sample_id"].to_list() == ["P1"]      # P2 skipped, P1 still embedded
+    assert got["sample_id"].to_list() == ["P1", "P2"]
+    assert got["present:TRB"].to_list() == [1, 0]  # immune desert retained as missing
 
 
-def test_per_locus_mmd_path_splits_on_the_extension(tmp_path):
-    """Regression: `--mmd` inserted the locus at the first dot ANYWHERE in the path.
-
-    `str.replace(".", ".TRB.", 1)` turned `./mmd.tsv` into `.TRB./mmd.tsv` -> FileNotFoundError,
-    raised only after both loci had been embedded and before `-o` was written, losing the run.
-    An extensionless path was worse: a silent no-op, so one locus overwrote the other's matrix
-    and the single file claimed to be both.
-    """
-    from mir.cli import _per_locus_path
-
-    assert _per_locus_path("./mmd.tsv", "TRB") == "mmd.TRB.tsv"
-    assert _per_locus_path("out/mmd.tsv", "TRA") == "out/mmd.TRA.tsv"
-    assert _per_locus_path("mmdout", "TRB") == "mmdout.TRB"          # no longer a silent no-op
-    assert _per_locus_path("../a.b/mmd.parquet", "IGH") == "../a.b/mmd.IGH.parquet"
-
-
-def test_embed_repertoires_writes_one_mmd_matrix_per_locus(tmp_path):
-    """End-to-end: two loci in a dot-containing directory each get their own MMD file."""
-    d = tmp_path / "v1.0"
-    d.mkdir()
-    s1, s2 = d / "P1.tsv", d / "P2.tsv"
-    mixed = [TRB[0], TRB[1], ("TRAV1-2*01", "TRAJ33*01", "CAVMDSNYQLIW", 5),
-             ("TRAV12-2*01", "TRAJ42*01", "CAVNGGSQGNLIF", 9)]
-    _write(s1, mixed)
-    _write(s2, mixed)
-    main(["embed", "repertoires", str(s1), str(s2), "--n-prototypes", "300",
-          "--n-rff", "32", "-o", str(d / "phi.tsv"), "--mmd", str(d / "mmd.tsv")])
-
-    for locus in ("TRB", "TRA"):
-        got = pl.read_csv(d / f"mmd.{locus}.tsv", separator="\t")
-        assert got.height == 2 and got["sample_id"].to_list() == ["P1", "P2"]
+def test_rff_sample_table_combines_loci_and_pca_is_separate(tmp_path):
+    s1, s2 = tmp_path/'A.tsv', tmp_path/'B.tsv'
+    _write(s1, [TRB[0], ('TRAV1-2*01','TRAJ33*01','CAVMDSNYQLIW',5),
+                ('TRAV1-2*01','TRAJ33*01','CAVADSNYQLIW',3)])
+    _write(s2, TRB)
+    out, pcs, again, rot = (tmp_path/p for p in ('raw.tsv','pcs.tsv','again.tsv','rotation.npz'))
+    main(['embed','repertoires',str(s1),str(s2),'--n-prototypes','32','--threads','1','-o',str(out)])
+    got = pl.read_csv(out,separator='\t')
+    assert got.height == 2 and got['sample_id'].to_list() == ['A','B']
+    assert got['present:TRA'].to_list() == [1,0]
+    main(['pca',str(out),'--fit',str(rot),'--n-components','2','-o',str(pcs)])
+    main(['pca',str(out),'--rotation',str(rot),'-o',str(again)])
+    assert pcs.read_text() == again.read_text()
 
 
 def test_locus_flag_accepts_aliases(tmp_path):
@@ -215,3 +204,78 @@ def test_every_removed_flag_is_rejected(tiny_corpus, flag):
 def test_the_presets_command_is_gone():
     with pytest.raises(SystemExit):
         main(["presets"])
+
+
+def test_cli_preserves_numeric_looking_airr_clonotype_ids(tmp_path):
+    src = tmp_path / 'S.tsv'
+    _write(src, TRB[:2])
+    raw = pl.read_csv(src, separator='\t').with_columns(pl.Series('clonotype_id',['001','002']))
+    raw.write_csv(src, separator='\t')
+    out = tmp_path / 'clones.tsv'
+    main(['embed','clonotypes',str(src),'--n-prototypes','8','--threads','1','-o',str(out)])
+    got = pl.read_csv(out, separator='\t', schema_overrides={'clonotype_id':pl.String})
+    assert got['clonotype_id'].to_list() == ['001','002']
+
+
+def test_inline_and_control_cohort_pca_reuse_same_rff_basis(tmp_path):
+    import numpy as np
+    inputs = [tmp_path/f'{i:03}.tsv' for i in range(4)]
+    for i,path in enumerate(inputs):
+        _write(path,[(v,j,seq,n*(i+1) if k == i else n) for k,(v,j,seq,n) in enumerate(TRB)])
+    raw, inline, rot = (tmp_path/n for n in ('rff.tsv','inline.tsv','pca.npz'))
+    basis = tmp_path/'basis'
+    args = ['embed','repertoires',*(str(p) for p in inputs),'--locus','TRB',
+            '--n-prototypes','32','--n-rff','16','--n-components','3','--threads','1']
+    main([*args,'--save-basis',str(basis),'--rff-output',str(raw),'--pca','2',
+          '--save-rotation',str(rot),'-o',str(inline)])
+    saved, control = tmp_path/'saved.tsv',tmp_path/'control.tsv'
+    main([*args,'--basis',str(basis),'--rotation',str(rot),'-o',str(saved)])
+    main([*args,'--basis',str(basis),'--pca-cohort',str(raw),'--pca','2','-o',str(control)])
+    assert inline.read_bytes() == saved.read_bytes()
+    a = pl.read_csv(inline,separator='\t',schema_overrides={'sample_id':pl.String})
+    b = pl.read_csv(control,separator='\t',schema_overrides={'sample_id':pl.String})
+    np.testing.assert_allclose(a.select('pc0','pc1'),b.select('pc0','pc1'),atol=1e-12)
+    assert a['sample_id'].to_list() == ['000','001','002','003']
+    assert any(c.startswith('diversity:') for c in a.columns)
+
+
+def test_clonotype_pca_and_mmd_options_remain_available(tmp_path):
+    from mir.cli import main
+    from mir.embedding.tcremp import TCREmp
+    m = TCREmp.from_defaults('human','TRB',n_prototypes=16,threads=1)
+    for i in range(2):
+        pl.DataFrame({'v_call':m._proto_v,'j_call':m._proto_j,
+                       'junction_aa':m._proto_junction,
+                       'duplicate_count':[i+1]*len(m._proto_v)}).write_csv(
+            tmp_path/f's{i}.tsv',separator='\t')
+    cl = tmp_path/'cl.tsv'
+    main(['embed','clonotypes',str(tmp_path/'s0.tsv'),'--locus','TRB',
+          '--n-prototypes','16','--pca','2','--threads','1','-o',str(cl)])
+    assert {'e0','e1','sample_id','clonotype_id'} <= set(pl.read_csv(cl,separator='\t').columns)
+    mmd = tmp_path/'mmd.tsv'
+    main(['embed','repertoires',str(tmp_path/'s0.tsv'),str(tmp_path/'s1.tsv'),
+          '--locus','TRB','--n-prototypes','16','--n-components','8',
+          '--n-rff','16','--threads','1','--mmd',str(mmd),'-o',str(tmp_path/'rff.tsv')])
+    assert pl.read_csv(mmd,separator='\t').height == 2
+
+
+def test_embedding_reader_trims_columns_without_collapsing_nt_clones_or_shm(tmp_path):
+    from mir.cli import _read_sample
+    from mir.embedding.tcremp import TCREmp
+    m = TCREmp.from_defaults('human','IGH',n_prototypes=16,threads=1)
+    df = pl.DataFrame({'v_call':[m._proto_v[0]]*2,'j_call':[m._proto_j[0]]*2,
+                       'junction_aa':[m._proto_junction[0]]*2,
+                       'junction_nt':['TGTGCC','TGCGCC'],'duplicate_count':[3,7],
+                       'v_mutations':['A23V','S31N'],'locus':['IGH']*2,
+                       'discarded_note':['x'*1000]*2})
+    path = tmp_path/'sample.tsv'
+    df.write_csv(path,separator='\t')
+    full = _read_sample([str(path)])['IGH']
+    trimmed = _read_sample([str(path)],embedding_only=True)['IGH']
+    assert 'frequency' not in trimmed.columns
+    assert trimmed.height == 2
+    assert trimmed['junction_nt'].n_unique() == 2
+    assert trimmed['duplicate_count'].to_list() == [3,7]
+    assert trimmed['v_mutations'].to_list() == ['A23V','S31N']
+    import numpy as np
+    np.testing.assert_array_equal(m.embed(trimmed),m.embed(full))

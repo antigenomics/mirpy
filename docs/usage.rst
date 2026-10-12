@@ -110,10 +110,10 @@ Pick prototype counts / PCA dims from the per-chain presets, and denoise with PC
 
 .. code-block:: bash
 
-   mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
+   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv
    #   input:  any format vdjtools.io reads; locus inferred (or pass --locus)
    #   output: one row per clonotype (id columns + e0…), TSV or (recommended for the wide raw
-   #           embedding) Parquet.  --n-prototypes / --mode / --pca / --threads are the options.
+   #           embedding) streaming Parquet with the [parquet] extra. No PCA is fitted here.
 
 Clustering antigen-specific TCRs
 --------------------------------
@@ -195,19 +195,17 @@ batch-confounded contrast, compare *within-batch* (residualise ``Φ`` on the bat
 cohort section): a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 HLA) survives.
 
-**From the shell** — ``mir embed repertoires`` fits one shared basis per chain and writes the Φ table:
+**From the shell**, the same RFF workflow retains only compact sample vectors:
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
-   #   one input file per repertoire (sample id = filename stem); one output row per sample per
-   #   chain (sample_id, locus, n_clonotypes, phi0…). --blocks mean,diversity[,second] and
-   #   --weight / --n-rff pick the Φ layout;  --mmd also writes the pairwise unbiased-MMD matrix.
+   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o rff.tsv --threads 1
+   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_rff.tsv --threads 1
+   mir pca rff.tsv --fit rotation.npz -o sample_pcs.tsv
+   mir pca held_out_rff.tsv --rotation rotation.npz -o held_out_pcs.tsv
 
-An MMD matrix is per chain, so with more than one locus present the ``--mmd`` path gains the locus
-before its extension — ``mmd.tsv`` becomes ``mmd.TRB.tsv`` and ``mmd.TRA.tsv``; a single locus keeps
-the name as given. ``--locus`` accepts the usual aliases (``beta``/``TRB``, ``T-alpha``/``TRA``, …)
-and rejects anything it cannot resolve rather than quietly matching no rows.
+PCA on sample vectors is optional. All seven loci share one sample row, with
+explicit missing-locus indicators. See :doc:`cli` for control-cohort and inline PCA.
 
 Multi-chain digital donor (``mir.cohort``)
 ------------------------------------------

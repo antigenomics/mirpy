@@ -49,6 +49,16 @@ PCA denoising / de-redundancy of embeddings.
    :undoc-members:
    :show-inheritance:
 
+``mir.embedding.table``
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Raw sample/clonotype tables and separately fitted, schema-checked PCA rotations.
+
+.. automodule:: mir.embedding.table
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 ``mir.embedding.presets``
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -363,8 +373,8 @@ Allele normalisation with default-allele cascade.
 Command-line interface (``mir``)
 --------------------------------
 
-``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with four
-commands: two embedding scales, plus the portable signature and the corpus it is rotated through.
+``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with raw
+embedding, sample-table PCA, portable signature and corpus commands.
 
 Both ``embed`` commands drop non-coding clonotypes (stop codon / legacy out-of-frame
 ``junction_aa``) before embedding, and there is **no flag to disable it**: a stop codon is in
@@ -373,20 +383,20 @@ distance and contaminates the geometry silently. ``--no-filter-functional`` is r
 message pointing at ``vdjtools filter --nonproductive``, which is what to use when the
 non-productive fraction is the thing you want.
 
-``mir embed clonotypes INPUT``
-   One repertoire's clonotype table → a per-clonotype TCREMP embedding table (columns ``e0…``).
-   Flags: ``--species``, ``--locus`` (inferred when the file has one locus), ``--n-prototypes``,
-   ``--mode {vjcdr3,cdr123}``, ``--replicate R`` (prototype draw), ``--pca K`` (compact the table),
-   ``--threads``, ``-o`` (``.tsv`` / ``.parquet``; default stdout TSV).
+``mir embed clonotypes INPUT...``
+   Stream raw clonotype embeddings with ``sample_id``, ``clonotype_id`` and ``locus``.
+   TSV needs only base dependencies; streaming Parquet requires ``mirpy-lib[parquet]``.
 
 ``mir embed repertoires INPUT...``
-   A dataset of clonotype tables → one repertoire vector ``Φ(S)`` per sample **per chain** on one
-   shared basis (columns ``phi0…``; sample id = filename stem). Flags: ``--species``, ``--locus``
-   (restrict), ``--n-prototypes``, ``--replicate R``,
-   ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}`` (default ``log2p1``),
-   ``--blocks mean,diversity[,second]``, ``--n-rff``, ``--n-rff-second``, ``--n-components``,
-   ``--mmd OUT`` (also write the per-chain pairwise unbiased-MMD matrix),
-   ``--threads``, ``--seed``, ``-o``.
+   Reduce each sample through the shared RFF basis. Output has one row per
+   ``sample_id``, locus-specific ``phi:`` RFF means, requested channels, counts and
+   presence masks. Sample PCA is optional; see :doc:`cli`.
+
+``mir pca TABLE --fit ROTATION.npz`` / ``--rotation ROTATION.npz``
+   Fit/save or load/apply a sample-table PCA. Training imputation, scaling and rotation
+   apply unchanged to future samples; schema and embedding-space checks prevent mixing bases.
+
+See :doc:`cli` for examples and flags.
 
 ``mir signature INPUT...``
    AIRR clonotype tables → **one fixed-width named feature vector per sample**, rotated through a
@@ -395,7 +405,7 @@ non-productive fraction is the thing you want.
    ``--winsorize {features,pcs,none}``, ``--winsor-p P``, ``--components N`` (an integer count or a
    variance fraction), ``--species``,
    ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``, ``--columns FILE``,
-   ``--jobs`` / ``-j`` (0 = every core; worker **processes**), ``--on-duplicate {error,sum}``,
+   ``--jobs`` / ``-j`` (0 = every core; worker **threads**), ``--on-duplicate {error,sum}``,
    ``--describe`` (print the columns *this invocation* emits and read no input), ``-o``.
 
    This emits the ``rsig`` half alone. ``vdjtools signature`` emits the ``vsig`` half; run both

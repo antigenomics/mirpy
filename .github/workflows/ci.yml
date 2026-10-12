@@ -41,6 +41,15 @@ jobs:
         run: pip install -e ".[dev,bench]"
       - name: Test (fast tier)
         run: pytest tests/ -q --durations=25 -m "not integration and not benchmark"
+      - name: Bounded cohort resource regression
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        timeout-minutes: 5
+        env:
+          RUN_BENCHMARK: "1"
+          MIR_BENCH_SAMPLES: "1000"
+          MIR_BENCH_WORKERS: "2"
+          MIR_BASIS_SAMPLES: "100"
+        run: pytest tests/test_embedding_resources.py -q -s -m benchmark
 
   # One extra leg with the optional tiers installed, because the fast tier above skips every
   # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash
@@ -48,7 +57,7 @@ jobs:
   # [ann] belongs here for the same reason: pynndescent is in no other leg, so mir.density's
   # whole approximate-NN backend would otherwise be executed by no job anywhere.
   optional-tiers:
-    name: Optional tiers (torch + ANN + BioPython)
+    name: Optional tiers (torch + ANN + BioPython + Parquet)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +65,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install package with [ml] + [ann] + BioPython
-        run: pip install -e ".[dev,bench,ml,ann]" biopython
+        run: pip install -e ".[dev,bench,ml,ann,parquet]" biopython
       - name: Test (including integration)
         run: pytest tests/ -q --durations=25 -m "not benchmark"

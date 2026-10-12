@@ -92,13 +92,20 @@ labels = cluster(pca_denoise(model.embed(vdjdb_df), n_components=65))
 From the shell:
 
 ```bash
-mir embed clonotypes  sample.tsv      -o clonotypes.parquet --pca 50
-mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
+mir embed clonotypes  cohort/*.tsv    -o clonotypes.tsv
+mir embed repertoires cohort/*.tsv.gz -o phi.tsv
+mir pca phi.tsv --fit rotation.npz --n-components 256 -o pcs.tsv
 mir signature --corpus blood cohort/*.tsv.gz -o rsig.parquet
 ```
 
 **[Getting started](https://docs.isalgo.dev/mirpy/getting-started.html)** walks through all of this
 in about fifteen minutes, offline, with nothing to download.
+
+`embed repertoires` returns RFF means and requested channels; sample PCA is optional.
+Save the shared RFF basis with `--save-basis` and reuse it with `--basis` for future
+samples. `mir pca` fits on the input or a supplied cohort, or applies a saved rotation.
+Clonotype embedding accepts multiple files and retains sample/clonotype IDs.
+Streaming clonotype Parquet output requires `mirpy-lib[parquet]`.
 
 ## Where to start
 
@@ -129,7 +136,7 @@ in about fifteen minutes, offline, with nothing to download.
 | `mir.generate`, `mir.twin` | Sample new synthetic donor states, or perturb and resample one donor's state |
 | `mir.ml` | Neural codecs, learned set encoders, diffusion generator — experimental, `[ml]` extra |
 | `mir.bench` | VDJdb loader, clustering metrics, cohort scorers, reproduced theory experiments |
-| `mir.cli` | The `mir` console script — `embed clonotypes`, `embed repertoires`, `signature`, `corpus` |
+| `mir.cli` | The `mir` console script — `embed clonotypes`, `embed repertoires`, `pca`, `signature`, `corpus` |
 
 ## Prototypes are the coordinate system
 
