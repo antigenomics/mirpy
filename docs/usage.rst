@@ -22,6 +22,7 @@ pure-Python ``py3-none-any`` wheel. A clonotype table is a polars frame; clone s
 
 .. code-block:: python
 
+   import mir                            # establish runtime limits first
    import polars as pl
 
    sample = pl.DataFrame({
