@@ -231,8 +231,13 @@ def test_inline_and_control_cohort_pca_reuse_same_rff_basis(tmp_path):
     saved, control = tmp_path/'saved.tsv',tmp_path/'control.tsv'
     main([*args,'--basis',str(basis),'--rotation',str(rot),'-o',str(saved)])
     main([*args,'--basis',str(basis),'--pca-cohort',str(raw),'--pca','2','-o',str(control)])
-    assert inline.read_bytes() == saved.read_bytes()
     a = pl.read_csv(inline,separator='\t',schema_overrides={'sample_id':pl.String})
+    restored = pl.read_csv(saved,separator='\t',schema_overrides={'sample_id':pl.String})
+    assert a.drop('pc0','pc1').equals(restored.drop('pc0','pc1'))
+    # Restored PCA arrays can use a different BLAS layout: allow float64 roundoff.
+    pcs = a.select('pc0','pc1').to_numpy()
+    tol = 32 * np.finfo(np.float64).eps * max(1.,np.abs(pcs).max())
+    np.testing.assert_allclose(pcs,restored.select('pc0','pc1'),rtol=0,atol=tol)
     b = pl.read_csv(control,separator='\t',schema_overrides={'sample_id':pl.String})
     np.testing.assert_allclose(a.select('pc0','pc1'),b.select('pc0','pc1'),atol=1e-12)
     assert a['sample_id'].to_list() == ['000','001','002','003']
