@@ -161,7 +161,7 @@ Clonotype Parquet output requires ``mirpy-lib[parquet]``. See :doc:`cli`.
 Step 6 -- one named vector per sample
 -------------------------------------
 
-The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Raw prototype
+The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Unprojected
 RFF means from the CLI share one fitted clonotype/RFF basis, while optional sample PCA uses a separate rotation. When you need a vector that a collaborator can
 reproduce independently, use a :doc:`signature` instead: fixed, named columns standardised against a
 published reference corpus.

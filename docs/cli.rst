@@ -55,7 +55,7 @@ select the raw coordinate system. Native batch kernels own ``--threads``.
 
 A list of repertoires in, one RFF kernel-mean row per sample out. The order is
 clonotype coordinates → the shared clonotype basis → RFF → weighted mean.
-The default output is unprojected RFF, with optional diversity and second-moment
+The default output is unprojected RFF and diversity, with optional second-moment
 channels. Sample PCA runs only when requested. Counts and missing-locus indicators
 are retained; a missing locus is a hole, not a zero-valued embedding.
 
