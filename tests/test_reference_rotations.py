@@ -1,11 +1,13 @@
 """The reference recipe exports raw-feature/RFF rotations with their exact basis."""
 import json
 import hashlib
+from dataclasses import replace
 
+import numpy as np
 import polars as pl
 import pytest
 from mir.embedding.prototypes import load_prototypes
-from mir.embedding.reference import build_reference_rotations
+from mir.embedding.reference import build_reference_rotations, _check
 from vdjtools.signature.corpus import TablePCA
 
 
@@ -30,3 +32,13 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path):
     with pytest.raises(ValueError, match='unique samples'):
         build_reference_rotations([readers[0], readers[0]], ['TRB'], tmp_path / 'invalid')
     assert not (tmp_path / 'invalid').exists()
+
+    rotation = TablePCA.load(output / 'rff-pca.npz')
+    rows = pl.DataFrame({'sample_id': ['CHECK1', 'CHECK2'],
+                         'embedding_space': [rotation.space] * 2,
+                         **{c: [0.0, 1.0] for c in rotation.columns}})
+    changed = rotation.components.copy()
+    changed[0, 0] = np.nextafter(changed[0, 0], np.inf)
+    replace(rotation, components=changed).save(tmp_path / 'changed.npz')
+    with pytest.raises(AssertionError):
+        _check(rotation, rows, tmp_path / 'changed.npz')

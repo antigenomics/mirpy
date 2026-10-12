@@ -91,9 +91,17 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=256, 
 def _check(rotation, table, path):
     """Reload and project a small view without allocating a second cohort matrix."""
     rows = table.head(2)
+    restored = TablePCA.load(path)
+    assert restored.columns == rotation.columns and restored.space == rotation.space
+    for name in ('fill', 'mean', 'scale', 'center', 'components'):
+        np.testing.assert_array_equal(getattr(restored, name), getattr(rotation, name))
     expected = rotation.transform(rows)
-    actual = TablePCA.load(path).transform(rows)
+    actual = restored.transform(rows)
     assert actual['sample_id'].to_list() == rows['sample_id'].to_list()
     pcs = [c for c in actual.columns if c.startswith('pc')]
-    np.testing.assert_array_equal(actual.select(pcs).to_numpy(),
-                                   expected.select(pcs).to_numpy())
+    scores = expected.select(pcs).to_numpy()
+    # Identical arrays can take different BLAS paths after NPZ changes their layout.
+    # Parameters stay bit-exact; only projection roundoff has this float64 bound.
+    tolerance = 32 * np.finfo(np.float64).eps * max(1.0, float(np.max(np.abs(scores))))
+    np.testing.assert_allclose(actual.select(pcs).to_numpy(), scores,
+                               rtol=0, atol=tolerance)
