@@ -137,8 +137,9 @@ Your first embedding
 
       .. code-block:: bash
 
-         mir embed clonotypes  sample.tsv      -o clonotypes.parquet --pca 50
-         mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
+         mir embed clonotypes  samples/*.tsv  -o clonotypes.tsv
+         mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv
+         mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
 
 Each row is the receptor's distance to every prototype, in three blocks -- V, J and junction. The
 junction part comes from ``seqtree.gapblock``; the V and J parts are precomputed germline distances.

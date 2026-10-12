@@ -110,10 +110,10 @@ Pick prototype counts / PCA dims from the per-chain presets, and denoise with PC
 
 .. code-block:: bash
 
-   mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
+   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv
    #   input:  any format vdjtools.io reads; locus inferred (or pass --locus)
    #   output: one row per clonotype (id columns + e0…), TSV or (recommended for the wide raw
-   #           embedding) Parquet.  --n-prototypes / --mode / --pca / --threads are the options.
+   #           embedding) streaming Parquet with the [parquet] extra. No PCA is fitted here.
 
 Clustering antigen-specific TCRs
 --------------------------------
@@ -195,19 +195,18 @@ batch-confounded contrast, compare *within-batch* (residualise ``Φ`` on the bat
 cohort section): a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 HLA) survives.
 
-**From the shell** — ``mir embed repertoires`` fits one shared basis per chain and writes the Φ table:
+**From the shell**, raw sample embeddings use the fixed prototype weighted means,
+which are distinct from the fitted RFF representation above:
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
-   #   one input file per repertoire (sample id = filename stem); one output row per sample per
-   #   chain (sample_id, locus, n_clonotypes, phi0…). --blocks mean,diversity[,second] and
-   #   --weight / --n-rff pick the Φ layout;  --mmd also writes the pairwise unbiased-MMD matrix.
+   mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv --threads 1
+   mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
+   mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
 
-An MMD matrix is per chain, so with more than one locus present the ``--mmd`` path gains the locus
-before its extension — ``mmd.tsv`` becomes ``mmd.TRB.tsv`` and ``mmd.TRA.tsv``; a single locus keeps
-the name as given. ``--locus`` accepts the usual aliases (``beta``/``TRB``, ``T-alpha``/``TRA``, …)
-and rejects anything it cannot resolve rather than quietly matching no rows.
+One raw row contains all bundled loci, with explicit presence masks for missing loci.
+The Python ``RepertoireSpace`` API above still supports RFF features and MMD.
+See :doc:`cli` for the separate table workflow.
 
 Multi-chain digital donor (``mir.cohort``)
 ------------------------------------------

@@ -1,7 +1,7 @@
 Command reference
 =================
 
-``pip install mirpy-lib`` installs one ``mir`` command with four subcommands. This page lists each
+``pip install mirpy-lib`` installs one ``mir`` command with embedding, PCA and signature subcommands. This page lists each
 one, what it is for, and the options that change an answer rather than only a path.
 
 ``mir <command> --help`` is the authoritative list of flags and defaults -- it is generated from the
@@ -17,11 +17,11 @@ immunoSEQ, Parquet. Several files or a glob are fine.
 worth using for the raw per-clonotype embedding, which is thousands of columns wide. Omit ``-o`` and
 the result goes to stdout.
 
-**Sample identity.** The sample id defaults to the filename stem. The locus is inferred per file, or
+**Sample identity.** The sample ID is the filename up to its first dot; files sharing it form one sample. The locus is inferred per file, or
 pin it with ``--locus``, which accepts aliases -- ``beta``, ``T-alpha`` -- and errors on anything it
 cannot resolve rather than guessing.
 
-**Threads.** ``--threads 0`` means all cores.
+**Threads.** ``--threads 0`` means all allocated cores. Positive counts are capped by the allocation.
 
 **Non-coding clonotypes are dropped, and there is no flag to keep them.** Both ``embed`` commands
 filter to productive clonotypes first. This is deliberate: a stop codon is a character in seqtree's
@@ -33,71 +33,65 @@ the thing you want.
 ``mir embed clonotypes``
 ------------------------
 
-One repertoire in, one row per clonotype out -- the input to clustering, visualisation and per-receptor
-machine learning.
+A list of repertoires in, raw clonotype embeddings out, with ``sample_id`` and
+``clonotype_id`` on every row. Mixed loci are accepted; ``locus`` identifies each
+row's panel. Supplied clonotype or AIRR sequence IDs are preserved; otherwise
+stable within-sample IDs are assigned. Files sharing a filename stem form one
+sample. No PCA is fitted by this command.
 
 .. code-block:: bash
 
-   mir embed clonotypes sample.tsv -o clonotypes.parquet
-   mir embed clonotypes sample.tsv --pca 50 --n-prototypes 1000 -o clonotypes.parquet
+   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv --threads 1
+   pip install "mirpy-lib[parquet]"
+   mir embed clonotypes cohort/*.tsv -o clonotypes.parquet
 
-.. list-table::
-   :header-rows: 1
-   :widths: 26 74
-
-   * - Option
-     - Meaning
-   * - ``--species``
-     - ``human`` (default) or ``mouse``.
-   * - ``--locus``
-     - Pin the chain instead of inferring it. Accepts aliases.
-   * - ``--n-prototypes``
-     - How many prototypes define the coordinate system. Omitted, the per-chain preset is used.
-   * - ``--mode``
-     - ``vjcdr3`` (default: three distance blocks, V and J and junction) or ``cdr123``.
-   * - ``--replicate``
-     - Which disjoint block of prototypes to draw, ``0`` by default. Used to test whether a result
-       depends on the draw -- see :ref:`which-prototypes`. Different replicates are **different
-       coordinate systems** and their embeddings must never be compared directly.
-   * - ``--pca``
-     - Denoise to this many components. The preset's 95-percent dimension is the usual choice.
-   * - ``--threads``
-     - ``0`` for all cores.
+Rows are embedded and written in bounded batches. TSV needs only the base package;
+streaming Parquet row groups use the optional ``parquet`` extra. ``--n-prototypes``
+defaults to 256 per locus. ``--mode``, ``--species``, ``--locus`` and ``--replicate``
+select the raw coordinate system. Native batch kernels own ``--threads``.
 
 ``mir embed repertoires``
 -------------------------
 
-A set of repertoires in, one fingerprint ``Phi(S)`` per sample per chain out, all on **one shared
-basis** so the rows are mutually comparable.
+A list of repertoires in, one **raw sample embedding row** per sample out, with
+``sample_id``. Each sample is read once, reduced through the existing fixed-prototype
+weighted sum, and released. Only compact vectors survive the bounded sample map;
+they are assembled into a Polars table. There is no pooled clonotype matrix,
+clonotype-level scaler/PCA fit, or random-feature fit.
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv.gz -o phi.tsv
-   mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv --blocks mean,diversity,second
+   mir embed repertoires cohort/*.tsv -o sample_embeddings.tsv --threads 1
 
-.. list-table::
-   :header-rows: 1
-   :widths: 26 74
+``--n-prototypes`` defaults to 256 per locus; ``--weight`` defaults to ``log2p1``.
+The V/J/junction slots are retained, interleaved as in ``TCREmp``: 768 coordinates
+per locus, or 5,376 across seven human loci. A 10,000-row float64 raw matrix is
+about 410 MiB. Missing loci are NaN with explicit ``present:<locus>`` indicators;
+empty samples are retained. ``embedding_space`` fingerprints the ordered panels
+and coordinate options. Worker threads share fixed panels and use serial inner
+kernels; ``--threads 1`` creates no worker pool.
 
-   * - Option
-     - Meaning
-   * - ``--blocks``
-     - Which blocks make up the vector: ``mean`` (the random-feature kernel mean), ``diversity``
-       (the coverage-standardised Hill profile), ``second`` (the co-occurrence second moment).
-       Default ``mean,diversity``.
-   * - ``--weight``
-     - The clone-size transform: ``log2p1`` (default, concave, so one hyperexpanded clone cannot
-       dominate), ``duplicate_count`` (linear in clone size), ``distinct`` (presence only),
-       ``log1p``, ``anscombe``.
-   * - ``--n-rff`` / ``--n-rff-second``
-     - Random-feature dimensions for the kernel mean and the second-moment block.
-   * - ``--n-components``
-     - PCA dimension of the underlying clonotype space.
-   * - ``--mmd``
-     - Also write the pairwise MMD distance matrix. Per chain: with several loci this becomes
-       ``mmd.TRB.tsv``, ``mmd.TRA.tsv`` and so on; with one locus the name is used as given.
-   * - ``--seed``
-     - Fixes the random features, and therefore the basis.
+``mir pca``
+------------
+
+Fit/save a rotation from a **sample embedding table**, or apply that same rotation
+later. PCA is deliberately downstream of embedding. IDs, counts and other metadata
+are retained. Missing coordinates are filled from training medians, and presence
+indicators retain missing-locus information. Column and embedding-space checks
+reject incompatible input. The artifact is NumPy data, without executable pickle.
+
+.. code-block:: bash
+
+   mir pca sample_embeddings.tsv --fit rotation.npz --n-components 256 -o pcs.tsv
+   mir pca future_embeddings.tsv --rotation rotation.npz -o future_pcs.tsv
+
+Fit on training samples and apply the saved rotation to held-out samples. Refitting
+on another cohort defines different coordinates. The default dimension is 256,
+capped by the number of samples and features; ``--seed`` fixes the solver seed.
+
+The CLI no longer fits the older RFF repertoire basis inside ``embed``. The
+standalone Python ``fit_repertoire_space`` / ``sample_embedding`` / ``mmd_matrix``
+APIs remain available for that distinct kernel representation.
 
 ``mir signature``
 -----------------
@@ -147,7 +141,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``
-     - Worker processes over samples, ``0`` for all cores.
+     - Worker threads over samples, ``0`` for all cores.
 
 Which corpus to choose, and what the columns mean, are in :doc:`signature` and :doc:`channels`.
 

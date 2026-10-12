@@ -147,20 +147,22 @@ Step 5 -- the same thing from the shell
 
 .. code-block:: bash
 
-   # one repertoire -> per-clonotype embedding table, the input to clustering and ML
-   mir embed clonotypes sample.tsv --pca 50 -o clonotypes.parquet
+   # a list of files -> raw clonotype rows with sample and clonotype IDs
+   mir embed clonotypes cohort/*.tsv.gz -o clonotypes.tsv
 
-   # a set of repertoires -> one fingerprint per sample on a shared basis, plus the MMD matrix
-   mir embed repertoires cohort/*.tsv.gz -o phi.tsv --mmd mmd.tsv
+   # one raw embedding row per sample; PCA is a separate operation
+   mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv --threads 1
+   mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
+   mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
 
-Sample ids default to the filename stem and the locus is inferred per file. With several loci the MMD
-matrix is written per chain, as ``mmd.TRB.tsv``, ``mmd.TRA.tsv`` and so on. See :doc:`cli`.
+Sample IDs use the filename up to its first dot; files sharing that ID are combined.
+Clonotype Parquet output requires ``mirpy-lib[parquet]``. See :doc:`cli`.
 
 Step 6 -- one named vector per sample
 -------------------------------------
 
-``Phi(S)`` is a coordinate system fitted on *your* cohort, which is what makes it powerful and also
-what makes it incomparable with anyone else's. When you need a vector that a collaborator can
+The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Raw prototype
+means from the CLI use fixed panels, while their downstream PCA uses a fitted rotation. When you need a vector that a collaborator can
 reproduce independently, use a :doc:`signature` instead: fixed, named columns standardised against a
 published reference corpus.
 
