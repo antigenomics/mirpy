@@ -385,10 +385,6 @@ def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
     otherwise reuses the supplied fitted reducer (held-out :meth:`DonorCohort.transform`).
     Returns ``(matrix, fitted_pca_or_None)``.
     """
-    from sklearn.decomposition import PCA
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-
     out = np.full((n, id_pca), np.nan)
     if not means_c:
         return out, pca
@@ -405,7 +401,8 @@ def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
                 "channel is left empty (imputed to a constant). Lower id_pca or drop the chain.",
                 stacklevel=3)
             return out, None                       # too few to reduce; leave holes (imputed)
-        pca = make_pipeline(StandardScaler(), PCA(id_pca, random_state=seed)).fit(M)
+        from vdjtools.signature.corpus import fit_pca
+        pca = fit_pca(M, id_pca, seed=seed)
     Mr = pca.transform(M)
     for j, i in enumerate(idxs):
         out[i] = Mr[j]

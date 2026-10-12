@@ -114,9 +114,10 @@ def test_embed_repertoires_skips_sample_left_empty_by_filter(tmp_path):
     assert got["present:TRB"].to_list() == [1, 0]  # immune desert retained as missing
 
 
-def test_raw_sample_table_combines_loci_and_pca_is_separate(tmp_path):
+def test_rff_sample_table_combines_loci_and_pca_is_separate(tmp_path):
     s1, s2 = tmp_path/'A.tsv', tmp_path/'B.tsv'
-    _write(s1, [TRB[0], ('TRAV1-2*01','TRAJ33*01','CAVMDSNYQLIW',5)])
+    _write(s1, [TRB[0], ('TRAV1-2*01','TRAJ33*01','CAVMDSNYQLIW',5),
+                ('TRAV1-2*01','TRAJ33*01','CAVADSNYQLIW',3)])
     _write(s2, TRB)
     out, pcs, again, rot = (tmp_path/p for p in ('raw.tsv','pcs.tsv','again.tsv','rotation.npz'))
     main(['embed','repertoires',str(s1),str(s2),'--n-prototypes','32','--threads','1','-o',str(out)])
@@ -214,3 +215,67 @@ def test_cli_preserves_numeric_looking_airr_clonotype_ids(tmp_path):
     main(['embed','clonotypes',str(src),'--n-prototypes','8','--threads','1','-o',str(out)])
     got = pl.read_csv(out, separator='\t', schema_overrides={'clonotype_id':pl.String})
     assert got['clonotype_id'].to_list() == ['001','002']
+
+
+def test_inline_and_control_cohort_pca_reuse_same_rff_basis(tmp_path):
+    import numpy as np
+    inputs = [tmp_path/f'{i:03}.tsv' for i in range(4)]
+    for i,path in enumerate(inputs):
+        _write(path,[(v,j,seq,n*(i+1) if k == i else n) for k,(v,j,seq,n) in enumerate(TRB)])
+    raw, inline, rot = (tmp_path/n for n in ('rff.tsv','inline.tsv','pca.npz'))
+    basis = tmp_path/'basis'
+    args = ['embed','repertoires',*(str(p) for p in inputs),'--locus','TRB',
+            '--n-prototypes','32','--n-rff','16','--n-components','3','--threads','1']
+    main([*args,'--save-basis',str(basis),'--rff-output',str(raw),'--pca','2',
+          '--save-rotation',str(rot),'-o',str(inline)])
+    saved, control = tmp_path/'saved.tsv',tmp_path/'control.tsv'
+    main([*args,'--basis',str(basis),'--rotation',str(rot),'-o',str(saved)])
+    main([*args,'--basis',str(basis),'--pca-cohort',str(raw),'--pca','2','-o',str(control)])
+    assert inline.read_bytes() == saved.read_bytes()
+    a = pl.read_csv(inline,separator='\t',schema_overrides={'sample_id':pl.String})
+    b = pl.read_csv(control,separator='\t',schema_overrides={'sample_id':pl.String})
+    np.testing.assert_allclose(a.select('pc0','pc1'),b.select('pc0','pc1'),atol=1e-12)
+    assert a['sample_id'].to_list() == ['000','001','002','003']
+    assert any(c.startswith('diversity:') for c in a.columns)
+
+
+def test_clonotype_pca_and_mmd_options_remain_available(tmp_path):
+    from mir.cli import main
+    from mir.embedding.tcremp import TCREmp
+    m = TCREmp.from_defaults('human','TRB',n_prototypes=16,threads=1)
+    for i in range(2):
+        pl.DataFrame({'v_call':m._proto_v,'j_call':m._proto_j,
+                       'junction_aa':m._proto_junction,
+                       'duplicate_count':[i+1]*len(m._proto_v)}).write_csv(
+            tmp_path/f's{i}.tsv',separator='\t')
+    cl = tmp_path/'cl.tsv'
+    main(['embed','clonotypes',str(tmp_path/'s0.tsv'),'--locus','TRB',
+          '--n-prototypes','16','--pca','2','--threads','1','-o',str(cl)])
+    assert {'e0','e1','sample_id','clonotype_id'} <= set(pl.read_csv(cl,separator='\t').columns)
+    mmd = tmp_path/'mmd.tsv'
+    main(['embed','repertoires',str(tmp_path/'s0.tsv'),str(tmp_path/'s1.tsv'),
+          '--locus','TRB','--n-prototypes','16','--n-components','8',
+          '--n-rff','16','--threads','1','--mmd',str(mmd),'-o',str(tmp_path/'rff.tsv')])
+    assert pl.read_csv(mmd,separator='\t').height == 2
+
+
+def test_embedding_reader_trims_columns_without_collapsing_nt_clones_or_shm(tmp_path):
+    from mir.cli import _read_sample
+    from mir.embedding.tcremp import TCREmp
+    m = TCREmp.from_defaults('human','IGH',n_prototypes=16,threads=1)
+    df = pl.DataFrame({'v_call':[m._proto_v[0]]*2,'j_call':[m._proto_j[0]]*2,
+                       'junction_aa':[m._proto_junction[0]]*2,
+                       'junction_nt':['TGTGCC','TGCGCC'],'duplicate_count':[3,7],
+                       'v_mutations':['A23V','S31N'],'locus':['IGH']*2,
+                       'discarded_note':['x'*1000]*2})
+    path = tmp_path/'sample.tsv'
+    df.write_csv(path,separator='\t')
+    full = _read_sample([str(path)])['IGH']
+    trimmed = _read_sample([str(path)],embedding_only=True)['IGH']
+    assert 'frequency' not in trimmed.columns
+    assert trimmed.height == 2
+    assert trimmed['junction_nt'].n_unique() == 2
+    assert trimmed['duplicate_count'].to_list() == [3,7]
+    assert trimmed['v_mutations'].to_list() == ['A23V','S31N']
+    import numpy as np
+    np.testing.assert_array_equal(m.embed(trimmed),m.embed(full))

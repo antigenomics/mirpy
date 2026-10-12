@@ -1,11 +1,6 @@
-"""Raw sample embedding tables and separately fitted, portable PCA rotations.
-
-Sample embedding is a bounded map over independent samples. It fits nothing:
-only fixed-prototype weighted means survive. PCA consumes that compact table.
-"""
+"""RFF sample tables, bounded readers, and sample-PCA artifact IO."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 
@@ -13,8 +8,9 @@ import numpy as np
 import polars as pl
 from vdjtools.signature.cohort import parallel_rows, resolve_sample
 from vdjtools.signature.features import sanitise
+from vdjtools.signature.corpus import TablePCA  # noqa: F401 — public compatibility export
 
-from mir.signature.features import prototype_sum, weights
+from mir.repertoire import sample_embedding, _fit_repertoire_coordinates, _finish_repertoire_space
 
 
 def embedding_space(models: dict, *, weight: str | None = None) -> str:
@@ -37,156 +33,143 @@ def embedding_space(models: dict, *, weight: str | None = None) -> str:
     return digest.hexdigest()
 
 
-def sample_embeddings(samples, models: dict, *, weight: str = 'log2p1',
-                      n_jobs: int = 1) -> pl.DataFrame:
-    """One raw weighted-prototype row per sample, with identity and missing-locus masks.
+def _frames(sample):
+    frames = resolve_sample(sample)
+    if not isinstance(frames, dict):
+        frames = {loc: sub for (loc,), sub in frames.group_by('locus')}
+    return {loc: sanitise(df)[0] for loc, df in frames.items()}
 
-    ``samples`` is an iterable of ``(sample_id, frame_or_deferred_reader)`` pairs.
-    Each resolved sample is ``{locus: AIRR frame}``. Shared models must use automatic
-    ``threads=0`` so the bounded sample workers own the compute budget. No scaler,
-    PCA, random-feature fit or cohort of clonotype frames is materialized. Models
-    define the same column set for training and future cohorts. Empty loci remain
-    missing (NaN), with an explicit presence indicator; samples are never dropped.
+
+def fit_sample_spaces(samples, models, *, pca_fit_cap=200_000, seed=0, **kwargs):
+    """Fit the established shared clonotype basis without retaining the input cohort.
+
+    Count rows, then read only the exact seeded selection used by
+    fit_repertoire_space on the pooled cloud. Fit loci sequentially. Deferred
+    readers must be repeatable; no computed intermediate is cached on disk.
     """
-    from copy import copy
-    from mir.distances.shm import MutatedGermlineDistances
+    items = list(samples)
+    counts = {loc: [] for loc in models}
+    for _, sample in items:
+        frames = _frames(sample)
+        for loc in models:
+            counts[loc].append(frames[loc].height if loc in frames else 0)
+        del frames
+    spaces = {}
+    for loc, model in models.items():
+        total = sum(counts[loc])
+        if not total:
+            continue
+        selected = (np.random.default_rng(seed).choice(total, pca_fit_cap, replace=False)
+                    if total > pca_fit_cap else np.arange(total))
+        # Sorting only the read schedule; restore RNG order before the existing fit.
+        order = np.argsort(selected)
+        sorted_rows = selected[order]
+        from mir.density import _embed
+        from vdjtools.cores import require_memory
+        coordinate_space = kwargs.get('space', 'full')
+        width = model.n_features if coordinate_space == 'full' else model.n_prototypes
+        require_memory(8 * len(selected) * width + 16 * width**2, 'shared clonotype PCA fit')
+        X = np.empty((len(selected), width), dtype=np.float32)
+        chunk = max(1, (32 * 1024**2) // (12 * model.n_features))
+        offset = 0
+        for (_, sample), count in zip(items, counts[loc]):
+            lo, hi = np.searchsorted(sorted_rows, [offset, offset + count])
+            if hi > lo:
+                frames = _frames(sample)
+                df = frames[loc]
+                if df.height != count:
+                    raise ValueError('input changed between basis fitting passes')
+                for start in range(lo, hi, chunk):
+                    end = min(start + chunk, hi)
+                    part = df[(sorted_rows[start:end] - offset).tolist()]
+                    X[order[start:end]] = _embed(model, part, coordinate_space)
+                    del part
+                del frames, df
+            offset += count
+        fit_options = {key: kwargs[key] for key in ('n_components','space') if key in kwargs}
+        clono = _fit_repertoire_coordinates(model, X, seed=seed, **fit_options)
+        del X
+        rff_options = {key: value for key,value in kwargs.items() if key not in fit_options}
+        spaces[loc] = _finish_repertoire_space(clono, seed=seed, **rff_options)
+    if not spaces:
+        raise ValueError('no coding clonotypes to fit a shared RFF basis')
+    return spaces
 
-    if not models or any(m.threads != 0 for m in models.values()):
-        raise ValueError('sample workers require models with automatic threads=0')
-    # Prepare immutable panel indices and the SHM adapter before sharing models across workers.
-    models = {loc: copy(m) for loc, m in models.items()}
-    for model in models.values():
-        if not isinstance(model._germline, MutatedGermlineDistances):
-            model._germline = MutatedGermlineDistances(model._germline, scale=model.shm_scale)
-        for comp in ('V', 'J') if model.mode == 'vjcdr3' else ('CDR1', 'CDR2'):
-            model._proto_idx(comp)
+
+def _rff_space(spaces, weight):
+    digest = hashlib.sha256(embedding_space(
+        {loc: sp.clono.model for loc, sp in spaces.items()}, weight=weight).encode())
+    for loc, sp in sorted(spaces.items()):
+        digest.update(loc.encode())
+        for array in (sp.clono.scaler.mean_, sp.clono.scaler.scale_,
+                      sp.clono.pca.mean_, sp.clono.pca.components_, sp.rff.omega, sp.rff.b):
+            digest.update(np.asarray(array).tobytes())
+        if sp.rff2 is not None:
+            digest.update(sp.rff2.omega.tobytes())
+            digest.update(sp.rff2.b.tobytes())
+    return digest.hexdigest()
+
+
+def sample_embeddings(samples, spaces: dict, *, weight='log2p1',
+                      blocks=('mean', 'diversity'), n_jobs=1) -> pl.DataFrame:
+    """Read/reduce/release one sample per worker; retain RFF means and requested channels.
+
+    Every sample uses the same fitted RepertoireSpace per locus. Diversity and
+    second moments retain SampleEmbedding semantics; absent loci remain missing.
+    """
+    if not spaces or not blocks or set(blocks) - {'mean', 'diversity', 'second'}:
+        raise ValueError('provide shared spaces and valid nonempty blocks')
     items = list(samples.items() if isinstance(samples, dict) else samples)
     ids = [sid for sid, _ in items]
     if not items or len(set(ids)) != len(ids):
         raise ValueError('sample ids must be nonempty and unique')
-    cols = [f'phi:{loc}:{i}' for loc, m in models.items() for i in range(m.n_features)]
+    from mir.distances.shm import MutatedGermlineDistances
+    for sp in spaces.values():
+        model = sp.clono.model
+        if not isinstance(model._germline, MutatedGermlineDistances):
+            model._germline = MutatedGermlineDistances(model._germline, scale=model.shm_scale)
+        for comp in ('V', 'J') if model.mode == 'vjcdr3' else ('CDR1', 'CDR2'):
+            model._proto_idx(comp)
+    columns = []
+    widths = {}
+    for loc, sp in spaces.items():
+        sizes = {'mean': sp.rff.dim, 'diversity': 4,
+                 'second': (sp.meta.get('n_eigs') or sp.rff2.dim * (sp.rff2.dim + 1) // 2)
+                           if sp.rff2 is not None else 0}
+        cols = [f'{"phi" if block == "mean" else block}:{loc}:{i}'
+                for block in ('mean', 'diversity', 'second') if block in blocks
+                for i in range(sizes[block])]
+        columns.extend(cols)
+        widths[loc] = len(cols)
 
     def one(item):
-        frames = resolve_sample(item[1])
-        if not isinstance(frames, dict):
-            frames = {loc: sub for (loc,), sub in frames.group_by('locus')}
-        values, counts = [], []
-        for loc, model in models.items():
-            df = frames.get(loc)
-            if df is not None:
-                df, _ = sanitise(df)
+        frames = _frames(item[1])
+        values, counts, effective = [], [], []
+        for loc, sp in spaces.items():
+            df = frames.pop(loc, None)
             n = 0 if df is None else df.height
             counts.append(n)
-            if n:
-                w = weights(df['duplicate_count'].to_numpy(), weight)
-                phi, _ = prototype_sum(df, model, w)
-            else:
-                phi = np.full(model.n_features, np.nan)
-            values.append(phi)
-        return np.concatenate(values), counts
+            emb = sample_embedding(sp, df, weight=weight, blocks=blocks) if n else None
+            values.append(emb.vector if emb else np.full(widths[loc], np.nan))
+            effective.append(emb.n_eff if emb else np.nan)
+            del df
+        return np.concatenate(values), counts, effective
 
+    from vdjtools.cores import kernel_threads, require_memory
+    require_memory(24 * len(items) * len(columns)
+                   + min(len(items), kernel_threads(n_jobs)) * 32 * 1024**2,
+                   "RFF sample reduction")
     compact = parallel_rows(items, one, n_jobs)
-    matrix = np.vstack([row for row, _ in compact])
+    matrix = np.vstack([row for row, _, _ in compact])
     out = pl.DataFrame({'sample_id': ids,
-                        'embedding_space': [embedding_space(models, weight=weight)] * len(ids)})
-    out = out.hstack(pl.from_numpy(matrix, schema=cols))
-    for i, loc in enumerate(models):
-        counts = [n[i] for _, n in compact]
+                        'embedding_space': [_rff_space(spaces, weight)] * len(ids)})
+    out = out.hstack(pl.from_numpy(matrix, schema=columns))
+    for i, loc in enumerate(spaces):
+        counts = [n[i] for _, n, _ in compact]
         out = out.with_columns(pl.Series(f'n_clonotypes:{loc}', counts),
-                               pl.Series(f'present:{loc}', [int(n > 0) for n in counts]))
+                               pl.Series(f'present:{loc}', [int(n > 0) for n in counts]),
+                               pl.Series(f'n_eff:{loc}', [n[i] for _, _, n in compact]))
     return out
-
-
-def _space(table: pl.DataFrame) -> str:
-    if 'embedding_space' not in table.columns or table['embedding_space'].null_count():
-        raise ValueError('embedding space identity is missing')
-    ids = table['embedding_space'].unique().to_list()
-    if len(ids) != 1:
-        raise ValueError('table mixes incompatible embedding spaces')
-    return ids[0]
-
-
-@dataclass
-class TablePCA:
-    """A fitted sample-table scaler and PCA, with column and prototype-space checks.
-
-    Only the explicit fitted rotation is saved, never sample-derived intermediates.
-    Missing coordinates use training medians (zero for wholly unobserved columns);
-    explicit presence columns retain missing-locus information in the fit.
-    """
-    columns: list[str]
-    space: str
-    fill: np.ndarray
-    mean: np.ndarray
-    scale: np.ndarray
-    center: np.ndarray
-    components: np.ndarray
-
-    @classmethod
-    def fit(cls, table: pl.DataFrame, *, n_components: int = 256, seed: int = 0):
-        """Fit on the compact sample rows, retaining all samples and explicit masks."""
-        from sklearn.decomposition import PCA
-        from sklearn.preprocessing import StandardScaler
-
-        space = _space(table)
-        cols = [c for c in table.columns if c.startswith(('phi:', 'present:'))]
-        if not cols or table.height < 2 or n_components < 1:
-            raise ValueError('PCA needs feature columns, at least two sample rows and a positive dimension')
-        X = table.select(cols).to_numpy(order='c').copy()
-        X[~np.isfinite(X)] = np.nan
-        fill = np.zeros(len(cols))
-        observed = np.isfinite(X).any(axis=0)
-        fill[observed] = np.nanmedian(X[:, observed], axis=0)
-        missing = np.isnan(X)
-        np.copyto(X, fill, where=missing)
-        del missing
-        scaler = StandardScaler(copy=False).fit(X)
-        scaler.transform(X, copy=False)
-        pca = PCA(n_components=min(n_components, *X.shape), random_state=seed,
-                  copy=False).fit(X)
-        return cls(cols, space, fill, scaler.mean_, scaler.scale_, pca.mean_, pca.components_)
-
-    def transform(self, table: pl.DataFrame) -> pl.DataFrame:
-        """Apply this exact rotation; preserve sample IDs and metadata in input order."""
-        if _space(table) != self.space:
-            raise ValueError('embedding space differs from the fitted rotation')
-        got = [c for c in table.columns if c.startswith(('phi:', 'present:'))]
-        if set(got) != set(self.columns):
-            raise ValueError('embedding columns differ from the fitted rotation')
-        X = table.select(self.columns).to_numpy(order='c')
-        X = np.where(np.isfinite(X), X, self.fill)
-        X -= self.mean
-        X /= self.scale
-        X -= self.center
-        scores = X @ self.components.T
-        metadata = table.select([c for c in table.columns if c not in self.columns])
-        return metadata.hstack(pl.from_numpy(scores, schema=[f'pc{i}' for i in range(scores.shape[1])]))
-
-    def save(self, path) -> None:
-        """Write an explicit NumPy artifact (no pickle or executable model payload)."""
-        with open(path, 'wb') as f:
-            np.savez_compressed(f, columns=np.array(self.columns), space=np.array(self.space),
-                                fill=self.fill, mean=self.mean, scale=self.scale,
-                                center=self.center, components=self.components)
-
-    @classmethod
-    def load(cls, path):
-        """Load and validate a fitted rotation without executing arbitrary pickle data."""
-        with np.load(path, allow_pickle=False) as z:
-            if z['columns'].ndim != 1 or z['space'].ndim != 0:
-                raise ValueError('invalid PCA artifact metadata')
-            result = cls(z['columns'].tolist(), str(z['space']),
-                         *(z[key].copy() for key in ('fill','mean','scale','center','components')))
-        n = len(result.columns)
-        if (not n or not result.space or len(set(result.columns)) != n
-                or result.components.ndim != 2 or result.components.shape[0] < 1
-                or result.components.shape[1] != n
-                or any(a.shape != (n,) for a in (result.fill,result.mean,result.scale,result.center))
-                or not all(np.isfinite(a).all() for a in
-                           (result.fill,result.mean,result.scale,result.center,result.components))
-                or (result.scale <= 0).any()):
-            raise ValueError('invalid PCA artifact dimensions or numerical values')
-        return result
 
 
 def clonotype_embeddings(samples, models: dict, *, chunk: int = 4096):

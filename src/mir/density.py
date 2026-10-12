@@ -128,11 +128,12 @@ def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
     directly saves a second full copy there. Pass ``dtype=np.float32`` where the caller's contract
     is float32 (:meth:`DensitySpace.transform`).
     """
+    chunk_size = min(chunk_size, max(1, (32 * 1024**2) // (12 * model.n_features)))
     out = np.empty((df.height, pca.n_components_), dtype=dtype)
     for start in range(0, df.height, chunk_size):
         stop = min(start + chunk_size, df.height)
         raw = _embed(model, df.slice(start, stop - start), space)
-        out[start:stop] = pca.transform(scaler.transform(raw))
+        out[start:stop] = pca.transform(scaler.transform(raw, copy=False))
         del raw
     return out
 

@@ -150,7 +150,7 @@ Step 5 -- the same thing from the shell
    # a list of files -> raw clonotype rows with sample and clonotype IDs
    mir embed clonotypes cohort/*.tsv.gz -o clonotypes.tsv
 
-   # one raw embedding row per sample; PCA is a separate operation
+   # one RFF embedding row per sample; sample PCA is optional
    mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv --threads 1
    mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
    mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
@@ -162,7 +162,7 @@ Step 6 -- one named vector per sample
 -------------------------------------
 
 The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Raw prototype
-means from the CLI use fixed panels, while their downstream PCA uses a fitted rotation. When you need a vector that a collaborator can
+RFF means from the CLI share one fitted clonotype/RFF basis, while optional sample PCA uses a separate rotation. When you need a vector that a collaborator can
 reproduce independently, use a :doc:`signature` instead: fixed, named columns standardised against a
 published reference corpus.
 

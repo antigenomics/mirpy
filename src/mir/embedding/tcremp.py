@@ -80,6 +80,9 @@ _STANDARD_AA = r"^[ACDEFGHIKLMNPQRSTVWY]+$"
 _PARSEABLE_AA = r"^[ACDEFGHIKLMNPQRSTVWY*_]+$"
 
 
+_COMPONENT_BYTES = 64 * 1024**2
+
+
 class TCREmp:
     """Prototype distance-vector embedding for one locus."""
 
@@ -312,20 +315,23 @@ class TCREmp:
             )
 
         n = clonotypes.height
+        from vdjtools.cores import require_memory
+        workspace = 12 * n * self.n_prototypes + min(_COMPONENT_BYTES, 16 * n * self.n_prototypes)
+        if workspace > _COMPONENT_BYTES:
+            require_memory(workspace, 'clonotype embedding components')
         out = np.empty((n, 3 * self.n_prototypes), dtype=np.float32)
-
-        # A B-cell frame may carry its somatic mutation load, and where it does the V slot must
-        # use it: otherwise a hypermutated IGHV3-23 and a germline IGHV3-23 resolve to the same
-        # allele row and embed to identical V coordinates, discarding the whole germinal-centre
-        # signal. Opt-in by the column being present, so T-cell embeddings are unchanged.
-        shm = self._shm_penalties(clonotypes)
-        for slot, (comp, gene_col, proto_attr) in enumerate(_MODE_SPEC[self.mode]):
-            kw = {"shm": shm} if (shm is not None and comp == "V") else {}
-            out[:, slot::3] = self._germline.matrix(
-                comp, clonotypes[gene_col].to_list(), getattr(self, proto_attr),
-                proto_idx=self._proto_idx(comp), **kw
-            )
-        out[:, 2::3] = self._junction_distances(clonotypes["junction_aa"].to_list())
+        chunk = max(1, _COMPONENT_BYTES // (16 * self.n_prototypes))
+        for start in range(0, n, chunk):
+            stop = min(start + chunk, n)
+            part = clonotypes.slice(start, stop - start)
+            shm = self._shm_penalties(part)
+            for slot, (comp, gene_col, proto_attr) in enumerate(_MODE_SPEC[self.mode]):
+                kw = {"shm": shm} if (shm is not None and comp == "V") else {}
+                out[start:stop, slot::3] = self._germline.matrix(
+                    comp, part[gene_col].to_list(), getattr(self, proto_attr),
+                    proto_idx=self._proto_idx(comp), **kw)
+            out[start:stop, 2::3] = self._junction_distances(part["junction_aa"].to_list())
+            del part, shm
         if self.metric == "sqrt":
             # all three blocks are the same Gram dissimilarity d; sqrt uniformly -> the metric
             # ρ = √d, homogeneous across V/J/junction.

@@ -41,6 +41,15 @@ jobs:
         run: pip install -e ".[dev,bench]"
       - name: Test (fast tier)
         run: pytest tests/ -q --durations=25 -m "not integration and not benchmark"
+      - name: Bounded cohort resource regression
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        timeout-minutes: 5
+        env:
+          RUN_BENCHMARK: "1"
+          MIR_BENCH_SAMPLES: "1000"
+          MIR_BENCH_WORKERS: "2"
+          MIR_BASIS_SAMPLES: "100"
+        run: pytest tests/test_embedding_resources.py -q -s -m benchmark
 
   # One extra leg with the optional tiers installed, because the fast tier above skips every
   # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash

@@ -388,9 +388,9 @@ non-productive fraction is the thing you want.
    TSV needs only base dependencies; streaming Parquet requires ``mirpy-lib[parquet]``.
 
 ``mir embed repertoires INPUT...``
-   Reduce each sample into its fixed-prototype weighted means. Output has one row per
-   ``sample_id``, locus-specific ``phi:`` coordinates, counts and presence masks.
-   No PCA or random-feature fit occurs here.
+   Reduce each sample through the shared RFF basis. Output has one row per
+   ``sample_id``, locus-specific ``phi:`` RFF means, requested channels, counts and
+   presence masks. Sample PCA is optional; see :doc:`cli`.
 
 ``mir pca TABLE --fit ROTATION.npz`` / ``--rotation ROTATION.npz``
    Fit/save or load/apply a sample-table PCA. Training imputation, scaling and rotation

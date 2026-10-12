@@ -195,18 +195,17 @@ batch-confounded contrast, compare *within-batch* (residualise ``Φ`` on the bat
 cohort section): a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 HLA) survives.
 
-**From the shell**, raw sample embeddings use the fixed prototype weighted means,
-which are distinct from the fitted RFF representation above:
+**From the shell**, the same RFF workflow retains only compact sample vectors:
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv --threads 1
-   mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
-   mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
+   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o rff.tsv --threads 1
+   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_rff.tsv --threads 1
+   mir pca rff.tsv --fit rotation.npz -o sample_pcs.tsv
+   mir pca held_out_rff.tsv --rotation rotation.npz -o held_out_pcs.tsv
 
-One raw row contains all bundled loci, with explicit presence masks for missing loci.
-The Python ``RepertoireSpace`` API above still supports RFF features and MMD.
-See :doc:`cli` for the separate table workflow.
+PCA on sample vectors is optional. All seven loci share one sample row, with
+explicit missing-locus indicators. See :doc:`cli` for control-cohort and inline PCA.
 
 Multi-chain digital donor (``mir.cohort``)
 ------------------------------------------

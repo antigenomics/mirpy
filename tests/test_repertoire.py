@@ -841,3 +841,32 @@ def test_density_space_transform_is_chunked_and_unchanged(space):
     # each row a valid embedding of some other clonotype, which a scale bound alone could miss
     order = np.argsort(np.linalg.norm(full, axis=1))
     assert np.array_equal(order, np.argsort(np.linalg.norm(chunked, axis=1)))
+
+
+def test_batched_scaler_agrees_and_fit_matrix_is_released_before_calibration(monkeypatch):
+    import weakref
+    import mir.repertoire as rep
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    from mir.embedding.tcremp import TCREmp
+    model = TCREmp.from_defaults('human','TRB',n_prototypes=16,threads=1)
+    frame = pl.DataFrame({'v_call':model._proto_v,'j_call':model._proto_j,
+                          'junction_aa':model._proto_junction})
+    raw = model.embed(frame)
+    scaler = StandardScaler().fit(raw)
+    expected = PCA(n_components=8,random_state=7).fit(scaler.transform(raw))
+    monkeypatch.setattr(rep,'_SCALER_SCRATCH_BYTES',32*raw.shape[1]*3)
+    fit = rep._fit_repertoire_coordinates
+    seen = []
+    def capture(m,X,**kwargs):
+        seen.append(weakref.ref(X))
+        return fit(m,X,**kwargs)
+    monkeypatch.setattr(rep,'_fit_repertoire_coordinates',capture)
+    def calibrate(space,**kwargs):
+        assert seen[-1]() is None
+        return 1.0
+    monkeypatch.setattr(rep,'calibrate_radius',calibrate)
+    space = rep.fit_repertoire_space(model,frame,n_components=8,seed=7)
+    np.testing.assert_allclose(space.clono.scaler.mean_,scaler.mean_,rtol=1e-12,atol=1e-12)
+    np.testing.assert_allclose(space.clono.scaler.scale_,scaler.scale_,rtol=1e-12,atol=1e-12)
+    np.testing.assert_allclose(space.clono.pca.components_,expected.components_,atol=2e-6)

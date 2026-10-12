@@ -79,7 +79,7 @@ def _read(path: str, *, productive_only: bool = True,
             "therefore refused here, unlike in vdjtools where the same filter is optional. Use "
             "`vdjtools filter --nonproductive` or vdjtools.preprocess.filter_productive() if the "
             "non-productive fraction is what you want.")
-    df = io.read(path, keep=("v_identity", "clonotype_id", "sequence_id"))
+    df = io.read(path, keep=("v_identity", "v_mutations", "clonotype_id", "sequence_id"))
     n0 = df.height
     _, src = productive_mask(df)
     df = filter_productive(df, recompute_frequencies=recompute_frequencies)
@@ -114,7 +114,7 @@ def _sample_id(path: str) -> str:
     return os.path.basename(path).split(".")[0]
 
 
-def _read_sample(paths: "list[str]") -> "dict[str, pl.DataFrame]":
+def _read_sample(paths: "list[str]", *, embedding_only=False) -> "dict[str, pl.DataFrame]":
     """Read one sample's files once into locus frames, retaining stable clonotype IDs."""
     out: dict[str, pl.DataFrame] = {}
     offset = 0
@@ -128,10 +128,15 @@ def _read_sample(paths: "list[str]") -> "dict[str, pl.DataFrame]":
         else:
             df = df.with_columns(ids)
         offset += df.height
+        if embedding_only:
+            keep = ('v_call','j_call','junction_aa','junction_nt','duplicate_count','locus',
+                    'clonotype_id','v_identity','v_mutations')
+            df = df.select([c for c in keep if c in df.columns])
         for locus in [x for x in df["locus"].unique().to_list() if x]:
             sub = df.filter(pl.col("locus") == locus)
             if sub.height:
                 out[locus] = pl.concat([out[locus], sub], how="diagonal_relaxed") if locus in out else sub
+        del df
     return out
 
 
@@ -217,30 +222,110 @@ def cmd_clonotypes(a: argparse.Namespace) -> None:
     _require_productive(a.filter_functional)
     models = _embedding_models(a, sample_workers=False)
     batches = clonotype_embeddings(_sample_items(a), models)
+    if a.pca:
+        from mir.embedding.pca import pca_denoise
+        from vdjtools.cores import require_memory
+        import numpy as np
+        tables = []
+        used = 0
+        for batch in batches:
+            used += batch.estimated_size()
+            require_memory(6 * used, 'clonotype PCA')
+            tables.append(batch)
+        if not tables:
+            raise ValueError('no coding clonotypes to embed')
+        loci = {loc for t in tables for loc in t['locus'].unique().to_list()}
+        if len(loci) != 1:
+            raise ValueError('clonotype PCA requires one locus; use --locus')
+        table = pl.concat(tables)
+        del tables
+        cols = [c for c in table.columns if c.startswith('e') and c[1:].isdigit()]
+        X = table.select(cols).to_numpy().copy()
+        scores = pca_denoise(X, n_components=a.pca)
+        del X
+        batches = [table.drop(cols).hstack(pl.from_numpy(np.asarray(scores),
+                    schema=[f'e{i}' for i in range(scores.shape[1])]))]
     _write_clonotype_batches(batches, a.output)
 
 
+def _read_embedding_table(path):
+    return (pl.read_parquet(path) if path.endswith('.parquet') else
+            pl.read_csv(path, separator='\t', infer_schema_length=None,
+                        schema_overrides={'sample_id': pl.String}))
+
+
+def _project_samples(table, *, rotation=None, cohort=None, components=256,
+                     save=None, seed=0):
+    from mir.embedding.table import TablePCA
+
+    if rotation and cohort:
+        raise ValueError('--rotation cannot be combined with a fitting cohort')
+    fitted = (TablePCA.load(rotation) if rotation else
+              TablePCA.fit(_read_embedding_table(cohort) if cohort else table,
+                           n_components=components, seed=seed))
+    result = fitted.transform(table)
+    if save:
+        fitted.save(save)
+    return result
+
+
 def cmd_repertoires(a: argparse.Namespace) -> None:
-    from mir.embedding.table import sample_embeddings
+    from mir.embedding.table import sample_embeddings, fit_sample_spaces
+    from mir.repertoire import RepertoireSpace
 
     _require_productive(a.filter_functional)
-    models = _embedding_models(a, sample_workers=True)
-    out = sample_embeddings(_sample_items(a), models, weight=a.weight, n_jobs=a.threads)
+    items = _sample_items(a)
+    blocks = tuple(x.strip() for x in a.blocks.split(',') if x.strip())
+    if a.basis:
+        spaces = {p.stem: RepertoireSpace.load(p) for p in sorted(pathlib.Path(a.basis).glob('*.pkl'))
+                  if not a.locus or p.stem == a.locus}
+        if not spaces:
+            raise ValueError('no saved RFF spaces in --basis directory')
+    else:
+        models = _embedding_models(a, sample_workers=True)
+        spaces = fit_sample_spaces(items, models, n_rff=a.n_rff,
+                                   n_rff_second=a.n_rff_second if 'second' in blocks else 0,
+                                   n_components=a.n_components, seed=a.seed)
+    if a.save_basis:
+        dest = pathlib.Path(a.save_basis)
+        dest.mkdir(parents=True, exist_ok=True)
+        for loc, space in spaces.items():
+            space.save(dest / f'{loc}.pkl')
+    out = sample_embeddings(items, spaces, weight=a.weight, blocks=blocks, n_jobs=a.threads)
+    if a.mmd:
+        from mir.repertoire import SampleEmbedding, mmd_matrix
+        from vdjtools.cores import require_memory
+        if 'mean' not in blocks:
+            raise ValueError('--mmd requires the mean RFF block')
+        for loc in spaces:
+            part = out.filter(pl.col(f'present:{loc}') == 1)
+            require_memory(32 * part.height**2, 'pairwise MMD matrix')
+            means = part.select([c for c in out.columns if c.startswith(f'phi:{loc}:')]).to_numpy()
+            embs = [SampleEmbedding(mean=x, diversity=None, second=None, n_eff=n)
+                    for x,n in zip(means,part[f'n_eff:{loc}'])]
+            D = mmd_matrix(embs, unbiased=True)
+            ids = part['sample_id'].to_list()
+            result = pl.DataFrame({'sample_id':ids}).hstack(pl.from_numpy(D,schema=ids))
+            path = pathlib.Path(a.mmd)
+            dest = str(path.with_name(f'{path.stem}.{loc}{path.suffix}')) if len(spaces)>1 else a.mmd
+            _write(result,dest)
+    if a.rotation and a.pca is not None:
+        raise ValueError('--pca cannot be combined with --rotation')
+    if a.rff_output:
+        _write(out, a.rff_output)
+    if a.pca is not None or a.rotation or a.pca_cohort:
+        out = _project_samples(out, rotation=a.rotation, cohort=a.pca_cohort,
+                               components=a.pca or 256, save=a.save_rotation, seed=a.seed)
+    elif a.save_rotation:
+        raise ValueError('--save-rotation requires --pca or --pca-cohort')
     _write(out, a.output)
-    print(f'[mir] embedded {out.height} samples; no PCA fit', file=sys.stderr)
+    print(f'[mir] embedded {out.height} samples through shared RFF spaces', file=sys.stderr)
 
 
 def cmd_pca(a: argparse.Namespace) -> None:
-    from mir.embedding.table import TablePCA
-
-    table = (pl.read_parquet(a.input) if a.input.endswith('.parquet') else
-             pl.read_csv(a.input, separator='\t', infer_schema_length=None))
-    if a.fit:
-        rotation = TablePCA.fit(table, n_components=a.n_components, seed=a.seed)
-        rotation.save(a.fit)
-    else:
-        rotation = TablePCA.load(a.rotation)
-    _write(rotation.transform(table), a.output)
+    out = _project_samples(_read_embedding_table(a.input), rotation=a.rotation,
+                           cohort=a.cohort, components=a.n_components, save=a.fit, seed=a.seed)
+    _write(out, a.output)
 
 
 def _sample_items(a: argparse.Namespace) -> list:
@@ -260,7 +345,7 @@ def _sample_items(a: argparse.Namespace) -> list:
         by_id[_sample_id(path)].append(str(path))
     if not by_id:
         raise SystemExit("no samples to sign (check inputs)")
-    return [(sid, functools.partial(_read_sample, paths)) for sid, paths in by_id.items()]
+    return [(sid, functools.partial(_read_sample, paths, embedding_only=getattr(a, 'what', None) is not None)) for sid, paths in by_id.items()]
 
 
 def cmd_signature(a: argparse.Namespace) -> None:
@@ -406,8 +491,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
     c.add_argument("--species", default="human")
     c.add_argument("--locus", help="restrict to one locus (default: all bundled loci)")
-    c.add_argument("--n-prototypes", type=int, default=256,
-                   help="prototype count per locus (default: 256)")
+    c.add_argument("--n-prototypes", type=int, default=None,
+                   help="prototype count per locus (default: per-chain preset)")
     c.add_argument("--mode", default="vjcdr3", choices=("vjcdr3", "cdr123"))
     c.add_argument("--replicate", type=int, default=0, metavar="R",
                    help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
@@ -415,14 +500,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
                         "before embedding (default: on)")
     c.add_argument("--threads", type=int, default=0, help="0 = all cores")
+    c.add_argument('--pca', type=int, help='optional PCA for a single locus clonotype table')
     c.set_defaults(func=cmd_clonotypes)
 
-    r = embed.add_parser("repertoires", help="clonotype tables → one raw prototype embedding row per sample")
+    r = embed.add_parser("repertoires", help="clonotype tables → one RFF embedding row per sample")
     r.add_argument("input", nargs="+", help="one clonotype file per repertoire (sample id = filename stem)")
     r.add_argument("-o", "--output", help="output .tsv/.parquet (default: stdout TSV)")
     r.add_argument("--species", default="human")
     r.add_argument("--locus", help="restrict to one locus (default: all bundled loci)")
-    r.add_argument("--n-prototypes", type=int, default=256, help="prototype count per locus (default: 256)")
+    r.add_argument("--n-prototypes", type=int, default=None, help="prototype count per locus (default: per-chain preset)")
     r.add_argument("--replicate", type=int, default=0, metavar="R",
                    help="prototype draw: 0 = the default set; r>0 = an independent disjoint draw of the same size, for prototype-sensitivity runs (embeddings across draws are NOT comparable)")
     r.add_argument("--weight", default="log2p1",
@@ -434,20 +520,35 @@ def build_parser() -> argparse.ArgumentParser:
                    help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
                         "before embedding (default: on)")
     r.add_argument("--threads", type=int, default=0, help="0 = all cores")
+    r.add_argument('--blocks', default='mean,diversity', help='mean,diversity[,second] channels')
+    r.add_argument('--n-rff', type=int, default=1024)
+    r.add_argument('--n-rff-second', type=int, default=128)
+    r.add_argument('--n-components', type=int, help='shared clonotype PCA dimensions (default: preset)')
+    r.add_argument('--seed', type=int, default=0)
+    r.add_argument('--basis', help='load shared RepertoireSpace files from this trusted directory')
+    r.add_argument('--save-basis', help='save shared spaces for subsequent/control cohorts')
+    r.add_argument('--pca', type=int, metavar='K', help='PCA dimensions for sample RFF vectors')
+    fit = r.add_mutually_exclusive_group()
+    fit.add_argument('--pca-cohort', help='fit sample PCA on supplied compatible cohort RFF table')
+    fit.add_argument('--rotation', help='apply a precomputed sample PCA rotation')
+    r.add_argument('--save-rotation', help='save the fitted sample PCA rotation')
+    r.add_argument('--mmd', help='write the unbiased per-locus MMD distance matrix')
+    r.add_argument('--rff-output', help='also write the sample RFF table before optional PCA')
     r.set_defaults(func=cmd_repertoires)
 
     pc = sub.add_parser('pca', help='fit/save or apply a PCA rotation to a sample embedding table')
-    pc.add_argument('input', help='raw sample embedding .tsv/.parquet table')
+    pc.add_argument('input', help='RFF sample embedding .tsv/.parquet table')
     pc.add_argument('-o', '--output', help='projected .tsv/.parquet table')
     rotation = pc.add_mutually_exclusive_group(required=True)
     rotation.add_argument('--fit', metavar='ROTATION.npz', help='fit and save a new rotation')
     rotation.add_argument('--rotation', metavar='ROTATION.npz', help='apply an existing rotation')
     pc.add_argument('--n-components', type=int, default=256)
     pc.add_argument('--seed', type=int, default=0)
+    pc.add_argument('--cohort', help='fit using this compatible cohort RFF table')
     pc.set_defaults(func=cmd_pca)
 
     s = sub.add_parser(
-        "signature",
+        "signature", aliases=["embeddings"],
         help="clonotype tables -> the geometry half of the portable signature (one row/sample)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(

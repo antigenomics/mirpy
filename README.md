@@ -101,11 +101,11 @@ mir signature --corpus blood cohort/*.tsv.gz -o rsig.parquet
 **[Getting started](https://docs.isalgo.dev/mirpy/getting-started.html)** walks through all of this
 in about fifteen minutes, offline, with nothing to download.
 
-**5.0 CLI migration:** `embed repertoires` now emits raw fixed-prototype sample rows;
-fit or apply their PCA using `mir pca`. Clonotype embedding accepts multiple files and
-retains sample/clonotype IDs. The old embed-command PCA/RFF/MMD flags are removed;
-the Python `RepertoireSpace` API keeps its RFF and MMD behavior. Streaming clonotype
-Parquet output requires `mirpy-lib[parquet]`.
+`embed repertoires` returns RFF means and requested channels; sample PCA is optional.
+Save the shared RFF basis with `--save-basis` and reuse it with `--basis` for future
+samples. `mir pca` fits on the input or a supplied cohort, or applies a saved rotation.
+Clonotype embedding accepts multiple files and retains sample/clonotype IDs.
+Streaming clonotype Parquet output requires `mirpy-lib[parquet]`.
 
 ## Where to start
 

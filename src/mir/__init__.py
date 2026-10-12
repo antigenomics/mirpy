@@ -19,7 +19,7 @@ from vdjtools.cores import configure_runtime
 
 configure_runtime()
 
-__version__ = "5.0.0"
+__version__ = "4.6.0"
 
 __all__ = ["__version__", "get_resource_path", "TCREmp", "PairedTCREmp"]
 
