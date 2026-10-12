@@ -174,6 +174,12 @@ samples; fitting separate rotations does not make their PC axes comparable.
 Reference rotation bundles
 --------------------------
 
+Reference bundles are separate model artifacts. Extract one bundle to
+``reference/`` and keep its files together. Choose the reference population before
+embedding your target samples: blood or tissue RNA-seq, a synthetic counterpart,
+or deep TRA/TRB profiling. A deep TRA/TRB bundle projects those loci; it does not
+provide an RFF basis for BCR or the other TCR loci.
+
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
@@ -195,6 +201,19 @@ first, embed samples through its saved basis, then apply its RFF rotation:
    mir embed repertoires samples/*.tsv --basis reference/basis --threads 2 -o rff.tsv
    mir pca rff.tsv --rotation reference/rff-pca.npz -o pcs.tsv
 
+The first command retains the unprojected RFF vectors. The second replaces only
+the fitted RFF columns with PCs; sample IDs and unselected channels pass through.
+For one command with both outputs:
+
+.. code-block:: bash
+
+   mir embed repertoires samples/*.tsv --basis reference/basis --threads 2 \
+       --rotation reference/rff-pca.npz --rff-output rff.tsv -o pcs.tsv
+
+Use that same bundle for target and control samples. Do not fit a new clonotype
+basis for each dataset and then apply the reference rotation. The stored
+``embedding_space`` identifies the complete RFF mapping, not just its width.
+
 For statistical features, use the bundle's human gene vocabulary, ``log2p1``
 abundance weighting and declared shared coverage target. The recipe defaults to
 coverage ``0.8``. See `vdjtools' feature guide
@@ -206,3 +225,22 @@ not change the underlying representation.
 these checksums before loading the trusted pickle basis files. The NumPy rotation
 files contain no executable pickle payload. Raw membership, source identifiers
 and fit diagnostics belong in private provenance, not the distributed bundle.
+
+.. code-block:: python
+
+   from pathlib import Path
+   import hashlib
+   import json
+
+   root = Path("reference")
+   manifest = json.loads((root / "bundle.json").read_text())
+   for filename, expected in manifest["files"].items():
+       actual = hashlib.sha256((root / filename).read_bytes()).hexdigest()
+       if actual != expected:
+           raise ValueError(f"reference checksum mismatch: {filename}")
+
+Keep the bundle manifest and rotation checksum with downstream results. Matching
+RFF bases does not make PCs from different sample rotations comparable. Missing
+loci remain marked in pass-through channels; fitted medians fill their selected
+coordinates during projection. A reference rotation is optional: retain and use
+raw RFF vectors whenever the downstream analysis needs them.

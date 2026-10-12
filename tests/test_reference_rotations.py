@@ -1,5 +1,6 @@
 """The reference recipe exports raw-feature/RFF rotations with their exact basis."""
 import json
+import hashlib
 
 import polars as pl
 import pytest
@@ -18,6 +19,9 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path):
     meta = json.loads((output / 'bundle.json').read_text())
     assert meta['representations'] == ['vdjtools-features', 'mirpy-rff']
     assert all(not p.endswith(('.tsv', '.parquet')) for p in meta['files'])
+    assert all(hashlib.sha256((output / p).read_bytes()).hexdigest() == digest
+               for p, digest in meta['files'].items())
+    assert set(meta['versions']) == {'mirpy', 'vdjtools', 'numpy', 'sklearn'}
     assert TablePCA.load(output / 'rff-pca.npz').components.shape == (2, 16)
     assert TablePCA.load(output / 'features-pca.npz').space.startswith('vsig:')
     assert (output / 'basis/TRB.pkl').is_file()
