@@ -11,7 +11,7 @@ from mir.embedding.reference import build_reference_rotations, _check
 from vdjtools.signature.corpus import TablePCA
 
 
-def test_reference_bundle_is_separate_and_reusable(tmp_path):
+def test_reference_bundle_is_separate_and_reusable(tmp_path, monkeypatch):
     pool = load_prototypes('human', 'TRB').slice(5000, 80)
     readers = [(f'S{i}', lambda i=i: {'TRB': pool.slice(16*i, 32).with_columns(
         pl.lit('TRB').alias('locus'), pl.Series('duplicate_count', range(1, 33)))})
@@ -27,6 +27,22 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path):
     assert TablePCA.load(output / 'rff-pca.npz').components.shape == (2, 16)
     assert TablePCA.load(output / 'features-pca.npz').space.startswith('vsig:')
     assert (output / 'basis/TRB.pkl').is_file()
+    monkeypatch.setattr('mir.embedding.reference.fit_sample_spaces',
+                        lambda *a, **kw: pytest.fail('PCA refit must reuse its basis'))
+    refit = tmp_path / 'refit'
+    build_reference_rotations(readers, ['TRB'], refit, n_rff=16,
+                              reuse_basis=output / 'basis')
+    assert (refit/'basis/TRB.pkl').read_bytes() == (output/'basis/TRB.pkl').read_bytes()
+    report = json.loads((refit/'bundle.json').read_text())
+    assert report['requested_components'] == 1024
+    for name in ('features','rff'):
+        saved = TablePCA.load(refit / f'{name}-pca.npz')
+        assert saved.components.shape[0] == 3
+        assert saved.explained_variance_ratio.shape == (3,)
+        assert np.isfinite(saved.explained_variance_ratio).all()
+        for k in (256,512,1024):
+            assert report['variance'][name]['cumulative'][str(k)] == float(
+                saved.explained_variance_ratio[:k].sum())
     with pytest.raises(FileExistsError):
         build_reference_rotations(readers, ['TRB'], output)
     with pytest.raises(ValueError, match='unique samples'):

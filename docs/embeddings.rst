@@ -193,6 +193,25 @@ generated fresh and released after fitting rather than saved as intermediates.
 
    build_reference_rotations(readers, ["TRB"], "reference", jobs=1)
 
+The recipe stores up to 1024 sample PCs and the per-PC
+``explained_variance_ratio`` for both rotations. ``bundle.json`` reports their
+cumulative variance fractions at 256, 512 and 1024 PCs. If fewer sample rows or
+coordinates are available, the report uses all stored PCs and records their
+actual count.
+These fractions describe the imputed, standardized fitting coordinates, not the
+unscaled raw measurements. Smaller PC prefixes retain the corresponding prefix
+of the saved rotation.
+
+To extend an existing rotation, reuse its basis and regenerate the sample tables:
+
+.. code-block:: python
+
+   build_reference_rotations(readers, ["TRB"], "reference-1024", jobs=1,
+                             components=1024, reuse_basis="reference/basis")
+
+This copies the basis files unchanged and refits only the two sample-table PCAs.
+Older PCA files still load, but have no recorded explained-variance ratios.
+
 Each reference bundle has its own shared clonotype basis. Choose a reference
 first, embed samples through its saved basis, then apply its RFF rotation:
 
