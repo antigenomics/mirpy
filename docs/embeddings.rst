@@ -169,15 +169,23 @@ not merely their column names or widths. Preserve ``embedding_space`` when expor
 joining or selecting a table. Fit a sample rotation once and reuse it for held-out
 samples; fitting separate rotations does not make their PC axes comparable.
 
+.. _reference-rotation-bundles:
+
 Reference rotation bundles
 --------------------------
 
-``examples/reference_rotations.py`` is a fitting recipe for repeatable raw-sample
+``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
 It also saves ``feature-columns.txt`` and the per-locus RFF models in ``basis/``.
 It does not fit or replace a vsig/rsig signature corpus. Feature matrices are
 generated fresh and released after fitting rather than saved as intermediates.
+
+.. code-block:: python
+
+   from mir.embedding.reference import build_reference_rotations
+
+   build_reference_rotations(readers, ["TRB"], "reference", jobs=1)
 
 Each reference bundle has its own shared clonotype basis. Choose a reference
 first, embed samples through its saved basis, then apply its RFF rotation:

@@ -1,6 +1,6 @@
 """Fit separate statistical-feature and RFF reference rotations from fresh readers.
 
-Call ``build(readers, loci, output)`` with repeatable ``(sample_id, reader)`` pairs.
+Call ``build_reference_rotations(readers, loci, output)`` with repeatable ``(sample_id, reader)`` pairs.
 Readers return productive canonical locus frames. Input manifests and membership
 stay private; only rotations, feature names and the required RFF bases are exported.
 No signature corpus is fitted or modified, and no feature intermediates are saved.
@@ -21,7 +21,7 @@ from mir.embedding.tcremp import TCREmp
 from mir.repertoire import RepertoireSpace
 
 
-def build(readers, loci, output, *, jobs=1, components=256, n_rff=1024,
+def build_reference_rotations(readers, loci, output, *, jobs=1, components=256, n_rff=1024,
           fit_cap=200_000, coverage=0.8, seed=20261012):
     """Build a new bundle; refuse to overwrite an existing output directory.
 
@@ -72,12 +72,18 @@ def build(readers, loci, output, *, jobs=1, components=256, n_rff=1024,
     np.testing.assert_allclose(table.head(2).select(phi).to_numpy(),
                                again.select(phi).to_numpy(), rtol=1e-10, atol=1e-12,
                                equal_nan=True)
+    import sklearn
+    import vdjtools
+
     hashes = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in sorted(out.rglob('*')) if p.is_file()}
     (out / 'bundle.json').write_text(json.dumps({
         'format': 1, 'representations': ['vdjtools-features', 'mirpy-rff'],
         'species': 'human', 'loci': list(spaces), 'seed': seed,
         'weight': 'log2p1', 'coverage': coverage, 'n_rff': n_rff,
+        'fit_cap': fit_cap, 'requested_components': components,
+        'versions': {'mirpy': mir.__version__, 'vdjtools': vdjtools.__version__,
+                     'numpy': np.__version__, 'sklearn': sklearn.__version__},
         'files': hashes,
     }, indent=2) + '\n')
 
