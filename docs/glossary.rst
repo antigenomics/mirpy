@@ -28,8 +28,8 @@ This page covers what mirpy adds on top.
       is either empty in sparse regions or saturated in dense ones.
 
    basis
-      The fitted coordinate system a set of repertoire vectors lives in: the PCA rotation plus the
-      random features. Fitted **once** per cohort by ``fit_repertoire_space``. Two samples embedded
+      The shared clonotype scaler/PCA and random-feature mapping used for repertoire vectors.
+      Optional sample PCA is a separate rotation. Fitted **once** per cohort by ``fit_repertoire_space``. Two samples embedded
       through different bases are not comparable, and the containers here refuse to mix them rather
       than doing it silently.
 
@@ -81,7 +81,7 @@ This page covers what mirpy adds on top.
       The main block of a repertoire vector: the average of a random-feature map over the
       receptors of a repertoire, weighted by :term:`clone-size transform`. It sketches the whole
       empirical distribution of receptors in one fixed-length vector, with no codebook and no
-      clustering step. Its norm is Rao's quadratic entropy.
+      clustering step. Its squared norm enters the kernel Rao calculation; it is not itself the entropy.
 
    MMD
       Maximum mean discrepancy: the distance between two repertoires, computed as the norm of the
@@ -105,9 +105,8 @@ This page covers what mirpy adds on top.
 
    prototype
       One of a fixed set of real receptor sequences that define the :term:`coordinate system`. A
-      receptor is embedded as its vector of distances to every prototype. mirpy bundles 10,000 real,
-      unique, productive, germline-resolvable receptors per chain, sampled at a fixed seed from
-      arda-annotated repertoires. Real rather than model-generated, because synthetic junctions have
+      receptor is embedded as its vector of distances to every prototype. mirpy bundles fixed-seed,
+      unique, productive, germline-resolvable reference receptors per chain. Real rather than model-generated, because synthetic junctions have
       degenerate lengths and embed measurably worse.
 
    prototype hash
@@ -132,8 +131,8 @@ This page covers what mirpy adds on top.
       One fixed-width, named, already-standardised feature vector per repertoire, standardised
       against a published :term:`corpus` so that two people computing it independently get the same
       coordinate system. ``rsig`` is mirpy's geometry half, ``vsig`` is vdjtools' statistics half,
-      and they join on ``sample_id``. Distinct from ``Phi(S)``, which is fitted on your own cohort
-      and therefore not portable. See :doc:`signature`.
+      and they join on ``sample_id``. Distinct from RFF ``Phi(S)``, which is comparable across cohorts when its fitted
+      basis and abundance weighting are saved and reused. See :doc:`signature`.
 
    sub-probability embedding
       A repertoire vector that records a deficient total mass instead of renormalising to one, for a

@@ -28,18 +28,9 @@
   <a href="https://docs.isalgo.dev/mirpy/glossary.html">Glossary</a>
 </b></p>
 
-Turn T- and B-cell receptor repertoires into fixed-length numeric vectors you can cluster,
-visualise, and hand to a machine-learning model — at the scale of one receptor, one repertoire, or a
-whole cohort.
-
-mirpy implements **TCREMP**: each receptor is embedded by its alignment distances to a fixed set of
-*prototype* sequences, so Euclidean distance in embedding space approximates pairwise alignment
-distance. That turns a set of variable-length strings into a coordinate system, which is what every
-downstream method actually needs.
-
-PyPI package `mirpy-lib`, import name `mir`. Pure Python; the alignment, Pgen and sampling work is
-reused from [seqtree](https://github.com/antigenomics/seqtree) and
-[vdjtools](https://github.com/antigenomics/vdjtools).
+Turn T- and B-cell receptor tables into clonotype coordinates, sample RFF vectors,
+or published corpus signatures. PyPI package **mirpy-lib**, Python import **mir**.
+Native alignment and repertoire IO come from seqtree and vdjtools.
 
 ## Install
 
@@ -47,195 +38,93 @@ reused from [seqtree](https://github.com/antigenomics/seqtree) and
 pip install mirpy-lib
 ```
 
-Optional extras, each for one job:
+Optional extras: `[parquet]` for streaming clonotype Parquet, `[ann]` for approximate
+neighbours, `[ml]` for Torch codecs, `[bench]` for evaluation, and `[examples]` for
+marimo notebooks. See [installation and first steps](https://docs.isalgo.dev/mirpy/getting-started.html).
+
+## Choose your output
+
+| Command | Output |
+|---|---|
+| `mir embed clonotypes` | Clonotype coordinates with sample/clonotype IDs |
+| `mir embed repertoires` | One weighted RFF vector per sample, plus separate channels |
+| `mir pca` | Optional sample PCs from an RFF table |
+| `mir embeddings` / `mir signature` | Existing corpus-standardised rsig features |
 
 ```bash
-pip install "mirpy-lib[ann]"     # pynndescent: approximate neighbours at whole-repertoire scale
-pip install "mirpy-lib[ml]"      # torch: the neural codecs and the learned set encoder
-pip install "mirpy-lib[bench]"   # the benchmark harness and theory experiments
-pip install "mirpy-lib[examples]"  # marimo, matplotlib, umap-learn: to run the notebooks
+mir embed clonotypes samples/*.tsv -o clonotypes.tsv --threads 1
+mir embed repertoires samples/*.tsv --save-basis basis -o rff.tsv --threads 1
+mir embed repertoires held_out/*.tsv --basis basis -o held_out_rff.tsv --threads 1
+mir pca rff.tsv --fit rotation.npz --n-components 32 -o pcs.tsv
+mir pca held_out_rff.tsv --rotation rotation.npz -o held_out_pcs.tsv
 ```
 
-## Three scales
+The sample path is **clonotype coordinates → shared clonotype basis → RFF → weighted
+mean → optional sample PCA**. Every sample must use the same basis and weighting.
+Save and reuse the basis and, if fitted, the sample rotation. RFF is applied before
+averaging. rsig is a different representation; its corpus rotations cannot rotate RFF.
 
-Choosing the right scale is most of the work:
+The [embedding guide](https://docs.isalgo.dev/mirpy/embeddings.html) covers fitting
+on input rows, compatible control rows or a saved rotation, output columns and
+memory limits. [Signatures](https://docs.isalgo.dev/mirpy/signature.html) explains
+published rsig corpora and joining vdjtools' vsig on `sample_id`.
 
-| Scale | One unit is | You get | Module |
-|---|---|---|---|
-| Clonotype | one receptor | a point in prototype space | `mir.embedding` |
-| Repertoire | one sample from one donor | one fingerprint, `Φ(S)` | `mir.repertoire` |
-| Cohort | many donors, several chains each | one comparable matrix | `mir.cohort` |
-
-## Quick start
+## Python quickstart
 
 ```python
+import mir                       # establish runtime limits before numerical libraries
 import polars as pl
 from mir.embedding.tcremp import TCREmp
 
-model = TCREmp.from_defaults("human", "TRB")     # per-chain preset: 2000 prototypes
-df = pl.DataFrame({
-    "v_call":      ["TRBV10-3*01",   "TRBV20-1*01"],
-    "j_call":      ["TRBJ2-7*01",    "TRBJ1-2*01"],
+sample = pl.DataFrame({
+    "v_call": ["TRBV10-3*01", "TRBV20-1*01"],
+    "j_call": ["TRBJ2-7*01", "TRBJ1-2*01"],
     "junction_aa": ["CASSIRSSYEQYF", "CSARVSGYYGYTF"],
 })
-X = model.embed(df)          # (2, 6000) float32 — three distances per prototype
+model = TCREmp.from_defaults("human", "TRB")
+coordinates = model.embed(sample)  # interleaved V, J, junction distances per prototype
 ```
 
-Denoise, then cluster:
+## Find the right page
 
-```python
-from mir.embedding.pca import pca_denoise
-from mir.bench.metrics import cluster
-labels = cluster(pca_denoise(model.embed(vdjdb_df), n_components=65))
-```
-
-From the shell:
-
-```bash
-mir embed clonotypes  cohort/*.tsv    -o clonotypes.tsv
-mir embed repertoires cohort/*.tsv.gz -o phi.tsv
-mir pca phi.tsv --fit rotation.npz --n-components 256 -o pcs.tsv
-mir signature --corpus blood cohort/*.tsv.gz -o rsig.parquet
-```
-
-**[Getting started](https://docs.isalgo.dev/mirpy/getting-started.html)** walks through all of this
-in about fifteen minutes, offline, with nothing to download.
-
-`embed repertoires` returns RFF means and requested channels; sample PCA is optional.
-Save the shared RFF basis with `--save-basis` and reuse it with `--basis` for future
-samples. `mir pca` fits on the input or a supplied cohort, or applies a saved rotation.
-Clonotype embedding accepts multiple files and retains sample/clonotype IDs.
-Streaming clonotype Parquet output requires `mirpy-lib[parquet]`.
-
-## Where to start
-
-| You want to | Go to |
+| Task | Guide |
 |---|---|
-| Embed receptors and cluster antigen-specific ones | [Getting started](https://docs.isalgo.dev/mirpy/getting-started.html) |
-| Pick a prototype count and a PCA dimension | [Which prototypes](https://docs.isalgo.dev/mirpy/usage.html#which-prototypes) |
-| Find enriched or antigen-driven neighbourhoods | [`mir.density`](https://docs.isalgo.dev/mirpy/usage.html#density-and-background-subtraction) |
-| Compare whole repertoires rather than clonotypes | [`mir.repertoire`](https://docs.isalgo.dev/mirpy/usage.html) |
-| Get one fixed, named feature vector per sample | [Signatures](https://docs.isalgo.dev/mirpy/signature.html) |
-| Name which part of a vector carries a signal | [Channels](https://docs.isalgo.dev/mirpy/channels.html) |
-| Understand why any of this is valid | [Theory](https://docs.isalgo.dev/mirpy/math.html) |
-| Look up a command or a function | [Commands](https://docs.isalgo.dev/mirpy/cli.html) · [API](https://docs.isalgo.dev/mirpy/api.html) |
-| Check what a term means | [Glossary](https://docs.isalgo.dev/mirpy/glossary.html) |
+| RFF tables, shared bases and sample PCA | [Embeddings](https://docs.isalgo.dev/mirpy/embeddings.html) |
+| Filtering before embedding | [Pre-processing](https://docs.isalgo.dev/mirpy/preprocessing.html) |
+| Density, MMD, digital donors, codecs and CPU budgets | [User guide](https://docs.isalgo.dev/mirpy/usage.html) |
+| Corpus signatures and pass-through channels | [Signatures](https://docs.isalgo.dev/mirpy/signature.html) · [Channels](https://docs.isalgo.dev/mirpy/channels.html) |
+| Functions, flags, examples and terminology | [API](https://docs.isalgo.dev/mirpy/api.html) · [Commands](https://docs.isalgo.dev/mirpy/cli.html) · [Examples](https://docs.isalgo.dev/mirpy/notebooks.html) · [Glossary](https://docs.isalgo.dev/mirpy/glossary.html) |
+| Mathematical derivations | [Theory](https://docs.isalgo.dev/mirpy/math.html) |
 
-## What is in the box
+## Resource budgets
 
-| Module | What it does |
-|---|---|
-| `mir.embedding` | `TCREmp` and `PairedTCREmp`, PCA denoising, the bundled prototypes and per-chain presets |
-| `mir.distances` | Junction distance through `seqtree.gapblock`, plus precomputed arda germline distances |
-| `mir.density` | Graph-free TCRNET and ALICE neighbourhood enrichment in embedding space, with exact, kdtree and approximate backends |
-| `mir.repertoire` | One vector per sample: kernel mean, coverage-standardised Hill diversity, second moment; MMD distance, motif witness, sub-probability measures |
-| `mir.signature` | The portable signature — fixed, named, already-standardised columns that join to vdjtools' half on `sample_id` |
-| `mir.explain` | Which named channel carries a signal under *your* scorer, and which clonotypes drive it |
-| `mir.cohort` | The digital donor — multi-chain donor embeddings, batch residualisation, sample clustering |
-| `mir.track` | Exposure trajectory — a latent progression axis disentangled from a known covariate |
-| `mir.generate`, `mir.twin` | Sample new synthetic donor states, or perturb and resample one donor's state |
-| `mir.ml` | Neural codecs, learned set encoders, diffusion generator — experimental, `[ml]` extra |
-| `mir.bench` | VDJdb loader, clustering metrics, cohort scorers, reproduced theory experiments |
-| `mir.cli` | The `mir` console script — `embed clonotypes`, `embed repertoires`, `pca`, `signature`, `corpus` |
-
-## Prototypes are the coordinate system
-
-Every embedding is distances to prototypes, so the prototype set *is* the coordinate system. mirpy
-ships **10,000 real receptors per chain** — a fixed-seed uniform sample of unique, productive,
-germline-resolvable clonotypes from arda-annotated repertoires, for human TRA/TRB/TRG/TRD/IGH/IGK/IGL
-and mouse TRA/TRB. Nothing is downloaded at import or build time.
-
-Real rather than model-generated, because synthetic junctions have degenerate lengths and embed
-measurably worse. To ask whether a result depends on *which* prototypes you drew, take a replicate:
-the geometry agrees at R = 0.993 between two independent draws at the default `n=1000`, and 0.997 at
-`n=2000`, so from about `n≈500` up the draw is not what your result rests on.
-
-Each replicate is a **different coordinate system** — distances within one are comparable, across two
-are not, and every container refuses a prototype-hash mismatch rather than mixing them silently.
-[Details and the full presets table](https://docs.isalgo.dev/mirpy/usage.html#which-prototypes).
-
-## Repertoire fingerprints
-
-One fixed vector `Φ(S)` per repertoire, robust down into the low-coverage bulk-RNA-seq regime. It
-sketches the repertoire as a weighted cloud of receptor points in three blocks: a random-feature
-kernel mean, a coverage-standardised Hill diversity profile, and a second-moment block carrying
-co-occurrence structure. Distance between two repertoires is the MMD.
-
-```python
-from mir.repertoire import fit_repertoire_space, sample_embedding, mmd_matrix
-
-space = fit_repertoire_space(model, pooled_clonotypes)   # ONE basis for the whole cohort
-embs  = [sample_embedding(space, s) for s in samples]
-D     = mmd_matrix(embs, unbiased=True)
-```
-
-Every sample in a cohort must go through one prototype set and one basis, or the distances are not
-comparable. Use `unbiased=True` whenever depths differ: the biased estimator's `1/n_eff` self-term
-inflates low-diversity samples and manufactures signal with the wrong sign.
-
-## Signatures
-
-`Φ(S)` is fitted on *your* cohort, which is what makes it powerful and also what makes it
-incomparable with anyone else's. When you need a vector a collaborator can reproduce independently,
-use a **signature** instead: fixed, named columns standardised against a published reference corpus.
-
-```bash
-mir       signature --corpus blood cohort/*.tsv.gz -o rsig.tsv   # the geometry half
-vdjtools  signature --corpus blood cohort/*.tsv.gz -o vsig.tsv   # the statistics half
-```
-
-The two join on `sample_id`. Nine corpora are published, all at 256 components per locus; artifacts
-are fetched and digest-verified on first use. `--corpus` is required — a signature is comparable to
-another one only if both were rotated through the same corpus.
-[Signatures](https://docs.isalgo.dev/mirpy/signature.html) ·
-[Channels](https://docs.isalgo.dev/mirpy/channels.html)
-
-## Performance
-
-CPU-parallel by default; the GPU is used only by `mir.ml`. Embedding runs the C++
-`seqtree.gapblock` scorer at about 530 million pairs per second on 16 cores and releases the GIL.
-Density defaults to an exact multicore kd-tree; the approximate backend is about 30× faster past 1e5
-clones and is deliberately asymmetric — only the observed side is approximate, which biases
-enrichment down, while the background is always exact.
-[Full table of parallelism settings](https://docs.isalgo.dev/mirpy/usage.html#performance-and-parallelism).
-
-## Examples
-
-Six runnable [marimo](https://marimo.io) notebooks — plain Python files, so they diff like
-source:
-
-```bash
-pip install "mirpy-lib[examples]"
-marimo edit examples/signature_pipeline.py     # start here
-```
-
-`signature_pipeline` (a folder of AIRR files to a joinable table — **read this one first**) ·
-`quickstart` (embed, denoise, cluster, UMAP) · `signature` (how the halves differ, and how many
-components survive a refit) · `density` (enrichment against a background model) ·
-`trajectory_and_twin` (time courses and counterfactual donors) · `theory` (the results the
-library rests on). See the
-[gallery](https://docs.isalgo.dev/mirpy/notebooks.html).
+Import `mir` before numerical libraries in a fresh interpreter. Sample workers use
+serial inner kernels and retain one sample each; only compact RFF rows survive.
+The final table still grows with cohort size and RFF width, and a deep input sample
+can dominate memory. Use `--threads 1` for serial sample processing or a positive
+count within your allocation. Known large allocations check container memory.
+See the [resource contract](https://docs.isalgo.dev/mirpy/usage.html#mir-resource-limits)
+and [embedding memory guide](https://docs.isalgo.dev/mirpy/embeddings.html#memory-use).
 
 ## Development
 
-Repo-local `.venv` via [uv](https://docs.astral.sh/uv/):
-
 ```bash
-bash setup.sh --dev-parents --tests    # editable-installs sibling seqtree / vdjtools checkouts
-python -m pytest tests/ -q
+bash setup.sh --dev-parents --docs --tests
+source .venv/bin/activate
+python -m pytest tests/ -q -m "not integration and not benchmark"
+env -C docs make html
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the architecture and the reuse map.
+Uses a repo-local uv environment. Public APIs and architecture are documented in
+[the API reference](https://docs.isalgo.dev/mirpy/api.html); no private agent files
+are needed to use the package.
 
 ## Citing
 
 Method: Kremlyakova *et al.*, *TCREMP: a bioinformatic pipeline for efficient embedding of T-cell
 receptor sequences*, **J Mol Biol** 437 (2025) 169205.
 
-The theory this implements is collected in the
-[mathematical foundations](https://docs.isalgo.dev/mirpy/math.html); derivations and recorded
-benchmark numbers live in the companion analysis repository `2026-mirpy-analysis`, with the LaTeX
-appendix in `2026-mirpy-ms`.
+See the [mathematical foundations](https://docs.isalgo.dev/mirpy/math.html) for derivations.
 
 ## License
 
@@ -244,32 +133,3 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 (`mirpy-lib` 2.x); its functionality lives on in
 [vdjtools](https://github.com/antigenomics/vdjtools) and
 [vdjmatch](https://github.com/antigenomics/vdjmatch).
-
-### Running signatures across samples
-
-```bash
-mir signature --corpus blood --jobs 8 samples/*.tsv -o signatures.parquet
-```
-
-`--jobs` selects worker threads: 1 runs without a pool, 0 uses allocated cores, and
-positive counts must fit that allocation. Workers share frozen resources and use
-serial inner kernels. They read one sample at a time; output follows input order.
-Embeddings use fixed 4,096-row blocks (24 MiB at 256 prototypes).
-
-The Python cohort API accepts zero-argument readers, including closures and lambdas,
-to defer file loading. Callbacks must not mutate shared resources. Import `mir` before
-numerical libraries so their persistent pools start with one thread.
-
-Density analysis also accepts an explicit kernel budget:
-`neighbor_enrichment(observed, background, threads=8)`. Background counts are exact with both
-KD-tree and ANN observation queries, including points tied at the selected radius. Only ANN
-observation-neighbor recall is approximate.
-
-### CPU budgets
-
-Import `mir` before numerical libraries in each fresh worker. Persistent numerical
-pools default to one thread; native embedding and density kernels receive explicit
-allocation-aware budgets. Use `threads=1` for serial execution, `threads=0` for the
-allocated CPUs, or a positive count within that allocation. Sample thread workers
-use one kernel thread each. Excessive or nested budgets raise instead of spawning
-unrestricted pools. See the usage guide for already-initialized Polars/Numba pools.

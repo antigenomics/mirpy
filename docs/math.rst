@@ -12,6 +12,11 @@ label it carries in the theory appendix of the companion manuscript, so a docstr
 appendix all name the same result. Numbers quoted as *measured* are empirical results from the
 benchmark programme, reproduced here because they decide a design question.
 
+The executable RFF/table workflow is in :doc:`embeddings`. Its optional sample
+PCA standardizes the selected RFF columns; the resulting PCs are modelling
+coordinates, not a substitute for the original kernel means when calculating
+MMD or Rao. Corpus rsig geometry is described separately in :doc:`signature`.
+
 .. contents:: On this page
    :local:
    :depth: 2

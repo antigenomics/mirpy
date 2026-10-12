@@ -30,9 +30,7 @@ Start here
       :link: https://github.com/antigenomics/mirpy/blob/master/examples/signature_pipeline.py
 
       **Read this one first.** A directory of AIRR TSVs to one row per sample, joined to your own
-      metadata sheet --- the commands, the join, and how to read the result. Runs on 1,764 SRA
-      samples. If you want to use the library rather than understand it, this is the whole page
-      you need.
+      metadata sheet --- the commands, the join, and how to read the result. Uses downloadable AIRR inputs; read :doc:`embeddings` for the RFF workflow instead.
 
    .. grid-item-card:: Quickstart
       :link: https://github.com/antigenomics/mirpy/blob/master/examples/quickstart.py
@@ -78,6 +76,5 @@ Going further
 
 .. note::
 
-   The full benchmark suite --- VDJdb specificity tables, density benchmarks, the repertoire and
-   TCGA cohorts --- lives in a companion analysis repository, not here. This repository keeps the
+   The full benchmark suite --- VDJdb specificity tables, density benchmarks and cohort analyses --- lives in a companion analysis repository, not here. This repository keeps the
    library, its tests, and these examples.

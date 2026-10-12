@@ -42,8 +42,14 @@ PyPI package ``mirpy-lib``, import name ``mir``. Pure Python; the heavy lifting 
       :link: usage
       :link-type: doc
 
-      One page per task: clonotype embedding, density and enrichment, repertoire embedding, the
+      Guides by task: clonotype embedding, density and enrichment, repertoire embedding, the
       digital donor, explainable readouts, neural codecs.
+
+   .. grid-item-card:: Sample RFF and PCA
+      :link: embeddings
+      :link-type: doc
+
+      Export sample vectors, save a shared basis, and fit or reuse a sample rotation.
 
    .. grid-item-card:: Command reference
       :link: cli
@@ -122,6 +128,7 @@ Your first embedding
 
       .. code-block:: python
 
+         import mir                       # establish runtime limits first
          import polars as pl
          from mir.embedding.tcremp import TCREmp
 
@@ -141,7 +148,7 @@ Your first embedding
          mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv
          mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
 
-Each row is the receptor's distance to every prototype, in three blocks -- V, J and junction. The
+Each clonotype row interleaves V, J and junction distances for each prototype. The
 junction part comes from ``seqtree.gapblock``; the V and J parts are precomputed germline distances.
 
 From a bag of receptors to one fingerprint
@@ -160,13 +167,8 @@ invariant to order and robust to depth. ``Phi(S)`` sketches it as a weighted clo
 blocks -- a random-feature kernel mean, a coverage-standardised diversity profile, and a
 second-moment block carrying co-occurrence structure:
 
-.. code-block:: python
-
-   from mir.repertoire import fit_repertoire_space, sample_embedding, mmd_matrix
-
-   space = fit_repertoire_space(model, pooled_clonotypes)   # ONE basis for the whole cohort
-   embs  = [sample_embedding(space, s) for s in samples]    # Phi(S) per sample
-   D     = mmd_matrix(embs, unbiased=True)                  # pairwise repertoire distance
+:doc:`embeddings` covers sample RFF export, shared basis fitting, saved rotations
+and the Python table API. :doc:`usage` covers MMD and motif witnesses.
 
 .. important::
 
@@ -191,6 +193,8 @@ Choose your path
      - :ref:`presets <which-prototypes>`
    * - Find enriched or antigen-driven neighbourhoods
      - :doc:`usage`
+   * - Export sample RFF vectors and fit or reuse PCA
+     - :doc:`embeddings`
    * - Compare whole repertoires rather than clonotypes
      - :doc:`usage`
    * - Get one fixed, named feature vector per sample
@@ -204,48 +208,12 @@ Choose your path
    * - Check what a term means
      - :doc:`glossary`
 
-What is in the box
-------------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
-
-   * - Module
-     - What it does
-   * - :mod:`mir.embedding`
-     - ``TCREmp`` and ``PairedTCREmp``, PCA denoising, the bundled prototypes and per-chain presets
-   * - :mod:`mir.distances`
-     - Junction distance through ``seqtree.gapblock``, plus precomputed arda germline distances
-   * - :mod:`mir.density`
-     - Graph-free TCRNET and ALICE neighbourhood enrichment in embedding space, with exact, kdtree
-       and approximate backends
-   * - :mod:`mir.repertoire`
-     - One vector per sample: kernel mean, coverage-standardised Hill diversity, second moment; MMD
-       distance, motif witness, and sub-probability measures for incompletely observed samples
-   * - :mod:`mir.signature`
-     - The portable signature: fixed, named, already-standardised columns that join to vdjtools'
-       half on ``sample_id``
-   * - :mod:`mir.explain`
-     - Which named channel carries a signal under *your* scorer, and which clonotypes drive it
-   * - :mod:`mir.cohort`
-     - The digital donor: multi-chain donor embeddings, batch residualisation, sample clustering
-   * - :mod:`mir.track`
-     - Exposure trajectory: a latent progression axis disentangled from a known covariate
-   * - :mod:`mir.generate`, :mod:`mir.twin`
-     - Sample new synthetic donor states, or perturb and resample one donor's state
-   * - :mod:`mir.ml`
-     - Neural codecs, learned set encoders and a diffusion generator. Experimental, ``[ml]`` extra
-   * - :mod:`mir.bench`
-     - VDJdb loader, clustering metrics, cohort scorers, and the reproduced theory experiments
-
 Citing
 ------
 
 Cite this repository. The theory this implements is collected in :doc:`math`, and the derivations
-and recorded benchmark numbers live in the companion analysis repository
-``2026-mirpy-analysis`` (``benchmarks/THEORY.md``, ``benchmarks/BENCHMARKS.md``), with the LaTeX
-appendix in ``2026-mirpy-ms``.
+and recorded benchmark numbers live in the companion analysis repository and
+manuscript appendix.
 
 Licensed GPL-3.0-or-later. The classical v1.x/v2 repertoire toolkit -- parsing, overlap, diversity,
 TCRnet, GLIPH -- is frozen on the ``legacy-v2`` branch (``mirpy-lib`` 2.x); its functionality lives
@@ -266,6 +234,7 @@ on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
    :caption: Guides
    :maxdepth: 2
 
+   embeddings
    usage
    preprocessing
    signature

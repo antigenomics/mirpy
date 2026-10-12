@@ -29,6 +29,10 @@ prototype as ``[V, J, junction]``, so ``Φ[0::3]``, ``Φ[1::3]`` and ``Φ[2::3]`
 junction slots. Literal column strides, not an attribution model, which is what makes "how much of
 this distance is V?" answerable without SHAP, sampling or a surrogate.
 
+For raw sample RFF vectors and their optional PCA, see :doc:`embeddings`.
+Existing rsig is a prototype-distance geometry representation, not an RFF subset
+or extension. The two use different fitted artifacts.
+
 Quickstart
 ----------
 

@@ -21,7 +21,7 @@ the result goes to stdout.
 pin it with ``--locus``, which accepts aliases -- ``beta``, ``T-alpha`` -- and errors on anything it
 cannot resolve rather than guessing.
 
-**Threads.** ``--threads 0`` means all allocated cores. Positive counts are capped by the allocation.
+**Threads.** ``--threads 0`` means all allocated cores. Positive counts must fit the allocation; excessive requests raise.
 
 **Non-coding clonotypes are dropped, and there is no flag to keep them.** Both ``embed`` commands
 filter to productive clonotypes first. This is deliberate: a stop codon is a character in seqtree's
@@ -30,73 +30,36 @@ contaminates the geometry silently. ``--no-filter-functional`` is refused with a
 ``vdjtools filter --nonproductive``, which is what to use when the non-productive fraction is itself
 the thing you want.
 
-``mir embed clonotypes``
-------------------------
+Embedding and PCA commands
+--------------------------
 
-A list of repertoires in, raw clonotype embeddings out, with ``sample_id`` and
-``clonotype_id`` on every row. Mixed loci are accepted; ``locus`` identifies each
-row's panel. Supplied clonotype or AIRR sequence IDs are preserved; otherwise
-stable within-sample IDs are assigned. Files sharing a filename stem form one
-sample. No PCA is fitted by this command.
+.. list-table::
+   :header-rows: 1
+   :widths: 38 62
 
-.. code-block:: bash
-
-   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv --threads 1
-   pip install "mirpy-lib[parquet]"
-   mir embed clonotypes cohort/*.tsv -o clonotypes.parquet
-
-Rows are embedded and written in bounded batches. TSV needs only the base package;
-streaming Parquet row groups use the optional ``parquet`` extra. ``--n-prototypes``
-uses the established per-chain preset. ``--mode``, ``--species``, ``--locus`` and ``--replicate``
-select the raw coordinate system. Native batch kernels own ``--threads``.
-
-``mir embed repertoires``
--------------------------
-
-A list of repertoires in, one RFF kernel-mean row per sample out. The order is
-clonotype coordinates → the shared clonotype basis → RFF → weighted mean.
-The default output is unprojected RFF and diversity, with optional second-moment
-channels. Sample PCA runs only when requested. Counts and missing-locus indicators
-are retained; a missing locus is a hole, not a zero-valued embedding.
+   * - Command
+     - Result
+   * - ``mir embed clonotypes INPUT...``
+     - Clonotype coordinates with sample/clonotype IDs. ``--pca K --locus LOC`` opts into clonotype PCA.
+   * - ``mir embed repertoires INPUT...``
+     - Unprojected sample RFF vectors. ``--save-basis`` / ``--basis`` save or reuse the mapping.
+   * - ``mir pca TABLE --fit FILE``
+     - Fit and save sample PCA; ``--cohort TABLE`` selects compatible fitting rows.
+   * - ``mir pca TABLE --rotation FILE``
+     - Apply a previously fitted sample rotation.
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv --save-basis basis -o rff.tsv --threads 1
-   mir embed repertoires control/*.tsv --basis basis -o control_rff.tsv --threads 1
-
-``--basis`` reuses saved ``RepertoireSpace`` models; load only trusted model files.
-Without it, the established seeded clonotype fit is performed one locus at a time,
-reading samples in passes instead of retaining the whole cohort. ``--n-components``
-controls that clonotype basis. ``--n-rff`` controls the RFF width (default 1024).
-``--blocks mean,diversity`` is the default; add ``second`` when needed. All samples
-share the same mapping. Each worker retains one sample and bounded numerical blocks;
-only sample vectors survive the reduction. ``--threads 1`` starts no worker pool.
-
-``mir pca`` and optional inline PCA
------------------------------------
-
-Fit on the resulting RFF vectors, fit on a compatible control cohort, or apply a
-saved rotation. The implementation is shared with ``vdjtools.signature.corpus.TablePCA``
-and the donor identity PCA. Selected RFF columns are projected; diversity,
-second-moment, count and presence channels pass through unchanged. Training medians
-fill missing values; wholly missing columns use zero. IDs are preserved. The
-rotation stores feature names and the shared basis fingerprint, and refuses a
-mismatch. It is a NumPy artifact with no executable pickle payload.
-
-.. code-block:: bash
-
+   mir embed repertoires samples/*.tsv --save-basis basis --threads 1 -o rff.tsv
    mir pca rff.tsv --fit rotation.npz --n-components 32 -o pcs.tsv
-   mir pca rff.tsv --cohort control_rff.tsv --fit control_rotation.npz -o control_pcs.tsv
-   mir pca rff.tsv --rotation rotation.npz -o reused_pcs.tsv
 
-   mir embed repertoires cohort/*.tsv --basis basis --pca 32 -o pcs.tsv
-   mir embed repertoires cohort/*.tsv --basis basis --pca-cohort control_rff.tsv --pca 32 -o pcs.tsv
-   mir embed repertoires cohort/*.tsv --basis basis --rotation rotation.npz -o pcs.tsv
+Inline sample PCA uses ``--pca``, ``--pca-cohort`` or ``--rotation``. Keep its RFF
+input with ``--rff-output`` and save a fit with ``--save-rotation``.
+``--n-components`` on ``embed repertoires`` controls the clonotype basis, not sample
+PCA. ``--mmd FILE`` writes one unbiased MMD distance table per locus.
 
-Use ``--save-rotation`` to save an inline fit and ``--rff-output`` to also keep its
-unprojected RFF table. ``--pca`` is sample PCA; ``--n-components`` is the shared
-clonotype basis. Neither independently fitted RFF bases nor the older ``rsig``
-corpus rotations can be substituted for a rotation fitted to these RFF columns.
+:doc:`embeddings` defines output columns, basis compatibility, channels, memory
+budgets, Parquet requirements and the complete fit/reuse workflows.
 
 ``mir embeddings`` / ``mir signature``
 --------------------------------------
@@ -148,7 +111,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``
-     - Worker threads over samples, ``0`` for all cores.
+     - Worker threads over samples, ``0`` for allocated cores.
 
 Which corpus to choose, and what the columns mean, are in :doc:`signature` and :doc:`channels`.
 
@@ -168,31 +131,3 @@ vdjtools' bundled recombination models, so the artifact is reproducible by anyon
 library and is byte-identical across processes and thread counts. ``--samples``, ``--size``,
 ``--seed``, ``--loci``, ``--source`` and ``--depth-spread`` control the draw and are all recorded in
 the manifest.
-
-Optional comparison and clonotype PCA
--------------------------------------
-
-``mir embed repertoires --mmd FILE`` retains the existing unbiased MMD calculation
-from the mean RFF block and effective sample sizes; it writes one distance table per
-locus. Pairwise distance output is quadratic in sample count and is memory checked.
-``mir embed clonotypes --pca K --locus LOC`` retains the existing within-locus
-clonotype PCA option. This opt-in fit requires the clonotype matrix in memory;
-the default clonotype output streams without fitting.
-
-Memory use
-----------
-
-The repertoire workflow reads and releases one sample per worker and retains only
-RFF rows and channels. Shared clonotype-basis fitting retains one selected locus
-matrix at a time. Scaler statistics use at most 128 MiB of estimated scratch,
-standardization reuses that matrix, and it is released before radius calibration.
-Native V/J/junction component batches use a 64 MiB component budget; RFF reduction
-uses bounded row batches. SHM evidence and distinct nucleotide clonotypes survive
-the embedding reader's column trimming.
-
-Memory still grows with sample-table width, sample count, selected basis-fit rows
-and prototype count. Sample PCA requires its compact sample matrix, and MMD
-requires a quadratic distance matrix. Visible cgroup limits are checked before
-known large numerical allocations; an unusually large input sample can still
-require substantial memory to read. Choose fewer workers or reuse a saved basis
-when input frames dominate the allocation.

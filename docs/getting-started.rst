@@ -5,7 +5,7 @@ A first pass through mirpy in about fifteen minutes: install it, embed receptors
 embedding, and measure the distance between two groups of repertoires. Everything here runs offline
 against the prototype tables that ship in the wheel, so there is nothing to download.
 
-If you already know what you want, the :doc:`guides <usage>` are organised one task per page,
+If you already know what you want, the :doc:`guides <usage>` are organised by task,
 :doc:`cli` lists every command, and :doc:`math` explains why the embedding is valid.
 
 Install
@@ -31,8 +31,7 @@ Normally you would read your own file, in any format vdjtools understands:
 
    sample = vio.read("clones.tsv")     # AIRR, MiXcr, immunoSEQ, Parquet, native -- detected
 
-So that this page runs offline, use the bundled prototype table instead. It is 10,000 real, unique,
-productive human TRB receptors, which is a perfectly good set of clonotypes to embed:
+So that this page runs offline, use the bundled prototype table instead. It contains productive human TRB reference receptors:
 
 .. code-block:: python
 
@@ -40,7 +39,6 @@ productive human TRB receptors, which is a perfectly good set of clonotypes to e
 
    pool = load_prototypes("human", "TRB")
    pool.columns      # ['v_call', 'j_call', 'junction_aa']
-   pool.height       # 10000
 
 .. note::
 
@@ -113,7 +111,7 @@ ones -- so that the distance has something to find:
    samples = ([donor(pl.col("L") <= 13, 300, s) for s in (1, 2)] +     # two short-junction donors
               [donor(pl.col("L") >= 17, 300, s) for s in (3, 4)])      # two long-junction donors
 
-   space = fit_repertoire_space(model, pl.concat(samples))   # ONE basis for the whole cohort
+   space = fit_repertoire_space(model, pl.concat(samples))   # small in-memory demo only
    embs  = [sample_embedding(space, s) for s in samples]
    mmd_matrix(embs, unbiased=True)
 
@@ -132,7 +130,7 @@ distribution its estimate is zero up to noise, and a small negative estimate is 
 
 .. important::
 
-   ``fit_repertoire_space`` must be fitted **once**, on the pooled cohort, and every sample embedded
+   Fit **one** shared basis and embed every sample
    through that one basis. Two samples embedded through different bases -- or through different
    prototype replicates -- are not comparable, and every container here refuses a prototype-hash
    mismatch rather than mixing them silently.
@@ -151,7 +149,8 @@ Step 5 -- the same thing from the shell
    mir embed clonotypes cohort/*.tsv.gz -o clonotypes.tsv
 
    # one RFF embedding row per sample; sample PCA is optional
-   mir embed repertoires cohort/*.tsv.gz -o sample_embeddings.tsv --threads 1
+   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o sample_embeddings.tsv --threads 1
+   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_embeddings.tsv --threads 1
    mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
    mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
 
@@ -162,8 +161,9 @@ Step 6 -- one named vector per sample
 -------------------------------------
 
 The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Unprojected
-RFF means from the CLI share one fitted clonotype/RFF basis, while optional sample PCA uses a separate rotation. When you need a vector that a collaborator can
-reproduce independently, use a :doc:`signature` instead: fixed, named columns standardised against a
+RFF means are comparable for future samples when you save and reuse that basis.
+Optional sample PCA uses a separate rotation; save and reuse it too. See :doc:`embeddings`.
+A :doc:`signature` provides a different, published reference system: fixed, named columns standardised against a
 published reference corpus.
 
 .. code-block:: bash

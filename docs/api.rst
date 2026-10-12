@@ -52,7 +52,8 @@ PCA denoising / de-redundancy of embeddings.
 ``mir.embedding.table``
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Raw sample/clonotype tables and separately fitted, schema-checked PCA rotations.
+Clonotype-coordinate and sample-RFF tables, with separately fitted, schema-checked
+sample PCA. See :doc:`embeddings`.
 
 .. automodule:: mir.embedding.table
    :members:
@@ -125,8 +126,9 @@ The portable signature (``mir.signature``)
 
 The hand-off object: a fixed-width, name-addressed, already-standardised vector that anyone who
 ``pip install mirpy-lib`` can compute from their own AIRR files and drop straight into a model.
-``Φ(S)`` above is a fingerprint but not a portable one — its basis is fitted on *your* cohort, so
-two collaborators get incomparable vectors. The signature fixes the basis and the scale.
+RFF ``Φ(S)`` is comparable when collaborators save and reuse the same full basis and
+weighting; see :doc:`embeddings`. A published rsig signature supplies a different,
+fixed prototype-distance basis and corpus scale without a new fit.
 
 Two halves, concatenated on ``sample_id`` and namespaced so they never collide:
 
@@ -373,55 +375,10 @@ Allele normalisation with default-allele cascade.
 Command-line interface (``mir``)
 --------------------------------
 
-``pip install mirpy-lib`` installs a ``mir`` console script (also ``python -m mir.cli``) with raw
-embedding, sample-table PCA, portable signature and corpus commands.
-
-Both ``embed`` commands drop non-coding clonotypes (stop codon / legacy out-of-frame
-``junction_aa``) before embedding, and there is **no flag to disable it**: a stop codon is in
-seqtree's alphabet, so an unfiltered frame does not crash — it embeds to a finite, meaningless
-distance and contaminates the geometry silently. ``--no-filter-functional`` is refused with a
-message pointing at ``vdjtools filter --nonproductive``, which is what to use when the
-non-productive fraction is the thing you want.
-
-``mir embed clonotypes INPUT...``
-   Stream raw clonotype embeddings with ``sample_id``, ``clonotype_id`` and ``locus``.
-   TSV needs only base dependencies; streaming Parquet requires ``mirpy-lib[parquet]``.
-
-``mir embed repertoires INPUT...``
-   Reduce each sample through the shared RFF basis. Output has one row per
-   ``sample_id``, locus-specific ``phi:`` RFF means, requested channels, counts and
-   presence masks. Sample PCA is optional; see :doc:`cli`.
-
-``mir pca TABLE --fit ROTATION.npz`` / ``--rotation ROTATION.npz``
-   Fit/save or load/apply a sample-table PCA. Training imputation, scaling and rotation
-   apply unchanged to future samples; schema and embedding-space checks prevent mixing bases.
-
-See :doc:`cli` for examples and flags.
-
-``mir signature INPUT...``
-   AIRR clonotype tables → **one fixed-width named feature vector per sample**, rotated through a
-   named corpus so a downstream model needs no scaler of its own. This is the command to send a
-   collaborator. Flags: ``--corpus NAME|PATH`` (**required** — there is no default),
-   ``--winsorize {features,pcs,none}``, ``--winsor-p P``, ``--components N`` (an integer count or a
-   variance fraction), ``--species``,
-   ``--weight {log2p1,duplicate_count,distinct,log1p,anscombe}``, ``--columns FILE``,
-   ``--jobs`` / ``-j`` (0 = every core; worker **threads**), ``--on-duplicate {error,sum}``,
-   ``--describe`` (print the columns *this invocation* emits and read no input), ``-o``.
-
-   This emits the ``rsig`` half alone. ``vdjtools signature`` emits the ``vsig`` half; run both
-   against the **same corpus name and seed** and join on ``sample_id``. :doc:`signature` covers the
-   corpora and :doc:`channels` the columns that are carried rather than rotated.
-
-``mir corpus``
-   Build a synthetic corpus and fit its rotation, bounds and scaling. Uses **no samples from
-   anybody's cohort** — every receptor is drawn from vdjtools' bundled recombination models — so the
-   artifact is reproducible by anyone who installs the library, and the build is byte-identical
-   across processes and thread counts. Flags: ``--corpus {naive,memory}``, ``-o/--output``,
-   ``--samples N``, ``--size {N,n_eff,p05,p95}``, ``--components N``, ``--winsorize``,
-   ``--winsor-p``, ``--seed``, ``--loci``, ``--source {olga,learned,arda}``, ``--species``,
-   ``--smoke``.
+:doc:`cli` owns command and option documentation; :doc:`embeddings` owns the
+RFF/basis/PCA workflow. ``mir embeddings`` aliases the existing ``mir signature``
+command. These emit corpus rsig features, not sample RFF means.
 
 .. automodule:: mir.cli
    :members: main, build_parser
    :show-inheritance:
-

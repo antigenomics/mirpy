@@ -44,7 +44,7 @@ accumulators rather than a second embedding.
    * - ``rsig:div:<L>:q_v`` / ``q_j`` / ``q_c``
      - The same restricted to the V, J and junction strides of ``Phi``. The strides are literal
        column offsets, so "how much of this is V-driven" needs no attribution model. The three sum
-       to ``rao``.
+       to the total before the per-column ``log1p`` transform.
    * - ``rsig:div:<L>:q_frac_v`` / ``q_frac_j`` / ``q_frac_c``
      - Each stride's share of the total dispersion, in clr coordinates -- a composition of *where*
        the diversity sits.

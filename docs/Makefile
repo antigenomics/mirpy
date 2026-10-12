@@ -1,5 +1,5 @@
 # Minimal Sphinx makefile for mirpy docs.
-SPHINXOPTS    ?=
+SPHINXOPTS    ?= -W --keep-going
 SPHINXBUILD   ?= sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build

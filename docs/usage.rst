@@ -16,7 +16,7 @@ Install & the data model
    pip install "mirpy-lib[ml]"      # + neural codecs (torch)
    pip install "mirpy-lib[examples]"  # + marimo notebooks (marimo, matplotlib, umap-learn)
 
-Requires ``vdjtools>=4.7.0`` and ``seqtree>=1.0.0``, both installed for you; ``mir`` itself is a
+Requires vdjtools and seqtree, both installed at compatible versions for you; ``mir`` itself is a
 pure-Python ``py3-none-any`` wheel. A clonotype table is a polars frame; clone sizes live in
 ``duplicate_count`` (repertoire-level embeddings weight by them):
 
@@ -37,8 +37,8 @@ immunoSEQ, parquet — the format is sniffed): ``sample = vdjtools.io.read("samp
 Clonotype embedding
 -------------------
 
-``TCREmp`` maps each clonotype to a fixed vector — the concatenation of its distances to a set of
-prototype clonotypes, per component (V, J, junction). Distance in this space approximates the
+``TCREmp`` maps each clonotype to a fixed vector — its interleaved distances to a set of
+prototype clonotypes, ordered V, J, junction for each prototype. Distance in this space approximates the
 pairwise alignment distance (Theory T1).
 
 .. code-block:: python
@@ -83,7 +83,7 @@ Usually it matters very little, and :func:`~mir.bench.theory.prototype_source_co
 it directly — it correlates the pairwise junction-distance geometry under two prototype sets, so
 handing it two replicates answers the question at the geometry level. On 400 held-out human-TRB
 queries, two independent draws agree at R = 0.922 (``n=100``), 0.971 (250), 0.990 (500),
-**0.993 (1000, the default)**, 0.997 (2000): from ``n≈500`` up the geometry is effectively
+**0.993 (1000 prototypes)**, 0.997 (2000): from ``n≈500`` up the geometry is effectively
 draw-independent, and only below ``n≈250`` does the particular draw start to show.
 
 .. warning::
@@ -113,7 +113,7 @@ Pick prototype counts / PCA dims from the per-chain presets, and denoise with PC
    mir embed clonotypes cohort/*.tsv -o clonotypes.tsv
    #   input:  any format vdjtools.io reads; locus inferred (or pass --locus)
    #   output: one row per clonotype (id columns + e0…), TSV or (recommended for the wide raw
-   #           embedding) streaming Parquet with the [parquet] extra. No PCA is fitted here.
+   #           embedding) streaming Parquet with the [parquet] extra. PCA is opt-in with ``--pca K --locus LOC``.
 
 Clustering antigen-specific TCRs
 --------------------------------
@@ -152,7 +152,7 @@ adaptive-bandwidth balloon estimator with a Poisson/binomial test and BH q-value
 Prefer a biological control (e.g. pre/post-vaccination) over the P_gen background — differential
 enrichment cancels generic public convergence and isolates the antigen-specific response. Without
 one of your own, pooled healthy-donor repertoires are a single ``hf_hub_download`` away
-(``isalgo/airr_control``, read with ``vdjtools.io.read``; see the dataset card), and
+(read with ``vdjtools.io.read``; verify the chosen dataset card), and
 :func:`~mir.density.generate_background` remains the P_gen fallback — pass ``source="arda"`` when
 the observed data is arda-annotated (one allele namespace, no cascade fallback) and
 ``species="mouse"`` for mouse. The neighbour engine defaults to ``backend="kdtree"`` (exact,
@@ -168,11 +168,15 @@ into the RNA-seq regime (Theory T7). Every sample in a cohort must share **one**
 
 .. code-block:: python
 
-   from mir.repertoire import (fit_repertoire_space, sample_embedding,
+   from mir.repertoire import (sample_embedding,
                                mmd_matrix, hla_stratified_mmd, class_witness)
-   import polars as pl
 
-   space = fit_repertoire_space(model, pl.concat(samples))    # ONE basis for the cohort
+   from mir.embedding.table import fit_sample_spaces
+   from vdjtools.cores import serial_kernels
+
+   items = [(str(i), {"TRB": sample}) for i, sample in enumerate(samples)]
+   with serial_kernels():
+       space = fit_sample_spaces(items, {"TRB": model})["TRB"] # ONE basis, no pooled copy
    embs  = [sample_embedding(space, s) for s in samples]      # Φ(S); each .vector is the tensor
    D     = mmd_matrix(embs, unbiased=True)                    # pairwise MMD (unbiased when depth varies)
 
@@ -195,17 +199,9 @@ batch-confounded contrast, compare *within-batch* (residualise ``Φ`` on the bat
 cohort section): a batch offset is first-order and cancels, while a batch-orthogonal signal (e.g.
 HLA) survives.
 
-**From the shell**, the same RFF workflow retains only compact sample vectors:
-
-.. code-block:: bash
-
-   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o rff.tsv --threads 1
-   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_rff.tsv --threads 1
-   mir pca rff.tsv --fit rotation.npz -o sample_pcs.tsv
-   mir pca held_out_rff.tsv --rotation rotation.npz -o held_out_pcs.tsv
-
-PCA on sample vectors is optional. All seven loci share one sample row, with
-explicit missing-locus indicators. See :doc:`cli` for control-cohort and inline PCA.
+For file cohorts, pass deferred readers rather than already-loaded frames. The
+:doc:`embedding guide <embeddings>` covers bounded sample tables, CLI export,
+basis reuse, control-cohort PCA and saved rotations.
 
 Multi-chain digital donor (``mir.cohort``)
 ------------------------------------------
@@ -291,6 +287,7 @@ their own:
    p = km_logrank(dur, evt, groups)                     # multivariate log-rank p-value
 
 Needs the ``[bench]`` extra (scikit-learn is core; ``cv_cindex`` / ``km_logrank`` use ``lifelines``).
+Unscorable convergence or no-pair folds warn; unexpected implementation errors propagate.
 
 Neural codecs (``mir.ml``)
 --------------------------
@@ -327,24 +324,24 @@ control it, per hot path:
      - Notes
    * - Embedding (junction distance)
      - ``TCREmp(..., threads=N)``
-     - ``0``, all cores
+     - ``0``, allocated CPUs
      - The C++ ``seqtree.gapblock`` scorer. Releases the GIL; about 530 million pairs per second on
        16 cores. ``threads=1`` for a serial run.
    * - Density kNN and balloon estimator
      - ``neighbor_enrichment(..., backend=...)``
-     - ``"kdtree"``, all cores
+     - ``"kdtree"``, allocated CPUs
      - Exact and multithreaded, 5 to 9 times faster than the BallTree baseline. ``"ann"``
        (pynndescent) is about 30 times faster past 1e5 clones, with the **observed** side
        approximate and the **background** side always exact. ``"exact"`` is the single-core BallTree
        baseline, for reproducing older runs.
    * - Clustering
      - ``cluster(..., n_jobs=-1)``
-     - sklearn default, 1
-     - Forwarded to DBSCAN, OPTICS or HDBSCAN, and parallelises their neighbour search.
+     - ``None``, serial
+     - Resolved against the CPU allocation, then passed to the neighbour-search estimator.
    * - BLAS: PCA, RFF, matmul
-     - ``OMP_NUM_THREADS``, ``OPENBLAS_NUM_THREADS``
-     - all cores
-     - numpy and sklearn use the platform BLAS. Cap these if you are oversubscribing the machine.
+     - shared runtime limits
+     - 1 thread
+     - Persistent BLAS pools stay serial; sample workers do not nest numerical pools.
    * - Neural codecs
      - ``pick_device()``, ``device=``, ``MIR_DEVICE``
      - CUDA, then MPS, then CPU
@@ -353,7 +350,7 @@ control it, per hot path:
        touch the GPU.
 
 As a rule: leave embedding at ``threads=0``, leave density on ``kdtree`` and switch to ``ann`` only
-at whole-repertoire scale.
+at whole-repertoire scale. See :ref:`mir-resource-limits` for explicit budgets.
 
 .. note::
 
@@ -369,7 +366,7 @@ Benchmark harness & reproducing the paper
 
 ``mir.bench`` provides the VDJdb clustering benchmark (F1 / retention / purity) and the reproduced
 theory experiments (S1–S3, T5–T6, codec losslessness). The self-contained theory runs on bundled
-data via ``examples/theory.py``; the full benchmark suite lives in the ``2026-mirpy-analysis`` repo.
+data via ``examples/theory.py``; the full benchmark suite lives in the companion analysis repository.
 
 .. code-block:: python
 
@@ -381,20 +378,16 @@ data via ``examples/theory.py``; the full benchmark suite lives in the ``2026-mi
    labels = cluster(pca_denoise(X, n_components=50))
    metrics = cluster_metrics(labels, df["epitope"])      # {epitope: AntigenMetric}
 
-Density resource budgets
-------------------------
+.. _mir-resource-limits:
+
+CPU, density and container limits
+---------------------------------
 
 ``neighbor_enrichment(..., threads=N)`` bounds KD-tree and ANN worker threads. Zero uses the
 available CPU allocation; the exact BallTree reference backend is single-threaded. KD-tree
 balloon queries retain only the kth distance, avoiding an observation-count by neighbor-count
 output buffer. Both density backends count background occupancy exactly, including tied distances;
 ANN approximation applies only to observation-neighbor recall.
-
-``cv_cindex`` warns when convergence or a lack of admissible pairs makes a fold unscorable.
-Unexpected implementation errors propagate instead of silently becoming missing scores.
-
-CPU and container limits
-------------------------
 
 Import ``mir`` before NumPy, Polars, or other numerical runtimes in a fresh worker.
 The shared vdjtools runtime keeps persistent numerical pools serial and passes an

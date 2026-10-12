@@ -1,7 +1,7 @@
 Data pre-processing
 ===================
 
-mirpy does its own pre-processing, and one part of it is not negotiable.
+mirpy delegates pre-processing to vdjtools and enforces productive input for embedding.
 
 .. contents::
    :local:
@@ -15,7 +15,7 @@ The short version
 
 Everything else — format conversion, error correction, depth normalisation, length and frequency
 and segment filtering — lives in vdjtools' own `Data pre-processing
-<https://antigenomics.github.io/vdjtools/preprocessing.html>`_ page, and mirpy calls it.
+<https://docs.isalgo.dev/vdjtools/preprocessing.html>`_ page, and mirpy calls it.
 mirpy does not reimplement any of it.
 
 
@@ -122,10 +122,10 @@ numerical one, so mirpy leaves it to you.
 References ship pre-filtered
 ----------------------------
 
-Every frozen reference artifact mirpy ships — the geometry reference and the fitted scale
-reference — was fitted on **productive-only** data. That is the same population your samples are
+Prototype resources and signature corpus artifacts are fitted on **productive-only** data. That is the same population your samples are
 reduced to on read, which is what makes the standardisation meaningful: a sample and the reference
 it is scored against must describe the same thing.
 
-The scripts that refit those references are not distributed. They read a private corpus, and the
-artifact rather than the recipe is what ships.
+Synthetic signature corpora can be rebuilt with ``mir corpus``. Published reference artifacts
+are fetched and digest-verified on first use; their input membership is separate from the
+embedding API. Refitting a corpus is not required to use the existing artifacts.
