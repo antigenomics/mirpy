@@ -89,8 +89,9 @@ What changed in 4.0, and why
    every one of the 399 PC columns it produced was a **repertoire** statistic, obtained by projecting
    a clone-weighted *mean* through those axes. PCA over 10,000 receptors evaluated at a mean is not
    PCA of repertoires: the two maximise variance in different units and give different axes. A
-   sample's coordinate averages ~400 effective clones, so variance between samples along those axes
-   is of order :math:`1/\sqrt{400}` of the variance being maximised.
+   sample's coordinate averages ~400 effective clones. Under an independent-clone approximation,
+   averaging reduces the coordinate variance by a factor of order :math:`1/400`; the corresponding
+   standard-deviation factor is :math:`1/\sqrt{400}`. Clone dependence changes this effective count.
 
    The artifact's ``centre`` and ``scale`` were fitted on **zero rows** and arrived from a separate
    corpus of real samples. Two independent fits, stitched — which is how one shipped reference came
