@@ -23,8 +23,8 @@ Formally, everything in this half rests on one object:
 
 ``z_\sigma`` is a clonotype's vector of distances to a fixed, bundled prototype panel — ``K = 256``
 receptors per locus, embedded by germline V/J distance plus junction gapblock alignment — and
-``w_\sigma`` is its normalised clone weight, so :math:`\Phi` is a weighted average of positions and
-not a sum of counts. ``TCREmp.embed`` interleaves the three components per
+``w_\sigma`` is its normalised clone weight, so :math:`\Phi` is a weighted average of positions. Here ``Phi`` denotes a prototype-distance mean;
+``mir.repertoire`` uses the same symbol for an RFF-based repertoire representation. ``TCREmp.embed`` interleaves the three components per
 prototype as ``[V, J, junction]``, so ``Φ[0::3]``, ``Φ[1::3]`` and ``Φ[2::3]`` are the exact V / J /
 junction slots. Literal column strides, not an attribution model, which is what makes "how much of
 this distance is V?" answerable without SHAP, sampling or a surrogate.
@@ -187,9 +187,11 @@ Channels
 
 Never rotated, never clamped. See :doc:`channels`.
 
-* ``rsig:div:<locus>:rao`` — Rao quadratic entropy in embedding coordinates, self-pair corrected. It
+* ``rsig:div:<locus>:rao`` — ``log1p`` of Rao quadratic entropy in embedding coordinates,
+  self-pair corrected. It
   sees that two clonotypes are one substitution apart, which no Hill number can, and it telescopes
-  out of the same chunked pass that computes ``Φ``: ``Q = 2(Σw‖z‖² − ‖Φ‖²)``. Carried in its own
+  out of the same chunked pass that computes ``Φ``: ``Q = 2(Σw‖z‖² − ‖Φ‖²)`` before multiplication by
+  ``n_eff / (n_eff − 1)`` for ``n_eff > 1`` and the final ``log1p`` transform. Carried in its own
   units because the head-to-head against the statistics half's Hill numbers is the point.
 * ``rsig:qc:-:winsor_frac`` — what fraction of this row the corpus's bounds clamped.
 
@@ -212,7 +214,7 @@ Building a corpus
    mir corpus --corpus naive  -o naive_rsig.npz
    mir corpus --corpus memory --size n_eff --components 0.95 -o memory_rsig.npz
    mir corpus --smoke -o /tmp/smoke.npz
-   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker threads
+   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker threads, within allocation
 
 Nine corpora are published: four **synthetic** --- ``naive``, ``memory``, ``synthetic-blood``,
 ``synthetic-tissue`` --- and five **real**, fitted on repertoires (``blood``, ``tissue``,

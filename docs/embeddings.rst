@@ -38,7 +38,7 @@ subset or extension; their corpus rotations cannot be applied to an RFF table.
 A list of repertoires in, raw clonotype embeddings out, with ``sample_id`` and
 ``clonotype_id`` on every row. Mixed loci are accepted; ``locus`` identifies each
 row's panel. Supplied clonotype or AIRR sequence IDs are preserved; otherwise
-stable within-sample IDs are assigned. Files sharing a filename stem form one
+stable within-sample IDs are assigned. Files sharing the filename prefix up to its first dot form one
 sample. No PCA is fitted unless ``--pca K --locus LOC`` is requested.
 
 .. code-block:: bash
@@ -57,8 +57,11 @@ select the raw coordinate system. Native batch kernels own ``--threads``.
 
 A list of repertoires in, one RFF kernel-mean row per sample out. The order is
 clonotype coordinates → the shared clonotype basis → RFF → weighted mean.
-The default output is unprojected RFF and diversity, with optional second-moment
-channels. Sample PCA runs only when requested. Counts and missing-locus indicators
+The default output is unprojected RFF and observed Hill diversity, with optional
+second-moment channels. The sample-table API does not set a common coverage target.
+Its diversity slots are natural-log observed richness, Shannon diversity and inverse
+Simpson diversity, followed by a fixed ``1.0`` placeholder; that fourth slot is not
+an estimate of attained sample coverage. Sample PCA runs only when requested. Counts and missing-locus indicators
 are retained; a missing locus is a hole, not a zero-valued embedding.
 
 .. code-block:: bash

@@ -164,7 +164,8 @@ From a bag of receptors to one fingerprint
 
 A repertoire is an unordered multiset of receptors with clone sizes, so its vector has to be
 invariant to order and robust to depth. ``Phi(S)`` sketches it as a weighted cloud of points in three
-blocks -- a random-feature kernel mean, a coverage-standardised diversity profile, and a
+blocks -- a random-feature kernel mean, a Hill diversity profile (coverage-standardised
+when an explicit target is supplied), and a
 second-moment block carrying co-occurrence structure:
 
 :doc:`embeddings` covers sample RFF export, shared basis fitting, saved rotations

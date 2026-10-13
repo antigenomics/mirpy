@@ -67,7 +67,7 @@ budgets, Parquet requirements and the complete fit/reuse workflows.
 ``mir embeddings`` / ``mir signature``
 --------------------------------------
 
-One repertoire in, one row of fixed, named, already-standardised features out -- the **geometry
+One repertoire in, one row of fixed, named corpus PCs and pass-through channels out -- the **geometry
 half** of the portable signature. The statistics half is ``vdjtools signature``, and the two join on
 ``sample_id``.
 
@@ -103,7 +103,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
        rather than guessing.
    * - ``--describe``
      - Print the columns **this** invocation emits, and exit.
-   * - ``--named``
+   * - ``--named all`` / ``--named depth,band,band_igh``
      - Also emit the reportable raw blocks under their own names (``depth``, ``band``,
        ``band_igh``), beside the rotated components. Values carry their declared transform, not a
        natural scale.
@@ -114,7 +114,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``
-     - Worker threads over samples, ``0`` for allocated cores.
+     - Worker threads over samples, default ``1``; ``0`` for allocated cores.
 
 Which corpus to choose, and what the columns mean, are in :doc:`signature` and :doc:`channels`.
 

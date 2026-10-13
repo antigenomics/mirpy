@@ -49,7 +49,7 @@ marimo notebooks. See [installation and first steps](https://docs.isalgo.dev/mir
 | `mir embed clonotypes` | Clonotype coordinates with sample/clonotype IDs |
 | `mir embed repertoires` | One weighted RFF vector per sample, plus separate channels |
 | `mir pca` | Optional sample PCs from an RFF table |
-| `mir embeddings` / `mir signature` | Existing corpus-standardised rsig features |
+| `mir embeddings` / `mir signature` | Corpus-standardised rsig PCs and pass-through channels |
 
 ```bash
 mir embed clonotypes samples/*.tsv -o clonotypes.tsv --threads 1
@@ -121,8 +121,10 @@ are needed to use the package.
 
 ## Citing
 
-Method: Kremlyakova *et al.*, *TCREMP: a bioinformatic pipeline for efficient embedding of T-cell
-receptor sequences*, **J Mol Biol** 437 (2025) 169205.
+Method: Kremlyakova *et al.*, *TCREMP: A Bioinformatic Pipeline for Efficient Embedding of T-cell
+Receptor Sequences from Immune Repertoire and Single-cell Sequencing Data*, **J Mol Biol** 437(15)
+(2025) 169205. [PubMed](https://pubmed.ncbi.nlm.nih.gov/40368275/) ·
+[DOI](https://doi.org/10.1016/j.jmb.2025.169205).
 
 See the [mathematical foundations](https://docs.isalgo.dev/mirpy/math.html) for derivations.
 
