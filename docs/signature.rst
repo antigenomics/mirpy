@@ -241,17 +241,19 @@ Both halves must be built from the **same corpus name and seed**: they resolve t
 the rank correlations and the germline fingerprint cannot disagree between ``vsig_<name>`` and
 ``rsig_<name>`` -- which is what makes joining them on ``sample_id`` meaningful.
 
-The build runs across worker **threads**, one contiguous block of samples each; ``-j/--jobs``
+Pool generation uses spawned processes, then feature extraction runs across worker
+**threads**, one contiguous block of samples each; ``-j/--jobs``
 defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
 builder, so a sample is the same repertoire in either -- its generator is seeded from
 ``(seed, locus, index)``, which is also why the artifact is identical at every ``--jobs``.
 
 .. note::
 
-   ``--jobs`` selects worker threads. Each worker uses serial numerical kernels and
-   shares read-only resources in the calling interpreter. Corpus pool generation
-   retains its reference sampler and frozen random stream; its Python sampling stage
-   remains limited by the GIL.
+   ``--jobs`` selects pool-generation processes and subsequent sample-map threads.
+   Each worker uses serial numerical kernels. Generation retains the reference sampler
+   and fixed chunk seeds, and its process pool closes before feature extraction.
+   Parallel generation requires an importable entry point with a
+   ``if __name__ == "__main__":`` guard.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
 vdjtools' bundled recombination models, and is required to be byte-identical across processes,
@@ -278,7 +280,8 @@ Traps
 * **``chunk`` bounds memory.** The default is 4,096 rows: 24 MiB per float64 embedding
   block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
   Changing block size preserves the calculation up to floating-point rounding.
-* **``--jobs`` selects threads.** The default is 1; 0 requests allocated cores.
+* **``--jobs`` selects generation processes, then sample threads.**
+  The default is 1; 0 requests allocated cores.
   Positive counts must fit that allocation and are capped by sample count. Workers
   share frozen resources and read one sample at a time; output follows input order.
   Deferred readers may be closures. Callbacks must not mutate shared resources.

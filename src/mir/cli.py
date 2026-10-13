@@ -658,7 +658,7 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--smoke", action="store_true",
                     help="reduced build (200 samples of 1000) for tests and the cmp check")
     c2.add_argument("-j", "--jobs", type=int, default=0,
-                    help="bounded worker threads across samples (serial inner kernels): 0 = allocated cores, "
+                    help="pool-generation processes, then sample-map threads (serial inner kernels): 0 = allocated cores, "
                          "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
 
