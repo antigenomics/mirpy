@@ -65,10 +65,13 @@ def test_configured_statistical_reference_carries_its_definition(tmp_path):
     pool = load_prototypes('human', 'TRB').slice(5000, 80)
     readers = [(f'S{i}', lambda i=i: {'TRB': pool.slice(16*i, 32).with_columns(
         pl.lit('TRB').alias('locus'), pl.Series('duplicate_count', range(1, 33)))}) for i in range(3)]
+    from vdjtools.cores import available_cores
+    budget = min(2, available_cores())
     definition = feature_definition('basic', motifs='imgt11')
     out = tmp_path / 'configured'
     build_reference_rotations(readers, ['TRB'], out, components=2, n_rff=16, fit_cap=32,
-                              feature_definition=definition)
+                              feature_definition=definition, threads=budget)
+    assert json.loads((out / 'bundle.json').read_text())['threads'] == budget
     assert json.loads((out / 'feature-definition.json').read_text()) == definition
     columns = (out / 'feature-columns.txt').read_text().splitlines()
     assert any(':motif_XX_X:' in c for c in columns)

@@ -12,7 +12,7 @@ import shutil
 
 import mir  # noqa: F401 — set runtime limits before numerical imports
 import numpy as np
-from vdjtools.cores import kernel_threads, serial_kernels
+from vdjtools.cores import kernel_threads
 from vdjtools.signature import raw_columns, raw_features_cohort
 from vdjtools.signature.features import gene_vocab
 from vdjtools.signature.layout import LOCI, NO_LOCUS
@@ -23,7 +23,7 @@ from mir.repertoire import RepertoireSpace
 
 
 def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024, n_rff=1024,
-          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None, feature_definition=None):
+          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None, feature_definition=None, threads=1):
     """Build a new bundle; refuse to overwrite an existing output directory.
 
     Each bundle has its own shared clonotype basis. To apply its RFF rotation,
@@ -31,11 +31,14 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     features require the same vocabulary, abundance weighting and coverage target.
     ``reuse_basis`` copies an existing basis directory byte-for-byte and skips
     clonotype fitting. Both sample-table PCAs are fitted from fresh reader outputs.
+    ``jobs`` budgets sample workers; ``threads`` budgets BLAS after they join
+    (1 serial, 0 allocated cores). The phases never run concurrently.
     """
     from vdjtools.signature.layout import validate_feature_definition, _configured
     validate_feature_definition(feature_definition)
     readers, loci = list(readers), tuple(loci)
     jobs = kernel_threads(jobs)
+    threads = kernel_threads(threads)
     ids = [sid for sid, _ in readers]
     if (len(readers) < 2 or len(set(ids)) != len(ids)
             or not loci or len(set(loci)) != len(loci)):
@@ -57,10 +60,9 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
                                 feature_definition=feature_definition)
     columns = [c for loc in (*loci, NO_LOCUS)
                for c in raw_columns('vsig', loc, vocab.get(loc), feature_definition=feature_definition)]
-    with serial_kernels():
-        rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed)
-        rotation.save(out / 'features-pca.npz')
-        _check(rotation, table, out / 'features-pca.npz')
+    rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed, threads=threads)
+    rotation.save(out / 'features-pca.npz')
+    _check(rotation, table, out / 'features-pca.npz')
     variance = {'features': _variance(rotation)}
     (out / 'feature-columns.txt').write_text('\n'.join(columns) + '\n')
     if _configured(feature_definition):
@@ -83,10 +85,9 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
         else:
             shutil.copyfile(reused / f'{loc}.pkl', basis / f'{loc}.pkl')
     table = sample_embeddings(readers, spaces, n_jobs=jobs)
-    with serial_kernels():
-        rotation = TablePCA.fit(table, n_components=components, seed=seed)
-        rotation.save(out / 'rff-pca.npz')
-        _check(rotation, table, out / 'rff-pca.npz')
+    rotation = TablePCA.fit(table, n_components=components, seed=seed, threads=threads)
+    rotation.save(out / 'rff-pca.npz')
+    _check(rotation, table, out / 'rff-pca.npz')
     variance['rff'] = _variance(rotation)
     restored = {loc: RepertoireSpace.load(basis / f'{loc}.pkl') for loc in spaces}
     again = sample_embeddings(readers[:2], restored, n_jobs=1)
@@ -106,6 +107,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
         'species': 'human', 'loci': list(spaces), 'seed': seed,
         'weight': 'log2p1', 'coverage': coverage, 'n_rff': n_rff,
         'fit_cap': fit_cap, 'requested_components': components,
+        'jobs': jobs, 'threads': threads,
         'versions': {'mirpy': mir.__version__, 'vdjtools': vdjtools.__version__,
                      'numpy': np.__version__, 'sklearn': sklearn.__version__},
         'variance': variance, 'files': hashes,

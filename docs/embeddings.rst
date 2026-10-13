@@ -183,6 +183,11 @@ embedding your target samples: blood or tissue RNA-seq, a synthetic counterpart,
 or deep TRA/TRB profiling. A deep TRA/TRB bundle projects those loci; it does not
 provide an RFF basis for BCR or the other TCR loci.
 
+Reference fitting accepts separate phase budgets: ``jobs`` for sample workers,
+``threads`` for BLAS after those workers join. ``threads=1`` preserves serial
+PCA; ``threads=0`` uses allocated cores. The shared ``TablePCA.fit`` accepts
+the same fitting-only budget and restores caller BLAS limits afterwards.
+
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
