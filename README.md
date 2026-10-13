@@ -135,3 +135,10 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 (`mirpy-lib` 2.x); its functionality lives on in
 [vdjtools](https://github.com/antigenomics/vdjtools) and
 [vdjmatch](https://github.com/antigenomics/vdjmatch).
+
+### Configured statistical references
+
+Reference bundles can opt into vdjtools' `basic` or `joint` statistical features
+and their IMGT11/BLOSUM62 motif variants via `feature_definition=`. The bundle
+records the definition and vocabulary for compatible saved-PCA application.
+Existing rsig and sample RFF behavior stays unchanged; see the embedding guide.

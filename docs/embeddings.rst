@@ -266,3 +266,41 @@ RFF bases does not make PCs from different sample rotations comparable. Missing
 loci remain marked in pass-through channels; fitted medians fill their selected
 coordinates during projection. A reference rotation is optional: retain and use
 raw RFF vectors whenever the downstream analysis needs them.
+
+Configured statistical reference rotations
+------------------------------------------
+
+``build_reference_rotations(..., feature_definition=definition)`` accepts the
+vdjtools ``basic`` or ``joint`` statistical basis and its IMGT11/BLOSUM62 motif
+variants. The bundle saves ``feature-definition.json`` and
+``feature-vocabulary.json`` beside the statistical TablePCA rotation. Raw tables
+must use that same definition, vocabulary, clone weighting and coverage target
+before applying ``features-pca.npz``. Its identity check rejects a different basis.
+
+This option changes only the statistical branch of the reference bundle. Existing
+rsig is a separate prototype-geometry signature; sample RFF features are another
+representation. Their inputs and defaults do not change when a statistical motif
+basis is selected. New vsig corpus fits belong to vdjtools; do not register them
+as rsig rotations. Generic TablePCA and block-scaled Corpus PCA remain distinct
+fit/apply workflows.
+
+.. code-block:: python
+
+   from vdjtools.signature import feature_definition
+   from mir.embedding.reference import build_reference_rotations
+
+   definition = feature_definition("basic", motifs="imgt11")
+   build_reference_rotations(readers, ["TRA", "TRB"], "new-reference",
+                             feature_definition=definition, components=32,
+                             coverage=0.8, jobs=1)
+
+See `vdjtools statistical bases
+<https://docs.isalgo.dev/vdjtools/features.html>`_ for motif shapes, per-clonotype
+normalization, missingness and the separate isotype composition. Omitting the
+keyword retains the legacy reference recipe.
+
+For CLI extraction, pass the bundle's ``feature-vocabulary.json`` through
+``vdjtools features --feature-vocabulary`` with the same feature definition,
+weights and coverage target. The saved vocabulary is required when the reference
+models only selected loci; matching feature names alone does not establish an
+identical raw feature space.
