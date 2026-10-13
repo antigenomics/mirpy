@@ -58,3 +58,19 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path, monkeypatch):
     replace(rotation, components=changed).save(tmp_path / 'changed.npz')
     with pytest.raises(AssertionError):
         _check(rotation, rows, tmp_path / 'changed.npz')
+
+
+def test_configured_statistical_reference_carries_its_definition(tmp_path):
+    from vdjtools.signature import feature_definition
+    pool = load_prototypes('human', 'TRB').slice(5000, 80)
+    readers = [(f'S{i}', lambda i=i: {'TRB': pool.slice(16*i, 32).with_columns(
+        pl.lit('TRB').alias('locus'), pl.Series('duplicate_count', range(1, 33)))}) for i in range(3)]
+    definition = feature_definition('basic', motifs='imgt11')
+    out = tmp_path / 'configured'
+    build_reference_rotations(readers, ['TRB'], out, components=2, n_rff=16, fit_cap=32,
+                              feature_definition=definition)
+    assert json.loads((out / 'feature-definition.json').read_text()) == definition
+    columns = (out / 'feature-columns.txt').read_text().splitlines()
+    assert any(':motif_XX_X:' in c for c in columns)
+    assert not any(':pchem:' in c for c in columns)
+    assert TablePCA.load(out / 'features-pca.npz').space.startswith('vsig:')

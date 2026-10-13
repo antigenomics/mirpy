@@ -23,7 +23,7 @@ from mir.repertoire import RepertoireSpace
 
 
 def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024, n_rff=1024,
-          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None):
+          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None, feature_definition=None):
     """Build a new bundle; refuse to overwrite an existing output directory.
 
     Each bundle has its own shared clonotype basis. To apply its RFF rotation,
@@ -32,6 +32,8 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     ``reuse_basis`` copies an existing basis directory byte-for-byte and skips
     clonotype fitting. Both sample-table PCAs are fitted from fresh reader outputs.
     """
+    from vdjtools.signature.layout import validate_feature_definition, _configured
+    validate_feature_definition(feature_definition)
     readers, loci = list(readers), tuple(loci)
     jobs = kernel_threads(jobs)
     ids = [sid for sid, _ in readers]
@@ -49,16 +51,21 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     out = Path(output)
     out.mkdir(parents=True, exist_ok=False)
     # Match `vdjtools features` even when the reference observes only TRA/TRB.
-    vocab = {loc: gene_vocab(loc, 'human') for loc in LOCI}
-    table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage)
+    vocab = {loc: gene_vocab(loc, 'human', feature_definition=feature_definition)
+             for loc in (loci if _configured(feature_definition) else LOCI)}
+    table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage,
+                                feature_definition=feature_definition)
     columns = [c for loc in (*loci, NO_LOCUS)
-               for c in raw_columns('vsig', loc, vocab.get(loc))]
+               for c in raw_columns('vsig', loc, vocab.get(loc), feature_definition=feature_definition)]
     with serial_kernels():
         rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed)
         rotation.save(out / 'features-pca.npz')
         _check(rotation, table, out / 'features-pca.npz')
     variance = {'features': _variance(rotation)}
     (out / 'feature-columns.txt').write_text('\n'.join(columns) + '\n')
+    if _configured(feature_definition):
+        (out / 'feature-definition.json').write_text(json.dumps(feature_definition, sort_keys=True, indent=1))
+        (out / 'feature-vocabulary.json').write_text(json.dumps(vocab, sort_keys=True, indent=1))
     del table, rotation
 
     # One native batch during basis fitting, then one serial kernel per sample worker.
