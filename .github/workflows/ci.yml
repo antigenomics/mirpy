@@ -5,6 +5,11 @@ on:
     branches: [master, dev]
   pull_request:
   workflow_dispatch:
+    inputs:
+      vdjtools_ref:
+        description: 'Optional vdjtools commit for coordinated unreleased changes'
+        required: false
+        default: ''
 
 # Numerical kernels stay single-threaded; tests exercise explicit native budgets separately.
 env:
@@ -39,6 +44,11 @@ jobs:
       # seqtree / vdjtools wheels pulled as dependencies.
       - name: Install package
         run: pip install -e ".[dev,bench]"
+      - name: Install coordinated vdjtools source
+        if: inputs.vdjtools_ref != ''
+        env:
+          VDJTOOLS_REF: ${{ inputs.vdjtools_ref }}
+        run: pip install --no-deps --force-reinstall "vdjtools @ git+https://github.com/antigenomics/vdjtools.git@$VDJTOOLS_REF"
       - name: Test (fast tier)
         run: pytest tests/ -q --durations=25 -m "not integration and not benchmark"
       - name: Bounded cohort resource regression
@@ -66,5 +76,10 @@ jobs:
           python-version: "3.12"
       - name: Install package with [ml] + [ann] + BioPython
         run: pip install -e ".[dev,bench,ml,ann,parquet]" biopython
+      - name: Install coordinated vdjtools source
+        if: inputs.vdjtools_ref != ''
+        env:
+          VDJTOOLS_REF: ${{ inputs.vdjtools_ref }}
+        run: pip install --no-deps --force-reinstall "vdjtools @ git+https://github.com/antigenomics/vdjtools.git@$VDJTOOLS_REF"
       - name: Test (including integration)
         run: pytest tests/ -q --durations=25 -m "not benchmark"

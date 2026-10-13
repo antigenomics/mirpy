@@ -60,6 +60,15 @@ sample PCA. See :doc:`embeddings`.
    :undoc-members:
    :show-inheritance:
 
+``mir.embedding.reference``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Separate raw statistical-feature and RFF reference rotations, with saved bases
+and artifact checksums. See :ref:`reference-rotation-bundles`.
+
+.. automodule:: mir.embedding.reference
+   :members:
+
 ``mir.embedding.presets``
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

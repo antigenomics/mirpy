@@ -168,3 +168,98 @@ Two RFF tables are comparable when their full basis and abundance weighting matc
 not merely their column names or widths. Preserve ``embedding_space`` when exporting,
 joining or selecting a table. Fit a sample rotation once and reuse it for held-out
 samples; fitting separate rotations does not make their PC axes comparable.
+
+.. _reference-rotation-bundles:
+
+Reference rotation bundles
+--------------------------
+
+Reference bundles are separate model artifacts. Extract one bundle to
+``reference/`` and keep its files together. Choose the reference population before
+embedding your target samples: blood or tissue RNA-seq, a synthetic counterpart,
+or deep TRA/TRB profiling. A deep TRA/TRB bundle projects those loci; it does not
+provide an RFF basis for BCR or the other TCR loci.
+
+``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
+readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
+vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
+It also saves ``feature-columns.txt`` and the per-locus RFF models in ``basis/``.
+It does not fit or replace a vsig/rsig signature corpus. Feature matrices are
+generated fresh and released after fitting rather than saved as intermediates.
+
+.. code-block:: python
+
+   from mir.embedding.reference import build_reference_rotations
+
+   build_reference_rotations(readers, ["TRB"], "reference", jobs=1)
+
+The recipe stores up to 1024 sample PCs and the per-PC
+``explained_variance_ratio`` for both rotations. ``bundle.json`` reports their
+cumulative variance fractions at 256, 512 and 1024 PCs. If fewer sample rows or
+coordinates are available, the report uses all stored PCs and records their
+actual count.
+These fractions describe the imputed, standardized fitting coordinates, not the
+unscaled raw measurements. Smaller PC prefixes retain the corresponding prefix
+of the saved rotation.
+
+To extend an existing rotation, reuse its basis and regenerate the sample tables:
+
+.. code-block:: python
+
+   build_reference_rotations(readers, ["TRB"], "reference-1024", jobs=1,
+                             components=1024, reuse_basis="reference/basis")
+
+This copies the basis files unchanged and refits only the two sample-table PCAs.
+Older PCA files still load, but have no recorded explained-variance ratios.
+
+Each reference bundle has its own shared clonotype basis. Choose a reference
+first, embed samples through its saved basis, then apply its RFF rotation:
+
+.. code-block:: bash
+
+   mir embed repertoires samples/*.tsv --basis reference/basis --threads 2 -o rff.tsv
+   mir pca rff.tsv --rotation reference/rff-pca.npz -o pcs.tsv
+
+The first command retains the unprojected RFF vectors. The second replaces only
+the fitted RFF columns with PCs; sample IDs and unselected channels pass through.
+For one command with both outputs:
+
+.. code-block:: bash
+
+   mir embed repertoires samples/*.tsv --basis reference/basis --threads 2 \
+       --rotation reference/rff-pca.npz --rff-output rff.tsv -o pcs.tsv
+
+Use that same bundle for target and control samples. Do not fit a new clonotype
+basis for each dataset and then apply the reference rotation. The stored
+``embedding_space`` identifies the complete RFF mapping, not just its width.
+
+For statistical features, use the bundle's human gene vocabulary, ``log2p1``
+abundance weighting and declared shared coverage target. The recipe defaults to
+coverage ``0.8``. See `vdjtools' feature guide
+<https://docs.isalgo.dev/vdjtools/features.html>`_. A rotation refuses a different
+feature identity. Keep unprojected outputs when needed; loading a rotation does
+not change the underlying representation.
+
+``bundle.json`` records representations, parameters and SHA256 checksums. Verify
+these checksums before loading the trusted pickle basis files. The NumPy rotation
+files contain no executable pickle payload. Raw membership, source identifiers
+and fit diagnostics belong in private provenance, not the distributed bundle.
+
+.. code-block:: python
+
+   from pathlib import Path
+   import hashlib
+   import json
+
+   root = Path("reference")
+   manifest = json.loads((root / "bundle.json").read_text())
+   for filename, expected in manifest["files"].items():
+       actual = hashlib.sha256((root / filename).read_bytes()).hexdigest()
+       if actual != expected:
+           raise ValueError(f"reference checksum mismatch: {filename}")
+
+Keep the bundle manifest and rotation checksum with downstream results. Matching
+RFF bases does not make PCs from different sample rotations comparable. Missing
+loci remain marked in pass-through channels; fitted medians fill their selected
+coordinates during projection. A reference rotation is optional: retain and use
+raw RFF vectors whenever the downstream analysis needs them.
