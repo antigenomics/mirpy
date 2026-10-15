@@ -60,7 +60,7 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path, monkeypatch):
         _check(rotation, rows, tmp_path / 'changed.npz')
 
 
-def test_configured_statistical_reference_carries_its_definition(tmp_path):
+def test_configured_statistical_reference_carries_its_definition(tmp_path, monkeypatch):
     from vdjtools.signature import feature_definition
     pool = load_prototypes('human', 'TRB').slice(5000, 80)
     readers = [(f'S{i}', lambda i=i: {'TRB': pool.slice(16*i, 32).with_columns(
@@ -69,8 +69,21 @@ def test_configured_statistical_reference_carries_its_definition(tmp_path):
     budget = min(2, available_cores())
     definition = feature_definition('basic', motifs='imgt11')
     out = tmp_path / 'configured'
+    original = TablePCA.fit_features.__func__
+    calls = []
+    def bounded(cls, samples, **kw):
+        calls.append(kw)
+        return original(cls, samples, **kw)
+    monkeypatch.setattr(TablePCA, 'fit_features', classmethod(bounded))
+    import mir.embedding.reference as reference
+    dense = reference.raw_features_cohort
+    def small_only(items, **kw):
+        assert len(items) <= 2, 'configured reference materialized the whole dense cohort'
+        return dense(items, **kw)
+    monkeypatch.setattr(reference, 'raw_features_cohort', small_only)
     build_reference_rotations(readers, ['TRB'], out, components=2, n_rff=16, fit_cap=32,
                               feature_definition=definition, threads=budget)
+    assert len(calls) == 1 and calls[0]['threads'] == budget
     assert json.loads((out / 'bundle.json').read_text())['threads'] == budget
     assert json.loads((out / 'feature-definition.json').read_text()) == definition
     columns = (out / 'feature-columns.txt').read_text().splitlines()

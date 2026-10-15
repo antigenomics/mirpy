@@ -56,11 +56,21 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     # Match `vdjtools features` even when the reference observes only TRA/TRB.
     vocab = {loc: gene_vocab(loc, 'human', feature_definition=feature_definition)
              for loc in (loci if _configured(feature_definition) else LOCI)}
-    table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage,
-                                feature_definition=feature_definition)
     columns = [c for loc in (*loci, NO_LOCUS)
                for c in raw_columns('vsig', loc, vocab.get(loc), feature_definition=feature_definition)]
-    rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed, threads=threads)
+    if _configured(feature_definition):
+        from vdjtools.signature.signature import _coverage_target
+        target = _coverage_target(readers, jobs, coverage, {})
+        rotation = TablePCA.fit_features(readers, vocab=vocab, feature_definition=feature_definition,
+                                        n_components=components, seed=seed, n_jobs=jobs,
+                                        threads=threads, cstar_target=target)
+        # Fresh application rows only; never a dense training feature table.
+        table = raw_features_cohort(readers[:2], vocab=vocab, n_jobs=jobs, cstar_target=target,
+                                    feature_definition=feature_definition)
+    else:
+        table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage,
+                                    feature_definition=feature_definition)
+        rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed, threads=threads)
     rotation.save(out / 'features-pca.npz')
     _check(rotation, table, out / 'features-pca.npz')
     variance = {'features': _variance(rotation)}

@@ -141,4 +141,7 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 Reference bundles can opt into vdjtools' `basic` or `joint` statistical features
 and their IMGT11/BLOSUM62 motif variants via `feature_definition=`. The bundle
 records the definition and vocabulary for compatible saved-PCA application.
-Existing rsig and sample RFF behavior stays unchanged; see the embedding guide.
+Configured fitting delegates to vdjtools' sparse `TablePCA.fit_features`, preserving
+raw median-impute/StandardScaler coordinates without a dense training table.
+Sample workers join before the BLAS phase. Existing rsig and sample RFF behavior
+stays unchanged; see the embedding guide.

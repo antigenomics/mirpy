@@ -282,6 +282,14 @@ variants. The bundle saves ``feature-definition.json`` and
 must use that same definition, vocabulary, clone weighting and coverage target
 before applying ``features-pca.npz``. Its identity check rejects a different basis.
 
+Configured builds delegate fitting to ``TablePCA.fit_features`` in vdjtools, using
+transient sparse rows and a centered operator. Median imputation and StandardScaler
+coordinates match raw-table PCA; no dense training table is assembled or cached.
+The bundle checks projection using freshly read small query tables. ``jobs`` bounds
+sample workers; they join before ``threads`` bounds BLAS. Choose both from the same
+CPU allocation. RAM still grows with nonzero bins and the requested component count.
+The legacy statistical recipe and the RFF branch retain their existing paths.
+
 This option changes only the statistical branch of the reference bundle. Existing
 rsig is a separate prototype-geometry signature; sample RFF features are another
 representation. Their inputs and defaults do not change when a statistical motif
