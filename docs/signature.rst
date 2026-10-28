@@ -23,8 +23,8 @@ Formally, everything in this half rests on one object:
 
 ``z_\sigma`` is a clonotype's vector of distances to a fixed, bundled prototype panel — ``K = 256``
 receptors per locus, embedded by germline V/J distance plus junction gapblock alignment — and
-``w_\sigma`` is its normalised clone weight, so :math:`\Phi` is a weighted average of positions and
-not a sum of counts. ``TCREmp.embed`` interleaves the three components per
+``w_\sigma`` is its normalised clone weight, so :math:`\Phi` is a weighted average of positions. Here ``Phi`` denotes a prototype-distance mean;
+``mir.repertoire`` uses the same symbol for an RFF-based repertoire representation. ``TCREmp.embed`` interleaves the three components per
 prototype as ``[V, J, junction]``, so ``Φ[0::3]``, ``Φ[1::3]`` and ``Φ[2::3]`` are the exact V / J /
 junction slots. Literal column strides, not an attribution model, which is what makes "how much of
 this distance is V?" answerable without SHAP, sampling or a surrogate.
@@ -89,8 +89,9 @@ What changed in 4.0, and why
    every one of the 399 PC columns it produced was a **repertoire** statistic, obtained by projecting
    a clone-weighted *mean* through those axes. PCA over 10,000 receptors evaluated at a mean is not
    PCA of repertoires: the two maximise variance in different units and give different axes. A
-   sample's coordinate averages ~400 effective clones, so variance between samples along those axes
-   is of order :math:`1/\sqrt{400}` of the variance being maximised.
+   sample's coordinate averages ~400 effective clones. Under an independent-clone approximation,
+   averaging reduces the coordinate variance by a factor of order :math:`1/400`; the corresponding
+   standard-deviation factor is :math:`1/\sqrt{400}`. Clone dependence changes this effective count.
 
    The artifact's ``centre`` and ``scale`` were fitted on **zero rows** and arrived from a separate
    corpus of real samples. Two independent fits, stitched — which is how one shipped reference came
@@ -187,9 +188,11 @@ Channels
 
 Never rotated, never clamped. See :doc:`channels`.
 
-* ``rsig:div:<locus>:rao`` — Rao quadratic entropy in embedding coordinates, self-pair corrected. It
+* ``rsig:div:<locus>:rao`` — ``log1p`` of Rao quadratic entropy in embedding coordinates,
+  self-pair corrected. It
   sees that two clonotypes are one substitution apart, which no Hill number can, and it telescopes
-  out of the same chunked pass that computes ``Φ``: ``Q = 2(Σw‖z‖² − ‖Φ‖²)``. Carried in its own
+  out of the same chunked pass that computes ``Φ``: ``Q = 2(Σw‖z‖² − ‖Φ‖²)`` before multiplication by
+  ``n_eff / (n_eff − 1)`` for ``n_eff > 1`` and the final ``log1p`` transform. Carried in its own
   units because the head-to-head against the statistics half's Hill numbers is the point.
 * ``rsig:qc:-:winsor_frac`` — what fraction of this row the corpus's bounds clamped.
 
@@ -212,7 +215,7 @@ Building a corpus
    mir corpus --corpus naive  -o naive_rsig.npz
    mir corpus --corpus memory --size n_eff --components 0.95 -o memory_rsig.npz
    mir corpus --smoke -o /tmp/smoke.npz
-   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker threads
+   mir corpus --corpus naive -j 8 -o naive_rsig.npz     # 8 worker threads, within allocation
 
 Nine corpora are published: four **synthetic** --- ``naive``, ``memory``, ``synthetic-blood``,
 ``synthetic-tissue`` --- and five **real**, fitted on repertoires (``blood``, ``tissue``,
@@ -238,17 +241,19 @@ Both halves must be built from the **same corpus name and seed**: they resolve t
 the rank correlations and the germline fingerprint cannot disagree between ``vsig_<name>`` and
 ``rsig_<name>`` -- which is what makes joining them on ``sample_id`` meaningful.
 
-The build runs across worker **threads**, one contiguous block of samples each; ``-j/--jobs``
+Pool generation uses spawned processes, then feature extraction runs across worker
+**threads**, one contiguous block of samples each; ``-j/--jobs``
 defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
 builder, so a sample is the same repertoire in either -- its generator is seeded from
 ``(seed, locus, index)``, which is also why the artifact is identical at every ``--jobs``.
 
 .. note::
 
-   ``--jobs`` selects worker threads. Each worker uses serial numerical kernels and
-   shares read-only resources in the calling interpreter. Corpus pool generation
-   retains its reference sampler and frozen random stream; its Python sampling stage
-   remains limited by the GIL.
+   ``--jobs`` selects pool-generation processes and subsequent sample-map threads.
+   Each worker uses serial numerical kernels. Generation retains the reference sampler
+   and fixed chunk seeds, and its process pool closes before feature extraction.
+   Parallel generation requires an importable entry point with a
+   ``if __name__ == "__main__":`` guard.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
 vdjtools' bundled recombination models, and is required to be byte-identical across processes,
@@ -275,7 +280,8 @@ Traps
 * **``chunk`` bounds memory.** It must be a positive integer. The default is 4,096 rows: 24 MiB per float64 embedding
   block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
   Changing block size preserves the calculation up to floating-point rounding.
-* **``--jobs`` selects threads.** The default is 0 (allocated cores); 1 selects serial execution.
+* **``--jobs`` selects sample threads.** The default is 0 (allocated cores); 1 selects serial execution.
+  ``mir corpus`` first uses generation processes, then sample-map threads with the same budget.
   Positive counts must fit that allocation and are capped by sample count. Workers
   share frozen resources and read one sample at a time; output follows input order.
   Deferred readers may be closures. Callbacks must not mutate shared resources.

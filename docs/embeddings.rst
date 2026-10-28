@@ -38,7 +38,7 @@ subset or extension; their corpus rotations cannot be applied to an RFF table.
 A list of repertoires in, raw clonotype embeddings out, with ``sample_id`` and
 ``clonotype_id`` on every row. Mixed loci are accepted; ``locus`` identifies each
 row's panel. Supplied clonotype or AIRR sequence IDs are preserved; otherwise
-stable within-sample IDs are assigned. Files sharing a filename stem form one
+stable within-sample IDs are assigned. Files sharing the filename prefix up to its first dot form one
 sample. No PCA is fitted unless ``--pca K --locus LOC`` is requested.
 
 .. code-block:: bash
@@ -57,8 +57,11 @@ select the raw coordinate system. Native batch kernels own ``--threads``.
 
 A list of repertoires in, one RFF kernel-mean row per sample out. The order is
 clonotype coordinates → the shared clonotype basis → RFF → weighted mean.
-The default output is unprojected RFF and diversity, with optional second-moment
-channels. Sample PCA runs only when requested. Counts and missing-locus indicators
+The default output is unprojected RFF and observed Hill diversity, with optional
+second-moment channels. The sample-table API does not set a common coverage target.
+Its diversity slots are natural-log observed richness, Shannon diversity and inverse
+Simpson diversity, followed by a fixed ``1.0`` placeholder; that fourth slot is not
+an estimate of attained sample coverage. Sample PCA runs only when requested. Counts and missing-locus indicators
 are retained; a missing locus is a hole, not a zero-valued embedding.
 
 .. code-block:: bash
@@ -236,6 +239,11 @@ embedding your target samples: blood or tissue RNA-seq, a synthetic counterpart,
 or deep TRA/TRB profiling. A deep TRA/TRB bundle projects those loci; it does not
 provide an RFF basis for BCR or the other TCR loci.
 
+Reference fitting accepts separate phase budgets: ``jobs`` for sample workers,
+``threads`` for BLAS after those workers join. ``threads=1`` preserves serial
+PCA; ``threads=0`` uses allocated cores. The shared ``TablePCA.fit`` accepts
+the same fitting-only budget and restores caller BLAS limits afterwards.
+
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
@@ -328,3 +336,49 @@ RFF bases does not make PCs from different sample rotations comparable. Missing
 loci remain marked in pass-through channels; fitted medians fill their selected
 coordinates during projection. A reference rotation is optional: retain and use
 raw RFF vectors whenever the downstream analysis needs them.
+
+Configured statistical reference rotations
+------------------------------------------
+
+``build_reference_rotations(..., feature_definition=definition)`` accepts the
+vdjtools ``basic`` or ``joint`` statistical basis and its IMGT11/BLOSUM62 motif
+variants. The bundle saves ``feature-definition.json`` and
+``feature-vocabulary.json`` beside the statistical TablePCA rotation. Raw tables
+must use that same definition, vocabulary, clone weighting and coverage target
+before applying ``features-pca.npz``. Its identity check rejects a different basis.
+
+Configured builds delegate fitting to ``TablePCA.fit_features`` in vdjtools, using
+transient sparse rows and a centered operator. Median imputation and StandardScaler
+coordinates match raw-table PCA; no dense training table is assembled or cached.
+The bundle checks projection using freshly read small query tables. ``jobs`` bounds
+sample workers; they join before ``threads`` bounds BLAS. Choose both from the same
+CPU allocation. RAM still grows with nonzero bins and the requested component count.
+The legacy statistical recipe and the RFF branch retain their existing paths.
+
+This option changes only the statistical branch of the reference bundle. Existing
+rsig is a separate prototype-geometry signature; sample RFF features are another
+representation. Their inputs and defaults do not change when a statistical motif
+basis is selected. New vsig corpus fits belong to vdjtools; do not register them
+as rsig rotations. Generic TablePCA and block-scaled Corpus PCA remain distinct
+fit/apply workflows.
+
+.. code-block:: python
+
+   from vdjtools.signature import feature_definition
+   from mir.embedding.reference import build_reference_rotations
+
+   definition = feature_definition("basic", motifs="imgt11")
+   build_reference_rotations(readers, ["TRA", "TRB"], "new-reference",
+                             feature_definition=definition, components=32,
+                             coverage=0.8, jobs=1)
+
+See `vdjtools statistical bases
+<https://docs.isalgo.dev/vdjtools/features.html>`_ for motif shapes, per-clonotype
+normalization, missingness and the separate isotype composition. Omitting the
+keyword retains the legacy reference recipe.
+
+For CLI extraction, pass the bundle's ``feature-vocabulary.json`` through
+``vdjtools features --feature-vocabulary`` with the same feature definition,
+weights and coverage target. The saved vocabulary is required when the reference
+models only selected loci; matching feature names alone does not establish an
+identical raw feature space.

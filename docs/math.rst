@@ -169,14 +169,14 @@ represented by its **distances to the panel**, in three separate geometries conc
 
 .. math::
 
-   \varphi(\sigma) \;=\; \big(\, d_{\mathrm{junc}}(\sigma, \pi_k),\;
-                              d_{V}(\sigma, \pi_k),\;
-                              d_{J}(\sigma, \pi_k) \,\big)_{k=1}^{K} \;\in\; \mathbb{R}^{3K}.
+   \varphi(\sigma) \;=\; \big(\, d_{V}(\sigma, \pi_k),\;
+                              d_{J}(\sigma, \pi_k),\;
+                              d_{\mathrm{junc}}(\sigma, \pi_k) \,\big)_{k=1}^{K} \;\in\; \mathbb{R}^{3K}.
 
 The junction term is the gap-block alignment score of :mod:`seqtree` (BLOSUM62 Gram penalty, gap
 placements :math:`(3,4,-4,-3)`); the V and J terms are baked germline region distances (CDR1/CDR2
 included), looked up per allele with a cascade fallback. Note for later that every coordinate is a
-distance, so :math:`\varphi` is **all-positive** — a fact with a practical consequence in
+distance, so :math:`\varphi` is **non-negative** — a fact with a practical consequence in
 :ref:`math-invariants`.
 
 Why this is a coordinate system and not a trick
@@ -347,7 +347,7 @@ of :math:`\rho_S`.
 That the summary is codebook-free follows from the same line: no clustering, no vocabulary, no
 :math:`K` to tune (``prop:codebook``). The bandwidth :math:`\ell` is calibrated to the
 one-substitution embedding scale :math:`r_1` (:func:`mir.density.calibrate_radius`), so the kernel
-resolves about one CDR3 mutation — and the same :math:`r_1` reappears as the radius in
+resolves about one junction amino-acid substitution — and the same :math:`r_1` reappears as the radius in
 :ref:`math-density`.
 
 Why the characteristic function and not a moment-generating one
@@ -1165,7 +1165,7 @@ scatter of labels.
 In-silico evolution
 ~~~~~~~~~~~~~~~~~~~
 
-Fit a (optionally class-conditional) Gaussian :math:`\mathcal{N}(m,\Sigma)` with Ledoit–Wolf shrinkage
+Fit an (optionally class-conditional) Gaussian :math:`\mathcal{N}(m,\Sigma)` with Ledoit–Wolf shrinkage
 over descriptor vectors. Then "perturb one coordinate and let the rest follow" is not a heuristic but
 the Gaussian conditional mean (``prop:evolve``): splitting into the perturbed coordinate :math:`1` and
 the rest :math:`2`,
@@ -1335,7 +1335,7 @@ is that **magnitude carries information** must be scaled by one global scalar:
 
 **Centring.** It keeps differences and therefore MMD, but not norms — so Rao's :math:`Q` cannot be read
 off a centred or PCA-reduced identity block, and any norm-based quantity has to be recomputed from the
-true :math:`\Phi_1`. A related trap follows from step 1's all-positive coordinates: the shared profile
+true :math:`\Phi_1`. A related trap follows from step 1's non-negative coordinates: the shared profile
 puts *any* two TCREmp-derived vectors at raw cosine :math:`\approx 0.999`, and subtracting each
 vector's own scalar mean does **not** fix it (measured: 0.9993 raw, 0.9985 self-centred, :math:`-0.14`
 cohort-centred). Only **cohort** centring removes the shared profile, so read a cosine between two

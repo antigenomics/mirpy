@@ -71,7 +71,8 @@ Step 3 -- denoise
 -----------------
 
 Three thousand columns are correlated by construction: nearby prototypes measure nearly the same
-thing. PCA to the preset's dimension keeps the geometry and drops the redundancy:
+thing. PCA fits a compact clonotype basis on these rows. The preset supplies a recommended
+dimension, not a saved rotation or a guarantee of variance retention on this input:
 
 .. code-block:: python
 
@@ -163,8 +164,8 @@ Step 6 -- one named vector per sample
 The ``RepertoireSpace`` RFF basis above is fitted on *your* cohort. Unprojected
 RFF means are comparable for future samples when you save and reuse that basis.
 Optional sample PCA uses a separate rotation; save and reuse it too. See :doc:`embeddings`.
-A :doc:`signature` provides a different, published reference system: fixed, named columns standardised against a
-published reference corpus.
+A :doc:`signature` provides a different, published reference system: fixed, named PCs standardised against a
+published reference corpus, accompanied by pass-through channels.
 
 .. code-block:: bash
 

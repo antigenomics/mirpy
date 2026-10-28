@@ -11,7 +11,8 @@ mirpy delegates pre-processing to vdjtools and enforces productive input for emb
 The short version
 -----------------
 
-**Non-productive rearrangements are removed on every dataset read, and that cannot be turned off.**
+**The mirpy CLI removes non-productive rearrangements on every clonotype read, with no opt-out.**
+Python callers using ``vdjtools.io.read`` must filter their own frames before embedding.
 
 Everything else — format conversion, error correction, depth normalisation, length and frequency
 and segment filtering — lives in vdjtools' own `Data pre-processing
@@ -101,9 +102,9 @@ The full hierarchy is documented on vdjtools' pre-processing page. In brief:
      - raises — a damaged table, never silently filtered
    * - **productive** (AIRR)
      - does the rearrangement encode a chain?
-     - **filtered on every read, no opt-out**
+     - **filtered on every mirpy CLI clonotype read, no opt-out**
    * - **functional genes** (IMGT F/ORF/P)
-     - is the germline gene real?
+     - is the assigned germline gene functional, an ORF or a pseudogene?
      - your choice — call vdjtools before handing frames to mirpy
 
 Note the third one is *not* mandated. A pseudogene V that rearranged in frame with no stop codon
