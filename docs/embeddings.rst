@@ -73,6 +73,8 @@ controls that clonotype basis. ``--n-rff`` controls the RFF width (default 1024)
 ``--blocks mean,diversity`` is the default; add ``second`` when needed. All samples
 share the same mapping. Each worker retains one sample and bounded numerical blocks;
 only sample vectors survive the reduction. ``--threads 1`` starts no worker pool.
+Workers write directly into one preallocated columnar output matrix, which Polars
+wraps without a second feature-table copy.
 The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
 allocated cores, capped by the number of samples.
 

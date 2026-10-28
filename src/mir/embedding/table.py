@@ -143,33 +143,37 @@ def sample_embeddings(samples, spaces: dict, *, weight='log2p1',
         columns.extend(cols)
         widths[loc] = len(cols)
 
-    def one(item):
+    def one(indexed):
+        row, item = indexed
         frames = _frames(item[1])
-        values, counts, effective = [], [], []
+        counts, effective = [], []
+        offset = 0
         for loc, sp in spaces.items():
             df = frames.pop(loc, None)
             n = 0 if df is None else df.height
             counts.append(n)
             emb = sample_embedding(sp, df, weight=weight, blocks=blocks) if n else None
-            values.append(emb.vector if emb else np.full(widths[loc], np.nan))
+            matrix[row, offset:offset+widths[loc]] = emb.vector if emb else np.nan
+            offset += widths[loc]
             effective.append(emb.n_eff if emb else np.nan)
             del df
-        return np.concatenate(values), counts, effective
+        return counts, effective
 
     from vdjtools.cores import kernel_threads, require_memory
-    require_memory(24 * len(items) * len(columns)
+    require_memory(8 * len(items) * len(columns)
                    + min(len(items), kernel_threads(n_jobs)) * 32 * 1024**2,
                    "RFF sample reduction")
-    compact = parallel_rows(items, one, n_jobs)
-    matrix = np.vstack([row for row, _, _ in compact])
+    # Workers write disjoint rows; column-contiguous storage passes to Polars without copying.
+    matrix = np.empty((len(items), len(columns)), dtype=np.float64, order='F')
+    compact = parallel_rows(enumerate(items), one, n_jobs)
     out = pl.DataFrame({'sample_id': ids,
                         'embedding_space': [_rff_space(spaces, weight)] * len(ids)})
     out = out.hstack(pl.from_numpy(matrix, schema=columns))
     for i, loc in enumerate(spaces):
-        counts = [n[i] for _, n, _ in compact]
+        counts = [n[i] for n, _ in compact]
         out = out.with_columns(pl.Series(f'n_clonotypes:{loc}', counts),
                                pl.Series(f'present:{loc}', [int(n > 0) for n in counts]),
-                               pl.Series(f'n_eff:{loc}', [n[i] for _, _, n in compact]))
+                               pl.Series(f'n_eff:{loc}', [n[i] for _, n in compact]))
     return out
 
 

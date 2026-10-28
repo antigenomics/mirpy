@@ -75,6 +75,13 @@ def test_parallel_sample_rows_equal_serial_with_missing_loci(monkeypatch):
         budgets.append(n_jobs)
         return original(items, fn, n_jobs)
     monkeypatch.setattr(tables, 'parallel_rows', checked)
+    from_numpy = tables.pl.from_numpy
+    def columnar(values, *args, **kwargs):
+        assert values.flags.f_contiguous, 'sample rows require a second full table copy'
+        out = from_numpy(values, *args, **kwargs)
+        assert np.shares_memory(values, out[:, 0].to_numpy())
+        return out
+    monkeypatch.setattr(tables.pl, 'from_numpy', columnar)
     assert serial.equals(sample_embeddings(items,spaces))
     assert budgets == [0]
     assert parallel['sample_id'].to_list() == [str(i) for i in range(5)] + ['empty']
