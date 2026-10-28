@@ -26,6 +26,7 @@ dependencies = [
   "numpy",
   "polars>=1.0,<2",
   "scikit-learn",
+  "huggingface_hub",  # verified reference bootstrap; no network on import
   "scipy",          # density-ratio enrichment tests (mir.density) + theory fits
   "seqtree>=1.3.2",
   # AIRR data model (polars schema + IO), germline reference, VDJ-rearrangement

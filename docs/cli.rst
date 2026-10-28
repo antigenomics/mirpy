@@ -134,3 +134,17 @@ vdjtools' bundled recombination models, so the artifact is reproducible by anyon
 library and is byte-identical across processes and thread counts. ``--samples``, ``--size``,
 ``--seed``, ``--loci``, ``--source`` and ``--depth-spread`` control the draw and are all recorded in
 the manifest.
+
+Pre-stage reference rotations
+-----------------------------
+
+``mir reference NAME --revision COMMIT`` fetches a reference from the published
+``isalgo/mirpy_models`` dataset, verifies every manifest checksum, and prints its
+local directory. ``COMMIT`` must be the full immutable commit SHA. It does not
+load pickle models or fit a rotation. Use the resulting directory with
+``--basis``, ``--rotation`` and vdjtools' ``--feature-vocabulary``.
+
+``--cache-dir PATH`` selects a writable Hugging Face cache directory. ``--offline``
+uses only a snapshot already staged there. Pre-stage once before workflow fan-out;
+workers can use the verified directory as a read-only reference input. Hugging
+Face handles per-file download locks and atomic cache publication.

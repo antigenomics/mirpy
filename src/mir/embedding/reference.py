@@ -129,3 +129,45 @@ def _variance(rotation):
     return {'components': rotation.components.shape[0],
             'cumulative': {str(k): float(rotation.explained_variance_ratio[:k].sum())
                            for k in (256, 512, 1024)}}
+
+
+def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False):
+    """Fetch a hash-verified reference at an immutable Hugging Face commit.
+
+    Returns its directory without loading pickle models. Hugging Face owns atomic
+    file downloads, per-file process locks and interrupted-download recovery.
+    ``local_files_only=True`` supports pre-staged offline jobs. No fitting occurs.
+    """
+    import re
+    from pathlib import PurePosixPath
+    from huggingface_hub import snapshot_download
+
+    if name not in ('rna-blood', 'rna-tissue', 'synthetic-blood',
+                    'synthetic-tissue', 'deep-tra-trb'):
+        raise ValueError('unknown reference bundle name')
+    if not isinstance(revision, str) or re.fullmatch(r'[0-9a-f]{40}', revision) is None:
+        raise ValueError('revision must be an immutable 40-character commit SHA')
+    root = Path(snapshot_download('isalgo/mirpy_models', repo_type='dataset',
+                revision=revision, allow_patterns=[f'{name}/*'], cache_dir=cache_dir,
+                local_files_only=local_files_only, max_workers=1)) / name
+    meta = json.loads((root / 'bundle.json').read_text())
+    if meta.get('format') != 1 or not isinstance(meta.get('files'), dict) or not meta['files']:
+        raise ValueError('invalid reference manifest')
+    loci = meta.get('loci')
+    if not isinstance(loci, list) or not loci or any(loc not in LOCI for loc in loci):
+        raise ValueError('reference manifest has invalid loci')
+    required = {'features-pca.npz', 'rff-pca.npz', 'feature-vocabulary.json',
+                'feature-columns.txt', *(f'basis/{loc}.pkl' for loc in loci)}
+    if not required.issubset(meta['files']):
+        raise ValueError('reference manifest is missing required payloads')
+    for filename, expected in meta['files'].items():
+        path = PurePosixPath(filename)
+        if path.is_absolute() or '..' in path.parts or '\\' in filename:
+            raise ValueError('reference manifest contains an unsafe payload path')
+        with (root / filename).open('rb') as stream:
+            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if actual != expected:
+            raise ValueError(f'reference checksum mismatch: {filename}; refetch the pinned revision')
+    if 'feature-vocabulary.json' not in meta['files']:
+        raise ValueError('reference lacks a frozen feature vocabulary')
+    return root

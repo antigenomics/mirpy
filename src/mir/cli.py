@@ -480,6 +480,14 @@ def cmd_corpus(a: argparse.Namespace) -> None:
 
 
 # --- parser ----------------------------------------------------------------
+def cmd_reference(a: argparse.Namespace) -> None:
+    """Pre-stage an immutable reference bundle without loading or fitting models."""
+    from mir.embedding.reference import fetch_reference
+
+    print(fetch_reference(a.name, revision=a.revision, cache_dir=a.cache_dir,
+                          local_files_only=a.offline))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Return the ``mir`` argument parser (``embed clonotypes`` / ``embed repertoires``)."""
     p = argparse.ArgumentParser(prog="mir", description=__doc__.splitlines()[0])
@@ -671,6 +679,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="bounded worker threads across samples (serial inner kernels): 0 = allocated cores, "
                          "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
+
+    ref = sub.add_parser('reference', help='fetch and verify a frozen reference bundle')
+    ref.add_argument('name', choices=('rna-blood', 'rna-tissue', 'synthetic-blood',
+                                     'synthetic-tissue', 'deep-tra-trb'))
+    ref.add_argument('--revision', required=True, help='immutable Hugging Face commit SHA')
+    ref.add_argument('--cache-dir', help='Hugging Face cache directory (default: standard hub cache)')
+    ref.add_argument('--offline', action='store_true', help='verify a pre-staged local snapshot')
+    ref.set_defaults(func=cmd_reference)
 
 
     return p
