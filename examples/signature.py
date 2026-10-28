@@ -33,8 +33,8 @@ def _():
     from vdjtools.model import load_bundled
     from vdjtools.model.generate import generate
 
-    # A deliberately tiny corpus so this notebook runs in seconds. Real ones are 10,000
-    # repertoires -- see `mir corpus --help`. A corpus is REQUIRED: there is no default, because a
+    # A deliberately tiny corpus so this notebook runs in seconds; see `mir corpus --help`.
+    # A corpus is REQUIRED: there is no default, because a
     # signature is comparable to another one only if both were rotated through the same one.
     corpus, _rows = S.synthesize("memory", loci=("TRB",), n_samples=30, size=120, seed=1,
                                  n_components=6)
@@ -43,24 +43,22 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # The portable signature — geometry half
+    mo.md(r"""
+    # The portable signature — geometry half
 
-        `mir.signature` contributes `rsig`, the **geometry** of a repertoire: where its receptors
-        sit in sequence space. Each clonotype $\\sigma$ is placed at a point $z_\\sigma$ by its
-        similarity to a fixed panel of reference receptors, and the sample is summarised by the
-        clone-size-weighted average of those points, $\\Phi(S) = \\sum_\\sigma w_\\sigma
-        z_\\sigma$, in three interleaved slots — V, J and junction. Around that sit the sample's
-        effective depth, its clone-size and isotype composition, and how *spread out* its receptors
-        are in the embedding.
+    `mir.signature` contributes `rsig`, the **geometry** of a repertoire: where its receptors
+    sit in sequence space. Each clonotype $\sigma$ is placed at a point $z_\sigma$ by its
+    similarity to a fixed panel of reference receptors, and the sample is summarised by the
+    clone-size-weighted average of those points, $\Phi(S) = \sum_\sigma w_\sigma
+    z_\sigma$, in three interleaved slots — V, J and junction. Around that sit the sample's
+    effective depth, its clone-size and isotype composition, and how *spread out* its receptors
+    are in the embedding.
 
-        Its partner is `vdjtools.signature` (`vsig`), which contributes the classical statistics of
-        the clone-size vector: diversity, clonality, gene usage, junction lengths. Two donors can
-        have identical diversity and occupy different regions of sequence space, which is why both
-        halves exist. They share one column contract and one transform registry.
-        """
-    )
+    Its partner is `vdjtools.signature` (`vsig`), which contributes the classical statistics of
+    the clone-size vector: diversity, clonality, gene usage, junction lengths. Two donors can
+    have identical diversity and occupy different regions of sequence space, which is why both
+    halves exist. They share one column contract and one transform registry.
+    """)
     return
 
 
@@ -80,24 +78,22 @@ def _(S, pl):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## 1. Two halves, opposite tables
+    mo.md(r"""
+    ## 1. Two halves, opposite tables
 
-        `vsig` is dominated by `arcsine`, `clr` and `logit`. `rsig` is dominated by `none`. That is
-        not an oversight — it follows from what the columns are.
+    `vsig` is dominated by `arcsine`, `clr` and `logit`. `rsig` is dominated by `none`. That is
+    not an oversight — it follows from what the columns are.
 
-        A `vsig` proportion is bounded, discrete, and **mean–variance coupled**: for a binomial
-        share the variance is $p(1-p)/m$, a function of the value itself. A variance-stabilising
-        transform is exactly the right tool.
+    A `vsig` proportion is bounded, discrete, and **mean–variance coupled**: for a binomial
+    share the variance is $p(1-p)/m$, a function of the value itself. A variance-stabilising
+    transform is exactly the right tool.
 
-        An `rsig` coordinate is a linear functional of a weighted mean of *fixed* embedding
-        vectors. It is signed, roughly symmetric, has no boundary to compress against, and its
-        variance is $\\approx \\sigma^2 / n_\\text{eff}$ — which depends on depth but **not on the
-        coordinate's own value**. There is nothing for a stabiliser to stabilise, and `log`,
-        `logit` and `arcsine` are all undefined on half its range anyway.
-        """
-    )
+    An `rsig` coordinate is a linear functional of a weighted mean of *fixed* embedding
+    vectors. It is signed, roughly symmetric, has no boundary to compress against, and its
+    variance is $\approx \sigma^2 / n_\text{eff}$ — which depends on depth but **not on the
+    coordinate's own value**. There is nothing for a stabiliser to stabilise, and `log`,
+    `logit` and `arcsine` are all undefined on half its range anyway.
+    """)
     return
 
 
@@ -112,27 +108,25 @@ def _(S, pl):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        Where `rsig` *does* transform, the quantity has stopped being a coordinate.
+    mo.md(r"""
+    Where `rsig` *does* transform, the quantity has stopped being a coordinate.
 
-        `depth` holds two such quantities. The effective sample size $n_\\text{eff}$ is a count
-        spanning orders of magnitude across a cohort, so it takes `log10`; the mass fraction is a
-        proportion in $(0, 1)$, so it takes `logit`. `band` and `band_igh` are genuine **closed
-        compositions** — clone-size and isotype shares that sum to one — so they take the centred
-        log-ratio `clr` and ship $k-1$ parts, because the $k$-th is determined by the others and
-        including it would make the block singular.
+    `depth` holds two such quantities. The effective sample size $n_\text{eff}$ is a count
+    spanning orders of magnitude across a cohort, so it takes `log10`; the mass fraction is a
+    proportion in $(0, 1)$, so it takes `logit`. `band` and `band_igh` are genuine **closed
+    compositions** — clone-size and isotype shares that sum to one — so they take the centred
+    log-ratio `clr` and ship $k-1$ parts, because the $k$-th is determined by the others and
+    including it would make the block singular.
 
-        There used to be a third case here: a `contrast` block carrying $\\Phi$ minus a frozen
-        naive reference vector, on one scalar scale with no centring, so that a repertoire which
-        had barely moved from naive stayed visibly near zero. It is gone as of 4.0.0, and nothing
-        was lost — **the corpus centre is the subtraction point**. Subtracting a corpus median is
-        the same operation done against a reference that was measured on repertoires rather than
-        frozen into the wheel, and it removed a failure mode with it: the old naive vector was
-        drawn against one release of the bundled recombination models, so rebuilding those models
-        moved every contrast column by 0.1–1.6% per locus with nothing in the output saying so.
-        """
-    )
+    There used to be a third case here: a `contrast` block carrying $\Phi$ minus a frozen
+    naive reference vector, on one scalar scale with no centring, so that a repertoire which
+    had barely moved from naive stayed visibly near zero. It is gone as of 4.0.0, and nothing
+    was lost — **the corpus centre is the subtraction point**. Subtracting a corpus median is
+    the same operation done against a reference that was measured on repertoires rather than
+    frozen into the wheel, and it removed a failure mode with it: the old naive vector was
+    drawn against one release of the bundled recombination models, so rebuilding those models
+    moved every contrast column by 0.1–1.6% per locus with nothing in the output saying so.
+    """)
     return
 
 
@@ -175,23 +169,21 @@ def _(S, generate, load_bundled, n_donors, np, pl, corpus):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## 2. How many components survive a refit
+    mo.md(r"""
+    ## 2. How many components survive a refit
 
-        Three criteria, applied to the same matrix. They do not agree, and the disagreement is the
-        lesson.
+    Three criteria, applied to the same matrix. They do not agree, and the disagreement is the
+    lesson.
 
-        * **cumulative variance** — how much of *this* corpus you reproduce.
-        * **per-component correlation across a group-disjoint refit** — is this *axis* identified?
-          Both halves score the same held-out donors, so the number answers "would a collaborator's
-          refit put my samples in the same place".
-        * **subspace overlap** $\\lVert V_a V_b^\\top\\rVert_F^2 / k$ — is this *subspace*
-          identified? Invariant to any rotation within the retained span, so unlike the
-          per-component number it does not punish two near-degenerate components for swapping
-          order. Chance level is $k/p$, not 0.
-        """
-    )
+    * **cumulative variance** — how much of *this* corpus you reproduce.
+    * **per-component correlation across a group-disjoint refit** — is this *axis* identified?
+      Both halves score the same held-out donors, so the number answers "would a collaborator's
+      refit put my samples in the same place".
+    * **subspace overlap** $\lVert V_a V_b^\top\rVert_F^2 / k$ — is this *subspace*
+      identified? Invariant to any rotation within the retained span, so unlike the
+      per-component number it does not punish two near-degenerate components for swapping
+      order. Chance level is $k/p$, not 0.
+    """)
     return
 
 

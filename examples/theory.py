@@ -34,14 +34,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # TCREMP theory validation
-        The prototype embedding is built so that **Euclidean distance ≈ pairwise alignment
-        distance**. This notebook reproduces supplementary figures **S1–S3** on the bundled
-        `human_TRB` prototypes (sequences act as their own prototypes, as in the paper).
-        """
-    )
+    mo.md("""
+    # TCREMP theory validation
+    The prototype embedding is built so that **Euclidean distance ≈ pairwise alignment
+    distance**. This notebook reproduces supplementary figures **S1–S3** on the bundled
+    `human_TRB` prototypes (sequences act as their own prototypes, as in the paper).
+    """)
     return
 
 
@@ -128,3 +126,7 @@ def _(cdr3, generate, load_bundled, load_prototypes, mo, prototype_source_correl
         """
     )
     return
+
+
+if __name__ == "__main__":
+    app.run()

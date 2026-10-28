@@ -1,7 +1,7 @@
 Command reference
 =================
 
-``pip install mirpy-lib`` installs one ``mir`` command with embedding, PCA and signature subcommands. This page lists each
+``pip install mirpy-lib`` installs one ``mir`` command with embedding, PCA, signature and reference commands. This page lists each
 one, what it is for, and the options that change an answer rather than only a path.
 
 ``mir <command> --help`` is the authoritative list of flags and defaults -- it is generated from the
@@ -134,3 +134,22 @@ vdjtools' bundled recombination models, so the artifact is reproducible by anyon
 library and is byte-identical across processes and thread counts. ``--samples``, ``--size``,
 ``--seed``, ``--loci``, ``--source`` and ``--depth-spread`` control the draw and are all recorded in
 the manifest.
+
+Pre-stage reference rotations
+-----------------------------
+
+``mir reference NAME`` fetches a reference from the published
+``isalgo/airr_feature_signatures`` dataset, verifies every manifest checksum, and prints its
+local ``references/NAME`` directory. The default is pinned to the release-tested
+immutable revision. Override it with ``--revision COMMIT`` using a full commit SHA. It does not
+load pickle models or fit a rotation. Use the resulting directory with
+``--basis``, ``--rotation`` and vdjtools' ``--feature-vocabulary``.
+
+``--cache-dir PATH`` selects a writable Hugging Face cache directory. ``--offline``
+uses only a snapshot already staged there. Pre-stage once before workflow fan-out;
+workers can use the verified directory as a read-only reference input. Hugging
+Face handles per-file download locks and atomic cache publication.
+
+Use ``--force-download`` online to recover a corrupted cache entry; verification
+still checks every manifest hash. It cannot be combined with ``--offline``.
+An offline cache miss prints the corresponding pre-staging command.

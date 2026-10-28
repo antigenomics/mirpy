@@ -92,3 +92,27 @@ def test_shares_and_masks_agree_about_which_rows_are_in_a_band():
     masks, shares = isotype_masks(df), isotype_shares(df, w)
     for name in ISOTYPE_BANDS:
         assert shares[name] == pytest.approx(float(w[masks[name]].sum()), rel=1e-12)
+
+
+def test_signature_reuses_isotype_masks_for_shares(monkeypatch):
+    from mir.embedding.prototypes import load_prototypes
+    from mir.signature import features as F
+    from mir.signature.signature import raw_and_channels
+
+    df = load_prototypes('human', 'IGH', n=12).with_columns(
+        pl.lit(1).alias('duplicate_count'), pl.lit('IGHM*01').alias('c_call'))
+    w = np.ones(12) / 12
+    expected = F.isotype_shares(df, w)
+    masks = F.isotype_masks(df)
+    calls = []
+    original = F.isotype_masks
+
+    def count(frame):
+        calls.append(1)
+        return original(frame)
+
+    monkeypatch.setattr(F, 'isotype_masks', count)
+    assert F.isotype_shares(df, w, masks=masks) == expected
+    assert not calls
+    raw_and_channels({'IGH': df}, {'IGH': {}})
+    assert len(calls) == 1

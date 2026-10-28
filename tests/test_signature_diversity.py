@@ -140,3 +140,16 @@ def test_adding_channels_does_not_invalidate_a_fitted_corpus(tmp_path):
     row = rsig(samples["S1"], reloaded, n_components=3)
     for c in L.channel_columns("rsig"):
         assert c in row, c
+
+
+@pytest.mark.parametrize('function', [F.prototype_sum, F.dispersion_pass])
+@pytest.mark.parametrize('chunk', [-1, 0, 1.5, True])
+def test_signature_reducers_reject_invalid_chunk_sizes(function, chunk):
+    from types import SimpleNamespace
+
+    def forbidden(*args):
+        raise AssertionError('invalid chunk reached embedding')
+
+    model = SimpleNamespace(n_prototypes=2, embed=forbidden)
+    with pytest.raises(ValueError, match='positive integer'):
+        function(_frame(3, 42), model, np.ones(3) / 3, chunk=chunk)

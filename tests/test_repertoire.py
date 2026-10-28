@@ -32,7 +32,7 @@ def _clonotypes(n: int, offset: int = 0) -> pl.DataFrame:
         _OLGA, separator="\t", has_header=False,
         new_columns=["junction_nt", "junction_aa", "v_call", "j_call"],
     ).select(["junction_aa", "v_call", "j_call"]).slice(offset, n)
-    return df.unique(subset=["junction_aa", "v_call", "j_call"])
+    return df.unique(subset=["junction_aa", "v_call", "j_call"], maintain_order=True)
 
 
 def _sample(df: pl.DataFrame, counts=None) -> pl.DataFrame:
@@ -176,6 +176,26 @@ def test_mmd_matrix_symmetric_zero_diag(space):
     assert D.shape == (3, 3)
     assert np.allclose(D, D.T)
     assert np.allclose(np.diag(D), 0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize('unbiased', [False, True])
+def test_mmd_matrix_bounds_pairwise_scratch_and_checks_memory(monkeypatch, unbiased):
+    from mir.repertoire import SampleEmbedding
+    from vdjtools import cores
+    values = np.random.default_rng(3).normal(size=(11, 9))
+    embs = [SampleEmbedding(mean=row, diversity=None, second=None, n_eff=20) for row in values]
+    expected = np.array([[mmd_distance(a,b,unbiased=unbiased) for b in embs] for a in embs])
+    np.fill_diagonal(expected, 0)
+    requests = []
+    monkeypatch.setattr(cores, 'require_memory', lambda size, reason: requests.append(size))
+    actual = mmd_matrix(embs, unbiased=unbiased)
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+    assert requests and requests[0] >= actual.nbytes
+    def unavailable(*args):
+        raise MemoryError('selected allocation cannot hold the pairwise output')
+    monkeypatch.setattr(cores, 'require_memory', unavailable)
+    with pytest.raises(MemoryError, match='pairwise output'):
+        mmd_matrix(embs, unbiased=unbiased)
 
 
 def test_unbiased_mmd_removes_self_bias(space):
@@ -880,3 +900,9 @@ def test_shared_basis_rejects_empty_cloud():
                          schema={'v_call':pl.String,'j_call':pl.String,'junction_aa':pl.String})
     with pytest.raises(ValueError,match='at least one row'):
         rep.fit_repertoire_space(model,frame)
+
+
+def test_clonotype_fixture_preserves_source_order():
+    """Fixed seeds require repeatable fitting rows and abundance assignments."""
+    expected = _clonotypes(120)
+    assert expected.equals(_clonotypes(120))

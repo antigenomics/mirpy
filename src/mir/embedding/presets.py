@@ -1,7 +1,6 @@
 """Recommended per-chain presets: prototype count and PCA dimensionality.
 
-Data-driven from the bundled prototypes (measured by the ``benchmarks/`` scripts in the companion
-``2026-mirpy-analysis`` repo):
+Measured from the bundled prototypes:
 
 * **n_prototypes** — the pairwise-distance geometry saturates (Pearson r vs a 5000-prototype
   reference ≥ 0.996 at 1000, ≥ 0.999 at 2000). Compact chains (IGK/IGL/TRG) saturate earlier;

@@ -93,3 +93,104 @@ def test_cluster_relative_worker_budget(monkeypatch, jobs, expected):
             return np.zeros(len(X), dtype=int)
     monkeypatch.setattr(metrics, 'DBSCAN', Estimator)
     assert metrics.cluster(np.zeros((5, 3)), eps=1, n_jobs=jobs).shape == (5,)
+
+
+@pytest.mark.parametrize('hard_limit', [None, '2'])
+def test_import_preserves_openmp_capacity_and_neighbor_distances(hard_limit):
+    """Import must allow later sklearn stages to own their OpenMP allocation (#61)."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env.pop('OMP_THREAD_LIMIT', None)
+    if hard_limit is not None:
+        env['OMP_THREAD_LIMIT'] = hard_limit
+    code = '''
+import os
+before = os.environ.get('OMP_THREAD_LIMIT')
+import mir
+assert os.environ.get('OMP_THREAD_LIMIT') == before
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+from threadpoolctl import threadpool_limits
+x = np.random.default_rng(20261026).normal(size=(128, 32))
+truth = np.linalg.norm(x[:, None] - x[None, :], axis=2)
+np.fill_diagonal(truth, np.inf)
+with threadpool_limits(limits=2, user_api='openmp'):
+    distances, _ = NearestNeighbors(n_neighbors=2, algorithm='brute').fit(x).kneighbors(x)
+np.testing.assert_allclose(distances[:, 1], truth.min(axis=1), rtol=1e-12)
+'''
+    result = subprocess.run([sys.executable, '-c', code], env=env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert 'Cannot form a team' not in result.stderr
+
+
+def test_radius_search_owns_and_restores_native_budget(monkeypatch):
+    import mir.bench.metrics as metrics
+    from threadpoolctl import threadpool_info, threadpool_limits
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    original = metrics.NearestNeighbors
+    seen = []
+
+    class Neighbors(original):
+        def kneighbors(self, *args, **kwargs):
+            pools = threadpool_info()
+            assert all(p['num_threads'] == 1 for p in pools if p['user_api'] == 'blas')
+            assert all(p['num_threads'] == 2 for p in pools if p['user_api'] == 'openmp')
+            seen.append(self.n_jobs)
+            return super().kneighbors(*args, **kwargs)
+
+    monkeypatch.setattr(metrics, 'NearestNeighbors', Neighbors)
+    x = np.random.default_rng(42).normal(size=(128, 32))
+    with threadpool_limits(limits=1):
+        before = [(p['filepath'], p['num_threads']) for p in threadpool_info()]
+        radius = metrics.estimate_dbscan_eps(x, threads=2)
+        assert before == [(p['filepath'], p['num_threads']) for p in threadpool_info()]
+    assert seen == [2]
+    monkeypatch.setattr(metrics, 'NearestNeighbors', original)
+    assert radius == pytest.approx(metrics.estimate_dbscan_eps(x, threads=1), rel=1e-12)
+    with pytest.raises(ValueError):
+        metrics.estimate_dbscan_eps(x, threads=3)
+
+
+@pytest.mark.parametrize('method', ['dbscan', 'hdbscan', 'optics'])
+def test_cluster_scopes_native_pools_and_restores_after_failure(monkeypatch, method):
+    import sklearn.cluster
+    import mir.bench.metrics as metrics
+    from threadpoolctl import threadpool_info, threadpool_limits
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+
+    class Estimator:
+        def __init__(self, **kwargs):
+            assert kwargs['n_jobs'] == 2
+
+        def fit_predict(self, x):
+            pools = threadpool_info()
+            assert all(p['num_threads'] == 1 for p in pools if p['user_api'] == 'blas')
+            assert all(p['num_threads'] == 2 for p in pools if p['user_api'] == 'openmp')
+            raise RuntimeError('fit failed')
+
+    monkeypatch.setattr(metrics, 'DBSCAN', Estimator)
+    monkeypatch.setattr(sklearn.cluster, 'HDBSCAN', Estimator)
+    monkeypatch.setattr(sklearn.cluster, 'OPTICS', Estimator)
+    with threadpool_limits(limits=1):
+        with pytest.raises(RuntimeError, match='fit failed'):
+            metrics.cluster(np.zeros((8, 3)), eps=1, method=method, n_jobs=2)
+        assert all(p['num_threads'] == 1 for p in threadpool_info())
+
+
+@pytest.mark.parametrize('method', ['dbscan', 'hdbscan', 'optics'])
+def test_cluster_parallel_labels_match_serial(method, monkeypatch):
+    from mir.bench.metrics import cluster
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    rng = np.random.default_rng(20261028)
+    x = np.concatenate([rng.normal(center, 0.05, (40, 32)) for center in (0, 3)])
+    serial = cluster(x, eps=1, method=method, n_jobs=1)
+    parallel = cluster(x, eps=1, method=method, n_jobs=2)
+    np.testing.assert_array_equal(parallel, serial)
+    assert len(set(serial) - {-1}) >= 2

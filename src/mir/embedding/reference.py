@@ -50,6 +50,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     out.mkdir(parents=True, exist_ok=False)
     # Match `vdjtools features` even when the reference observes only TRA/TRB.
     vocab = {loc: gene_vocab(loc, 'human') for loc in LOCI}
+    (out / 'feature-vocabulary.json').write_text(json.dumps(vocab, indent=2) + '\n')
     table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage)
     columns = [c for loc in (*loci, NO_LOCUS)
                for c in raw_columns('vsig', loc, vocab.get(loc))]
@@ -128,3 +129,61 @@ def _variance(rotation):
     return {'components': rotation.components.shape[0],
             'cumulative': {str(k): float(rotation.explained_variance_ratio[:k].sum())
                            for k in (256, 512, 1024)}}
+
+
+REFERENCE_REVISION = 'b4ea628585e8b22caa813fca47c7d472c8aad2b0'
+
+
+def fetch_reference(name, *, revision=None, cache_dir=None, local_files_only=False,
+                    force_download=False):
+    """Fetch a hash-verified reference at an immutable Hugging Face commit.
+
+    Returns its directory without loading pickle models. Hugging Face owns atomic
+    file downloads, per-file process locks and interrupted-download recovery.
+    ``local_files_only=True`` supports pre-staged offline jobs. ``force_download``
+    repairs a corrupt cached download through the same locked downloader. No fitting occurs.
+    """
+    import re
+    from pathlib import PurePosixPath
+    from huggingface_hub import snapshot_download
+
+    revision = REFERENCE_REVISION if revision is None else revision
+    if name not in ('rna-blood', 'rna-tissue', 'synthetic-blood',
+                    'synthetic-tissue', 'deep-tra-trb'):
+        raise ValueError('unknown reference bundle name')
+    if not isinstance(revision, str) or re.fullmatch(r'[0-9a-f]{40}', revision) is None:
+        raise ValueError('revision must be an immutable 40-character commit SHA')
+    if force_download and local_files_only:
+        raise ValueError('force_download requires online access; omit local_files_only')
+    command = f'mir reference {name} --revision {revision}'
+    try:
+        root = Path(snapshot_download('isalgo/airr_feature_signatures', repo_type='dataset',
+                    revision=revision, allow_patterns=[f'references/{name}/*'], cache_dir=cache_dir,
+                    local_files_only=local_files_only, force_download=force_download,
+                    max_workers=1)) / 'references' / name
+        meta = json.loads((root / 'bundle.json').read_text())
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f'Reference is not fully staged. Run online: {command}; '
+                                'use the same --cache-dir for the offline job.') from exc
+    if (not isinstance(meta, dict) or meta.get('format') != 1
+            or not isinstance(meta.get('files'), dict) or not meta['files']):
+        raise ValueError('invalid reference manifest')
+    loci = meta.get('loci')
+    if not isinstance(loci, list) or not loci or any(loc not in LOCI for loc in loci):
+        raise ValueError('reference manifest has invalid loci')
+    required = {'features-pca.npz', 'rff-pca.npz', 'feature-vocabulary.json',
+                'feature-columns.txt', *(f'basis/{loc}.pkl' for loc in loci)}
+    if not required.issubset(meta['files']):
+        raise ValueError('reference manifest is missing required payloads')
+    for filename, expected in meta['files'].items():
+        path = PurePosixPath(filename)
+        if path.is_absolute() or '..' in path.parts or '\\' in filename:
+            raise ValueError('reference manifest contains an unsafe payload path')
+        with (root / filename).open('rb') as stream:
+            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if actual != expected:
+            raise ValueError(f'reference checksum mismatch: {filename}; retry online with '
+                             f'{command} --force-download')
+    if 'feature-vocabulary.json' not in meta['files']:
+        raise ValueError('reference lacks a frozen feature vocabulary')
+    return root

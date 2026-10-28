@@ -36,17 +36,15 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # Continuous-density TCRNET / ALICE (Theory T6)
+    mo.md("""
+    # Continuous-density TCRNET / ALICE (Theory T6)
 
-        TCRNET/ALICE flag antigen-driven convergent clones by counting near-identical (Hamming-1)
-        neighbours and comparing to a background. `mir.density` does the same test with
-        neighbour-counting in the **TCREMP embedding space** — the graph-free density ratio
-        `E(z) = f_obs(z) / f_gen(z)`. Below, a synthetic convergent family injected into a diverse
-        prototype pool stands in for an antigen-specific cluster; everything else is the background.
-        """
-    )
+    TCRNET/ALICE flag antigen-driven convergent clones by counting near-identical (Hamming-1)
+    neighbours and comparing to a background. `mir.density` does the same test with
+    neighbour-counting in the **TCREMP embedding space** — the graph-free density ratio
+    `E(z) = f_obs(z) / f_gen(z)`. Below, a synthetic convergent family injected into a diverse
+    prototype pool stands in for an antigen-specific cluster; everything else is the background.
+    """)
     return
 
 
@@ -138,25 +136,22 @@ def _(denoise_and_cluster, is_family, mo, np, obs_emb, res):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## On real repertoires
+    mo.md("""
+    ## On real repertoires
 
-        Real repertoires are *pervasively* convergent, so a generative `P_gen` background flags a
-        large fraction of clones. Prefer a **biological control** (pre- vs post-vaccination, patient
-        vs healthy, stimulated vs baseline) — differential enrichment cancels generic public
-        convergence and isolates the antigen-specific response:
+    Real repertoires are *pervasively* convergent, so a generative `P_gen` background flags a
+    large fraction of clones. Prefer a **biological control** (pre- vs post-vaccination, patient
+    vs healthy, stimulated vs baseline) — differential enrichment cancels generic public
+    convergence and isolates the antigen-specific response:
 
-        ```python
-        space, obs_emb, bg_emb = fit_density_space(model, day15_df, day0_df, n_components=20)
-        res  = neighbor_enrichment(obs_emb, bg_emb, test="binomial")   # TCRNET, real control
-        hits = day15_df.filter(enriched_mask(res))
-        ```
+    ```python
+    space, obs_emb, bg_emb = fit_density_space(model, day15_df, day0_df, n_components=20)
+    res  = neighbor_enrichment(obs_emb, bg_emb, test="binomial")   # TCRNET, real control
+    hits = day15_df.filter(enriched_mask(res))
+    ```
 
-        See `benchmarks/benchmark_density_{yfv,ankspond,tcrnet}.py` in the companion
-        `2026-mirpy-analysis` repo.
-        """
-    )
+    Use a matched biological control when interpreting repertoire enrichment.
+    """)
     return
 
 
