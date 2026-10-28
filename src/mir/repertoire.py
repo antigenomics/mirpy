@@ -807,6 +807,7 @@ def naive_reference(
     *,
     n: int = 20_000,
     seed: int = 0,
+    source: str = "learned",
     sequences: pl.DataFrame | None = None,
 ) -> np.ndarray:
     """Kernel mean of ``n`` naive V(D)J recombinations — where the **unseen** clonotypes live.
@@ -824,7 +825,7 @@ def naive_reference(
       different direction, not a collapsed one).
 
     The draw comes from :func:`vdjtools.model.generate` over the bundled germline model for this
-    space's locus (~8 s for 20,000 sequences), and is cached per ``(n, seed)`` on the space. Pass
+    space's locus, species and selected source, and is cached per ``(n, seed, source)`` on the space. Pass
     ``sequences=`` to supply the reference repertoire yourself (an uncached path) if you do not want
     the vdjtools generative model in the loop.
 
@@ -832,7 +833,9 @@ def naive_reference(
         space: The shared :class:`RepertoireSpace` — supplies the locus *and* the coordinate system,
             so the reference is automatically comparable to every ``Φ`` fit through it.
         n: Number of naive recombinations to draw.
-        seed: Generation seed; the result is deterministic in ``(n, seed)``.
+        seed: Generation seed; the result is deterministic in ``(n, seed, source)``.
+        source: Bundled model set, ``"learned"`` by default. Use ``"olga"`` for explicit
+            historical reproduction. Species/locus availability comes from vdjtools.
         sequences: Optional pre-built clonotype frame to use instead of generating (``v_call`` /
             ``j_call`` / ``junction_aa``). Not cached.
 
@@ -840,25 +843,21 @@ def naive_reference(
         ``(n_rff,)`` unweighted kernel mean of the naive draw, in ``space``'s RFF coordinates.
 
     Raises:
-        ValueError: If the space is non-human (only human germline models are bundled).
+        ValueError, FileNotFoundError: If vdjtools has no model for this source, species and locus.
 
     Example:
         >>> ref = naive_reference(space)                      # doctest: +SKIP
         >>> psi = contrast_embedding(emb, ref)                # doctest: +SKIP
     """
     if sequences is None:
-        key = (n, seed)
+        key = (n, seed, source)
         if key in space._naive:
             return space._naive[key]
-        if space.meta["species"] != "human":
-            raise ValueError(
-                f"no bundled germline model for species {space.meta['species']!r}; pass "
-                "sequences= with your own naive draw"
-            )
         from vdjtools.model import load_bundled
         from vdjtools.model.generate import generate
 
-        sequences = generate(load_bundled(space.meta["locus"]), n, seed=seed, productive_only=True)
+        sequences = generate(load_bundled(space.meta["locus"], source=source,
+            organism=space.meta["species"]), n, seed=seed, productive_only=True)
         ref = space.rff.transform(space.transform_clonotypes(sequences)).mean(axis=0)
         space._naive[key] = ref
         return ref

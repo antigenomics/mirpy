@@ -256,7 +256,9 @@ builder, so a sample is the same repertoire in either -- its generator is seeded
    ``if __name__ == "__main__":`` guard.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
-vdjtools' bundled recombination models, and is required to be byte-identical across processes,
+uses the learned vdjtools models by default. Select ``--source olga`` (or ``source="olga"``
+in Python) for historical reproduction. Existing frozen corpus manifests keep their recorded
+model source and fingerprints. The build is required to be byte-identical across processes,
 worker counts and thread counts:
 
 .. code-block:: bash
