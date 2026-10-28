@@ -125,3 +125,32 @@ np.testing.assert_allclose(distances[:, 1], truth.min(axis=1), rtol=1e-12)
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert 'Cannot form a team' not in result.stderr
+
+
+def test_radius_search_owns_and_restores_native_budget(monkeypatch):
+    import mir.bench.metrics as metrics
+    from threadpoolctl import threadpool_info, threadpool_limits
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    original = metrics.NearestNeighbors
+    seen = []
+
+    class Neighbors(original):
+        def kneighbors(self, *args, **kwargs):
+            pools = threadpool_info()
+            assert all(p['num_threads'] == 1 for p in pools if p['user_api'] == 'blas')
+            assert all(p['num_threads'] == 2 for p in pools if p['user_api'] == 'openmp')
+            seen.append(self.n_jobs)
+            return super().kneighbors(*args, **kwargs)
+
+    monkeypatch.setattr(metrics, 'NearestNeighbors', Neighbors)
+    x = np.random.default_rng(42).normal(size=(128, 32))
+    with threadpool_limits(limits=1):
+        before = [(p['filepath'], p['num_threads']) for p in threadpool_info()]
+        radius = metrics.estimate_dbscan_eps(x, threads=2)
+        assert before == [(p['filepath'], p['num_threads']) for p in threadpool_info()]
+    assert seen == [2]
+    monkeypatch.setattr(metrics, 'NearestNeighbors', original)
+    assert radius == pytest.approx(metrics.estimate_dbscan_eps(x, threads=1), rel=1e-12)
+    with pytest.raises(ValueError):
+        metrics.estimate_dbscan_eps(x, threads=3)
