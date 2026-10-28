@@ -73,9 +73,10 @@ This page covers what mirpy adds on top.
       alone cannot see it, because a mean is blind to correlation among the points it averages.
 
    Hill diversity profile
-      A block of the repertoire vector carrying coverage-standardised
-      `Hill numbers <https://docs.isalgo.dev/vdjtools/glossary.html>`_ at several orders, so the
-      vector knows how even the repertoire is and not only where its mass sits.
+      A block of the repertoire vector carrying observed
+      `Hill numbers <https://docs.isalgo.dev/vdjtools/glossary.html>`_ at several orders, optionally coverage-standardised when a common
+      ``coverage`` target is passed to ``sample_embedding``. The sample-table workflow
+      uses observed values by default.
 
    kernel mean
       The main block of a repertoire vector: the average of a random-feature map over the
@@ -128,9 +129,10 @@ This page covers what mirpy adds on top.
       embedding fixed-length and codebook-free.
 
    signature
-      One fixed-width, named, already-standardised feature vector per repertoire, standardised
+      One fixed-width, named feature vector per repertoire, with PCs standardised
       against a published :term:`corpus` so that two people computing it independently get the same
-      coordinate system. ``rsig`` is mirpy's geometry half, ``vsig`` is vdjtools' statistics half,
+      coordinate system. Pass-through channels retain their declared units.
+      ``rsig`` is mirpy's geometry half, ``vsig`` is vdjtools' statistics half,
       and they join on ``sample_id``. Distinct from RFF ``Phi(S)``, which is comparable across cohorts when its fitted
       basis and abundance weighting are saved and reused. See :doc:`signature`.
 

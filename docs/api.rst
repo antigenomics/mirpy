@@ -133,7 +133,7 @@ Derivations: :doc:`math`.
 The portable signature (``mir.signature``)
 ------------------------------------------
 
-The hand-off object: a fixed-width, name-addressed, already-standardised vector that anyone who
+The hand-off object: a fixed-width, name-addressed vector of standardised PCs and pass-through channels that anyone who
 ``pip install mirpy-lib`` can compute from their own AIRR files and drop straight into a model.
 RFF ``Φ(S)`` is comparable when collaborators save and reuse the same full basis and
 weighting; see :doc:`embeddings`. A published rsig signature supplies a different,
@@ -143,11 +143,12 @@ Two halves, concatenated on ``sample_id`` and namespaced so they never collide:
 
 ``vsig``
    Statistics of the clone-size vector — diversity, clonality, junction length, segment usage,
-   isotype, residue composition, physico-chemistry, Pgen, SHM, locus balance. Computed in
+   isotype, residue composition, physico-chemistry, SHM, locus balance. Pgen remains a
+   separate vdjtools model API; it is not a signature feature. Computed in
    :mod:`vdjtools.signature`.
 ``rsig``
-   Geometry — every column a linear functional, a norm, or a mixture coefficient of the
-   prototype-sum measure. Computed here.
+   Geometry — corpus PCs of weighted prototype-distance means and compartment shares,
+   accompanied by pass-through diversity, displacement, mask and QC channels. Computed here.
 
 Both share one column contract, imported from :mod:`vdjtools.signature.layout`: a column name is
 always ``<sig>:<block>:<locus>:<feature>`` (``-`` for a cross-locus column). What a signature emits
@@ -161,7 +162,7 @@ that reads "absent" as "zero" reads an unsequenced chain as biology.
 **The rotation comes from a corpus, and a corpus is required.** Bounds, centre, scale, rotation and
 per-PC scaling all come out of one pass over one matrix of repertoires. There is no default corpus: a
 signature is comparable to another one only if both were rotated through the same one, and nothing
-about the numbers would say otherwise. Until 4.0 the rotation was fit-free — fitted on 10,000
+about the numbers would say otherwise. Until 4.0 the rotation was fitted on 10,000
 individual clonotypes from the prototype panel — while every column it produced was a repertoire
 statistic; :doc:`signature` records what that cost.
 
@@ -280,7 +281,8 @@ Neural codecs and learned encoders (``mir.ml``)
 ``mir.ml.tokenize``
 ~~~~~~~~~~~~~~~~~~~
 
-CDR3 tokenisation for the neural codecs.
+Junction tokenisation for the neural codecs: AIRR ``junction_aa`` includes the
+conserved Cys and Phe/Trp anchors.
 
 .. automodule:: mir.ml.tokenize
    :members:

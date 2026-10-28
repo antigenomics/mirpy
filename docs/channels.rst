@@ -1,8 +1,9 @@
 Channels
 ========
 
-A **channel** is a named family of columns emitted in its own units, never passed through the
-rotation. The full vocabulary -- including the ``vsig`` channels -- is documented in
+A signature **channel** is a named family of columns carried through in its declared units,
+never passed through the corpus rotation. Those units may include a fixed transform such as
+``log1p`` or ``clr``. The full vocabulary -- including the ``vsig`` channels -- is documented in
 `vdjtools' channel reference <https://docs.isalgo.dev/vdjtools/channels.html>`_; this page covers
 mirpy's and the reason the split exists.
 
@@ -14,8 +15,9 @@ provenance. If ``winsor_frac`` went through a rotation, the coordinate carrying 
 geometry, and a caller could no longer ask "is this row comparable to ours at all?" — which is the
 only question that column exists to answer.
 
-The split is by *role*, not by cost: a **measurement of the repertoire** is a raw feature, transformed
-and winsorized and rotated and scaled; a **statement about the row itself** is a channel.
+The split is declared in the registry: **raw features** are inputs to corpus scaling and
+rotation; **channels** pass through separately. Channels include row provenance and masks,
+and also repertoire measurements retained for direct interpretation, such as embedding diversity.
 
 The rsig channels
 -----------------
@@ -50,18 +52,22 @@ accumulators rather than a second embedding.
        the diversity sits.
    * - ``rsig:div:<L>:evenness``
      - ``Q(w) / Q(uniform)``: the clone-size weighting's effect with the composition held fixed.
-       Bounded, and much less depth-fragile than richness.
+       A ratio of self-pair-corrected dispersions, not a proportion constrained to ``[0, 1]``.
    * - ``rsig:div:<L>:eff_dim``
-     - ``exp(H(lambda))`` over the weighted covariance spectrum -- **richness**, as the number of
+     - ``log1p(exp(H(lambda)))`` over the normalized weighted covariance spectrum --
+       effective dimensionality, interpreted as the number of
        independent directions of receptor space occupied. A thousand clones inside one convergent
        cluster occupy few; a thousand unrelated clones occupy many.
    * - ``rsig:div:<L>:eff_dim_pr``
-     - ``(sum lambda)^2 / sum lambda^2``, the order-2 version, led by the dominant directions.
+     - ``log1p((sum lambda)^2 / sum lambda^2)``, the order-2 effective dimensionality,
+       led by the dominant directions.
    * - ``rsig:div:<L>:q_top`` / ``q_singleton``
-     - Rao **inside** a clone-size compartment, weights renormalised within it -- the diversity *of*
-       the expanded compartment rather than its share, which ``band`` already carries.
+     - ``log1p`` of self-pair-corrected Rao **inside** a clone-size compartment, weights
+       renormalised within it -- the diversity *of* the top-clone or singleton compartment
+       rather than its share, which ``band`` already carries.
    * - ``rsig:div:<L>:q_ratio_top``
-     - ``q_top / q_singleton``.
+     - Ratio of the untransformed compartment Rao values; not the ratio of their emitted
+       ``log1p`` values.
 
 ``disp`` -- displacements between compartments
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -75,11 +81,13 @@ A displacement is a quantity no index has: *where* a compartment sits rather tha
    * - channel
      - what it is
    * - ``rsig:disp:<L>:top_singleton`` / ``cos_top_singleton``
-     - Distance and cosine between the expanded and singleton centroids.
+     - ``log1p`` of the Euclidean distance and the untransformed cosine between the
+       top-clone and singleton centroids.
    * - ``rsig:disp:IGH:IgG_IgM`` / ``IgA_IgM`` and their cosines
-     - The same between isotype compartments -- class-switch geometry.
+     - ``log1p`` distances and untransformed cosines between isotype compartments --
+       class-switch geometry.
    * - ``rsig:disp:<L>:norm``
-     - ``||Phi||``.
+     - ``log1p(||Phi||)``.
 
 .. warning::
 
@@ -108,7 +116,7 @@ A displacement is a quantity no index has: *where* a compartment sits rather tha
 
 .. important::
 
-   ``mask`` is a **feature block**, not diagnostics -- which loci a donor resolved is biology. See
+   ``mask`` is a **pass-through channel block** usable as model features, not merely diagnostics -- which loci a donor resolved is biology. See
    `the vdjtools page <https://docs.isalgo.dev/vdjtools/channels.html#channels-mask>`_ for the
    measurement: adding the presence flags moved an external ROC-AUC from 0.6243 to 0.6676.
 
@@ -155,11 +163,11 @@ Reading a row
    from mir.signature import Corpus, rsig
 
    corpus = Corpus.load("naive_rsig.npz")
-   row = rsig(sample, corpus)
+   row = rsig(sample, corpus, named=("depth",))
 
    row["rsig:qc:-:winsor_frac"]    # did the corpus's bounds edit this sample?
    row["rsig:div:TRB:rao"]         # sequence-aware diversity, in its own units
-   row["rsig:depth:TRB:n_eff"]     # how many clones are effectively behind this Phi?
+   row["rsig:depth:TRB:n_eff"]     # log10 effective clonotype count under the chosen weights
 
 Declaring a channel
 -------------------

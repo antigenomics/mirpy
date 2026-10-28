@@ -16,8 +16,9 @@ they run three ways:
    marimo run  examples/signature_pipeline.py    # read-only app, no code shown
    python      examples/signature_pipeline.py    # plain script; prints, no UI
 
-Data is fetched from Hugging Face on first run and cached under ``examples/.data/``, so a fresh
-``pip install`` is enough --- no local paths and no pre-staged files. If you already hold a copy,
+Obtain the example scripts from the repository before running these commands; they are
+not included in the installed wheel. The downloadable examples fetch data from Hugging Face
+on first run and store raw inputs under ``examples/.data/``; the theory example uses bundled data. If you already hold a copy,
 drop it under ``./data_dump/`` (gitignored) and it is used instead of downloading.
 
 Start here
