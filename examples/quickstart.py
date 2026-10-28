@@ -34,14 +34,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # TCREMP embedding quickstart
-        Each TCR is embedded as its **distances to a fixed prototype set**; Euclidean distance in
-        this space approximates pairwise alignment distance. Pick the embedding mode and the number
-        of prototypes below — everything recomputes reactively.
-        """
-    )
+    mo.md("""
+    # TCREMP embedding quickstart
+    Each TCR is embedded as its **distances to a fixed prototype set**; Euclidean distance in
+    this space approximates pairwise alignment distance. Pick the embedding mode and the number
+    of prototypes below — everything recomputes reactively.
+    """)
     return
 
 

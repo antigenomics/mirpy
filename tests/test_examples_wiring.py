@@ -176,3 +176,13 @@ def test_signature_pipeline_recomputes_existing_output(tmp_path):
                               SimpleNamespace(value=1), runner, sys, tmp_path)
     assert result == output
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize('path', EXAMPLES, ids=lambda p: p.stem)
+def test_every_example_has_a_script_entrypoint(path):
+    """Documented script mode must start the app, not exit after defining cells."""
+    tree = ast.parse(path.read_text())
+    guards = [node for node in tree.body if isinstance(node, ast.If)
+              and ast.unparse(node.test) == "__name__ == '__main__'"]
+    assert any(isinstance(node, ast.Call) and ast.unparse(node.func) == 'app.run'
+               for guard in guards for node in ast.walk(guard)), path.name
