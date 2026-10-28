@@ -32,7 +32,7 @@ def _clonotypes(n: int, offset: int = 0) -> pl.DataFrame:
         _OLGA, separator="\t", has_header=False,
         new_columns=["junction_nt", "junction_aa", "v_call", "j_call"],
     ).select(["junction_aa", "v_call", "j_call"]).slice(offset, n)
-    return df.unique(subset=["junction_aa", "v_call", "j_call"])
+    return df.unique(subset=["junction_aa", "v_call", "j_call"], maintain_order=True)
 
 
 def _sample(df: pl.DataFrame, counts=None) -> pl.DataFrame:
@@ -880,3 +880,9 @@ def test_shared_basis_rejects_empty_cloud():
                          schema={'v_call':pl.String,'j_call':pl.String,'junction_aa':pl.String})
     with pytest.raises(ValueError,match='at least one row'):
         rep.fit_repertoire_space(model,frame)
+
+
+def test_clonotype_fixture_preserves_source_order():
+    """Fixed seeds require repeatable fitting rows and abundance assignments."""
+    expected = _clonotypes(120)
+    assert expected.equals(_clonotypes(120))
