@@ -69,6 +69,11 @@ on input rows, compatible control rows or a saved rotation, output columns and
 memory limits. [Signatures](https://docs.isalgo.dev/mirpy/signature.html) explains
 published rsig corpora and joining vdjtools' vsig on `sample_id`.
 
+Frozen reference bundles, vdjtools models and examples are hosted in
+[AIRR feature signatures](https://huggingface.co/datasets/isalgo/airr_feature_signatures).
+Run `mir reference rna-blood` to print a checksum-verified local bundle directory;
+use its matching basis and rotation as described in the embedding guide.
+
 ## Python quickstart
 
 ```python
