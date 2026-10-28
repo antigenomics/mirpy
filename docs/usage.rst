@@ -1,9 +1,10 @@
 User guide
 ==========
 
-One task per section, cheapest-to-run first. Every embedding operates on ``polars`` frames keyed by
+One task per section, cheapest-to-run first. Clonotype embedding operates on ``polars`` frames keyed by
 the AIRR column names ``v_call`` / ``j_call`` / ``junction_aa`` (and ``duplicate_count`` for clone
-sizes). Sections build on each other but each is self-contained.
+sizes). AIRR ``junction_aa`` includes the conserved Cys and Phe/Trp anchors;
+IMGT ``cdr3_aa`` excludes them. Sections build on each other but each is self-contained.
 
 Install & the data model
 -------------------------
@@ -304,7 +305,7 @@ automatic (CUDA → MPS → CPU; override with ``device=`` or ``MIR_DEVICE``).
 
    bundle = CodecBundle.load("path/to/codec")
    encoder = bundle.forward_encoder()           # refuses a prototype-hash mismatch
-   codes = encoder.code(sample["junction_aa"].to_list())     # CDR3 strings -> compact codes
+   codes = encoder.code(sample["junction_aa"].to_list())     # junction strings -> compact codes
    emb = encoder.encode(sample["junction_aa"].to_list())     # …or the full-space embedding
 
 Training scripts and shipped bundles live in the companion analysis repo; this tier is experimental.

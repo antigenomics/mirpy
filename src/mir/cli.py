@@ -1,33 +1,23 @@
-"""``mir`` command-line interface — turn receptor tables into embeddings and signatures.
-
-**Start with ``mir signature``** unless you know you want a raw embedding. It is the command you
-send a collaborator: fixed-width, named columns, already standardised.
+"""``mir`` command-line interface for receptor embeddings, sample PCA and signatures.
 
 Embedding and PCA are separate operations:
 
-* ``mir embed clonotypes SAMPLE…``  — clonotype tables → a per-clonotype
-  TCREMP embedding table (``e0…``), the input to clustering / ML.
-* ``mir embed repertoires SAMPLE…`` — a *dataset* of clonotype tables → one repertoire
-  raw fixed-prototype vector per sample, with sample identity and missing-locus masks.
+* ``mir embed clonotypes SAMPLE…`` returns TCREmp coordinates per clonotype,
+  with sample and clonotype identifiers.
+* ``mir embed repertoires SAMPLE…`` returns one unprojected RFF kernel-mean
+  vector per sample, with separate measurements and missing-locus masks.
+* ``mir pca`` fits and saves, or applies, a rotation to a sample feature table.
 
-``mir pca`` fits/saves or applies a rotation to the compact sample table. Two commands produce
-the portable signature — the hand-off object, whose basis is frozen rather than fitted
-on your cohort, so two people's vectors are comparable:
+``mir signature`` (also ``mir embeddings``) applies a fitted rsig corpus and
+returns named, standardised PCs plus pass-through channels. Its width depends
+on the corpus, component selection and requested named blocks. Join it with
+``vdjtools signature`` on ``sample_id`` for the statistics and geometry halves;
+retain the identities of both corpus artifacts when comparing samples.
 
-* ``mir signature SAMPLE…`` — → one fixed-width named vector per sample (528 columns at the
-  ``standard`` tier), standardised against a frozen reference. Emits **this tool's half**:
-  ``rsig``, the embedding geometry. The other half, ``vsig`` (statistics), comes from
-  ``vdjtools signature``; run both and join on ``sample_id`` for the full 689-column vector.
-* ``mir presets [NAME]``    — the named column subsets and their ranking, so a subset is chosen by
-  intent rather than by reading a 1,403-row column dictionary.
-
-Inputs are any format ``vdjtools.io.read`` sniffs (AIRR TSV, vdjtools, MiXCR, immunoSEQ,
-parquet, …). Output is TSV (default / ``.tsv``) or Parquet (``.parquet`` — recommended for
-the wide raw embedding); ``-o -`` (or no ``-o``) writes TSV to stdout.
-
-Run ``mir <command> -h`` for the full flag list; ``mir signature --describe`` prints the column
-dictionary and ``mir signature --channels`` the channel vocabulary --- the named groups those
-columns fall into, which is the level a finding is usually stated at. Both read no input.
+Inputs use formats recognised by ``vdjtools.io.read``. Outputs are TSV or
+Parquet; omitted ``-o`` writes TSV to stdout. Run ``mir <command> -h`` for
+options. ``mir signature --describe`` lists the selected output columns
+without reading samples.
 """
 from __future__ import annotations
 
@@ -685,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--smoke", action="store_true",
                     help="reduced build (200 samples of 1000) for tests and the cmp check")
     c2.add_argument("-j", "--jobs", type=int, default=0,
-                    help="bounded worker threads across samples (serial inner kernels): 0 = allocated cores, "
+                    help="pool-generation processes, then sample-map threads (serial inner kernels): 0 = allocated cores, "
                          "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
 
