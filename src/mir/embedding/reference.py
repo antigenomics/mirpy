@@ -131,12 +131,14 @@ def _variance(rotation):
                            for k in (256, 512, 1024)}}
 
 
-def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False):
+def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False,
+                    force_download=False):
     """Fetch a hash-verified reference at an immutable Hugging Face commit.
 
     Returns its directory without loading pickle models. Hugging Face owns atomic
     file downloads, per-file process locks and interrupted-download recovery.
-    ``local_files_only=True`` supports pre-staged offline jobs. No fitting occurs.
+    ``local_files_only=True`` supports pre-staged offline jobs. ``force_download``
+    repairs a corrupt cached download through the same locked downloader. No fitting occurs.
     """
     import re
     from pathlib import PurePosixPath
@@ -147,11 +149,20 @@ def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False):
         raise ValueError('unknown reference bundle name')
     if not isinstance(revision, str) or re.fullmatch(r'[0-9a-f]{40}', revision) is None:
         raise ValueError('revision must be an immutable 40-character commit SHA')
-    root = Path(snapshot_download('isalgo/mirpy_models', repo_type='dataset',
-                revision=revision, allow_patterns=[f'{name}/*'], cache_dir=cache_dir,
-                local_files_only=local_files_only, max_workers=1)) / name
-    meta = json.loads((root / 'bundle.json').read_text())
-    if meta.get('format') != 1 or not isinstance(meta.get('files'), dict) or not meta['files']:
+    if force_download and local_files_only:
+        raise ValueError('force_download requires online access; omit local_files_only')
+    command = f'mir reference {name} --revision {revision}'
+    try:
+        root = Path(snapshot_download('isalgo/mirpy_models', repo_type='dataset',
+                    revision=revision, allow_patterns=[f'{name}/*'], cache_dir=cache_dir,
+                    local_files_only=local_files_only, force_download=force_download,
+                    max_workers=1)) / name
+        meta = json.loads((root / 'bundle.json').read_text())
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f'Reference is not fully staged. Run online: {command}; '
+                                'use the same --cache-dir for the offline job.') from exc
+    if (not isinstance(meta, dict) or meta.get('format') != 1
+            or not isinstance(meta.get('files'), dict) or not meta['files']):
         raise ValueError('invalid reference manifest')
     loci = meta.get('loci')
     if not isinstance(loci, list) or not loci or any(loc not in LOCI for loc in loci):
@@ -167,7 +178,8 @@ def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False):
         with (root / filename).open('rb') as stream:
             actual = hashlib.file_digest(stream, 'sha256').hexdigest()
         if actual != expected:
-            raise ValueError(f'reference checksum mismatch: {filename}; refetch the pinned revision')
+            raise ValueError(f'reference checksum mismatch: {filename}; retry online with '
+                             f'{command} --force-download')
     if 'feature-vocabulary.json' not in meta['files']:
         raise ValueError('reference lacks a frozen feature vocabulary')
     return root

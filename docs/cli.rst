@@ -148,3 +148,7 @@ load pickle models or fit a rotation. Use the resulting directory with
 uses only a snapshot already staged there. Pre-stage once before workflow fan-out;
 workers can use the verified directory as a read-only reference input. Hugging
 Face handles per-file download locks and atomic cache publication.
+
+Use ``--force-download`` online to recover a corrupted cache entry; verification
+still checks every manifest hash. It cannot be combined with ``--offline``.
+An offline cache miss prints the corresponding pre-staging command.
