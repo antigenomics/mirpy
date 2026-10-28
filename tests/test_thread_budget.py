@@ -154,3 +154,43 @@ def test_radius_search_owns_and_restores_native_budget(monkeypatch):
     assert radius == pytest.approx(metrics.estimate_dbscan_eps(x, threads=1), rel=1e-12)
     with pytest.raises(ValueError):
         metrics.estimate_dbscan_eps(x, threads=3)
+
+
+@pytest.mark.parametrize('method', ['dbscan', 'hdbscan', 'optics'])
+def test_cluster_scopes_native_pools_and_restores_after_failure(monkeypatch, method):
+    import sklearn.cluster
+    import mir.bench.metrics as metrics
+    from threadpoolctl import threadpool_info, threadpool_limits
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+
+    class Estimator:
+        def __init__(self, **kwargs):
+            assert kwargs['n_jobs'] == 2
+
+        def fit_predict(self, x):
+            pools = threadpool_info()
+            assert all(p['num_threads'] == 1 for p in pools if p['user_api'] == 'blas')
+            assert all(p['num_threads'] == 2 for p in pools if p['user_api'] == 'openmp')
+            raise RuntimeError('fit failed')
+
+    monkeypatch.setattr(metrics, 'DBSCAN', Estimator)
+    monkeypatch.setattr(sklearn.cluster, 'HDBSCAN', Estimator)
+    monkeypatch.setattr(sklearn.cluster, 'OPTICS', Estimator)
+    with threadpool_limits(limits=1):
+        with pytest.raises(RuntimeError, match='fit failed'):
+            metrics.cluster(np.zeros((8, 3)), eps=1, method=method, n_jobs=2)
+        assert all(p['num_threads'] == 1 for p in threadpool_info())
+
+
+@pytest.mark.parametrize('method', ['dbscan', 'hdbscan', 'optics'])
+def test_cluster_parallel_labels_match_serial(method, monkeypatch):
+    from mir.bench.metrics import cluster
+
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    rng = np.random.default_rng(20261028)
+    x = np.concatenate([rng.normal(center, 0.05, (40, 32)) for center in (0, 3)])
+    serial = cluster(x, eps=1, method=method, n_jobs=1)
+    parallel = cluster(x, eps=1, method=method, n_jobs=2)
+    np.testing.assert_array_equal(parallel, serial)
+    assert len(set(serial) - {-1}) >= 2

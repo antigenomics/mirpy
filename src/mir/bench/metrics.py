@@ -81,18 +81,24 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     if method == "dbscan":
         if eps is None:
             eps = estimate_dbscan_eps(X, k=k, threads=kwargs["n_jobs"]) * eps_factor
-        return DBSCAN(eps=eps, min_samples=min_samples, **kwargs).fit_predict(X)
-    if method == "hdbscan":
+        estimator = DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
+    elif method == "hdbscan":
         from sklearn.cluster import HDBSCAN
 
         kwargs.setdefault("min_cluster_size", max(min_samples, 2))
         kwargs.setdefault("copy", True)  # don't mutate the caller's array (silences FutureWarning)
-        return HDBSCAN(min_samples=min_samples, **kwargs).fit_predict(X)
-    if method == "optics":
+        estimator = HDBSCAN(min_samples=min_samples, **kwargs)
+    elif method == "optics":
         from sklearn.cluster import OPTICS
 
-        return OPTICS(min_samples=min_samples, **kwargs).fit_predict(X)
-    raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
+        estimator = OPTICS(min_samples=min_samples, **kwargs)
+    else:
+        raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=1, user_api="blas"), \
+         threadpool_limits(limits=kwargs["n_jobs"], user_api="openmp"):
+        return estimator.fit_predict(X)
 
 
 @dataclass
