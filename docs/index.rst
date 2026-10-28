@@ -215,7 +215,10 @@ Cite this repository. The theory this implements is collected in :doc:`math`, an
 and recorded benchmark numbers live in the companion analysis repository and
 manuscript appendix.
 
-Licensed GPL-3.0-or-later. The classical v1.x/v2 repertoire toolkit -- parsing, overlap, diversity,
+ISALGO LAB Academic and Non-Commercial Research License v1.0.
+See `LICENSE <https://github.com/antigenomics/mirpy/blob/master/LICENSE>`_.
+
+The classical v1.x/v2 repertoire toolkit -- parsing, overlap, diversity,
 TCRnet, GLIPH -- is frozen on the ``legacy-v2`` branch (``mirpy-lib`` 2.x); its functionality lives
 on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
 `vdjmatch <https://github.com/antigenomics/vdjmatch>`_.

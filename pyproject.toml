@@ -18,7 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
-  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "License :: Other/Proprietary License",
   "Operating System :: OS Independent",
 ]
 keywords = ["immunosequencing", "AIRR", "TCR", "BCR", "embedding", "prototypes", "VDJdb"]
@@ -36,7 +36,7 @@ dependencies = [
   # Keep the build extra in sync.
   "vdjtools>=5.1.0",
 ]
-license = { text = "GPL-3.0-or-later" }
+license = { text = "ISALGO LAB Academic and Non-Commercial Research License v1.0" }
 
 [project.optional-dependencies]
 # Bounded per-clonotype Parquet row-group output; TSV streaming needs no extra.
