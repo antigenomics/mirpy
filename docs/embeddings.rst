@@ -147,6 +147,43 @@ PCA and coordinate-space clustering when a complete pairwise table is unnecessar
 DBSCAN can also retain quadratically many neighbors for a large radius; bounded
 embedding batches do not make that estimator's neighborhood graph bounded.
 
+Optional exact FAISS neighbors
+-------------------------------
+
+For large exact L2 query batches, install ``faiss-cpu`` and build one index from
+the final coordinate table. Reuse that index and submit queries in batches.
+FAISS can delegate distance products to BLAS. Give the complete search phase one
+native CPU budget. OpenBLAS built with OpenMP can share FAISS's OpenMP runtime;
+setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
+
+.. code-block:: python
+
+   import faiss
+   import numpy as np
+   from threadpoolctl import threadpool_limits
+   from vdjtools.cores import kernel_threads
+
+   # coordinates: rows of sample PCs from one shared fitted rotation.
+   x = np.ascontiguousarray(coordinates, dtype=np.float32)
+   index = faiss.IndexFlatL2(x.shape[1])
+   index.add(x)
+   previous = faiss.cvar.distance_compute_blas_threshold
+   try:
+       faiss.cvar.distance_compute_blas_threshold = 0
+       with threadpool_limits(limits=kernel_threads(0)):
+           distances_squared, neighbor_ids = index.search(x, 5)
+   finally:
+       faiss.cvar.distance_compute_blas_threshold = previous
+
+Run this as one numerical phase after sample workers finish. The threshold is
+process-global: do not change it concurrently from several callers. The index
+copies its vectors, so budget both the input and the index, plus query outputs;
+no full sample-by-sample distance table is needed. On backends that do not expose
+dynamic BLAS thread controls, the backend's initialization limits still apply.
+See FAISS's `implementation notes <https://github.com/facebookresearch/faiss/wiki/Implementation-notes>`_
+and `threading guide <https://github.com/facebookresearch/faiss/wiki/Threads-and-asynchronous-calls>`_
+for the native kernel and batching contracts.
+
 Python tables and deferred readers
 ----------------------------------
 
