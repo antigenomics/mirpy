@@ -337,7 +337,8 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 0,
     p = 3 * F.K
     # Bound embedding/squared/weighted band blocks, covariance workspaces and
     # retained Python rows plus the output table. Reader-owned input sizes are extra.
-    workspace = 32 * (kw.get("chunk", F.CHUNK) * p + p * p)
+    chunk = F._positive_chunk(kw.get("chunk", F.CHUNK))
+    workspace = 32 * (chunk * p + p * p)
     require_memory(min(len(items), budget) * workspace + 192 * len(items) * len(want),
                    "signature cohort")
     rows = parallel_rows(items, functools.partial(_one, corpus=corpus,

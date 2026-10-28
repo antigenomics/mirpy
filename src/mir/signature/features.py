@@ -89,6 +89,13 @@ def weights(counts: np.ndarray, weight: str = "log2p1") -> np.ndarray:
     return g / s
 
 
+def _positive_chunk(chunk):
+    if (isinstance(chunk, (bool, np.bool_)) or not isinstance(chunk, (int, np.integer))
+            or chunk < 1):
+        raise ValueError('chunk must be a positive integer')
+    return int(chunk)
+
+
 def prototype_sum(df: pl.DataFrame, model, w: np.ndarray, *, chunk: int = CHUNK):
     """``Phi = sum w_sigma z_sigma`` and its Rao dispersion, in one chunked pass.
 
@@ -99,6 +106,7 @@ def prototype_sum(df: pl.DataFrame, model, w: np.ndarray, *, chunk: int = CHUNK)
     Returns:
         ``(phi, mean_sq_norm)`` -- ``phi`` is ``(3K,)``, ``mean_sq_norm`` is ``sum w ||z||^2``.
     """
+    chunk = _positive_chunk(chunk)
     phi = np.zeros(3 * model.n_prototypes)
     mean_sq = 0.0
     for a in range(0, df.height, chunk):
@@ -167,6 +175,7 @@ def dispersion_pass(df: pl.DataFrame, model, w: np.ndarray, *,
         band_masks: ``{name: boolean mask over df's rows}``; each becomes a ``bands`` entry.
         chunk: Rows embedded per pass; bounds memory, not time.
     """
+    chunk = _positive_chunk(chunk)
     p = 3 * model.n_prototypes
     phi = np.zeros(p)
     uni_phi = np.zeros(p)

@@ -272,7 +272,7 @@ Traps
 * **The SHM columns must never reach the embedder.** ``v_identity`` and ``v_mutations`` silently
   switch ``TCREmp.embed`` to SHM-aware V distances, which is a different coordinate system under the
   same column names — the numbers move and nothing says so. They are dropped before embedding.
-* **``chunk`` bounds memory.** The default is 4,096 rows: 24 MiB per float64 embedding
+* **``chunk`` bounds memory.** It must be a positive integer. The default is 4,096 rows: 24 MiB per float64 embedding
   block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
   Changing block size preserves the calculation up to floating-point rounding.
 * **``--jobs`` selects threads.** The default is 0 (allocated cores); 1 selects serial execution.
