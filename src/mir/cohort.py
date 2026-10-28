@@ -767,11 +767,15 @@ def cluster_samples(embs, *, unbiased: bool = True, method: str = "dbscan",
     Returns:
         Cluster labels (``-1`` = noise), length ``len(embs)``.
     """
-    from mir.bench.metrics import cluster
+    from mir.bench.metrics import cluster, _cluster_threads
 
-    D = mmd_matrix(embs, unbiased=unbiased)
+    D = mmd_matrix(embs, unbiased=unbiased, threads=_cluster_threads(kwargs.get('n_jobs', 0)))
     if method == "dbscan" and eps is None:
-        kth = np.sort(D, axis=1)[:, min(k, D.shape[0] - 1)]     # k-th nearest (row 0 is self)
+        rank = min(k, D.shape[0] - 1)
+        rows = max(1, (32 * 1024**2) // (D.shape[1] * D.dtype.itemsize))
+        kth = np.empty(D.shape[0])
+        for start in range(0, D.shape[0], rows):
+            kth[start:start+rows] = np.partition(D[start:start+rows], rank, axis=1)[:, rank]
         eps = float(np.median(kth)) or 1.0
     return cluster(D, eps=eps, min_samples=min_samples, method=method, metric="precomputed", **kwargs)
 

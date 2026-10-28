@@ -48,6 +48,14 @@ def estimate_dbscan_eps(X: np.ndarray, k: int = 4, *, threads: int = 0) -> float
     return float(kdist[int(kl.knee)])
 
 
+def _cluster_threads(n_jobs):
+    from numbers import Integral
+    from vdjtools.cores import kernel_threads
+    if isinstance(n_jobs, Integral) and n_jobs < 0:
+        n_jobs = max(1, kernel_threads(0) + 1 + n_jobs)
+    return kernel_threads(1 if n_jobs is None else n_jobs)
+
+
 def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
             k: int = 4, eps_factor: float = 0.4, method: str = "dbscan", **kwargs) -> np.ndarray:
     """Density-cluster an embedding; noise = ``-1`` for every method.
@@ -70,14 +78,7 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     rather than DBSCAN's single global ``eps`` slice — so it is the natural choice when local
     density spans orders of magnitude across antigen ridges (appendix ``sec:dens-depth``).
     """
-    from vdjtools.cores import kernel_threads
-
-    from numbers import Integral
-
-    n_jobs = kwargs.pop("n_jobs", 0)
-    if isinstance(n_jobs, Integral) and n_jobs < 0:
-        n_jobs = max(1, kernel_threads(0) + 1 + n_jobs)
-    kwargs["n_jobs"] = kernel_threads(1 if n_jobs is None else n_jobs)
+    kwargs["n_jobs"] = _cluster_threads(kwargs.pop("n_jobs", 0))
     if method == "dbscan":
         if eps is None:
             eps = estimate_dbscan_eps(X, k=k, threads=kwargs["n_jobs"]) * eps_factor

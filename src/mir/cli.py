@@ -255,15 +255,15 @@ def _read_embedding_table(path):
 
 
 def _project_samples(table, *, rotation=None, cohort=None, components=256,
-                     save=None, seed=0):
+                     save=None, seed=0, threads=0):
     from mir.embedding.table import TablePCA
 
     if rotation and cohort:
         raise ValueError('--rotation cannot be combined with a fitting cohort')
     fitted = (TablePCA.load(rotation) if rotation else
               TablePCA.fit(_read_embedding_table(cohort) if cohort else table,
-                           n_components=components, seed=seed))
-    result = fitted.transform(table)
+                           n_components=components, seed=seed, threads=threads))
+    result = fitted.transform(table, threads=threads)
     if save:
         fitted.save(save)
     return result
@@ -317,7 +317,8 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
         _write(out, a.rff_output)
     if a.pca is not None or a.rotation or a.pca_cohort:
         out = _project_samples(out, rotation=a.rotation, cohort=a.pca_cohort,
-                               components=a.pca or 256, save=a.save_rotation, seed=a.seed)
+                               components=a.pca or 256, save=a.save_rotation, seed=a.seed,
+                               threads=a.threads)
     elif a.save_rotation:
         raise ValueError('--save-rotation requires --pca or --pca-cohort')
     _write(out, a.output)
@@ -326,7 +327,8 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 
 def cmd_pca(a: argparse.Namespace) -> None:
     out = _project_samples(_read_embedding_table(a.input), rotation=a.rotation,
-                           cohort=a.cohort, components=a.n_components, save=a.fit, seed=a.seed)
+                           cohort=a.cohort, components=a.n_components, save=a.fit, seed=a.seed,
+                           threads=a.threads)
     _write(out, a.output)
 
 
@@ -560,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     rotation.add_argument('--rotation', metavar='ROTATION.npz', help='apply an existing rotation')
     pc.add_argument('--n-components', type=int, default=256)
     pc.add_argument('--seed', type=int, default=0)
+    pc.add_argument('--threads', type=int, default=0, help='PCA CPU budget (0: allocated cores)')
     pc.add_argument('--cohort', help='fit using this compatible cohort RFF table')
     pc.set_defaults(func=cmd_pca)
 

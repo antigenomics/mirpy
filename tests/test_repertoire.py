@@ -178,6 +178,26 @@ def test_mmd_matrix_symmetric_zero_diag(space):
     assert np.allclose(np.diag(D), 0.0, atol=1e-6)
 
 
+@pytest.mark.parametrize('unbiased', [False, True])
+def test_mmd_matrix_bounds_pairwise_scratch_and_checks_memory(monkeypatch, unbiased):
+    from mir.repertoire import SampleEmbedding
+    from vdjtools import cores
+    values = np.random.default_rng(3).normal(size=(11, 9))
+    embs = [SampleEmbedding(mean=row, diversity=None, second=None, n_eff=20) for row in values]
+    expected = np.array([[mmd_distance(a,b,unbiased=unbiased) for b in embs] for a in embs])
+    np.fill_diagonal(expected, 0)
+    requests = []
+    monkeypatch.setattr(cores, 'require_memory', lambda size, reason: requests.append(size))
+    actual = mmd_matrix(embs, unbiased=unbiased)
+    np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-12)
+    assert requests and requests[0] >= actual.nbytes
+    def unavailable(*args):
+        raise MemoryError('selected allocation cannot hold the pairwise output')
+    monkeypatch.setattr(cores, 'require_memory', unavailable)
+    with pytest.raises(MemoryError, match='pairwise output'):
+        mmd_matrix(embs, unbiased=unbiased)
+
+
 def test_unbiased_mmd_removes_self_bias(space):
     """Two independent subsamples of the SAME clonotypes: unbiased MMD² < biased (the 1/n_eff self-bias)."""
     base = _clonotypes(400, offset=0)

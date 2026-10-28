@@ -111,11 +111,12 @@ def _rff_space(spaces, weight):
 
 
 def sample_embeddings(samples, spaces: dict, *, weight='log2p1',
-                      blocks=('mean', 'diversity'), n_jobs=1) -> pl.DataFrame:
+                      blocks=('mean', 'diversity'), n_jobs=0) -> pl.DataFrame:
     """Read/reduce/release one sample per worker; retain RFF means and requested channels.
 
     Every sample uses the same fitted RepertoireSpace per locus. Diversity and
     second moments retain SampleEmbedding semantics; absent loci remain missing.
+    ``n_jobs=0`` uses the allocated cores; ``1`` runs without a sample pool.
     """
     if not spaces or not blocks or set(blocks) - {'mean', 'diversity', 'second'}:
         raise ValueError('provide shared spaces and valid nonempty blocks')

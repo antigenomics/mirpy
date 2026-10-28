@@ -73,6 +73,8 @@ controls that clonotype basis. ``--n-rff`` controls the RFF width (default 1024)
 ``--blocks mean,diversity`` is the default; add ``second`` when needed. All samples
 share the same mapping. Each worker retains one sample and bounded numerical blocks;
 only sample vectors survive the reduction. ``--threads 1`` starts no worker pool.
+The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
+allocated cores, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -84,6 +86,12 @@ second-moment, count and presence channels pass through unchanged. Training medi
 fill missing values; wholly missing columns use zero. IDs are preserved. The
 rotation stores feature names and the shared basis fingerprint, and refuses a
 mismatch. It is a NumPy artifact with no executable pickle payload.
+
+Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
+uses allocated BLAS cores for fitting and application; a positive value sets an
+explicit budget. Inline sample PCA reuses ``mir embed repertoires --threads``
+after the sample workers have joined. The library's ``TablePCA.transform`` takes
+the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
 
 .. code-block:: bash
 
@@ -127,6 +135,15 @@ requires a quadratic distance matrix. Visible cgroup limits are checked before
 known large numerical allocations; an unusually large input sample can still
 require substantial memory to read. Choose fewer workers or reuse a saved basis
 when input frames dominate the allocation.
+
+``mmd_matrix(..., threads=0)`` uses the allocated BLAS budget and bounds distance
+conversion scratch. ``cluster_samples(..., n_jobs=N)`` uses that same budget for
+MMD first, then clustering; neighbor-rank selection uses bounded partition blocks.
+A float64 pairwise table alone needs ``8 * N * N`` bytes: 800 MB for 10,000
+samples and 8 TB for one million points. Use the sample vectors directly for
+PCA and coordinate-space clustering when a complete pairwise table is unnecessary.
+DBSCAN can also retain quadratically many neighbors for a large radius; bounded
+embedding batches do not make that estimator's neighborhood graph bounded.
 
 Python tables and deferred readers
 ----------------------------------

@@ -33,7 +33,7 @@ dependencies = [
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
   # 5.3.0 preserves caller OpenMP capacity for downstream neighbor searches (#61).
   # Keep the build extra in sync.
-  "vdjtools>=5.3.1",
+  "vdjtools>=5.3.2",
 ]
 license = { text = "ISALGO LAB Academic and Non-Commercial Research License v1.0" }
 
