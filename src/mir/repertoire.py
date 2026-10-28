@@ -808,6 +808,8 @@ def naive_reference(
     n: int = 20_000,
     seed: int = 0,
     source: str = "learned",
+    engine: str = "reference",
+    threads: int = 0,
     sequences: pl.DataFrame | None = None,
 ) -> np.ndarray:
     """Kernel mean of ``n`` naive V(D)J recombinations — where the **unseen** clonotypes live.
@@ -825,7 +827,7 @@ def naive_reference(
       different direction, not a collapsed one).
 
     The draw comes from :func:`vdjtools.model.generate` over the bundled germline model for this
-    space's locus, species and selected source, and is cached per ``(n, seed, source)`` on the space. Pass
+    space's locus, species and selected source, and is cached per ``(n, seed, source, engine)`` on the space. Pass
     ``sequences=`` to supply the reference repertoire yourself (an uncached path) if you do not want
     the vdjtools generative model in the loop.
 
@@ -833,9 +835,11 @@ def naive_reference(
         space: The shared :class:`RepertoireSpace` — supplies the locus *and* the coordinate system,
             so the reference is automatically comparable to every ``Φ`` fit through it.
         n: Number of naive recombinations to draw.
-        seed: Generation seed; the result is deterministic in ``(n, seed, source)``.
+        seed: Generation seed; the result is deterministic in ``(n, seed, source, engine)``.
         source: Bundled model set, ``"learned"`` by default. Use ``"olga"`` for explicit
             historical reproduction. Species/locus availability comes from vdjtools.
+        engine: ``"reference"`` preserves historical seed streams; ``"native"`` selects parallel sampling.
+        threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
         sequences: Optional pre-built clonotype frame to use instead of generating (``v_call`` /
             ``j_call`` / ``junction_aa``). Not cached.
 
@@ -850,14 +854,18 @@ def naive_reference(
         >>> psi = contrast_embedding(emb, ref)                # doctest: +SKIP
     """
     if sequences is None:
-        key = (n, seed, source)
+        from vdjtools.cores import kernel_threads
+
+        threads = kernel_threads(threads)
+        key = (n, seed, source, engine)
         if key in space._naive:
             return space._naive[key]
         from vdjtools.model import load_bundled
         from vdjtools.model.generate import generate
 
         sequences = generate(load_bundled(space.meta["locus"], source=source,
-            organism=space.meta["species"]), n, seed=seed, productive_only=True)
+            organism=space.meta["species"]), n, seed=seed, productive_only=True,
+            engine=engine, threads=threads)
         ref = space.rff.transform(space.transform_clonotypes(sequences)).mean(axis=0)
         space._naive[key] = ref
         return ref

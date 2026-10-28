@@ -785,7 +785,7 @@ def denoise_and_cluster(
 
 def generate_background(
     locus: str, n: int, *, species: str = "human", source: str = "learned", seed: int = 0,
-    productive_only: bool = True
+    productive_only: bool = True, engine: str = "reference", threads: int = 0
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
@@ -805,17 +805,21 @@ def generate_background(
             are defined by the installed vdjtools model catalog.
         source: Bundled model source — ``"learned"`` (vdjtools EM-inferred, the default),
             ``"olga"`` (legacy OLGA-parameter bootstrap, retained only for comparison), or
-            ``"arda"`` (legacy model set). vdjtools owns model parameters and germline references.
+            ``"arda"`` (legacy model set). vdjtools owns fitted parameters; ARDA supplies references.
         seed: Sampling seed.
         productive_only: Reject out-of-frame / stop-codon rearrangements.
+        engine: ``"reference"`` preserves historical seed streams; ``"native"`` uses the parallel sampler.
+        threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
 
     Raises:
         ValueError, FileNotFoundError: If the requested source, species or locus is unavailable.
     """
     from vdjtools.model import generate, load_bundled
 
+    threads = kernel_threads(threads)
     model = load_bundled(locus, source=source, organism=species)
-    df = generate.generate(model, n, seed=seed, productive_only=productive_only)
+    df = generate.generate(model, n, seed=seed, productive_only=productive_only,
+                           engine=engine, threads=threads)
     return df.select(list(_REQUIRED_COLS))
 
 

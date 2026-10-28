@@ -163,6 +163,11 @@ species and locus. The neighbour engine defaults to ``backend="kdtree"`` (exact,
 multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[ann]`` extra). See
 ``examples/density.py``.
 
+Both generators accept ``engine="native", threads=0`` to use the allocated CPUs
+for one batched draw. Their default reference engine preserves historical seed
+streams and runs serially. Reference points distinguish the selected model source
+and sampler engine; repeated calls reuse the same reference within the space.
+
 Repertoire embedding Φ(S) + MMD
 -------------------------------
 
