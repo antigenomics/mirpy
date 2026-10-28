@@ -27,6 +27,12 @@ def test_reference_bundle_is_separate_and_reusable(tmp_path, monkeypatch):
     assert TablePCA.load(output / 'rff-pca.npz').components.shape == (2, 16)
     assert TablePCA.load(output / 'features-pca.npz').space.startswith('vsig:')
     assert (output / 'basis/TRB.pkl').is_file()
+    from vdjtools.signature import raw_features_cohort
+    vocab = json.loads((output / 'feature-vocabulary.json').read_text())
+    frozen = raw_features_cohort(readers, vocab=vocab, n_jobs=1, cstar_target=0.8)
+    rotation = TablePCA.load(output / 'features-pca.npz')
+    assert frozen['embedding_space'][0] == rotation.space
+    assert rotation.transform(frozen).height == len(readers)
     monkeypatch.setattr('mir.embedding.reference.fit_sample_spaces',
                         lambda *a, **kw: pytest.fail('PCA refit must reuse its basis'))
     refit = tmp_path / 'refit'

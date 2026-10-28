@@ -183,7 +183,10 @@ provide an RFF basis for BCR or the other TCR loci.
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
-It also saves ``feature-columns.txt`` and the per-locus RFF models in ``basis/``.
+It also saves ``feature-columns.txt``, ``feature-vocabulary.json``, and the per-locus
+RFF models in ``basis/``. Use the saved vocabulary when extracting statistical
+features: germline updates can add genes to the default vocabulary and therefore
+change the coordinate identity.
 It does not fit or replace a vsig/rsig signature corpus. Feature matrices are
 generated fresh and released after fitting rather than saved as intermediates.
 
@@ -237,7 +240,13 @@ For statistical features, use the bundle's human gene vocabulary, ``log2p1``
 abundance weighting and declared shared coverage target. The recipe defaults to
 coverage ``0.8``. See `vdjtools' feature guide
 <https://docs.isalgo.dev/vdjtools/features.html>`_. A rotation refuses a different
-feature identity. Keep unprojected outputs when needed; loading a rotation does
+feature identity. Extract with the frozen vocabulary, then apply its rotation::
+
+   vdjtools features samples/*.tsv --coverage 0.8 --threads 1 \
+       --feature-vocabulary reference/feature-vocabulary.json -o features.tsv
+   vdjtools pca features.tsv --rotation reference/features-pca.npz -o feature_pcs.tsv
+
+Keep unprojected outputs when needed; loading a rotation does
 not change the underlying representation.
 
 ``bundle.json`` records representations, parameters and SHA256 checksums. Verify

@@ -33,8 +33,8 @@ def _():
     from vdjtools.model import load_bundled
     from vdjtools.model.generate import generate
 
-    # A deliberately tiny corpus so this notebook runs in seconds. Real ones are 10,000
-    # repertoires -- see `mir corpus --help`. A corpus is REQUIRED: there is no default, because a
+    # A deliberately tiny corpus so this notebook runs in seconds; see `mir corpus --help`.
+    # A corpus is REQUIRED: there is no default, because a
     # signature is comparable to another one only if both were rotated through the same one.
     corpus, _rows = S.synthesize("memory", loci=("TRB",), n_samples=30, size=120, seed=1,
                                  n_components=6)

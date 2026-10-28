@@ -50,6 +50,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     out.mkdir(parents=True, exist_ok=False)
     # Match `vdjtools features` even when the reference observes only TRA/TRB.
     vocab = {loc: gene_vocab(loc, 'human') for loc in LOCI}
+    (out / 'feature-vocabulary.json').write_text(json.dumps(vocab, indent=2) + '\n')
     table = raw_features_cohort(readers, vocab=vocab, n_jobs=jobs, cstar_target=coverage)
     columns = [c for loc in (*loci, NO_LOCUS)
                for c in raw_columns('vsig', loc, vocab.get(loc))]
