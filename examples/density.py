@@ -150,8 +150,7 @@ def _(mo):
     hits = day15_df.filter(enriched_mask(res))
     ```
 
-    See `benchmarks/benchmark_density_{yfv,ankspond,tcrnet}.py` in the companion
-    `2026-mirpy-analysis` repo.
+    Use a matched biological control when interpreting repertoire enrichment.
     """)
     return
 

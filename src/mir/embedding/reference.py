@@ -131,7 +131,10 @@ def _variance(rotation):
                            for k in (256, 512, 1024)}}
 
 
-def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False,
+REFERENCE_REVISION = 'b4ea628585e8b22caa813fca47c7d472c8aad2b0'
+
+
+def fetch_reference(name, *, revision=None, cache_dir=None, local_files_only=False,
                     force_download=False):
     """Fetch a hash-verified reference at an immutable Hugging Face commit.
 
@@ -144,6 +147,7 @@ def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False,
     from pathlib import PurePosixPath
     from huggingface_hub import snapshot_download
 
+    revision = REFERENCE_REVISION if revision is None else revision
     if name not in ('rna-blood', 'rna-tissue', 'synthetic-blood',
                     'synthetic-tissue', 'deep-tra-trb'):
         raise ValueError('unknown reference bundle name')
@@ -153,10 +157,10 @@ def fetch_reference(name, *, revision, cache_dir=None, local_files_only=False,
         raise ValueError('force_download requires online access; omit local_files_only')
     command = f'mir reference {name} --revision {revision}'
     try:
-        root = Path(snapshot_download('isalgo/mirpy_models', repo_type='dataset',
-                    revision=revision, allow_patterns=[f'{name}/*'], cache_dir=cache_dir,
+        root = Path(snapshot_download('isalgo/airr_feature_signatures', repo_type='dataset',
+                    revision=revision, allow_patterns=[f'references/{name}/*'], cache_dir=cache_dir,
                     local_files_only=local_files_only, force_download=force_download,
-                    max_workers=1)) / name
+                    max_workers=1)) / 'references' / name
         meta = json.loads((root / 'bundle.json').read_text())
     except FileNotFoundError as exc:
         raise FileNotFoundError(f'Reference is not fully staged. Run online: {command}; '

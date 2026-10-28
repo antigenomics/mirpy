@@ -9,8 +9,8 @@ from mir.embedding.reference import fetch_reference
 
 def test_fetch_verifies_pinned_snapshot_and_offline_repeat(tmp_path, monkeypatch):
     import huggingface_hub
-    root = tmp_path / 'rna-blood'
-    root.mkdir()
+    root = tmp_path / 'references' / 'rna-blood'
+    root.mkdir(parents=True)
     payload = root / 'feature-vocabulary.json'
     payload.write_text('{}')
     files = {payload.name: hashlib.sha256(b'{}').hexdigest()}
@@ -32,9 +32,13 @@ def test_fetch_verifies_pinned_snapshot_and_offline_repeat(tmp_path, monkeypatch
     for offline in (False, True):
         assert fetch_reference('rna-blood', revision='a'*40, cache_dir=tmp_path,
                                local_files_only=offline) == root
+        assert calls[-1][0] == 'isalgo/airr_feature_signatures'
         assert calls[-1][1]['local_files_only'] == offline
         assert calls[-1][1]['revision'] == 'a'*40
-        assert calls[-1][1]['allow_patterns'] == ['rna-blood/*']
+        assert calls[-1][1]['allow_patterns'] == ['references/rna-blood/*']
+    from mir.embedding.reference import REFERENCE_REVISION
+    assert fetch_reference('rna-blood') == root
+    assert calls[-1][1]['revision'] == REFERENCE_REVISION
     payload.write_text('corrupt')
     with pytest.raises(ValueError, match='checksum mismatch'):
         fetch_reference('rna-blood', revision='a'*40)
@@ -86,7 +90,7 @@ def test_offline_miss_and_cli_errors_are_actionable(monkeypatch):
 
 def test_real_hub_offline_snapshot_without_mock_downloader(tmp_path):
     revision = 'b'*40
-    root = tmp_path / 'datasets--isalgo--mirpy_models' / 'snapshots' / revision / 'rna-blood'
+    root = tmp_path / 'datasets--isalgo--airr_feature_signatures' / 'snapshots' / revision / 'references' / 'rna-blood'
     root.mkdir(parents=True)
     files = {}
     for filename in ('features-pca.npz', 'rff-pca.npz', 'feature-columns.txt',

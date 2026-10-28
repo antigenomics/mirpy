@@ -138,9 +138,10 @@ the manifest.
 Pre-stage reference rotations
 -----------------------------
 
-``mir reference NAME --revision COMMIT`` fetches a reference from the published
-``isalgo/mirpy_models`` dataset, verifies every manifest checksum, and prints its
-local directory. ``COMMIT`` must be the full immutable commit SHA. It does not
+``mir reference NAME`` fetches a reference from the published
+``isalgo/airr_feature_signatures`` dataset, verifies every manifest checksum, and prints its
+local ``references/NAME`` directory. The default is pinned to the release-tested
+immutable revision. Override it with ``--revision COMMIT`` using a full commit SHA. It does not
 load pickle models or fit a rotation. Use the resulting directory with
 ``--basis``, ``--rotation`` and vdjtools' ``--feature-vocabulary``.
 

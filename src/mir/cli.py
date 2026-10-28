@@ -692,7 +692,7 @@ def build_parser() -> argparse.ArgumentParser:
     ref = sub.add_parser('reference', help='fetch and verify a frozen reference bundle')
     ref.add_argument('name', choices=('rna-blood', 'rna-tissue', 'synthetic-blood',
                                      'synthetic-tissue', 'deep-tra-trb'))
-    ref.add_argument('--revision', required=True, help='immutable Hugging Face commit SHA')
+    ref.add_argument('--revision', help='immutable Hugging Face commit SHA (default: release-pinned revision)')
     ref.add_argument('--cache-dir', help='Hugging Face cache directory (default: standard hub cache)')
     ref.add_argument('--offline', action='store_true', help='verify a pre-staged local snapshot')
     ref.add_argument('--force-download', action='store_true', help='refetch a corrupted cached bundle online')
