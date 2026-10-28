@@ -390,10 +390,13 @@ def cmd_signature(a: argparse.Namespace) -> None:
     print(f"[mir] {len(items)} samples | corpus {art.name} "
           f"({art.meta.get('content_sha256', '?')[:12]}) | winsorize={a.winsorize} | "
           f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
-    out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
-                      n_components=ncomp, species=a.species, weight=a.weight,
-                      on_duplicate=a.on_duplicate, named=blocks, columns=want,
-                      min_clonotypes=a.min_clonotypes)
+    try:
+        out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
+                          n_components=ncomp, species=a.species, weight=a.weight,
+                          on_duplicate=a.on_duplicate, named=blocks, columns=want,
+                          min_clonotypes=a.min_clonotypes)
+    except MemoryError as exc:
+        raise SystemExit(f"mir signature: {exc}") from None
     _write(out, a.output)
 
 
@@ -601,8 +604,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="clone-size weight g")
     s.add_argument("--columns", default=None, metavar="FILE",
                    help="file of column names (one per line) to restrict the output to")
-    s.add_argument("--jobs", "-j", type=int, default=1,
-                   help="worker threads over samples (default: 1, 0 = all allocated cores). "
+    s.add_argument("--jobs", "-j", type=int, default=0,
+                   help="worker threads over samples (default: 0 = allocated cores, 1 = serial). "
                         "Each worker uses one kernel thread; explicit counts are "
                         "clamped to allocation and sample count")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",

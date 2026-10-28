@@ -275,10 +275,13 @@ Traps
 * **``chunk`` bounds memory.** The default is 4,096 rows: 24 MiB per float64 embedding
   block at 256 prototypes. Running sums avoid retaining the whole repertoire embedding.
   Changing block size preserves the calculation up to floating-point rounding.
-* **``--jobs`` selects threads.** The default is 1; 0 requests allocated cores.
+* **``--jobs`` selects threads.** The default is 0 (allocated cores); 1 selects serial execution.
   Positive counts must fit that allocation and are capped by sample count. Workers
   share frozen resources and read one sample at a time; output follows input order.
   Deferred readers may be closures. Callbacks must not mutate shared resources.
+  A preflight guard estimates numerical workspace and retained output memory;
+  reader-owned input frames need additional memory. If the guard rejects the
+  allocation, request fewer workers with ``--jobs``.
 * **A pool that cannot start raises.** Startup and calculation errors propagate;
   there is no serial fallback.
 

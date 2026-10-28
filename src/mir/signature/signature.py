@@ -315,7 +315,7 @@ def _one(item, corpus, kw):
     return {"sample_id": sid, **rsig(resolve_sample(sample), corpus, **kw)}
 
 
-def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
+def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 0,
                 columns: "list[str] | None" = None, **kw) -> pl.DataFrame:
     """One row per sample, ``sample_id`` first.
 
@@ -323,16 +323,25 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
         samples: ``{sample_id: sample}`` or an iterable of pairs. A sample may be a zero-argument callable, which defers the read into the worker and holds peak memory at
             ``O(n_jobs)`` samples rather than the whole cohort.
         corpus: A fitted corpus.
-        n_jobs: Worker threads; ``1`` in-process, ``0`` every available core.
+        n_jobs: Worker threads; ``0`` (default) uses allocated cores, ``1`` is serial.
         columns: Restrict the output columns.
         **kw: Forwarded to :func:`rsig`.
     """
+    from vdjtools.cores import kernel_threads, require_memory
+
     items = list(samples.items() if isinstance(samples, dict) else samples)
-    rows = parallel_rows(items, functools.partial(_one, corpus=corpus,
-                                                 kw={**kw, "columns": columns}), n_jobs)
+    budget = kernel_threads(n_jobs)
     want = ["sample_id", *(columns if columns is not None
                            else corpus.columns(kw.get("n_components"),
                                                named=kw.get("named", ())))]
+    p = 3 * F.K
+    # Bound embedding/squared/weighted band blocks, covariance workspaces and
+    # retained Python rows plus the output table. Reader-owned input sizes are extra.
+    workspace = 32 * (kw.get("chunk", F.CHUNK) * p + p * p)
+    require_memory(min(len(items), budget) * workspace + 192 * len(items) * len(want),
+                   "signature cohort")
+    rows = parallel_rows(items, functools.partial(_one, corpus=corpus,
+                                                 kw={**kw, "columns": columns}), budget)
     return pl.DataFrame(rows).select([c for c in want if any(c in r for r in rows)])
 
 

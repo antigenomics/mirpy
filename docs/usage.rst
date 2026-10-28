@@ -342,8 +342,8 @@ control it, per hot path:
        ``None`` selects one worker; negative counts are relative to the allocation.
    * - Signature cohort
      - ``rsig_cohort(..., n_jobs=N)`` / ``mir signature --jobs N``
-     - ``1``, serial
-     - ``0`` requests allocated CPUs. Workers share frozen panels and keep inner kernels serial.
+     - ``0``, allocated CPUs
+     - Workers share frozen panels and keep inner kernels serial. ``1`` selects serial execution.
    * - BLAS: PCA, RFF, matmul
      - shared runtime limits
      - 1 thread
