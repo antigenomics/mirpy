@@ -1270,15 +1270,23 @@ def mmd_distance(a: SampleEmbedding, b: SampleEmbedding, *, unbiased: bool = Fal
     return float(np.sqrt(max(haa + hbb - 2.0 * float(ma @ mb), 0.0)))
 
 
-def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.ndarray:
+def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False,
+               threads: int = 0) -> np.ndarray:
     """Symmetric sample×sample MMD matrix (feeds a regressor / ``cluster_samples``).
 
     ``unbiased=True`` uses the diagonal-removed MMD² (see :func:`mmd_distance`) — necessary whenever
     samples differ in depth/``n_eff``, else the ``1/n_eff`` self-bias confounds the comparison.
+    ``threads=0`` budgets BLAS to the allocation; a positive value selects that count.
+    The output is still quadratic in sample count; conversion scratch is bounded.
     """
-    M = np.stack([e._require_mean() for e in embs])         # (S, D)
-    G = M @ M.T
-    sq = np.diag(G).copy()
+    from vdjtools.cores import kernel_threads, numerical_kernels, require_memory
+    budget = kernel_threads(threads)
+    means = [e._require_mean() for e in embs]
+    n = len(means)
+    dtype = np.result_type(*(m.dtype for m in means), np.float64 if unbiased else 2.0)
+    rows = max(1, (32 * 1024**2) // (2 * max(n, 1) * dtype.itemsize))
+    require_memory(2 * dtype.itemsize * n*n + sum(m.nbytes for m in means)
+                   + 2 * dtype.itemsize * min(rows, n) * n, 'sample MMD pairwise output')
     if unbiased:
         s = np.array([1.0 / e.n_eff for e in embs])        # per-sample Σwᵢ²
         if np.any(s >= 1.0):
@@ -1287,13 +1295,18 @@ def mmd_matrix(embs: list[SampleEmbedding], *, unbiased: bool = False) -> np.nda
                 f"{int(np.sum(s >= 1.0))} of {len(embs)} samples are degenerate. "
                 "Use unbiased=False, or drop them before building the matrix."
             )
-        h = (sq - s) / (1.0 - s)                           # diagonal-removed self-inner-products
-        d2 = h[:, None] + h[None, :] - 2.0 * G
-    else:
-        d2 = sq[:, None] + sq[None, :] - 2.0 * G
-    d2 = np.maximum(d2, 0.0)
-    np.fill_diagonal(d2, 0.0)
-    return np.sqrt(d2)
+    M = np.stack(means)                                    # (S, D)
+    with numerical_kernels(budget):
+        G = (M @ M.T).astype(dtype, copy=False)
+    sq = np.diag(G).copy()
+    if unbiased:
+        sq = (sq - s) / (1.0 - s)                          # diagonal-removed self-inner-products
+    for start in range(0, n, rows):
+        block = G[start:start+rows]
+        np.subtract(sq[start:start+rows, None] + sq[None, :], 2.0 * block, out=block)
+    np.maximum(G, 0.0, out=G)
+    np.fill_diagonal(G, 0.0)
+    return np.sqrt(G, out=G)
 
 
 def class_witness(

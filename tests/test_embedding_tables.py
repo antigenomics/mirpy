@@ -55,7 +55,7 @@ def test_table_pca_roundtrip_preserves_ids_and_refuses_other_space(tmp_path):
         rotation.transform(table.drop('phi:TRB:1'))
 
 
-def test_parallel_sample_rows_equal_serial_with_missing_loci():
+def test_parallel_sample_rows_equal_serial_with_missing_loci(monkeypatch):
     from mir.embedding.table import sample_embeddings
     from mir.embedding.tcremp import TCREmp
     models = {loc: TCREmp.from_defaults('human',loc,n_prototypes=8,threads=0)
@@ -68,6 +68,22 @@ def test_parallel_sample_rows_equal_serial_with_missing_loci():
     serial = sample_embeddings(items,spaces,n_jobs=1)
     parallel = sample_embeddings(items,spaces,n_jobs=2)
     assert serial.equals(parallel)
+    import mir.embedding.table as tables
+    original = tables.parallel_rows
+    budgets = []
+    def checked(items, fn, n_jobs):
+        budgets.append(n_jobs)
+        return original(items, fn, n_jobs)
+    monkeypatch.setattr(tables, 'parallel_rows', checked)
+    from_numpy = tables.pl.from_numpy
+    def columnar(values, *args, **kwargs):
+        assert values.flags.f_contiguous, 'sample rows require a second full table copy'
+        out = from_numpy(values, *args, **kwargs)
+        assert np.shares_memory(values, out[:, 0].to_numpy())
+        return out
+    monkeypatch.setattr(tables.pl, 'from_numpy', columnar)
+    assert serial.equals(sample_embeddings(items,spaces))
+    assert budgets == [0]
     assert parallel['sample_id'].to_list() == [str(i) for i in range(5)] + ['empty']
     assert parallel['present:TRA'].sum() == 0
     assert parallel['present:TRB'].to_list() == [1]*5 + [0]

@@ -153,3 +153,36 @@ def test_a_nested_functions_return_is_not_the_cells_return() -> None:
         "    return (phenotypes,)\n"
     )
     assert _provided(_cells(nested)[0]) == {"phenotypes"}
+
+
+def test_signature_pipeline_recomputes_existing_output(tmp_path):
+    """An existing export must not bypass the requested computation."""
+    import sys
+    from types import SimpleNamespace
+
+    path = next(p for p in EXAMPLES if p.stem == 'signature_pipeline')
+    cell = next(c for c in _cells(ast.parse(path.read_text()))
+                if 'subprocess' in _consumed(c) and 'files' in _consumed(c))
+    cell.decorator_list = []
+    namespace = {}
+    exec(compile(ast.Module(body=[cell], type_ignores=[]), str(path), 'exec'), namespace)
+    calls = []
+    runner = SimpleNamespace(run=lambda cmd, **kw:
+                             calls.append(cmd) or SimpleNamespace(returncode=0, stderr='done'))
+    output = tmp_path / 'rsig_1_naive.tsv'
+    output.write_text('old output')
+    result, _ = namespace['_'](2, 'naive', [tmp_path / 'input.tsv'],
+                              SimpleNamespace(md=lambda text: None),
+                              SimpleNamespace(value=1), runner, sys, tmp_path)
+    assert result == output
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('path', EXAMPLES, ids=lambda p: p.stem)
+def test_every_example_has_a_script_entrypoint(path):
+    """Documented script mode must start the app, not exit after defining cells."""
+    tree = ast.parse(path.read_text())
+    guards = [node for node in tree.body if isinstance(node, ast.If)
+              and ast.unparse(node.test) == "__name__ == '__main__'"]
+    assert any(isinstance(node, ast.Call) and ast.unparse(node.func) == 'app.run'
+               for guard in guards for node in ast.walk(guard)), path.name

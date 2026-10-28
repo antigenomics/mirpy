@@ -15,7 +15,7 @@
   <a href="https://pypi.org/project/mirpy-lib/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/mirpy-lib.svg"></a>
   <a href="https://github.com/antigenomics/mirpy/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/antigenomics/mirpy/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://docs.isalgo.dev/mirpy/"><img alt="docs" src="https://github.com/antigenomics/mirpy/actions/workflows/docs.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-GPLv3-green"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Academic%20%26%20Non--Commercial-green"></a>
 </p>
 
 <p align="center"><b>
@@ -128,7 +128,9 @@ See the [mathematical foundations](https://docs.isalgo.dev/mirpy/math.html) for 
 
 ## License
 
-GPL-3.0-or-later. The classical v1.x/v2 repertoire toolkit — parsing, overlap, diversity, TCRnet,
+ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
+
+The classical v1.x/v2 repertoire toolkit — parsing, overlap, diversity, TCRnet,
 GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/tree/legacy-v2) branch
 (`mirpy-lib` 2.x); its functionality lives on in
 [vdjtools](https://github.com/antigenomics/vdjtools) and

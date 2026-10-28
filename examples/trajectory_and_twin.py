@@ -37,18 +37,16 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # Exposure trajectory, generative loop, digital twin
+    mo.md("""
+    # Exposure trajectory, generative loop, digital twin
 
-        A repertoire cohort with a **known covariate** (here: an HLA-like binary group) and an
-        **unknown severity/progression axis** — the setup `mir.track.fit_exposure_trajectory`
-        targets (a PhenoPath-style model, Campbell & Yau 2018). Below: a synthetic cohort where
-        both an expanding convergent family *and* a covariate-dependent diversity response are
-        injected, so the fitted trajectory and its channel interactions have a known answer to
-        recover.
-        """
-    )
+    A repertoire cohort with a **known covariate** (here: an HLA-like binary group) and an
+    **unknown severity/progression axis** — the setup `mir.track.fit_exposure_trajectory`
+    targets (a PhenoPath-style model, Campbell & Yau 2018). Below: a synthetic cohort where
+    both an expanding convergent family *and* a covariate-dependent diversity response are
+    injected, so the fitted trajectory and its channel interactions have a known answer to
+    recover.
+    """)
     return
 
 
@@ -137,16 +135,14 @@ def _(fit):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Generative loop + digital twin
+    mo.md("""
+    ## Generative loop + digital twin
 
-        Fit a density over each sample's `RepertoireDescriptor` (mass-preserving: infiltration /
-        diversity / clonality / identity), conditioned on the same HLA covariate — then perturb
-        one donor's descriptor ("what if this donor's repertoire were hotter") and draw brand-new
-        synthetic donor states from the fitted generator.
-        """
-    )
+    Fit a density over each sample's `RepertoireDescriptor` (mass-preserving: infiltration /
+    diversity / clonality / identity), conditioned on the same HLA covariate — then perturb
+    one donor's descriptor ("what if this donor's repertoire were hotter") and draw brand-new
+    synthetic donor states from the fitted generator.
+    """)
     return
 
 

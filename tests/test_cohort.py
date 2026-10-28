@@ -131,6 +131,25 @@ def test_cluster_samples_runs(spaces):
     assert len(labels) == 12 and labels.dtype.kind in "iu"
 
 
+def test_cluster_samples_radius_uses_rank_without_sorting_full_matrix(monkeypatch):
+    import mir.cohort as cohort
+    import mir.bench.metrics as metrics
+    matrix = np.abs(np.subtract.outer(np.arange(9), np.arange(9))).astype(float)
+    original = matrix.copy()
+    expected = np.median(np.sort(matrix, axis=1)[:, 4])
+    def distances(*args, **kwargs):
+        assert kwargs['threads'] == 1
+        return matrix
+    monkeypatch.setattr(cohort, 'mmd_matrix', distances)
+    monkeypatch.setattr(np, 'sort', lambda *args, **kwargs: pytest.fail('full pairwise sort'))
+    def checked(data, **kwargs):
+        assert kwargs['eps'] == expected and kwargs['metric'] == 'precomputed'
+        np.testing.assert_array_equal(data, original)
+        return np.zeros(len(data), dtype=int)
+    monkeypatch.setattr(metrics, 'cluster', checked)
+    assert len(cluster_samples([None]*9, n_jobs=1)) == 9
+
+
 def test_james_stein_shrink_stops_a_small_n_batch_correction_injecting_noise():
     """Per-group centring in high d with few samples per group injects an offset as big as it removes.
 

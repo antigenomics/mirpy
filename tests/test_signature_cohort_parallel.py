@@ -202,10 +202,73 @@ def test_cli_passes_explicit_worker_budget_without_a_sample_heuristic(monkeypatc
     args = cli.build_parser().parse_args(['signature', '--corpus', 'unused', '--jobs', '8'])
     cli.cmd_signature(args)
     assert seen['n_jobs'] == 8
-    assert cli.build_parser().parse_args(['signature', '--corpus', 'unused']).jobs == 1
+    assert cli.build_parser().parse_args(['signature', '--corpus', 'unused']).jobs == 0
+
+    def refuse(*args, **kwargs):
+        raise MemoryError('use fewer workers')
+    monkeypatch.setattr(mir.signature, 'rsig_cohort', refuse)
+    with pytest.raises(SystemExit, match='mir signature: use fewer workers'):
+        cli.cmd_signature(args)
 
 
 def test_signature_embedder_uses_one_native_thread():
     from mir.signature.signature import _model
 
     assert _model('human', 'TRB').threads == 1
+
+
+def test_cold_signature_model_is_loaded_once_across_workers(monkeypatch):
+    import time
+    from multiprocessing.pool import ThreadPool
+    from mir.signature import signature as module
+    from mir.embedding.tcremp import TCREmp
+
+    calls = []
+    barrier = threading.Barrier(2)
+    model = object()
+
+    def construct(*args, **kwargs):
+        calls.append(1)
+        time.sleep(0.05)  # release the GIL while the other worker reaches the cold lookup
+        return model
+
+    monkeypatch.setattr(TCREmp, 'from_defaults', construct)
+    cached = getattr(module, '_cached_model', module._model)
+    cached.cache_clear()
+
+    def load(_):
+        barrier.wait(timeout=5)
+        return module._model('human', 'TRB')
+
+    try:
+        with ThreadPool(2) as pool:
+            result = pool.map(load, range(2))
+        assert result[0] is result[1] is model
+        assert len(calls) == 1
+    finally:
+        cached.cache_clear()
+
+
+def test_default_cohort_uses_allocation_and_rejects_unsafe_workspace(monkeypatch, corpus):
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    samples = cohort(2, n_clonotypes=50)
+    barrier = threading.Barrier(2)
+    workers = set()
+
+    def read(sample):
+        workers.add(threading.get_ident())
+        barrier.wait(timeout=5)
+        return sample
+
+    got = rsig_cohort([(sid, lambda sample=sample: read(sample))
+                       for sid, sample in samples.items()], corpus)
+    assert len(workers) == 2
+    expected = rsig_cohort(samples, corpus, n_jobs=1)
+    assert got.equals(expected)
+
+    def refuse(*args):
+        raise MemoryError('use fewer workers')
+
+    monkeypatch.setattr('vdjtools.cores.require_memory', refuse)
+    with pytest.raises(MemoryError, match='fewer workers'):
+        rsig_cohort(samples, corpus)

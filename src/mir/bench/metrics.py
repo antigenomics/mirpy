@@ -16,8 +16,11 @@ from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 
 
-def estimate_dbscan_eps(X: np.ndarray, k: int = 4) -> float:
+def estimate_dbscan_eps(X: np.ndarray, k: int = 4, *, threads: int = 0) -> float:
     """Kneedle ``eps``: the knee of the sorted k-th nearest-neighbour distance curve.
+
+    ``threads=0`` uses the CPU allocation; a positive count selects that budget.
+    Native limits are scoped to the search and restored before returning.
 
     ``k`` counts *other* points. ``kneighbors`` on the training set returns each point's own
     zero-distance self-match in column 0, so the k-th true neighbour is column ``k`` of a
@@ -26,9 +29,16 @@ def estimate_dbscan_eps(X: np.ndarray, k: int = 4) -> float:
     curve; re-derive ``eps`` (or ``eps_factor``) rather than comparing across the change.
     """
     from kneed import KneeLocator
+    from threadpoolctl import threadpool_limits
+    from vdjtools.cores import kernel_threads
 
-    nn = NearestNeighbors(n_neighbors=k + 1).fit(X)
-    kdist = np.sort(nn.kneighbors(X)[0][:, k])
+    budget = kernel_threads(threads)
+    # Tree searches use n_jobs; sklearn's dense brute-force reduction uses OpenMP.
+    # BLAS stays serial so either search backend owns the same CPU allocation.
+    with threadpool_limits(limits=1, user_api="blas"), \
+         threadpool_limits(limits=budget, user_api="openmp"):
+        nn = NearestNeighbors(n_neighbors=k + 1, n_jobs=budget).fit(X)
+        kdist = np.sort(nn.kneighbors(X)[0][:, k])
     kl = KneeLocator(
         np.arange(kdist.size), kdist, curve="convex", direction="increasing",
         interp_method="polynomial", polynomial_degree=7,
@@ -36,6 +46,14 @@ def estimate_dbscan_eps(X: np.ndarray, k: int = 4) -> float:
     if kl.knee is None:
         return float(np.median(kdist))
     return float(kdist[int(kl.knee)])
+
+
+def _cluster_threads(n_jobs):
+    from numbers import Integral
+    from vdjtools.cores import kernel_threads
+    if isinstance(n_jobs, Integral) and n_jobs < 0:
+        n_jobs = max(1, kernel_threads(0) + 1 + n_jobs)
+    return kernel_threads(1 if n_jobs is None else n_jobs)
 
 
 def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
@@ -60,29 +78,28 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     rather than DBSCAN's single global ``eps`` slice — so it is the natural choice when local
     density spans orders of magnitude across antigen ridges (appendix ``sec:dens-depth``).
     """
-    from vdjtools.cores import kernel_threads
-
-    from numbers import Integral
-
-    n_jobs = kwargs.pop("n_jobs", 0)
-    if isinstance(n_jobs, Integral) and n_jobs < 0:
-        n_jobs = max(1, kernel_threads(0) + 1 + n_jobs)
-    kwargs["n_jobs"] = kernel_threads(1 if n_jobs is None else n_jobs)
+    kwargs["n_jobs"] = _cluster_threads(kwargs.pop("n_jobs", 0))
     if method == "dbscan":
         if eps is None:
-            eps = estimate_dbscan_eps(X, k=k) * eps_factor
-        return DBSCAN(eps=eps, min_samples=min_samples, **kwargs).fit_predict(X)
-    if method == "hdbscan":
+            eps = estimate_dbscan_eps(X, k=k, threads=kwargs["n_jobs"]) * eps_factor
+        estimator = DBSCAN(eps=eps, min_samples=min_samples, **kwargs)
+    elif method == "hdbscan":
         from sklearn.cluster import HDBSCAN
 
         kwargs.setdefault("min_cluster_size", max(min_samples, 2))
         kwargs.setdefault("copy", True)  # don't mutate the caller's array (silences FutureWarning)
-        return HDBSCAN(min_samples=min_samples, **kwargs).fit_predict(X)
-    if method == "optics":
+        estimator = HDBSCAN(min_samples=min_samples, **kwargs)
+    elif method == "optics":
         from sklearn.cluster import OPTICS
 
-        return OPTICS(min_samples=min_samples, **kwargs).fit_predict(X)
-    raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
+        estimator = OPTICS(min_samples=min_samples, **kwargs)
+    else:
+        raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=1, user_api="blas"), \
+         threadpool_limits(limits=kwargs["n_jobs"], user_api="openmp"):
+        return estimator.fit_predict(X)
 
 
 @dataclass

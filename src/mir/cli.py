@@ -255,15 +255,15 @@ def _read_embedding_table(path):
 
 
 def _project_samples(table, *, rotation=None, cohort=None, components=256,
-                     save=None, seed=0):
+                     save=None, seed=0, threads=0):
     from mir.embedding.table import TablePCA
 
     if rotation and cohort:
         raise ValueError('--rotation cannot be combined with a fitting cohort')
     fitted = (TablePCA.load(rotation) if rotation else
               TablePCA.fit(_read_embedding_table(cohort) if cohort else table,
-                           n_components=components, seed=seed))
-    result = fitted.transform(table)
+                           n_components=components, seed=seed, threads=threads))
+    result = fitted.transform(table, threads=threads)
     if save:
         fitted.save(save)
     return result
@@ -317,7 +317,8 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
         _write(out, a.rff_output)
     if a.pca is not None or a.rotation or a.pca_cohort:
         out = _project_samples(out, rotation=a.rotation, cohort=a.pca_cohort,
-                               components=a.pca or 256, save=a.save_rotation, seed=a.seed)
+                               components=a.pca or 256, save=a.save_rotation, seed=a.seed,
+                               threads=a.threads)
     elif a.save_rotation:
         raise ValueError('--save-rotation requires --pca or --pca-cohort')
     _write(out, a.output)
@@ -326,7 +327,8 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
 
 def cmd_pca(a: argparse.Namespace) -> None:
     out = _project_samples(_read_embedding_table(a.input), rotation=a.rotation,
-                           cohort=a.cohort, components=a.n_components, save=a.fit, seed=a.seed)
+                           cohort=a.cohort, components=a.n_components, save=a.fit, seed=a.seed,
+                           threads=a.threads)
     _write(out, a.output)
 
 
@@ -390,10 +392,13 @@ def cmd_signature(a: argparse.Namespace) -> None:
     print(f"[mir] {len(items)} samples | corpus {art.name} "
           f"({art.meta.get('content_sha256', '?')[:12]}) | winsorize={a.winsorize} | "
           f"k={art.resolve_k(ncomp)} | jobs={jobs}", file=sys.stderr)
-    out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
-                      n_components=ncomp, species=a.species, weight=a.weight,
-                      on_duplicate=a.on_duplicate, named=blocks, columns=want,
-                      min_clonotypes=a.min_clonotypes)
+    try:
+        out = rsig_cohort(items, art, n_jobs=jobs, mode=a.winsorize, winsor_p=a.winsor_p,
+                          n_components=ncomp, species=a.species, weight=a.weight,
+                          on_duplicate=a.on_duplicate, named=blocks, columns=want,
+                          min_clonotypes=a.min_clonotypes)
+    except MemoryError as exc:
+        raise SystemExit(f"mir signature: {exc}") from None
     _write(out, a.output)
 
 
@@ -480,6 +485,17 @@ def cmd_corpus(a: argparse.Namespace) -> None:
 
 
 # --- parser ----------------------------------------------------------------
+def cmd_reference(a: argparse.Namespace) -> None:
+    """Pre-stage an immutable reference bundle without loading or fitting models."""
+    from mir.embedding.reference import fetch_reference
+
+    try:
+        print(fetch_reference(a.name, revision=a.revision, cache_dir=a.cache_dir,
+                              local_files_only=a.offline, force_download=a.force_download))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"mir reference: {exc}") from None
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Return the ``mir`` argument parser (``embed clonotypes`` / ``embed repertoires``)."""
     p = argparse.ArgumentParser(prog="mir", description=__doc__.splitlines()[0])
@@ -546,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     rotation.add_argument('--rotation', metavar='ROTATION.npz', help='apply an existing rotation')
     pc.add_argument('--n-components', type=int, default=256)
     pc.add_argument('--seed', type=int, default=0)
+    pc.add_argument('--threads', type=int, default=0, help='PCA CPU budget (0: allocated cores)')
     pc.add_argument('--cohort', help='fit using this compatible cohort RFF table')
     pc.set_defaults(func=cmd_pca)
 
@@ -593,8 +610,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="clone-size weight g")
     s.add_argument("--columns", default=None, metavar="FILE",
                    help="file of column names (one per line) to restrict the output to")
-    s.add_argument("--jobs", "-j", type=int, default=1,
-                   help="worker threads over samples (default: 1, 0 = all allocated cores). "
+    s.add_argument("--jobs", "-j", type=int, default=0,
+                   help="worker threads over samples (default: 0 = allocated cores, 1 = serial). "
                         "Each worker uses one kernel thread; explicit counts are "
                         "clamped to allocation and sample count")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
@@ -671,6 +688,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="bounded worker threads across samples (serial inner kernels): 0 = allocated cores, "
                          "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
+
+    ref = sub.add_parser('reference', help='fetch and verify a frozen reference bundle')
+    ref.add_argument('name', choices=('rna-blood', 'rna-tissue', 'synthetic-blood',
+                                     'synthetic-tissue', 'deep-tra-trb'))
+    ref.add_argument('--revision', help='immutable Hugging Face commit SHA (default: release-pinned revision)')
+    ref.add_argument('--cache-dir', help='Hugging Face cache directory (default: standard hub cache)')
+    ref.add_argument('--offline', action='store_true', help='verify a pre-staged local snapshot')
+    ref.add_argument('--force-download', action='store_true', help='refetch a corrupted cached bundle online')
+    ref.set_defaults(func=cmd_reference)
 
 
     return p

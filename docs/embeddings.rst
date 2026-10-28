@@ -73,6 +73,10 @@ controls that clonotype basis. ``--n-rff`` controls the RFF width (default 1024)
 ``--blocks mean,diversity`` is the default; add ``second`` when needed. All samples
 share the same mapping. Each worker retains one sample and bounded numerical blocks;
 only sample vectors survive the reduction. ``--threads 1`` starts no worker pool.
+Workers write directly into one preallocated columnar output matrix, which Polars
+wraps without a second feature-table copy.
+The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
+allocated cores, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -84,6 +88,12 @@ second-moment, count and presence channels pass through unchanged. Training medi
 fill missing values; wholly missing columns use zero. IDs are preserved. The
 rotation stores feature names and the shared basis fingerprint, and refuses a
 mismatch. It is a NumPy artifact with no executable pickle payload.
+
+Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
+uses allocated BLAS cores for fitting and application; a positive value sets an
+explicit budget. Inline sample PCA reuses ``mir embed repertoires --threads``
+after the sample workers have joined. The library's ``TablePCA.transform`` takes
+the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
 
 .. code-block:: bash
 
@@ -127,6 +137,52 @@ requires a quadratic distance matrix. Visible cgroup limits are checked before
 known large numerical allocations; an unusually large input sample can still
 require substantial memory to read. Choose fewer workers or reuse a saved basis
 when input frames dominate the allocation.
+
+``mmd_matrix(..., threads=0)`` uses the allocated BLAS budget and bounds distance
+conversion scratch. ``cluster_samples(..., n_jobs=N)`` uses that same budget for
+MMD first, then clustering; neighbor-rank selection uses bounded partition blocks.
+A float64 pairwise table alone needs ``8 * N * N`` bytes: 800 MB for 10,000
+samples and 8 TB for one million points. Use the sample vectors directly for
+PCA and coordinate-space clustering when a complete pairwise table is unnecessary.
+DBSCAN can also retain quadratically many neighbors for a large radius; bounded
+embedding batches do not make that estimator's neighborhood graph bounded.
+
+Optional exact FAISS neighbors
+-------------------------------
+
+For large exact L2 query batches, install ``faiss-cpu`` and build one index from
+the final coordinate table. Reuse that index and submit queries in batches.
+FAISS can delegate distance products to BLAS. Give the complete search phase one
+native CPU budget. OpenBLAS built with OpenMP can share FAISS's OpenMP runtime;
+setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
+
+.. code-block:: python
+
+   import faiss
+   import numpy as np
+   from threadpoolctl import threadpool_limits
+   from vdjtools.cores import kernel_threads
+
+   # coordinates: rows of sample PCs from one shared fitted rotation.
+   x = np.ascontiguousarray(coordinates, dtype=np.float32)
+   index = faiss.IndexFlatL2(x.shape[1])
+   index.add(x)
+   previous = faiss.cvar.distance_compute_blas_threshold
+   try:
+       faiss.cvar.distance_compute_blas_threshold = 0
+       with threadpool_limits(limits=kernel_threads(0)):
+           distances_squared, neighbor_ids = index.search(x, 5)
+   finally:
+       faiss.cvar.distance_compute_blas_threshold = previous
+
+Run this as one numerical phase after sample workers finish. The threshold is
+process-global: do not change it concurrently from several callers. The index
+copies its vectors, so budget both the input and the index, plus query outputs;
+no full sample-by-sample distance table is needed. On backends that do not expose
+dynamic BLAS thread controls, the backend's initialization limits still apply.
+See FAISS's `implementation notes <https://github.com/facebookresearch/faiss/wiki/Implementation-notes>`_
+and `threading guide <https://github.com/facebookresearch/faiss/wiki/Threads-and-asynchronous-calls>`_
+for the native kernel and batching contracts.
 
 Python tables and deferred readers
 ----------------------------------
@@ -183,7 +239,10 @@ provide an RFF basis for BCR or the other TCR loci.
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
 readers. It exports two separate rotations: ``features-pca.npz`` for unrotated
 vdjtools statistical features, and ``rff-pca.npz`` for mirpy sample RFF means.
-It also saves ``feature-columns.txt`` and the per-locus RFF models in ``basis/``.
+It also saves ``feature-columns.txt``, ``feature-vocabulary.json``, and the per-locus
+RFF models in ``basis/``. Use the saved vocabulary when extracting statistical
+features: germline updates can add genes to the default vocabulary and therefore
+change the coordinate identity.
 It does not fit or replace a vsig/rsig signature corpus. Feature matrices are
 generated fresh and released after fitting rather than saved as intermediates.
 
@@ -237,7 +296,13 @@ For statistical features, use the bundle's human gene vocabulary, ``log2p1``
 abundance weighting and declared shared coverage target. The recipe defaults to
 coverage ``0.8``. See `vdjtools' feature guide
 <https://docs.isalgo.dev/vdjtools/features.html>`_. A rotation refuses a different
-feature identity. Keep unprojected outputs when needed; loading a rotation does
+feature identity. Extract with the frozen vocabulary, then apply its rotation::
+
+   vdjtools features samples/*.tsv --coverage 0.8 --threads 1 \
+       --feature-vocabulary reference/feature-vocabulary.json -o features.tsv
+   vdjtools pca features.tsv --rotation reference/features-pca.npz -o feature_pcs.tsv
+
+Keep unprojected outputs when needed; loading a rotation does
 not change the underlying representation.
 
 ``bundle.json`` records representations, parameters and SHA256 checksums. Verify

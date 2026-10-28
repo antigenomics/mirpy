@@ -13,6 +13,7 @@ mirpy depends on vdjtools and not the reverse; nothing in vdjtools imports ``mir
 from __future__ import annotations
 
 import functools
+import threading
 
 import numpy as np
 import polars as pl
@@ -110,8 +111,17 @@ def bundled_path(name):
     return resolve_artifact(name, sig="rsig", res_dir=_RES, repo=CORPUS_REPO)
 
 
-@functools.lru_cache(maxsize=16)
+_MODEL_LOCK = threading.Lock()
+
+
 def _model(species: str, locus: str):
+    # ponytail: serialize frozen-reference lookup; per-key locks if cold-load latency matters.
+    with _MODEL_LOCK:
+        return _cached_model(species, locus)
+
+
+@functools.lru_cache(maxsize=16)
+def _cached_model(species: str, locus: str):
     """One immutable prototype panel per locus; parallelism is across samples."""
     from mir.embedding.tcremp import TCREmp
 
@@ -198,8 +208,8 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         # SHM-aware V distances, a different coordinate system under the same column names.
         clean = df.drop(*F._SHM_COLUMNS, strict=False)
         masks = {k: np.asarray(pred(counts), dtype=bool) for k, pred in F.BANDS.items()}
-        if locus == "IGH":
-            masks |= F.isotype_masks(df)
+        isotypes = F.isotype_masks(df) if locus == "IGH" else {}
+        masks |= isotypes
         acc = F.dispersion_pass(clean, _model(species, locus), w, band_masks=masks, chunk=chunk)
         phi, n_eff = acc.phi, acc.n_eff
         mass = 1.0 - float(missing_mass(counts))
@@ -225,7 +235,7 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         raw |= {f"rsig:band:{locus}:{k}": v for k, v in
                 _clr(bands, ("singleton", "top"), df.height).items()}
         if locus == "IGH":
-            iso = F.isotype_shares(df, w, min_clonotypes=min_clonotypes)
+            iso = F.isotype_shares(df, w, min_clonotypes=min_clonotypes, masks=isotypes)
             raw |= {f"rsig:band_igh:IGH:{k}": v for k, v in
                     _clr(iso, ("IgM", "IgG", "IgA"), df.height).items()}
 
@@ -305,7 +315,7 @@ def _one(item, corpus, kw):
     return {"sample_id": sid, **rsig(resolve_sample(sample), corpus, **kw)}
 
 
-def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
+def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 0,
                 columns: "list[str] | None" = None, **kw) -> pl.DataFrame:
     """One row per sample, ``sample_id`` first.
 
@@ -313,16 +323,26 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 1,
         samples: ``{sample_id: sample}`` or an iterable of pairs. A sample may be a zero-argument callable, which defers the read into the worker and holds peak memory at
             ``O(n_jobs)`` samples rather than the whole cohort.
         corpus: A fitted corpus.
-        n_jobs: Worker threads; ``1`` in-process, ``0`` every available core.
+        n_jobs: Worker threads; ``0`` (default) uses allocated cores, ``1`` is serial.
         columns: Restrict the output columns.
         **kw: Forwarded to :func:`rsig`.
     """
+    from vdjtools.cores import kernel_threads, require_memory
+
     items = list(samples.items() if isinstance(samples, dict) else samples)
-    rows = parallel_rows(items, functools.partial(_one, corpus=corpus,
-                                                 kw={**kw, "columns": columns}), n_jobs)
+    budget = kernel_threads(n_jobs)
     want = ["sample_id", *(columns if columns is not None
                            else corpus.columns(kw.get("n_components"),
                                                named=kw.get("named", ())))]
+    p = 3 * F.K
+    # Bound embedding/squared/weighted band blocks, covariance workspaces and
+    # retained Python rows plus the output table. Reader-owned input sizes are extra.
+    chunk = F._positive_chunk(kw.get("chunk", F.CHUNK))
+    workspace = 32 * (chunk * p + p * p)
+    require_memory(min(len(items), budget) * workspace + 192 * len(items) * len(want),
+                   "signature cohort")
+    rows = parallel_rows(items, functools.partial(_one, corpus=corpus,
+                                                 kw={**kw, "columns": columns}), budget)
     return pl.DataFrame(rows).select([c for c in want if any(c in r for r in rows)])
 
 

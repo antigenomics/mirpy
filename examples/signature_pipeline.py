@@ -4,7 +4,7 @@
 # row per sample, join it to your own sheet on `sample_id`, done. Every other notebook here is
 # about the method; this one is about the commands.
 #
-# Data: `isalgo/airr_benchmark`, folder `sra/` -- 1,764 per-sample AIRR TSVs plus `meta.tsv`
+# Data: `isalgo/airr_benchmark`, folder `sra/` -- per-sample AIRR TSVs plus `meta.tsv`
 # (PMID, Run, BioProject, Sample). Auto-downloads and caches; a local `./data_dump/` copy wins.
 #
 # Run with:  marimo edit examples/signature_pipeline.py
@@ -23,47 +23,44 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # A folder of AIRR files to a joinable table
+    mo.md("""
+    # A folder of AIRR files to a joinable table
 
-        You have a directory of per-sample AIRR TSVs and a metadata sheet. You want **one row per
-        sample**, with named feature columns, that you can join to that sheet and hand to a
-        classifier or a regression.
+    You have a directory of per-sample AIRR TSVs and a metadata sheet. You want **one row per
+    sample**, with named feature columns, that you can join to that sheet and hand to a
+    classifier or a regression.
 
-        That is one command per half of the signature:
+    That is one command per half of the signature:
 
-        ```bash
-        mir      signature --corpus blood samples/*.tsv -o rsig.tsv   # geometry  (this library)
-        vdjtools signature --corpus blood samples/*.tsv -o vsig.tsv   # statistics (vdjtools)
-        ```
+    ```bash
+    mir      signature --corpus blood samples/*.tsv -o rsig.tsv   # geometry  (this library)
+    vdjtools signature --corpus blood samples/*.tsv -o vsig.tsv   # statistics (vdjtools)
+    ```
 
-        and one join. `sample_id` is the file name up to the first dot, so `samples/SRR8364167.tsv`
-        becomes `SRR8364167`. Name the files after the key your metadata already uses and the join
-        needs no mapping table.
+    and one join. `sample_id` is the file name up to the first dot, so `samples/sample_01.tsv`
+    becomes `sample_01`. Name the files after the key your metadata already uses and the join
+    needs no mapping table.
 
-        ## The two things to understand before running it
+    ## The two things to understand before running it
 
-        **What the halves measure.** The *statistics* half (`vsig`) is the classical repertoire
-        summary: how diverse, how clonal, which V and J genes, what junction lengths, which
-        isotypes. The *geometry* half (`rsig`) is where the receptors sit in sequence space --
-        each clonotype is placed by its similarity to a fixed panel of reference receptors, and
-        the sample is summarised by the clone-size-weighted average of those placements. Two
-        donors can have identical diversity and still occupy different regions of sequence space,
-        which is what the second half is for.
+    **What the halves measure.** The *statistics* half (`vsig`) is the classical repertoire
+    summary: how diverse, how clonal, which V and J genes, what junction lengths, which
+    isotypes. The *geometry* half (`rsig`) is where the receptors sit in sequence space --
+    each clonotype is placed by its similarity to a fixed panel of reference receptors, and
+    the sample is summarised by the clone-size-weighted average of those placements. Two
+    donors can have identical diversity and still occupy different regions of sequence space,
+    which is what the second half is for.
 
-        **What `--corpus` does, and why it is required.** Raw repertoire features live on wildly
-        different scales (reads in the millions, a frequency in `[0, 1]`) and are strongly
-        correlated with each other and with sequencing depth. A *corpus* is a large published
-        reference collection of repertoires; the signature is expressed relative to it. That makes
-        your matrix and a collaborator's directly comparable, with neither of you fitting a scaler.
-        There is no default corpus, because two matrices rotated through different corpora are not
-        comparable and nothing about the numbers would say so. `blood` is fitted on 11,117 real
-        blood samples; pick the one that matches how your samples were produced.
+    **What `--corpus` does, and why it is required.** Raw repertoire features live on wildly
+    different scales (reads in the millions, a frequency in `[0, 1]`) and are strongly
+    correlated with each other and with sequencing depth. A *corpus* is a large published
+    reference collection of repertoires; the signature is expressed relative to it. That makes
+    your matrix and a collaborator's directly comparable, with neither of you fitting a scaler.
+    There is no default corpus, because two matrices rotated through different corpora are not
+    comparable and nothing about the numbers would say so. Pick the corpus that matches how your samples were produced.
 
-        The rest of this notebook runs exactly those commands on a real cohort.
-        """
-    )
+    The rest of this notebook runs exactly those commands on a real cohort.
+    """)
     return
 
 
@@ -137,16 +134,13 @@ def _(COMPONENTS, CORPUS, files, mo, n_samples, subprocess, sys, work):
     subset = files[: n_samples.value]
     sig_path = work / f"rsig_{len(subset)}_{CORPUS}.tsv"
 
-    if not sig_path.exists():
-        _cmd = [sys.executable, "-m", "mir.cli", "signature",
-                "--corpus", CORPUS, "--components", str(COMPONENTS),
-                *[str(p) for p in subset], "-o", str(sig_path)]
-        _r = subprocess.run(_cmd, capture_output=True, text=True)
-        if _r.returncode != 0:
-            raise RuntimeError(f"mir signature failed ({_r.returncode}):\n{_r.stderr}")
-        _msg = (_r.stderr.strip().splitlines() or [""])[0]
-    else:
-        _msg = "cached"
+    _cmd = [sys.executable, "-m", "mir.cli", "signature",
+            "--corpus", CORPUS, "--components", str(COMPONENTS),
+            *[str(p) for p in subset], "-o", str(sig_path)]
+    _r = subprocess.run(_cmd, capture_output=True, text=True)
+    if _r.returncode != 0:
+        raise RuntimeError(f"mir signature failed ({_r.returncode}):\n{_r.stderr}")
+    _msg = (_r.stderr.strip().splitlines() or [""])[0]
 
     mo.md(f"""
     ```bash
@@ -191,27 +185,25 @@ def _(full, mo, pl):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## What the `nan` columns mean
+    mo.md("""
+    ## What the `nan` columns mean
 
-        A missing value is never filled with zero -- `nan` means **not estimable**, and a zero
-        would be a number a model would happily learn from. Most holes are a property of the
-        sample rather than of the software, and two different facts are kept apart:
+    A missing value is never filled with zero -- `nan` means **not estimable**, and a zero
+    would be a number a model would happily learn from. Most holes are a property of the
+    sample rather than of the software, and two different facts are kept apart:
 
-        | column | says |
-        |---|---|
-        | `rsig:mask:<locus>:present` | the locus has at least one productive clonotype |
-        | `rsig:mask:<locus>:estimable` | it has enough clonotypes for the dispersion estimators |
+    | column | says |
+    |---|---|
+    | `rsig:mask:<locus>:present` | the locus has at least one productive clonotype |
+    | `rsig:mask:<locus>:estimable` | it has enough clonotypes for the dispersion estimators |
 
-        A blood sample with no gamma-delta T cells has no TRG locus to measure; a sample with
-        three TRG clonotypes has a locus but cannot support a variance. The first is
-        `present = 0`, the second `present = 1, estimable = 0`. Both render as `nan` in the
-        feature columns, and the masks are what tell them apart -- which is why the masks are
-        **features in their own right**, not diagnostics: which donors sit below the floor tracks
-        real lymphocyte content.
-        """
-    )
+    A blood sample with no gamma-delta T cells has no TRG locus to measure; a sample with
+    three TRG clonotypes has a locus but cannot support a variance. The first is
+    `present = 0`, the second `present = 1, estimable = 0`. Both render as `nan` in the
+    feature columns, and the masks are what tell them apart -- which is why the masks are
+    **features in their own right**, not diagnostics: which donors sit below the floor tracks
+    real lymphocyte content.
+    """)
     return
 
 
@@ -245,21 +237,19 @@ def _(mo, pl, sig):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Reading the result: channels
+    mo.md("""
+    ## Reading the result: channels
 
-        A signature is **rotated coordinates plus channels**.
+    A signature is **rotated coordinates plus channels**.
 
-        The rotated coordinates (`rsig:pc:<locus>:PC01`, …) are the signature proper: correlated
-        raw features re-expressed as uncorrelated axes ordered by how much variation each one
-        carries across the corpus. They are the columns a model consumes, and they are not
-        individually interpretable -- `PC01` is a direction, not a quantity.
+    The rotated coordinates (`rsig:pc:<locus>:PC01`, …) are the signature proper: correlated
+    raw features re-expressed as uncorrelated axes ordered by how much variation each one
+    carries across the corpus. They are the columns a model consumes, and they are not
+    individually interpretable -- `PC01` is a direction, not a quantity.
 
-        The **channels** are carried in their own units and never rotated, because a number whose
-        job is to qualify a measurement must not be mixed into the measurement. Read them first.
-        """
-    )
+    The **channels** are carried in their own units and never rotated, because a number whose
+    job is to qualify a measurement must not be mixed into the measurement. Read them first.
+    """)
     return
 
 
@@ -302,29 +292,27 @@ def _(mo, pl, sig):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Both halves
+    mo.md("""
+    ## Both halves
 
-        Each tool emits its own half against its own artifact for the **same corpus name**. There
-        is no joined entry point: two commands and a polars join is the whole story.
+    Each tool emits its own half against its own artifact for the **same corpus name**. There
+    is no joined entry point: two commands and a polars join is the whole story.
 
-        ```bash
-        pip install vdjtools mirpy-lib
+    ```bash
+    pip install vdjtools mirpy-lib
 
-        vdjtools signature --corpus blood --components 32 samples/*.tsv -o vsig.tsv
-        mir      signature --corpus blood --components 32 samples/*.tsv -o rsig.tsv
-        ```
+    vdjtools signature --corpus blood --components 32 samples/*.tsv -o vsig.tsv
+    mir      signature --corpus blood --components 32 samples/*.tsv -o rsig.tsv
+    ```
 
-        ```python
-        full = vsig_frame.join(rsig_frame, on="sample_id", how="inner")
-        ```
+    ```python
+    full = vsig_frame.join(rsig_frame, on="sample_id", how="inner")
+    ```
 
-        Column names are `<half>:<block>:<locus>:<feature>`, with `-` in the locus position for
-        columns that span loci. The two halves are disjoint by construction, so the join cannot
-        collide. The next cell runs both and joins them.
-        """
-    )
+    Column names are `<half>:<block>:<locus>:<feature>`, with `-` in the locus position for
+    columns that span loci. The two halves are disjoint by construction, so the join cannot
+    collide. The next cell runs both and joins them.
+    """)
     return
 
 
