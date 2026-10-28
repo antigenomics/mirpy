@@ -337,8 +337,9 @@ control it, per hot path:
        baseline, for reproducing older runs.
    * - Clustering
      - ``cluster(..., n_jobs=-1)``
-     - ``None``, serial
+     - ``0``, allocated CPUs
      - Resolved against the CPU allocation, then passed to the neighbour-search estimator.
+       ``None`` selects one worker; negative counts are relative to the allocation.
    * - BLAS: PCA, RFF, matmul
      - shared runtime limits
      - 1 thread
@@ -352,6 +353,13 @@ control it, per hot path:
 
 As a rule: leave embedding at ``threads=0``, leave density on ``kdtree`` and switch to ``ann`` only
 at whole-repertoire scale. See :ref:`mir-resource-limits` for explicit budgets.
+
+Import ``mir`` before numerical libraries when starting a pipeline. Import-time
+defaults keep persistent numerical pools serial, while caller-owned stages may
+raise their active thread budget. The caller's ``OMP_THREAD_LIMIT`` is preserved;
+an explicit hard cap still limits later OpenMP stages. Sample workers and native
+batches share the allocation: finish the outer worker phase before starting a
+multithreaded numerical stage.
 
 .. note::
 

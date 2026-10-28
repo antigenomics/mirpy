@@ -4,7 +4,7 @@
 # row per sample, join it to your own sheet on `sample_id`, done. Every other notebook here is
 # about the method; this one is about the commands.
 #
-# Data: `isalgo/airr_benchmark`, folder `sra/` -- 1,764 per-sample AIRR TSVs plus `meta.tsv`
+# Data: `isalgo/airr_benchmark`, folder `sra/` -- per-sample AIRR TSVs plus `meta.tsv`
 # (PMID, Run, BioProject, Sample). Auto-downloads and caches; a local `./data_dump/` copy wins.
 #
 # Run with:  marimo edit examples/signature_pipeline.py
@@ -38,8 +38,8 @@ def _(mo):
         vdjtools signature --corpus blood samples/*.tsv -o vsig.tsv   # statistics (vdjtools)
         ```
 
-        and one join. `sample_id` is the file name up to the first dot, so `samples/SRR8364167.tsv`
-        becomes `SRR8364167`. Name the files after the key your metadata already uses and the join
+        and one join. `sample_id` is the file name up to the first dot, so `samples/sample_01.tsv`
+        becomes `sample_01`. Name the files after the key your metadata already uses and the join
         needs no mapping table.
 
         ## The two things to understand before running it
@@ -58,8 +58,7 @@ def _(mo):
         reference collection of repertoires; the signature is expressed relative to it. That makes
         your matrix and a collaborator's directly comparable, with neither of you fitting a scaler.
         There is no default corpus, because two matrices rotated through different corpora are not
-        comparable and nothing about the numbers would say so. `blood` is fitted on 11,117 real
-        blood samples; pick the one that matches how your samples were produced.
+        comparable and nothing about the numbers would say so. Pick the corpus that matches how your samples were produced.
 
         The rest of this notebook runs exactly those commands on a real cohort.
         """
@@ -137,16 +136,13 @@ def _(COMPONENTS, CORPUS, files, mo, n_samples, subprocess, sys, work):
     subset = files[: n_samples.value]
     sig_path = work / f"rsig_{len(subset)}_{CORPUS}.tsv"
 
-    if not sig_path.exists():
-        _cmd = [sys.executable, "-m", "mir.cli", "signature",
-                "--corpus", CORPUS, "--components", str(COMPONENTS),
-                *[str(p) for p in subset], "-o", str(sig_path)]
-        _r = subprocess.run(_cmd, capture_output=True, text=True)
-        if _r.returncode != 0:
-            raise RuntimeError(f"mir signature failed ({_r.returncode}):\n{_r.stderr}")
-        _msg = (_r.stderr.strip().splitlines() or [""])[0]
-    else:
-        _msg = "cached"
+    _cmd = [sys.executable, "-m", "mir.cli", "signature",
+            "--corpus", CORPUS, "--components", str(COMPONENTS),
+            *[str(p) for p in subset], "-o", str(sig_path)]
+    _r = subprocess.run(_cmd, capture_output=True, text=True)
+    if _r.returncode != 0:
+        raise RuntimeError(f"mir signature failed ({_r.returncode}):\n{_r.stderr}")
+    _msg = (_r.stderr.strip().splitlines() or [""])[0]
 
     mo.md(f"""
     ```bash

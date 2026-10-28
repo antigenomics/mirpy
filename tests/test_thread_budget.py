@@ -93,3 +93,35 @@ def test_cluster_relative_worker_budget(monkeypatch, jobs, expected):
             return np.zeros(len(X), dtype=int)
     monkeypatch.setattr(metrics, 'DBSCAN', Estimator)
     assert metrics.cluster(np.zeros((5, 3)), eps=1, n_jobs=jobs).shape == (5,)
+
+
+@pytest.mark.parametrize('hard_limit', [None, '2'])
+def test_import_preserves_openmp_capacity_and_neighbor_distances(hard_limit):
+    """Import must allow later sklearn stages to own their OpenMP allocation (#61)."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env.pop('OMP_THREAD_LIMIT', None)
+    if hard_limit is not None:
+        env['OMP_THREAD_LIMIT'] = hard_limit
+    code = '''
+import os
+before = os.environ.get('OMP_THREAD_LIMIT')
+import mir
+assert os.environ.get('OMP_THREAD_LIMIT') == before
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+from threadpoolctl import threadpool_limits
+x = np.random.default_rng(20261026).normal(size=(128, 32))
+truth = np.linalg.norm(x[:, None] - x[None, :], axis=2)
+np.fill_diagonal(truth, np.inf)
+with threadpool_limits(limits=2, user_api='openmp'):
+    distances, _ = NearestNeighbors(n_neighbors=2, algorithm='brute').fit(x).kneighbors(x)
+np.testing.assert_allclose(distances[:, 1], truth.min(axis=1), rtol=1e-12)
+'''
+    result = subprocess.run([sys.executable, '-c', code], env=env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert 'Cannot form a team' not in result.stderr

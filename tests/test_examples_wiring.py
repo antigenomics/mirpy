@@ -153,3 +153,26 @@ def test_a_nested_functions_return_is_not_the_cells_return() -> None:
         "    return (phenotypes,)\n"
     )
     assert _provided(_cells(nested)[0]) == {"phenotypes"}
+
+
+def test_signature_pipeline_recomputes_existing_output(tmp_path):
+    """An existing export must not bypass the requested computation."""
+    import sys
+    from types import SimpleNamespace
+
+    path = next(p for p in EXAMPLES if p.stem == 'signature_pipeline')
+    cell = next(c for c in _cells(ast.parse(path.read_text()))
+                if 'subprocess' in _consumed(c) and 'files' in _consumed(c))
+    cell.decorator_list = []
+    namespace = {}
+    exec(compile(ast.Module(body=[cell], type_ignores=[]), str(path), 'exec'), namespace)
+    calls = []
+    runner = SimpleNamespace(run=lambda cmd, **kw:
+                             calls.append(cmd) or SimpleNamespace(returncode=0, stderr='done'))
+    output = tmp_path / 'rsig_1_naive.tsv'
+    output.write_text('old output')
+    result, _ = namespace['_'](2, 'naive', [tmp_path / 'input.tsv'],
+                              SimpleNamespace(md=lambda text: None),
+                              SimpleNamespace(value=1), runner, sys, tmp_path)
+    assert result == output
+    assert len(calls) == 1
