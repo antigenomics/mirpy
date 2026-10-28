@@ -32,13 +32,13 @@ PyPI package ``mirpy-lib``, import name ``mir``. Pure Python; the heavy lifting 
    :gutter: 3
    :margin: 4 4 0 0
 
-   .. grid-item-card:: Get started
+   .. grid-item-card:: Tutorial: first embedding
       :link: getting-started
       :link-type: doc
 
       Install, embed your first receptors, cluster them, and compare two repertoires. Start here.
 
-   .. grid-item-card:: Guides
+   .. grid-item-card:: How-to guides
       :link: usage
       :link-type: doc
 
@@ -57,7 +57,7 @@ PyPI package ``mirpy-lib``, import name ``mir``. Pure Python; the heavy lifting 
 
       Every command and every flag for the ``mir`` console script.
 
-   .. grid-item-card:: Mathematical foundations
+   .. grid-item-card:: Explanation: coordinate system
       :link: math
       :link-type: doc
 
@@ -225,7 +225,7 @@ on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
 
 .. toctree::
    :hidden:
-   :caption: Getting started
+   :caption: Tutorials
    :maxdepth: 2
 
    self
@@ -234,7 +234,7 @@ on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
 
 .. toctree::
    :hidden:
-   :caption: Guides
+   :caption: How-to guides
    :maxdepth: 2
 
    embeddings
@@ -253,7 +253,7 @@ on in `vdjtools <https://github.com/antigenomics/vdjtools>`_ and
 
 .. toctree::
    :hidden:
-   :caption: How it works
+   :caption: Explanation
    :maxdepth: 2
 
    math

@@ -13,6 +13,7 @@ mirpy depends on vdjtools and not the reverse; nothing in vdjtools imports ``mir
 from __future__ import annotations
 
 import functools
+import threading
 
 import numpy as np
 import polars as pl
@@ -110,8 +111,17 @@ def bundled_path(name):
     return resolve_artifact(name, sig="rsig", res_dir=_RES, repo=CORPUS_REPO)
 
 
-@functools.lru_cache(maxsize=16)
+_MODEL_LOCK = threading.Lock()
+
+
 def _model(species: str, locus: str):
+    # ponytail: serialize frozen-reference lookup; per-key locks if cold-load latency matters.
+    with _MODEL_LOCK:
+        return _cached_model(species, locus)
+
+
+@functools.lru_cache(maxsize=16)
+def _cached_model(species: str, locus: str):
     """One immutable prototype panel per locus; parallelism is across samples."""
     from mir.embedding.tcremp import TCREmp
 
@@ -198,8 +208,8 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         # SHM-aware V distances, a different coordinate system under the same column names.
         clean = df.drop(*F._SHM_COLUMNS, strict=False)
         masks = {k: np.asarray(pred(counts), dtype=bool) for k, pred in F.BANDS.items()}
-        if locus == "IGH":
-            masks |= F.isotype_masks(df)
+        isotypes = F.isotype_masks(df) if locus == "IGH" else {}
+        masks |= isotypes
         acc = F.dispersion_pass(clean, _model(species, locus), w, band_masks=masks, chunk=chunk)
         phi, n_eff = acc.phi, acc.n_eff
         mass = 1.0 - float(missing_mass(counts))
@@ -225,7 +235,7 @@ def raw_and_channels(frames: dict[str, pl.DataFrame], vocab: dict[str, dict], *,
         raw |= {f"rsig:band:{locus}:{k}": v for k, v in
                 _clr(bands, ("singleton", "top"), df.height).items()}
         if locus == "IGH":
-            iso = F.isotype_shares(df, w, min_clonotypes=min_clonotypes)
+            iso = F.isotype_shares(df, w, min_clonotypes=min_clonotypes, masks=isotypes)
             raw |= {f"rsig:band_igh:IGH:{k}": v for k, v in
                     _clr(iso, ("IgM", "IgG", "IgA"), df.height).items()}
 

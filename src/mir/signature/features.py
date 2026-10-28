@@ -440,7 +440,7 @@ def isotype_masks(df: pl.DataFrame) -> dict[str, np.ndarray]:
 
 
 def isotype_shares(df: pl.DataFrame, w: np.ndarray, *,
-                   min_clonotypes: int = 5) -> dict[str, float]:
+                   min_clonotypes: int = 5, masks: "dict | None" = None) -> dict[str, float]:
     """Isotype shares of ``Phi(IGH)``, by the same mixture identity as :func:`band_shares`.
 
     A *share of the geometry*, which is a different quantity from the read fraction the statistics
@@ -448,8 +448,9 @@ def isotype_shares(df: pl.DataFrame, w: np.ndarray, *,
 
     The masks come from :func:`isotype_masks` rather than from a second copy of the same
     allele-stripping comprehension — two copies is how the two came to disagree about a null.
+    Pass already computed ``masks`` to share that parse with the dispersion pass.
     """
-    masks = isotype_masks(df)
+    masks = isotype_masks(df) if masks is None else masks
     if not masks:
         return {}
     out: dict[str, float] = {}

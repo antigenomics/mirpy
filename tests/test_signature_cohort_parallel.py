@@ -209,3 +209,35 @@ def test_signature_embedder_uses_one_native_thread():
     from mir.signature.signature import _model
 
     assert _model('human', 'TRB').threads == 1
+
+
+def test_cold_signature_model_is_loaded_once_across_workers(monkeypatch):
+    import time
+    from multiprocessing.pool import ThreadPool
+    from mir.signature import signature as module
+    from mir.embedding.tcremp import TCREmp
+
+    calls = []
+    barrier = threading.Barrier(2)
+    model = object()
+
+    def construct(*args, **kwargs):
+        calls.append(1)
+        time.sleep(0.05)  # release the GIL while the other worker reaches the cold lookup
+        return model
+
+    monkeypatch.setattr(TCREmp, 'from_defaults', construct)
+    cached = getattr(module, '_cached_model', module._model)
+    cached.cache_clear()
+
+    def load(_):
+        barrier.wait(timeout=5)
+        return module._model('human', 'TRB')
+
+    try:
+        with ThreadPool(2) as pool:
+            result = pool.map(load, range(2))
+        assert result[0] is result[1] is model
+        assert len(calls) == 1
+    finally:
+        cached.cache_clear()

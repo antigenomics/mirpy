@@ -340,6 +340,10 @@ control it, per hot path:
      - ``0``, allocated CPUs
      - Resolved against the CPU allocation, then passed to the neighbour-search estimator.
        ``None`` selects one worker; negative counts are relative to the allocation.
+   * - Signature cohort
+     - ``rsig_cohort(..., n_jobs=N)`` / ``mir signature --jobs N``
+     - ``1``, serial
+     - ``0`` requests allocated CPUs. Workers share frozen panels and keep inner kernels serial.
    * - BLAS: PCA, RFF, matmul
      - shared runtime limits
      - 1 thread

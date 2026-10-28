@@ -1,7 +1,7 @@
 Command reference
 =================
 
-``pip install mirpy-lib`` installs one ``mir`` command with embedding, PCA and signature subcommands. This page lists each
+``pip install mirpy-lib`` installs one ``mir`` command with embedding, PCA, signature and reference commands. This page lists each
 one, what it is for, and the options that change an answer rather than only a path.
 
 ``mir <command> --help`` is the authoritative list of flags and defaults -- it is generated from the
