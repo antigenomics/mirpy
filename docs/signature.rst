@@ -252,13 +252,15 @@ builder, so a sample is the same repertoire in either -- its generator is seeded
 
    ``--jobs`` selects native pool-generation threads and subsequent sample-map
    threads, with only one parallel layer active at a time. Feature workers use serial
-   inner kernels. Explicit OLGA/ARDA sources retain reference sampling and fixed
+   inner kernels. Explicit OLGA legacy sources retain reference sampling and fixed
    chunk seeds; only these legacy generation paths need spawned processes and an
    importable entry point with a ``if __name__ == "__main__":`` guard.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
-uses the learned vdjtools models by default. Select ``--source olga`` (or ``source="olga"``
-in Python) for historical reproduction. Existing frozen corpus manifests keep their recorded
+uses the isalgo vdjtools models by default. Select ``--source olga-legacy`` (or ``source="olga-legacy"``
+in Python) for historical reproduction. ``olga`` aliases the frozen OLGA family;
+``learned`` and ``arda`` alias fresh isalgo. Their old weights require a pinned
+previous release. Existing frozen corpus manifests keep their recorded
 model source and fingerprints. The build is required to be byte-identical across processes,
 worker counts and thread counts:
 

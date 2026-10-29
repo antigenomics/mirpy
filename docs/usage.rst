@@ -155,16 +155,16 @@ Prefer a biological control (e.g. pre/post-vaccination) over the P_gen backgroun
 enrichment cancels generic public convergence and isolates the antigen-specific response. Without
 one of your own, pooled healthy-donor repertoires are a single ``hf_hub_download`` away
 (read with ``vdjtools.io.read``; verify the chosen dataset card), and
-:func:`~mir.density.generate_background` remains the P_gen fallback, using vdjtools' learned
+:func:`~mir.density.generate_background` remains the P_gen fallback, using vdjtools' isalgo
 models by default. Pass ``species="mouse"`` for mouse; the installed vdjtools catalog determines
-available loci. Explicit ``source="olga"`` retains historical reproduction. The same source
+available loci. Explicit ``source="olga-legacy"`` retains historical reproduction. The same source
 selection is available in :func:`~mir.repertoire.naive_reference`; its model uses the space's
 species and locus. The neighbour engine defaults to ``backend="kdtree"`` (exact,
 multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[ann]`` extra). See
 ``examples/density.py``.
 
-Learned-model calls use the native sampler by default, with ``threads=0`` selecting
-the allocated CPUs for one batched draw. Legacy OLGA/ARDA sources retain reference
+Isalgo calls use the native sampler by default, with ``threads=0`` selecting
+the allocated CPUs for one batched draw. Frozen OLGA sources retain reference
 sampling by default. Set ``engine="reference"`` explicitly for historical streams;
 ``engine="native"`` also works with explicitly selected legacy parameters.
 Reference points distinguish model source and the resolved sampler engine; repeated

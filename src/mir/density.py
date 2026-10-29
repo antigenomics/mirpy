@@ -784,7 +784,7 @@ def denoise_and_cluster(
 
 
 def generate_background(
-    locus: str, n: int, *, species: str = "human", source: str = "learned", seed: int = 0,
+    locus: str, n: int, *, species: str = "human", source: str = "isalgo", seed: int = 0,
     productive_only: bool = True, engine: str | None = None, threads: int = 0
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
@@ -803,13 +803,14 @@ def generate_background(
         n: Number of sequences to generate.
         species: ``"human"`` (default) or ``"mouse"``. Available species/locus combinations
             are defined by the installed vdjtools model catalog.
-        source: Bundled model source — ``"learned"`` (vdjtools EM-inferred, the default),
-            ``"olga"`` (legacy OLGA-parameter bootstrap, retained only for comparison), or
-            ``"arda"`` (legacy model set). vdjtools owns fitted parameters; ARDA supplies references.
+        source: Bundled model source — ``"isalgo"`` (fresh ARDA-reference fits, the default) or
+            ``"olga-legacy"`` (frozen OLGA parameters). ``"olga"`` aliases the latter;
+            ``"learned"`` and ``"arda"`` alias isalgo. Old fitted weights require a pinned
+            previous release. vdjtools owns parameters; ARDA supplies references.
         seed: Sampling seed.
         productive_only: Reject out-of-frame / stop-codon rearrangements.
-        engine: ``None`` (default) uses native sampling for learned models and reference
-            sampling for legacy sources. Explicit ``"reference"`` preserves historical streams.
+        engine: ``None`` (default) uses native sampling for isalgo and its aliases, and reference
+            sampling for the frozen OLGA family. Explicit ``"reference"`` preserves historical streams.
         threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
 
     Raises:
@@ -817,9 +818,10 @@ def generate_background(
     """
     from vdjtools.model import generate, load_bundled
 
+    source = {"learned": "isalgo", "arda": "isalgo", "olga": "olga-legacy"}.get(source, source)
     threads = kernel_threads(threads)
     if engine is None:
-        engine = "native" if source == "learned" else "reference"
+        engine = "native" if source == "isalgo" else "reference"
     model = load_bundled(locus, source=source, organism=species)
     df = generate.generate(model, n, seed=seed, productive_only=productive_only,
                            engine=engine, threads=threads)

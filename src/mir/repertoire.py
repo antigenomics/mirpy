@@ -807,7 +807,7 @@ def naive_reference(
     *,
     n: int = 20_000,
     seed: int = 0,
-    source: str = "learned",
+    source: str = "isalgo",
     engine: str | None = None,
     threads: int = 0,
     sequences: pl.DataFrame | None = None,
@@ -836,10 +836,10 @@ def naive_reference(
             so the reference is automatically comparable to every ``Φ`` fit through it.
         n: Number of naive recombinations to draw.
         seed: Generation seed; the result is deterministic in ``(n, seed, source, engine)``.
-        source: Bundled model set, ``"learned"`` by default. Use ``"olga"`` for explicit
+        source: Bundled model set, ``"isalgo"`` by default. Use ``"olga-legacy"`` for explicit
             historical reproduction. Species/locus availability comes from vdjtools.
-        engine: ``None`` (default) uses native sampling for learned models and reference
-            sampling for legacy sources. Explicit ``"reference"`` preserves historical streams.
+        engine: ``None`` (default) uses native sampling for isalgo and its aliases, and reference
+            sampling for the frozen OLGA family. Explicit ``"reference"`` preserves historical streams.
         threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
         sequences: Optional pre-built clonotype frame to use instead of generating (``v_call`` /
             ``j_call`` / ``junction_aa``). Not cached.
@@ -857,9 +857,10 @@ def naive_reference(
     if sequences is None:
         from vdjtools.cores import kernel_threads
 
+        source = {"learned": "isalgo", "arda": "isalgo", "olga": "olga-legacy"}.get(source, source)
         threads = kernel_threads(threads)
         if engine is None:
-            engine = "native" if source == "learned" else "reference"
+            engine = "native" if source == "isalgo" else "reference"
         key = (n, seed, source, engine)
         if key in space._naive:
             return space._naive[key]

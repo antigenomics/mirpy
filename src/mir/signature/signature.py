@@ -349,7 +349,7 @@ def rsig_cohort(samples, corpus: C.Corpus, *, n_jobs: int = 0,
 def synthesize(corpus_name: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples: int = 10_000,
                size: "int | str | None" = None, seed: int = C.SEED,
                n_components: "int | float" = C.DEFAULT_COMPONENTS, mode: str = "features",
-               winsor_p: float = 0.01, source: str = "learned", species: str = "human",
+               winsor_p: float = 0.01, source: str = "isalgo", species: str = "human",
                progress=None, n_jobs: int = 1, depth_spread: "float | str | None" = None):
     """Build and fit an ``rsig`` corpus on the same synthetic repertoires ``vsig`` uses.
 
@@ -378,6 +378,7 @@ def synthesize(corpus_name: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples:
 
     import mir
 
+    source = {"learned": "isalgo", "arda": "isalgo", "olga": "olga-legacy"}.get(source, source)
     regime, cohort, size, depth_spread = C.corpus_plan(corpus_name, size=size,
                                                       depth_spread=depth_spread)
     vocab = {loc: {} for loc in loci}
