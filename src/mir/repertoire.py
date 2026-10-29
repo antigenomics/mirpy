@@ -808,7 +808,7 @@ def naive_reference(
     n: int = 20_000,
     seed: int = 0,
     source: str = "learned",
-    engine: str = "reference",
+    engine: str | None = None,
     threads: int = 0,
     sequences: pl.DataFrame | None = None,
 ) -> np.ndarray:
@@ -838,7 +838,8 @@ def naive_reference(
         seed: Generation seed; the result is deterministic in ``(n, seed, source, engine)``.
         source: Bundled model set, ``"learned"`` by default. Use ``"olga"`` for explicit
             historical reproduction. Species/locus availability comes from vdjtools.
-        engine: ``"reference"`` preserves historical seed streams; ``"native"`` selects parallel sampling.
+        engine: ``None`` (default) uses native sampling for learned models and reference
+            sampling for legacy sources. Explicit ``"reference"`` preserves historical streams.
         threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
         sequences: Optional pre-built clonotype frame to use instead of generating (``v_call`` /
             ``j_call`` / ``junction_aa``). Not cached.
@@ -857,6 +858,8 @@ def naive_reference(
         from vdjtools.cores import kernel_threads
 
         threads = kernel_threads(threads)
+        if engine is None:
+            engine = "native" if source == "learned" else "reference"
         key = (n, seed, source, engine)
         if key in space._naive:
             return space._naive[key]

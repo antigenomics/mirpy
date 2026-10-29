@@ -785,7 +785,7 @@ def denoise_and_cluster(
 
 def generate_background(
     locus: str, n: int, *, species: str = "human", source: str = "learned", seed: int = 0,
-    productive_only: bool = True, engine: str = "reference", threads: int = 0
+    productive_only: bool = True, engine: str | None = None, threads: int = 0
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
@@ -808,7 +808,8 @@ def generate_background(
             ``"arda"`` (legacy model set). vdjtools owns fitted parameters; ARDA supplies references.
         seed: Sampling seed.
         productive_only: Reject out-of-frame / stop-codon rearrangements.
-        engine: ``"reference"`` preserves historical seed streams; ``"native"`` uses the parallel sampler.
+        engine: ``None`` (default) uses native sampling for learned models and reference
+            sampling for legacy sources. Explicit ``"reference"`` preserves historical streams.
         threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
 
     Raises:
@@ -817,6 +818,8 @@ def generate_background(
     from vdjtools.model import generate, load_bundled
 
     threads = kernel_threads(threads)
+    if engine is None:
+        engine = "native" if source == "learned" else "reference"
     model = load_bundled(locus, source=source, organism=species)
     df = generate.generate(model, n, seed=seed, productive_only=productive_only,
                            engine=engine, threads=threads)
