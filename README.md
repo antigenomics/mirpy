@@ -152,3 +152,9 @@ Configured fitting delegates to vdjtools' sparse `TablePCA.fit_features`, preser
 raw median-impute/StandardScaler coordinates without a dense training table.
 Sample workers join before the BLAS phase. Existing rsig and sample RFF behavior
 stays unchanged; see the embedding guide.
+
+New synthetic reference/background calls default to vdjtools' `isalgo` family.
+Use `olga-legacy` (`olga` alias) for frozen OLGA parameters and reference sampler
+streams. `learned` and `arda` alias fresh isalgo; old fitted weights require a
+pinned previous release. Existing corpus, prototype and embedding artifacts remain
+unchanged; changing a default does not refit a saved reference.

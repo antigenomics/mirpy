@@ -784,8 +784,8 @@ def denoise_and_cluster(
 
 
 def generate_background(
-    locus: str, n: int, *, species: str = "human", source: str = "learned", seed: int = 0,
-    productive_only: bool = True
+    locus: str, n: int, *, species: str = "human", source: str = "isalgo", seed: int = 0,
+    productive_only: bool = True, engine: str | None = None, threads: int = 0
 ) -> pl.DataFrame:
     """Draw ``n`` synthetic background clonotypes from the bundled vdjtools P_gen model.
 
@@ -801,37 +801,30 @@ def generate_background(
     Args:
         locus: Bundled model locus (e.g. ``"TRB"``).
         n: Number of sequences to generate.
-        species: ``"human"`` (default) or ``"mouse"``. Mouse requires ``source="arda"`` — it is the
-            only bundled set with a non-human organism.
-        source: Bundled model source — ``"learned"`` (vdjtools EM-inferred, the default),
-            ``"olga"`` (legacy OLGA-parameter bootstrap, retained only for comparison), or
-            ``"arda"``. Prefer ``"arda"`` when the observed data is arda-annotated: it is the only
-            set in the **arda IMGT allele namespace**, the same frame as mirpy's prototypes and
-            baked germline distances, so generated V/J calls resolve exactly instead of taking the
-            allele-cascade fallback.
+        species: ``"human"`` (default) or ``"mouse"``. Available species/locus combinations
+            are defined by the installed vdjtools model catalog.
+        source: Bundled model source — ``"isalgo"`` (fresh ARDA-reference fits, the default) or
+            ``"olga-legacy"`` (frozen OLGA parameters). ``"olga"`` aliases the latter;
+            ``"learned"`` and ``"arda"`` alias isalgo. Old fitted weights require a pinned
+            previous release. vdjtools owns parameters; ARDA supplies references.
         seed: Sampling seed.
         productive_only: Reject out-of-frame / stop-codon rearrangements.
+        engine: ``None`` (default) uses native sampling for isalgo and its aliases, and reference
+            sampling for the frozen OLGA family. Explicit ``"reference"`` preserves historical streams.
+        threads: Native CPU budget; ``0`` selects the allocation. Reference sampling is serial.
 
     Raises:
-        ValueError: If the installed ``vdjtools`` predates the ``arda``/``organism`` support that
-            ``source="arda"`` and non-human species need.
+        ValueError, FileNotFoundError: If the requested source, species or locus is unavailable.
     """
     from vdjtools.model import generate, load_bundled
 
-    # only pass organism= when it is not the default, so a vdjtools without it still serves the
-    # human path unchanged (it landed after 3.0.0)
-    kwargs = {} if species == "human" else {"organism": species}
-    try:
-        model = load_bundled(locus, source, **kwargs)
-    except (TypeError, ValueError) as exc:
-        if source == "arda" or kwargs:
-            raise ValueError(
-                f"generate_background(species={species!r}, source={source!r}) needs a vdjtools with "
-                "the bundled arda model set (organism-aware load_bundled). Upgrade vdjtools, or use "
-                "species='human' with source='learned'/'olga'."
-            ) from exc
-        raise
-    df = generate.generate(model, n, seed=seed, productive_only=productive_only)
+    source = {"learned": "isalgo", "arda": "isalgo", "olga": "olga-legacy"}.get(source, source)
+    threads = kernel_threads(threads)
+    if engine is None:
+        engine = "native" if source == "isalgo" else "reference"
+    model = load_bundled(locus, source=source, organism=species)
+    df = generate.generate(model, n, seed=seed, productive_only=productive_only,
+                           engine=engine, threads=threads)
     return df.select(list(_REQUIRED_COLS))
 
 

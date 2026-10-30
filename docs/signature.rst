@@ -241,7 +241,8 @@ Both halves must be built from the **same corpus name and seed**: they resolve t
 the rank correlations and the germline fingerprint cannot disagree between ``vsig_<name>`` and
 ``rsig_<name>`` -- which is what makes joining them on ``sample_id`` meaningful.
 
-Pool generation uses spawned processes, then feature extraction runs across worker
+Learned-model pool generation uses one native batch per locus, loading each model
+once. Feature extraction then runs across worker
 **threads**, one contiguous block of samples each; ``-j/--jobs``
 defaults to every core the process may use (``-j 1`` stays in-process). Both halves share one
 builder, so a sample is the same repertoire in either -- its generator is seeded from
@@ -249,14 +250,18 @@ builder, so a sample is the same repertoire in either -- its generator is seeded
 
 .. note::
 
-   ``--jobs`` selects pool-generation processes and subsequent sample-map threads.
-   Each worker uses serial numerical kernels. Generation retains the reference sampler
-   and fixed chunk seeds, and its process pool closes before feature extraction.
-   Parallel generation requires an importable entry point with a
-   ``if __name__ == "__main__":`` guard.
+   ``--jobs`` selects native pool-generation threads and subsequent sample-map
+   threads, with only one parallel layer active at a time. Feature workers use serial
+   inner kernels. Explicit OLGA legacy sources retain reference sampling and fixed
+   chunk seeds; only these legacy generation paths need spawned processes and an
+   importable entry point with a ``if __name__ == "__main__":`` guard.
 
 The build is a deterministic function of ``(corpus, loci, samples, size, seed, source)`` and
-vdjtools' bundled recombination models, and is required to be byte-identical across processes,
+uses the isalgo vdjtools models by default. Select ``--source olga-legacy`` (or ``source="olga-legacy"``
+in Python) for historical reproduction. ``olga`` aliases the frozen OLGA family;
+``learned`` and ``arda`` alias fresh isalgo. Their old weights require a pinned
+previous release. Existing frozen corpus manifests keep their recorded
+model source and fingerprints. The build is required to be byte-identical across processes,
 worker counts and thread counts:
 
 .. code-block:: bash
