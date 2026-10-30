@@ -33,7 +33,7 @@ dependencies = [
   # Pgen + synthetic sampling. mirpy has no data-model layer of its own.
   # 5.3.0 preserves caller OpenMP capacity for downstream neighbor searches (#61).
   # Keep the build extra in sync.
-  "vdjtools>=5.3.2",
+  "vdjtools>=5.4.0",
 ]
 license = { text = "ISALGO LAB Academic and Non-Commercial Research License v1.0" }
 
@@ -45,7 +45,7 @@ annotate = ["vdjmatch"]
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools; the explicit build floor keeps asset generation on the tested release.
-build = ["vdjtools[model]>=5.3.2", "arda-mapper>=2.37.1", "biopython"]
+build = ["vdjtools[model]>=5.4.0", "arda-mapper>=2.38.2", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +

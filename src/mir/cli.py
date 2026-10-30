@@ -664,7 +664,7 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--winsor-p", type=float, default=0.01)
     c2.add_argument("--seed", type=int, default=20260927)
     c2.add_argument("--loci", default=None, help="comma-separated subset (default: all seven)")
-    c2.add_argument("--source", default="olga", choices=("olga", "learned", "arda"))
+    c2.add_argument("--source", default="isalgo", choices=("isalgo", "olga-legacy", "olga", "learned", "arda"))
     c2.add_argument("--species", default="human")
     c2.add_argument("--depth-spread", type=float, default=None,
                     help="multiplicative depth range each repertoire's size is drawn log-uniformly "

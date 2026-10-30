@@ -331,28 +331,16 @@ def test_continuous_matches_discrete_hamming1(model):
 
 def test_generate_background_optional():
     from mir.density import generate_background
-    try:
-        df = generate_background("TRB", 50, seed=0)
-    except Exception as e:  # bundled model not loadable in this env
-        pytest.skip(f"vdjtools background generation unavailable: {e}")
+    df = generate_background("TRB", 50, seed=0)
     assert df.height == 50
     assert set(df.columns) == {"junction_aa", "v_call", "j_call"}
 
 
-def test_generate_background_arda_and_mouse_or_directed_error():
-    """``source="arda"`` / non-human need a vdjtools shipping the arda model set.
-
-    Where it is present, both work; where it is not, the failure must name the requirement rather
-    than surfacing a bare TypeError/ValueError from the loader.
-    """
+def test_generate_background_isalgo_alias_and_mouse_catalog():
+    """The dependency floor guarantees canonical human and mouse models; missing fits fail."""
     from mir.density import generate_background
 
-    try:
-        df = generate_background("TRB", 20, source="arda", seed=0)
-    except ValueError as e:
-        assert "arda" in str(e) and "vdjtools" in str(e)
-        pytest.skip("installed vdjtools has no bundled arda model set")
-        return
+    df = generate_background("TRB", 20, source="arda", seed=0)
     assert df.height == 20
     assert df["v_call"].str.starts_with("TRBV").all()
     mouse = generate_background("TRB", 20, species="mouse", source="arda", seed=0)
