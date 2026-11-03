@@ -191,3 +191,16 @@ def test_component_batches_preserve_shm_and_row_order(monkeypatch,mode):
     np.testing.assert_array_equal(model.embed(frame.reverse()),expected[::-1])
     if mode == 'vjcdr3':
         assert np.any(got[:,0::3] != model.embed(frame.drop('v_mutations'))[:,0::3])
+
+
+def test_shm_batch_does_not_mutate_shared_germline():
+    model = TCREmp.from_defaults("human", "TRB", n_prototypes=8, threads=1)
+    germline = model._germline
+    plain = _df()
+    expected = model.embed(plain)
+    mutated = plain.with_columns(pl.lit("A23V").alias("v_mutations"))
+    result = model.embed(mutated)
+    assert model._germline is germline
+    np.testing.assert_array_equal(model.embed(plain), expected)
+    assert np.any(result[:, 0::3] != expected[:, 0::3])
+    np.testing.assert_array_equal(model.embed(mutated), result)

@@ -51,6 +51,7 @@ import polars as pl
 
 from mir.aliases import normalize_locus_alias, normalize_species_alias
 from mir.distances.germline import GermlineDistances, load_germline_distances
+from mir.distances.shm import MutatedGermlineDistances
 from mir.distances.junction import DEFAULT_GAP_POSITIONS, junction_distance_matrix
 from mir.embedding.prototypes import load_prototypes
 
@@ -205,17 +206,15 @@ class TCREmp:
         than a zero vector when neither is present: a zero vector asserts every cell is germline,
         which for a BCR sample is a claim, not a default.
 
-        Wrapping happens here rather than in the constructor so that the same ``TCREmp`` handles
-        a frame with mutation data and one without -- a cohort mixes them.
+        The optional adjustment belongs to this batch; shared germline state stays unchanged
+        when a cohort mixes frames with mutation evidence and frames without it.
         """
-        from mir.distances.shm import MutatedGermlineDistances, shm_penalty_batch
+        from mir.distances.shm import shm_penalty_batch
 
         muts = clonotypes["v_mutations"].to_list() if "v_mutations" in clonotypes.columns else None
         iden = clonotypes["v_identity"].to_list() if "v_identity" in clonotypes.columns else None
         if muts is None and iden is None:
             return None
-        if not isinstance(self._germline, MutatedGermlineDistances):
-            self._germline = MutatedGermlineDistances(self._germline, scale=self.shm_scale)
         return shm_penalty_batch(muts, iden)
 
     def _proto_idx(self, component: str):
@@ -325,9 +324,12 @@ class TCREmp:
             stop = min(start + chunk, n)
             part = clonotypes.slice(start, stop - start)
             shm = self._shm_penalties(part)
+            germline = self._germline
+            if shm is not None and not isinstance(germline, MutatedGermlineDistances):
+                germline = MutatedGermlineDistances(germline, scale=self.shm_scale)
             for slot, (comp, gene_col, proto_attr) in enumerate(_MODE_SPEC[self.mode]):
                 kw = {"shm": shm} if (shm is not None and comp == "V") else {}
-                out[start:stop, slot::3] = self._germline.matrix(
+                out[start:stop, slot::3] = germline.matrix(
                     comp, part[gene_col].to_list(), getattr(self, proto_attr),
                     proto_idx=self._proto_idx(comp), **kw)
             out[start:stop, 2::3] = self._junction_distances(part["junction_aa"].to_list())
