@@ -30,12 +30,12 @@ def estimate_dbscan_eps(X: np.ndarray, k: int = 4, *, threads: int = 0) -> float
     """
     from kneed import KneeLocator
     from threadpoolctl import threadpool_limits
-    from vdjtools.cores import kernel_threads
+    from vdjtools.cores import kernel_threads, numerical_kernels
 
     budget = kernel_threads(threads)
     # Tree searches use n_jobs; sklearn's dense brute-force reduction uses OpenMP.
     # BLAS stays serial so either search backend owns the same CPU allocation.
-    with threadpool_limits(limits=1, user_api="blas"), \
+    with numerical_kernels(1), \
          threadpool_limits(limits=budget, user_api="openmp"):
         nn = NearestNeighbors(n_neighbors=k + 1, n_jobs=budget).fit(X)
         kdist = np.sort(nn.kneighbors(X)[0][:, k])
@@ -96,8 +96,9 @@ def cluster(X: np.ndarray, eps: float | None = None, min_samples: int = 3,
     else:
         raise ValueError(f"method must be 'dbscan', 'hdbscan', or 'optics', got {method!r}")
     from threadpoolctl import threadpool_limits
+    from vdjtools.cores import numerical_kernels
 
-    with threadpool_limits(limits=1, user_api="blas"), \
+    with numerical_kernels(1), \
          threadpool_limits(limits=kwargs["n_jobs"], user_api="openmp"):
         return estimator.fit_predict(X)
 

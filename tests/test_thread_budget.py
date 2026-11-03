@@ -65,6 +65,25 @@ def test_cluster_accepts_sklearn_none_budget():
     assert labels.shape == (10,)
 
 
+def test_cluster_reuses_vdjtools_numerical_phase(monkeypatch):
+    from contextlib import contextmanager
+    import vdjtools.cores as cores
+    from mir.bench.metrics import cluster
+
+    original = cores.numerical_kernels
+    calls = []
+
+    @contextmanager
+    def phase(threads):
+        calls.append(threads)
+        with original(threads) as budget:
+            yield budget
+
+    monkeypatch.setattr(cores, 'numerical_kernels', phase)
+    cluster(np.arange(20, dtype=float).reshape(10, 2), eps=4, n_jobs=1)
+    assert calls == [1]
+
+
 def test_torch_initialized_interop_pool_has_actionable_error():
     pytest.importorskip('torch')
     import subprocess
