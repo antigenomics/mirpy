@@ -120,7 +120,7 @@ PY
 # --- 5. optional tests -----------------------------------------------------
 if [ "$DO_TESTS" -eq 1 ]; then
   log "running fast tests"
-  python -m pytest "$ROOT/tests" -q -m "not integration and not benchmark"
+  python -c 'import mir, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' "$ROOT/tests" -q -m "not integration and not benchmark"
 fi
 
 log "done."

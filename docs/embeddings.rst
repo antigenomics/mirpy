@@ -98,6 +98,15 @@ explicit budget. Inline sample PCA reuses ``mir embed repertoires --threads``
 after the sample workers have joined. The library's ``TablePCA.transform`` takes
 the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
 
+On Apple Accelerate, the CLI sets the BLAS ceiling from ``--threads`` before
+numerical imports. In Python, call
+``vdjtools.cores.configure_runtime(blas_threads=2)`` before importing NumPy/SciPy
+to select a two-CPU ceiling; use ``threads=2`` for fitting and ``threads=1`` for
+serial phases. The ceiling is fixed after initialization. A conflicting or
+unverified initialized ceiling raises, with instructions to start a fresh process;
+sample workers still use Accelerate's native serial policy. Other BLAS backends
+with runtime controls retain their dynamic per-phase budgets.
+
 .. code-block:: bash
 
    mir pca rff.tsv --fit rotation.npz --n-components 32 -o pcs.tsv
@@ -164,7 +173,7 @@ setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
    import faiss
    import numpy as np
    from threadpoolctl import threadpool_limits
-   from vdjtools.cores import kernel_threads
+   from vdjtools.cores import numerical_kernels
 
    # coordinates: rows of sample PCs from one shared fitted rotation.
    x = np.ascontiguousarray(coordinates, dtype=np.float32)
@@ -173,7 +182,7 @@ setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
    previous = faiss.cvar.distance_compute_blas_threshold
    try:
        faiss.cvar.distance_compute_blas_threshold = 0
-       with threadpool_limits(limits=kernel_threads(0)):
+       with numerical_kernels(0) as budget, threadpool_limits(limits=budget, user_api="openmp"):
            distances_squared, neighbor_ids = index.search(x, 5)
    finally:
        faiss.cvar.distance_compute_blas_threshold = previous

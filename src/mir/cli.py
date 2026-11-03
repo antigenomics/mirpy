@@ -694,7 +694,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse ``argv`` (default ``sys.argv[1:]``) and run the requested ``mir`` subcommand."""
+    from vdjtools import cores
     args = build_parser().parse_args(argv)
+    # Configure only validated options; retain the previously published parent API.
+    if hasattr(cores, 'configure_cli_runtime'):
+        cores.configure_runtime(blas_threads=getattr(args, 'threads', None))
     args.func(args)
 
 
