@@ -227,3 +227,7 @@ experiments/runs/
 !readme.md
 .agents/
 .codex/
+
+# Generated notebook UI state and lint cache.
+__marimo__/
+.ruff_cache/
