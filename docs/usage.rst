@@ -322,6 +322,11 @@ inverse transforms. Training batches retain their original split, shuffle order
 and batch-normalization membership. Held-out reductions are weighted by the
 number of values/rows and can differ by floating-point roundoff. Scaler/PCA fits
 still require the selected training matrix and their native solver workspace.
+Diffusion training likewise stages one batch of coordinates and labels; its
+fixed validation noise remains on the host, with the original draw order, and
+validation runs in batches. Best checkpoints are copied to CPU. These bounds
+apply to device staging, not the host coordinate matrix or validation noise.
+All codec test, validation and training splits must contain at least one row.
 
 .. code-block:: python
 

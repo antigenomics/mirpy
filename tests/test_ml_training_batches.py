@@ -5,12 +5,13 @@ import pytest
 pytest.importorskip('torch')
 
 
-@pytest.mark.parametrize('kind', ['forward', 'inverse', 'pgen', 'unified'])
+@pytest.mark.parametrize('kind', ['forward', 'inverse', 'pgen', 'unified', 'diffusion'])
 def test_training_prepares_only_current_batch(monkeypatch, kind):
     import torch
     from mir.ml import train, codec
     from mir.ml.encoder import SequenceEncoder
     from mir.ml.decoder import SequenceDecoder
+    from mir.ml.diffusion import DiffusionMLP, train_diffusion
 
     n, batch = 80, 8
     seqs = ['CASS' + 'ACDEFGHIKLMNPQRSTVWY'[i % 20] + 'QYF' for i in range(n)]
@@ -34,11 +35,11 @@ def test_training_prepares_only_current_batch(monkeypatch, kind):
         return original(array)
 
     monkeypatch.setattr(torch, 'from_numpy', bounded)
-    for cls in [SequenceEncoder, SequenceDecoder]:
+    for cls in [SequenceEncoder, SequenceDecoder, DiffusionMLP]:
         forward = cls.forward
-        def checked(self, x, _forward=forward):
+        def checked(self, x, *args, _forward=forward, **kwargs):
             assert len(x) <= batch, 'held-out model call ignored batch'
-            return _forward(self, x)
+            return _forward(self, x, *args, **kwargs)
         monkeypatch.setattr(cls, 'forward', checked)
     for module in [train, codec]:
         if not hasattr(module, "encode_onehot"):
@@ -56,9 +57,14 @@ def test_training_prepares_only_current_batch(monkeypatch, kind):
         _, metrics = train.train_inverse_decoder(codes, seqs, **options)
     elif kind == 'pgen':
         _, metrics = train.train_pgen_regressor(seqs, np.linspace(-10, -5, n), **options)
+    elif kind == 'diffusion':
+        options.pop('test_frac')
+        _, metrics = train_diffusion(codes, ['a', 'b'] * (n // 2),
+                                     T=10, hidden=16, time_dim=8, class_dim=4, **options)
     else:
         _, metrics = codec.train_unified_codec(seqs, codes, **options)
     assert metrics['n'] == n
     assert staged and max(staged) <= batch
-    assert sum(token_batches) == n
+    if kind != 'diffusion':
+        assert sum(token_batches) == n
     assert all(np.isfinite(value) for value in metrics.values())

@@ -74,15 +74,16 @@ def train_val_test_split(n: int, test_frac: float, val_frac: float, seed: int):
         ``(test_idx, val_idx, train_idx)`` index arrays.
 
     Raises:
-        ValueError: If the split leaves no validation or no training rows.
+        ValueError: If any test, validation or training split is empty.
     """
     perm = np.random.default_rng(seed).permutation(n)
     n_test, n_val = int(n * test_frac), int(n * val_frac)
     n_train = n - n_test - n_val
-    if n_val < 1 or n_train < 1:
+    if n_test < 1 or n_val < 1 or n_train < 1:
         raise ValueError(
-            f"n={n} with test_frac={test_frac}, val_frac={val_frac} leaves {n_val} validation "
-            f"and {n_train} training rows; both must be >= 1. Use more data, or smaller fractions."
+            f"n={n} with test_frac={test_frac}, val_frac={val_frac} leaves {n_test} test, "
+            f"{n_val} validation and {n_train} training rows; all must be >= 1. "
+            "Use more data, or adjust the fractions."
         )
     return perm[:n_test], perm[n_test:n_test + n_val], perm[n_test + n_val:]
 
