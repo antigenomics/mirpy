@@ -9,11 +9,13 @@ tokenization; the reconstructed string drops gap tokens.
 from __future__ import annotations
 
 import torch
+import numpy as np
 from torch import nn
 
-from mir.ml.tokenize import AA, FIXED_LEN, N_TOKENS
+from mir.ml.tokenize import AA, ALPHABET, FIXED_LEN, N_TOKENS
 
 _GAP_IDX = N_TOKENS - 1
+_TOKEN_BYTES = np.frombuffer(ALPHABET.encode('ascii'), dtype='S1')
 
 
 class SequenceDecoder(nn.Module):
@@ -62,3 +64,12 @@ class SequenceDecoder(nn.Module):
 def tokens_to_seq(idx_row) -> str:
     """Map a length-40 token-index row back to an amino-acid string (gaps dropped)."""
     return "".join(AA[i] for i in idx_row if 0 <= int(i) < len(AA))
+
+
+def tokens_to_seqs(indices) -> list[str]:
+    """Format an integer token matrix, mapping gaps/invalid tokens exactly as the scalar API."""
+    indices = np.asarray(indices)
+    if indices.ndim != 2:
+        raise ValueError('tokens must be a two-dimensional matrix')
+    letters = _TOKEN_BYTES[np.where((indices >= 0) & (indices < len(AA)), indices, _GAP_IDX)]
+    return [row.tobytes().decode('ascii').replace('-', '') for row in letters]

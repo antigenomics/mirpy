@@ -308,6 +308,12 @@ embedding: a forward encoder (sequence → code), an inverse decoder (code → s
 regressor, and a unified codec; plus a learned repertoire set encoder. Device selection is
 automatic (CUDA → MPS → CPU; override with ``device=`` or ``MIR_DEVICE``).
 
+Prediction ``batch`` sizes bound one-hot expansion, model calls, code scaling and
+inverse transforms. Raw sequence strings and the final output stay in memory;
+numeric prediction output is allocated once. Decoders stage code rows per batch
+and preserve caller inputs, including with an in-place scaler. Token formatting
+uses one array lookup per batch and preserves the scalar decoder's gap handling.
+
 .. code-block:: python
 
    from mir.ml.bundle import CodecBundle

@@ -9,6 +9,7 @@ forward metric).
 from __future__ import annotations
 
 import os
+import operator
 import random
 
 import numpy as np
@@ -92,6 +93,52 @@ def _mean_cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float((a * b).sum(axis=1).mean())
 
 
+def _batch_size(batch):
+    batch = operator.index(batch)
+    if batch < 1:
+        raise ValueError('batch must be positive')
+    return batch
+
+
+@torch.no_grad()
+def _predict_batches(model, cdr3s, device, batch, transform=None):
+    """Materialize raw strings and one output; expand only the current token batch."""
+    batch = _batch_size(batch)
+    seqs = list(cdr3s)
+    if not seqs:
+        raise ValueError('at least one sequence is required')
+    out = None
+    for start in range(0, len(seqs), batch):
+        block = seqs[start:start + batch]
+        xb = torch.from_numpy(encode_onehot(block)).to(device)
+        values = model(xb).cpu().numpy()
+        if transform is not None:
+            values = transform(values.copy())
+        if len(values) != len(block):
+            raise ValueError('model must return one prediction per sequence')
+        if out is None:
+            out = np.empty((len(seqs), *values.shape[1:]), dtype=values.dtype)
+        out[start:start + len(block)] = values
+    return out
+
+
+@torch.no_grad()
+def _decode_batches(model, codes, device, batch, transform=None):
+    from mir.ml.decoder import tokens_to_seqs
+
+    batch = _batch_size(batch)
+    out = []
+    for start in range(0, len(codes), batch):
+        values = np.array(codes[start:start + batch], dtype=np.float32, copy=True)
+        if transform is not None:
+            values = np.asarray(transform(values), dtype=np.float32)
+        indices = model(torch.from_numpy(values).to(device)).argmax(-1).cpu().numpy()
+        if len(indices) != len(values):
+            raise ValueError('model must return one prediction per code')
+        out += tokens_to_seqs(indices)
+    return out
+
+
 class ForwardEncoder:
     """A trained forward codec: CDR3 strings → embedding vectors.
 
@@ -106,14 +153,8 @@ class ForwardEncoder:
         self.device = device
         self.is_pca = is_pca
 
-    @torch.no_grad()
-    def _predict(self, cdr3s, batch: int) -> np.ndarray:
-        X = encode_onehot(cdr3s)
-        outs = []
-        for i in range(0, len(X), batch):
-            xb = torch.from_numpy(X[i:i + batch]).to(self.device)
-            outs.append(self.model(xb).cpu().numpy())
-        return np.concatenate(outs)
+    def _predict(self, cdr3s, batch: int, transform=None) -> np.ndarray:
+        return _predict_batches(self.model, cdr3s, self.device, batch, transform)
 
     def code(self, cdr3s, batch: int = 1024) -> np.ndarray:
         """Return the compact code the model predicts (PCA coords, or normalized target)."""
@@ -121,7 +162,7 @@ class ForwardEncoder:
 
     def encode(self, cdr3s, batch: int = 1024) -> np.ndarray:
         """Predict embeddings in the original space (inverse PCA / scaler)."""
-        return self.transform.inverse_transform(self._predict(cdr3s, batch))
+        return self._predict(cdr3s, batch, self.transform.inverse_transform)
 
 
 def train_forward_encoder(
@@ -232,17 +273,8 @@ class InverseDecoder:
         self.code_scaler = code_scaler
         self.device = device
 
-    @torch.no_grad()
     def decode(self, codes, batch: int = 1024) -> list[str]:
-        from mir.ml.decoder import tokens_to_seq
-
-        Z = self.code_scaler.transform(np.asarray(codes, dtype=np.float32)).astype(np.float32)
-        out: list[str] = []
-        for i in range(0, len(Z), batch):
-            zb = torch.from_numpy(Z[i:i + batch]).to(self.device)
-            idx = self.model(zb).argmax(dim=-1).cpu().numpy()
-            out += [tokens_to_seq(r) for r in idx]
-        return out
+        return _decode_batches(self.model, codes, self.device, batch, self.code_scaler.transform)
 
 
 def train_inverse_decoder(
@@ -264,7 +296,7 @@ def train_inverse_decoder(
     sequence reconstructed correctly — ``token_acc``, ``n``). Codes are standardized
     on the train split only.
     """
-    from mir.ml.decoder import SequenceDecoder, tokens_to_seq
+    from mir.ml.decoder import SequenceDecoder, tokens_to_seqs
 
     seed_everything(seed)
     dev = pick_device(device)
@@ -317,7 +349,7 @@ def train_inverse_decoder(
     with torch.no_grad():
         pred = model(Zte).argmax(dim=-1).cpu().numpy()
     token_acc = float((pred == tgt[te]).mean())
-    recon = [tokens_to_seq(r) for r in pred]
+    recon = tokens_to_seqs(pred)
     exact = float(np.mean([r == cdr3s[i] for r, i in zip(recon, te)]))
     if verbose:
         print(f"test exact-match {exact:.3f}  token-acc {token_acc:.3f}  (n_test={len(te)})")
@@ -337,14 +369,9 @@ class PgenRegressor:
         self.scaler = scaler
         self.device = device
 
-    @torch.no_grad()
     def predict(self, cdr3s, batch: int = 1024) -> np.ndarray:
-        X = encode_onehot(cdr3s)
-        outs = []
-        for i in range(0, len(X), batch):
-            xb = torch.from_numpy(X[i:i + batch]).to(self.device)
-            outs.append(self.model(xb).cpu().numpy())
-        return self.scaler.inverse_transform(np.concatenate(outs)).ravel()
+        return _predict_batches(self.model, cdr3s, self.device, batch,
+                                self.scaler.inverse_transform).ravel()
 
 
 def train_pgen_regressor(

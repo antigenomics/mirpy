@@ -13,10 +13,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from mir.ml.decoder import SequenceDecoder, tokens_to_seq
+from mir.ml.decoder import SequenceDecoder, tokens_to_seqs
 from mir.ml.encoder import SequenceEncoder
 from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
-from mir.ml.train import _mean_cosine, pick_device, seed_everything, train_val_test_split
+from mir.ml.train import _decode_batches, _mean_cosine, _predict_batches, pick_device, seed_everything, train_val_test_split
 
 
 class UnifiedCodec:
@@ -27,21 +27,11 @@ class UnifiedCodec:
         self.decoder = decoder.eval()
         self.device = device
 
-    @torch.no_grad()
     def encode(self, cdr3s, batch: int = 1024) -> np.ndarray:
-        X = encode_onehot(cdr3s)
-        out = [self.encoder(torch.from_numpy(X[i:i + batch]).to(self.device)).cpu().numpy()
-               for i in range(0, len(X), batch)]
-        return np.concatenate(out)
+        return _predict_batches(self.encoder, cdr3s, self.device, batch)
 
-    @torch.no_grad()
     def decode(self, codes, batch: int = 1024) -> list[str]:
-        Z = np.asarray(codes, dtype=np.float32)
-        seqs: list[str] = []
-        for i in range(0, len(Z), batch):
-            idx = self.decoder(torch.from_numpy(Z[i:i + batch]).to(self.device)).argmax(-1).cpu().numpy()
-            seqs += [tokens_to_seq(r) for r in idx]
-        return seqs
+        return _decode_batches(self.decoder, codes, self.device, batch)
 
     def roundtrip(self, cdr3s, batch: int = 1024) -> list[str]:
         return self.decode(self.encode(cdr3s, batch), batch)
@@ -127,8 +117,8 @@ def train_unified_codec(
         true_idx = dec(Cte).argmax(-1).cpu().numpy()
     enc_cos = _mean_cosine(code_pred, codes[te])
     orig = [cdr3s[i] for i in te]
-    rt_exact = float(np.mean([tokens_to_seq(r) == o for r, o in zip(rt_idx, orig)]))
-    true_exact = float(np.mean([tokens_to_seq(r) == o for r, o in zip(true_idx, orig)]))
+    rt_exact = float(np.mean([r == o for r, o in zip(tokens_to_seqs(rt_idx), orig)]))
+    true_exact = float(np.mean([r == o for r, o in zip(tokens_to_seqs(true_idx), orig)]))
     if verbose:
         print(f"test encode_cosine {enc_cos:.4f}  roundtrip_exact {rt_exact:.3f}  "
               f"decode_true_exact {true_exact:.3f}  (n_test={len(te)})")
