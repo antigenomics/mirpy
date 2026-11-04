@@ -72,8 +72,8 @@ def test_seeded_fits_serialize_before_seeding(monkeypatch, kind):
     seqs = ['CASS' + 'ACDEFGHIKLMNPQRSTVWY'[i] + 'QYF' for i in range(20)]
     x = np.random.default_rng(9).normal(size=(20, 3)).astype(np.float32)
     outputs, failures = {}, []
-    def fit(value):
-        options = dict(seed=value, epochs=1, device='cpu', verbose=False, threads=1)
+    def fit(value, epochs=1):
+        options = dict(seed=value, epochs=epochs, device='cpu', verbose=False, threads=1)
         if kind == 'forward':
             return train.train_forward_encoder(seqs, x, batch=8, target_pca=None, **options)
         if kind == 'inverse':
@@ -119,3 +119,6 @@ def test_seeded_fits_serialize_before_seeding(monkeypatch, kind):
         for actual, reference in zip(states(outputs[value]), expected):
             for key in actual:
                 torch.testing.assert_close(actual[key], reference[key], rtol=0, atol=0)
+
+    with pytest.raises(ValueError, match='epochs'):
+        fit(11, epochs=0)

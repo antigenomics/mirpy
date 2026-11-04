@@ -322,6 +322,8 @@ inverse transforms. Training batches retain their original split, shuffle order
 and batch-normalization membership. Held-out reductions are weighted by the
 number of values/rows and can differ by floating-point roundoff. Scaler/PCA fits
 still require the selected training matrix and their native solver workspace.
+Each epoch also creates a full int64 training permutation on the selected device
+(8 bytes per training row) before copying it to the host, preserving RNG order.
 Diffusion training likewise stages one batch of coordinates and labels; its
 fixed validation noise remains on the host, with the original draw order, and
 validation runs in batches. Best checkpoints are copied to CPU. These bounds
@@ -451,11 +453,13 @@ KD-tree queries afterwards. Select its thread count on the first ANN call and re
 that count; a conflicting initialized pool raises an error. Neural trainers and
 trained-model inference accept ``threads=0`` (allocated CPUs, the default), ``1``
 (serial), or a positive count within the allocation. Torch owns the intra-op layer;
-BLAS and inter-op work stay serial. Calls reuse VDJtools' numerical phase control
-and restore caller limits on success or failure. Outer sample workers retain one
+BLAS stays serial and the one-shot inter-op pool is initialized to one thread.
+Calls reuse VDJtools' numerical phase control and restore intra-op and native
+pool limits on success or failure. Outer sample workers retain one
 Torch thread and refuse inner parallel requests; configure Torch serially before
 starting those workers if an external caller changed its persistent setting.
-Seeded fits share framework RNGs and therefore serialize within one interpreter;
+Fitting requires a positive integer number of epochs. Seeded fits share framework
+RNGs and therefore serialize within one interpreter;
 use separate processes for independent concurrent fits. ``pick_device()`` selects
 a device without resetting the intra-op count; its explicit ``threads=`` option
 remains a process-wide setup operation before compute.

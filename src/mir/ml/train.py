@@ -95,6 +95,8 @@ def _torch_call(func):
 def _training_call(func):
     @wraps(func)
     def call(*args, **kwargs):
+        if 'epochs' in kwargs and operator.index(kwargs['epochs']) < 1:
+            raise ValueError('epochs must be positive')
         with _TRAINING_LOCK:
             return func(*args, **kwargs)
     return _torch_call(call)
