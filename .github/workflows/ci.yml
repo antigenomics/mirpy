@@ -50,7 +50,7 @@ jobs:
           VDJTOOLS_REF: ${{ inputs.vdjtools_ref }}
         run: pip install --no-deps --force-reinstall "vdjtools @ git+https://github.com/antigenomics/vdjtools.git@$VDJTOOLS_REF"
       - name: Test (fast tier)
-        run: pytest tests/ -q --durations=25 -m "not integration and not benchmark"
+        run: python -c 'import mir, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/ -q --durations=25 -m "not integration and not benchmark"
       - name: Bounded cohort resource regression
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         timeout-minutes: 5
@@ -59,7 +59,7 @@ jobs:
           MIR_BENCH_SAMPLES: "1000"
           MIR_BENCH_WORKERS: "2"
           MIR_BASIS_SAMPLES: "100"
-        run: pytest tests/test_embedding_resources.py -q -s -m benchmark
+        run: python -c 'import mir, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/test_embedding_resources.py -q -s -m benchmark
 
   # One extra leg with the optional tiers installed, because the fast tier above skips every
   # torch test — without this, all of mir/ml (~20% of the library, incl. both prototype-hash
@@ -75,11 +75,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install package with [ml] + [ann] + BioPython
-        run: pip install -e ".[dev,bench,ml,ann,parquet]" biopython
+        run: pip install -e ".[dev,bench,ml,ann,parquet,build]"
       - name: Install coordinated vdjtools source
         if: inputs.vdjtools_ref != ''
         env:
           VDJTOOLS_REF: ${{ inputs.vdjtools_ref }}
         run: pip install --no-deps --force-reinstall "vdjtools @ git+https://github.com/antigenomics/vdjtools.git@$VDJTOOLS_REF"
       - name: Test (including integration)
-        run: pytest tests/ -q --durations=25 -m "not benchmark"
+        run: python -c 'import mir, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/ -q --durations=25 -m "not benchmark"

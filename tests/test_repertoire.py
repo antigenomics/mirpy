@@ -841,11 +841,13 @@ def test_density_space_transform_is_chunked_and_unchanged(space):
     full = space.transform_clonotypes(df)
     assert full.dtype == np.float32                       # contract preserved for callers
 
-    # one pass: bit-identical to computing it in a single shot
+    # One pass: bit-identical under the same numerical CPU budget.
     from mir.density import _embed
+    from vdjtools.cores import numerical_kernels
 
-    single = space.clono.pca.transform(
-        space.clono.scaler.transform(_embed(space.clono.model, df, space.clono.space)))
+    with numerical_kernels(0):
+        single = space.clono.pca.transform(
+            space.clono.scaler.transform(_embed(space.clono.model, df, space.clono.space)))
     assert np.array_equal(full, single.astype(np.float32))
 
     space.clono.chunk_size = 23                            # force many batches

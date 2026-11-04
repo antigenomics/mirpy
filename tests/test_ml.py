@@ -129,6 +129,11 @@ def test_train_val_test_split_refuses_an_empty_validation_or_train_split():
     with pytest.raises(ValueError, match="training"):
         train_val_test_split(10, test_frac=0.5, val_frac=0.5, seed=0)    # nothing left to train on
 
+    with pytest.raises(ValueError, match="test"):
+        train_val_test_split(5, test_frac=0.1, val_frac=0.2, seed=0)
+    with pytest.raises(ValueError, match="test"):
+        train_val_test_split(100, test_frac=-0.1, val_frac=0.2, seed=0)
+
     te, va, tr = train_val_test_split(100, test_frac=0.1, val_frac=0.1, seed=0)
     assert (len(te), len(va), len(tr)) == (10, 10, 80)
     assert sorted(np.concatenate([te, va, tr])) == list(range(100))      # a true partition

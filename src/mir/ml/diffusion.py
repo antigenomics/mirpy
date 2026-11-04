@@ -43,7 +43,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from mir.ml.train import pick_device, seed_everything
+from mir.ml.train import _torch_call, _training_call, _batch_size, pick_device, seed_everything
 
 
 def cosine_beta_schedule(T: int, s: float = 0.008) -> torch.Tensor:
@@ -135,7 +135,8 @@ class DiffusionModel:
         torch.save({"state_dict": self.model.state_dict(), "betas": self.betas, "meta": self.meta}, path)
 
     @classmethod
-    def load(cls, path: str | Path, device: str | None = None) -> "DiffusionModel":
+    @_training_call
+    def load(cls, path: str | Path, device: str | None = None, *, threads: int = 0) -> "DiffusionModel":
         """Rebuild a saved :class:`DiffusionModel` (weights on CPU unless ``device`` given)."""
         d = torch.load(path, weights_only=False)
         meta = d["meta"]
@@ -152,9 +153,10 @@ class DiffusionModel:
         return cls(model=model, betas=d["betas"], meta=meta)
 
     @torch.no_grad()
+    @_torch_call
     def sample(
         self, n: int = 1, *, condition=None, steps: int = 50, guidance_scale: float = 1.0,
-        seed: int = 0, device: str | None = None,
+        seed: int = 0, device: str | None = None, threads: int = 0,
     ) -> np.ndarray:
         """Draw ``n`` synthetic vectors via deterministic DDIM (Song et al. 2021, ``eta=0``).
 
@@ -235,6 +237,7 @@ class DiffusionModel:
         return (x * sd + mu).cpu().numpy()
 
 
+@_training_call
 def train_diffusion(
     X: np.ndarray,
     condition=None,
@@ -250,6 +253,7 @@ def train_diffusion(
     val_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
     meta: dict | None = None,
 ) -> tuple[DiffusionModel, dict]:
@@ -277,6 +281,7 @@ def train_diffusion(
     Raises:
         ValueError: If ``X`` has fewer than 4 rows (too few to hold out a validation split).
     """
+    batch = _batch_size(batch)
     seed_everything(seed)
     dev = pick_device(device)
     X = np.asarray(X, dtype=np.float32)
@@ -310,11 +315,6 @@ def train_diffusion(
     model = DiffusionMLP(dim, time_dim=time_dim, hidden=hidden, n_classes=n_classes, class_dim=class_dim).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
-    Xtr = torch.from_numpy(X[tr]).to(dev)
-    Xva = torch.from_numpy(X[va]).to(dev)
-    ytr = torch.from_numpy(y_idx[tr]).to(dev) if y_idx is not None else None
-    yva = torch.from_numpy(y_idx[va]).to(dev) if y_idx is not None else None
-
     if verbose:
         print(f"torch {torch.__version__} | device={dev} | n={n} dim={dim} n_classes={n_classes}")
 
@@ -323,25 +323,24 @@ def train_diffusion(
     # `best_state` latches onto whichever epoch happened to draw easy timesteps — at these defaults
     # (n_val is 40 at n=400, 4 at n=40) that noise swamps real late-training improvement.
     g = torch.Generator(device="cpu").manual_seed(seed)
-    t_va = torch.randint(0, T, (Xva.shape[0],), generator=g).to(dev)
-    eps_va = torch.randn(Xva.shape, generator=g).to(dev)
-    ab_va = alphabar[t_va][:, None]
-    x_t_va = torch.sqrt(ab_va) * Xva + torch.sqrt(1 - ab_va) * eps_va
+    # Preserve the original full CPU draws and their RNG order; stage only current rows.
+    t_va = torch.randint(0, T, (len(va),), generator=g)
+    eps_va = torch.randn((len(va), dim), generator=g)
 
     best_val, best_state = float("inf"), None
     for ep in range(epochs):
         model.train()
-        order = torch.randperm(len(tr), device=dev)
+        order = torch.randperm(len(tr), device=dev).cpu().numpy()
         for i in range(0, len(tr), batch):
-            j = order[i:i + batch]
-            xb = Xtr[j]
+            ids = tr[order[i:i + batch]]
+            xb = torch.from_numpy(X[ids]).to(dev)
             t = torch.randint(0, T, (xb.shape[0],), device=dev)
             eps = torch.randn_like(xb)
             ab = alphabar[t][:, None]
             x_t = torch.sqrt(ab) * xb + torch.sqrt(1 - ab) * eps
             yb = None
-            if ytr is not None:
-                yb = ytr[j].clone()
+            if y_idx is not None:
+                yb = torch.from_numpy(y_idx[ids]).to(dev)
                 drop = torch.rand(yb.shape[0], device=dev) < class_drop_prob
                 yb[drop] = 0
             opt.zero_grad()
@@ -351,9 +350,19 @@ def train_diffusion(
 
         model.eval()
         with torch.no_grad():
-            val_loss = nn.functional.mse_loss(model(x_t_va, t_va, yva), eps_va).item()
+            total = 0
+            for i in range(0, len(va), batch):
+                ids = va[i:i + batch]
+                xb = torch.from_numpy(X[ids]).to(dev)
+                t = t_va[i:i + batch].to(dev)
+                eps = eps_va[i:i + batch].to(dev)
+                ab = alphabar[t][:, None]
+                x_t = torch.sqrt(ab) * xb + torch.sqrt(1 - ab) * eps
+                yb = torch.from_numpy(y_idx[ids]).to(dev) if y_idx is not None else None
+                total = total + nn.functional.mse_loss(model(x_t, t, yb), eps, reduction="sum")
+            val_loss = (total / (len(va) * dim)).item()
         if val_loss < best_val:
-            best_val, best_state = val_loss, {k: v.detach().clone() for k, v in model.state_dict().items()}
+            best_val, best_state = val_loss, {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         if verbose and (ep % max(1, epochs // 10) == 0 or ep == epochs - 1):
             print(f"  epoch {ep}: val_loss={val_loss:.4f} (best={best_val:.4f})")
 

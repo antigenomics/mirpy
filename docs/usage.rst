@@ -164,7 +164,7 @@ multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[an
 ``examples/density.py``.
 
 Isalgo calls use the native sampler by default, with ``threads=0`` selecting
-the allocated CPUs for one batched draw. Frozen OLGA sources retain reference
+up to 16 allocated CPUs for one batched draw. Frozen OLGA sources retain reference
 sampling by default. Set ``engine="reference"`` explicitly for historical streams;
 ``engine="native"`` also works with explicitly selected legacy parameters.
 Reference points distinguish model source and the resolved sampler engine; repeated
@@ -308,6 +308,28 @@ embedding: a forward encoder (sequence → code), an inverse decoder (code → s
 regressor, and a unified codec; plus a learned repertoire set encoder. Device selection is
 automatic (CUDA → MPS → CPU; override with ``device=`` or ``MIR_DEVICE``).
 
+Prediction ``batch`` sizes bound one-hot expansion, model calls, code scaling and
+inverse transforms. Raw sequence strings and the final output stay in memory;
+numeric prediction output is allocated once. Decoders stage code rows per batch
+and preserve caller inputs, including with an in-place scaler. Token formatting
+uses one array lookup per batch and preserves the scalar decoder's gap handling.
+
+Sequence-codec training (forward, inverse, Pgen regressor and unified codec)
+retains compact byte token indices and one float32 host target matrix. Targets
+are transformed once in bounded blocks, then only the current rows are staged
+on the selected device. ``batch`` also bounds validation/test model calls and
+inverse transforms. Training batches retain their original split, shuffle order
+and batch-normalization membership. Held-out reductions are weighted by the
+number of values/rows and can differ by floating-point roundoff. Scaler/PCA fits
+still require the selected training matrix and their native solver workspace.
+Each epoch also creates a full int64 training permutation on the selected device
+(8 bytes per training row) before copying it to the host, preserving RNG order.
+Diffusion training likewise stages one batch of coordinates and labels; its
+fixed validation noise remains on the host, with the original draw order, and
+validation runs in batches. Best checkpoints are copied to CPU. These bounds
+apply to device staging, not the host coordinate matrix or validation noise.
+All codec test, validation and training splits must contain at least one row.
+
 .. code-block:: python
 
    from mir.ml.bundle import CodecBundle
@@ -428,9 +450,19 @@ this does not destroy their idle OS threads.
 
 The ANN backend keeps its Numba pool for the interpreter's lifetime and uses serial
 KD-tree queries afterwards. Select its thread count on the first ANN call and retain
-that count; a conflicting initialized pool raises an error. Neural training defaults
-to one intra-op and one inter-op CPU thread; ``pick_device(threads=...)`` controls the
-intra-op budget explicitly.
+that count; a conflicting initialized pool raises an error. Neural trainers and
+trained-model inference accept ``threads=0`` (allocated CPUs, the default), ``1``
+(serial), or a positive count within the allocation. Torch owns the intra-op layer;
+BLAS stays serial and the one-shot inter-op pool is initialized to one thread.
+Calls reuse VDJtools' numerical phase control and restore intra-op and native
+pool limits on success or failure. Outer sample workers retain one
+Torch thread and refuse inner parallel requests; configure Torch serially before
+starting those workers if an external caller changed its persistent setting.
+Fitting requires a positive integer number of epochs. Seeded fits share framework
+RNGs and therefore serialize within one interpreter;
+use separate processes for independent concurrent fits. ``pick_device()`` selects
+a device without resetting the intra-op count; its explicit ``threads=`` option
+remains a process-wide setup operation before compute.
 
 Weighted density reduces exact neighbor lists in bounded blocks rather than retaining
 all edges at once. A dense graph still requires quadratic total work, but temporary
@@ -438,3 +470,7 @@ edge buffers hold at most one million candidates per block (or one complete
 neighborhood if it exceeds that size). Counts and weighted sums retain their exact
 per-row order. Sample pools share one interpreter and its frozen resources;
 use an explicit ``n_jobs`` to bound concurrent sample buffers.
+
+Torch CPU training and inference default to at most eight allocated CPUs.
+Explicit positive ``threads`` values may exceed this automatic cap within the
+allocation; BLAS and Torch inter-op pools remain serial during the Torch phase.

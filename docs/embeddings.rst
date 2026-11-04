@@ -79,7 +79,7 @@ only sample vectors survive the reduction. ``--threads 1`` starts no worker pool
 Workers write directly into one preallocated columnar output matrix, which Polars
 wraps without a second feature-table copy.
 The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
-allocated cores, capped by the number of samples.
+up to 16 allocated cores, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -93,10 +93,22 @@ rotation stores feature names and the shared basis fingerprint, and refuses a
 mismatch. It is a NumPy artifact with no executable pickle payload.
 
 Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
-uses allocated BLAS cores for fitting and application; a positive value sets an
-explicit budget. Inline sample PCA reuses ``mir embed repertoires --threads``
+uses up to 16 allocated BLAS cores for fitting and application; a positive value sets an
+explicit budget. Omitting the flag also uses the allocation; two CPUs is only
+an example budget, not a recommended limit. The command owns native thread
+configuration, so users need not implement BLAS controls. A ceiling does not
+guarantee CPU occupancy or bound the number of idle OS threads. Inline sample PCA reuses ``mir embed repertoires --threads``
 after the sample workers have joined. The library's ``TablePCA.transform`` takes
 the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
+
+On Apple Accelerate, the CLI sets the BLAS ceiling from ``--threads`` before
+numerical imports. In Python, call
+``vdjtools.cores.configure_runtime(blas_threads=2)`` before importing NumPy/SciPy
+to select a two-CPU ceiling; use ``threads=2`` for fitting and ``threads=1`` for
+serial phases. The ceiling is fixed after initialization. A conflicting or
+unverified initialized ceiling raises, with instructions to start a fresh process;
+sample workers still use Accelerate's native serial policy. Other BLAS backends
+with runtime controls retain their dynamic per-phase budgets.
 
 .. code-block:: bash
 
@@ -164,7 +176,7 @@ setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
    import faiss
    import numpy as np
    from threadpoolctl import threadpool_limits
-   from vdjtools.cores import kernel_threads
+   from vdjtools.cores import numerical_kernels
 
    # coordinates: rows of sample PCs from one shared fitted rotation.
    x = np.ascontiguousarray(coordinates, dtype=np.float32)
@@ -173,7 +185,7 @@ setting its BLAS limit to one can also serialize FAISS's intended OpenMP work.
    previous = faiss.cvar.distance_compute_blas_threshold
    try:
        faiss.cvar.distance_compute_blas_threshold = 0
-       with threadpool_limits(limits=kernel_threads(0)):
+       with numerical_kernels(0) as budget, threadpool_limits(limits=budget, user_api="openmp"):
            distances_squared, neighbor_ids = index.search(x, 5)
    finally:
        faiss.cvar.distance_compute_blas_threshold = previous
@@ -241,7 +253,7 @@ provide an RFF basis for BCR or the other TCR loci.
 
 Reference fitting accepts separate phase budgets: ``jobs`` for sample workers,
 ``threads`` for BLAS after those workers join. ``threads=1`` preserves serial
-PCA; ``threads=0`` uses allocated cores. The shared ``TablePCA.fit`` accepts
+PCA; ``threads=0`` uses up to 16 allocated cores. The shared ``TablePCA.fit`` accepts
 the same fitting-only budget and restores caller BLAS limits afterwards.
 
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
@@ -382,3 +394,12 @@ For CLI extraction, pass the bundle's ``feature-vocabulary.json`` through
 weights and coverage target. The saved vocabulary is required when the reference
 models only selected loci; matching feature names alone does not establish an
 identical raw feature space.
+
+Numerical CPU budgets
+---------------------
+
+Clonotype scaler/PCA fitting, density projection and PCA denoising accept
+``threads=0`` for automatic numerical budgets (up to 16 allocated CPUs),
+``1`` for serial work, or an explicit count within the allocation. Automatic
+calls inherit an enclosing numerical phase; sample workers remain serial.
+Reference builds complete sample mapping before numerical fitting.

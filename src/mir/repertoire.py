@@ -373,6 +373,7 @@ def fit_repertoire_space(
     space: str = "full",
     pca_fit_cap: int | None = 200_000,
     seed: int = 0,
+    threads: int = 0,
 ) -> RepertoireSpace:
     """Fit ONE PCA + RFF basis on the pooled clonotype cloud of a cohort.
 
@@ -393,6 +394,7 @@ def fit_repertoire_space(
         space: ``"full"`` (V+J+junction) or ``"junction"`` (CDR3 sub-block only).
         pca_fit_cap: Fit the scaler + PCA on at most this many randomly-sampled pooled rows.
         seed: RNG seed (PCA solver + RFF draws).
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
 
     Returns:
         A :class:`RepertoireSpace` ready for :func:`sample_embedding`.
@@ -415,7 +417,7 @@ def fit_repertoire_space(
     for start in range(0, fit_frame.height, chunk):
         X_fit[start:start + chunk] = _embed(model, fit_frame.slice(start, chunk), space)
     del fit_frame
-    clono = _fit_repertoire_coordinates(model, X_fit, n_components=n_components, space=space, seed=seed)
+    clono = _fit_repertoire_coordinates(model, X_fit, n_components=n_components, space=space, seed=seed, threads=threads)
     del X_fit
     return _finish_repertoire_space(clono, n_rff=n_rff, n_rff_second=n_rff_second,
                                    n_eigs=n_eigs, length_scale=length_scale, seed=seed)
@@ -424,7 +426,7 @@ def fit_repertoire_space(
 _SCALER_SCRATCH_BYTES = 128 * 1024**2
 
 
-def _fit_repertoire_coordinates(model, X_fit, *, n_components=None, space="full", seed=0):
+def _fit_repertoire_coordinates(model, X_fit, *, n_components=None, space="full", seed=0, threads=0):
     """Fit the existing scaler/PCA using one owned matrix and bounded statistic scratch."""
     from mir.embedding.presets import get_preset
     from sklearn.decomposition import PCA
@@ -434,14 +436,16 @@ def _fit_repertoire_coordinates(model, X_fit, *, n_components=None, space="full"
         n_components = get_preset(model.species, model.locus).n_components
     if not X_fit.shape[0]:
         raise ValueError('shared clonotype PCA fit needs at least one row')
-    scaler = StandardScaler(copy=False)
-    # sklearn's mean/variance pass uses float64 scratch arrays; bound them together.
-    chunk = max(1, _SCALER_SCRATCH_BYTES // (32 * X_fit.shape[1]))
-    for start in range(0, X_fit.shape[0], chunk):
-        scaler.partial_fit(X_fit[start:start + chunk])
-    scaler.transform(X_fit, copy=False)
-    k = min(n_components, *X_fit.shape)
-    pca = PCA(n_components=k, random_state=seed, copy=False).fit(X_fit)
+    from vdjtools.cores import numerical_kernels
+    with numerical_kernels(threads):
+        scaler = StandardScaler(copy=False)
+        # sklearn's mean/variance pass uses float64 scratch arrays; bound them together.
+        chunk = max(1, _SCALER_SCRATCH_BYTES // (32 * X_fit.shape[1]))
+        for start in range(0, X_fit.shape[0], chunk):
+            scaler.partial_fit(X_fit[start:start + chunk])
+        scaler.transform(X_fit, copy=False)
+        k = min(n_components, *X_fit.shape)
+        pca = PCA(n_components=k, random_state=seed, copy=False).fit(X_fit)
     return DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
 
 

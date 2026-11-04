@@ -227,3 +227,10 @@ experiments/runs/
 !readme.md
 .agents/
 .codex/
+
+# Generated notebook UI state and lint cache.
+__marimo__/
+.ruff_cache/
+
+# Private retired branches, notes and scratch; never package or publish.
+/attic/

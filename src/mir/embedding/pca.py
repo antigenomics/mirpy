@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 
 
 def pca_denoise(
-    X: np.ndarray, n_components: int = 50, scale: bool = True, random_state: int = 0
+    X: np.ndarray, n_components: int = 50, scale: bool = True, random_state: int = 0, *, threads: int = 0
 ) -> np.ndarray:
     """Standardize then PCA-reduce a TCREMP embedding.
 
@@ -24,15 +24,18 @@ def pca_denoise(
         n_components: Target dimensionality (clamped to ``min(n_samples, n_features)``).
         scale: Standardize each coordinate to zero mean / unit variance first.
         random_state: Seed for the (randomized) SVD solver.
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
 
     Returns:
         ``(n_clonotypes, k)`` float array of principal-component scores,
         ``k = min(n_components, n_samples, n_features)``.
     """
-    if scale:
-        X = StandardScaler().fit_transform(X)
-    k = min(n_components, X.shape[0], X.shape[1])
-    return PCA(n_components=k, random_state=random_state).fit_transform(X)
+    from vdjtools.cores import numerical_kernels
+    with numerical_kernels(threads):
+        if scale:
+            X = StandardScaler().fit_transform(X)
+        k = min(n_components, X.shape[0], X.shape[1])
+        return PCA(n_components=k, random_state=random_state).fit_transform(X)
 
 
 if __name__ == "__main__":
