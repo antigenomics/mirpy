@@ -314,6 +314,15 @@ numeric prediction output is allocated once. Decoders stage code rows per batch
 and preserve caller inputs, including with an in-place scaler. Token formatting
 uses one array lookup per batch and preserves the scalar decoder's gap handling.
 
+Sequence-codec training (forward, inverse, Pgen regressor and unified codec)
+retains compact byte token indices and one float32 host target matrix. Targets
+are transformed once in bounded blocks, then only the current rows are staged
+on the selected device. ``batch`` also bounds validation/test model calls and
+inverse transforms. Training batches retain their original split, shuffle order
+and batch-normalization membership. Held-out reductions are weighted by the
+number of values/rows and can differ by floating-point roundoff. Scaler/PCA fits
+still require the selected training matrix and their native solver workspace.
+
 .. code-block:: python
 
    from mir.ml.bundle import CodecBundle

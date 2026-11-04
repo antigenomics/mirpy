@@ -49,7 +49,6 @@ def test_prediction_prepares_only_one_batch(kind, monkeypatch):
         return encode_onehot(values)
 
     monkeypatch.setattr(train, 'encode_onehot', bounded)
-    monkeypatch.setattr(codec, 'encode_onehot', bounded)
     actual = predictor(iter(seqs), batch=3)
     np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(np.concatenate([value.numpy() for value in captured]),

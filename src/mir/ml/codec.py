@@ -15,8 +15,10 @@ from torch import nn
 
 from mir.ml.decoder import SequenceDecoder, tokens_to_seqs
 from mir.ml.encoder import SequenceEncoder
-from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
-from mir.ml.train import _decode_batches, _mean_cosine, _predict_batches, pick_device, seed_everything, train_val_test_split
+from mir.ml.tokenize import N_TOKENS
+from mir.ml.train import (_batch_size, _decode_batches, _mean_cosine, _predict_batches,
+                          _training_batches, _training_tokens, pick_device, seed_everything,
+                          train_val_test_split)
 
 
 class UnifiedCodec:
@@ -62,24 +64,15 @@ def train_unified_codec(
     true code — geometry preservation), ``roundtrip_exact`` (seq→code→seq), and
     ``decode_true_exact`` (decode the *true* code — reference upper bound).
     """
+    batch = _batch_size(batch)
     seed_everything(seed)
     dev = pick_device(device)
     cdr3s = list(cdr3s)
     codes = np.asarray(codes, dtype=np.float32)
     n, code_dim = len(cdr3s), codes.shape[1]
 
-    X = encode_onehot(cdr3s)
-    T = encode_indices(cdr3s)
+    tokens = _training_tokens(cdr3s, batch)
     te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
-
-    def _dev(idx):
-        return (torch.from_numpy(X[idx]).to(dev),
-                torch.from_numpy(codes[idx]).to(dev),
-                torch.from_numpy(T[idx]).to(dev))
-
-    Xtr, Ctr, Ttr = _dev(tr)
-    Xva, Cva, Tva = _dev(va)
-    Xte, Cte, Tte = _dev(te)
 
     enc = SequenceEncoder(code_dim).to(dev)
     dec = SequenceDecoder(code_dim).to(dev)
@@ -89,18 +82,22 @@ def train_unified_codec(
     best, best_state = -1.0, None
     for ep in range(epochs):
         enc.train(); dec.train()
-        order = torch.randperm(len(tr), device=dev)
-        for i in range(0, len(tr), batch):
-            j = order[i:i + batch]
+        order = torch.randperm(len(tr), device=dev).cpu().numpy()
+        for _, tb, cb in _training_batches(tokens, codes, tr[order], dev, batch):
             opt.zero_grad()
-            code_pred = enc(Xtr[j])
-            loss = lambda_embed * mse(code_pred, Ctr[j]) + ce(
-                dec(code_pred).reshape(-1, N_TOKENS), Ttr[j].reshape(-1))
+            code_pred = enc(nn.functional.one_hot(tb, N_TOKENS).float())
+            loss = lambda_embed * mse(code_pred, cb) + ce(
+                dec(code_pred).reshape(-1, N_TOKENS), tb.reshape(-1))
             loss.backward()
             opt.step()
         enc.eval(); dec.eval()
         with torch.no_grad():
-            rt = (dec(enc(Xva)).argmax(-1) == Tva).float().mean().item()
+            correct, count = 0, 0
+            for _, tb, _ in _training_batches(tokens, codes, va, dev, batch):
+                code = enc(nn.functional.one_hot(tb, N_TOKENS).float())
+                correct = correct + (dec(code).argmax(-1) == tb).sum()
+                count += tb.numel()
+            rt = correct.item() / count
         if rt > best:
             best = rt
             best_state = ({k: v.detach().cpu().clone() for k, v in enc.state_dict().items()},
@@ -111,14 +108,17 @@ def train_unified_codec(
     if best_state is not None:
         enc.load_state_dict(best_state[0]); dec.load_state_dict(best_state[1])
     enc.eval(); dec.eval()
+    cosine, roundtrips, true_decodes = 0.0, 0, 0
     with torch.no_grad():
-        code_pred = enc(Xte).cpu().numpy()
-        rt_idx = dec(enc(Xte)).argmax(-1).cpu().numpy()
-        true_idx = dec(Cte).argmax(-1).cpu().numpy()
-    enc_cos = _mean_cosine(code_pred, codes[te])
-    orig = [cdr3s[i] for i in te]
-    rt_exact = float(np.mean([r == o for r, o in zip(tokens_to_seqs(rt_idx), orig)]))
-    true_exact = float(np.mean([r == o for r, o in zip(tokens_to_seqs(true_idx), orig)]))
+        for ids, tb, cb in _training_batches(tokens, codes, te, dev, batch):
+            code_pred = enc(nn.functional.one_hot(tb, N_TOKENS).float())
+            cosine += len(ids) * _mean_cosine(code_pred.cpu().numpy(), codes[ids])
+            rt_idx = dec(code_pred).argmax(-1).cpu().numpy()
+            true_idx = dec(cb).argmax(-1).cpu().numpy()
+            roundtrips += sum(r == cdr3s[i] for r, i in zip(tokens_to_seqs(rt_idx), ids))
+            true_decodes += sum(r == cdr3s[i] for r, i in zip(tokens_to_seqs(true_idx), ids))
+    enc_cos = cosine / len(te)
+    rt_exact, true_exact = roundtrips / len(te), true_decodes / len(te)
     if verbose:
         print(f"test encode_cosine {enc_cos:.4f}  roundtrip_exact {rt_exact:.3f}  "
               f"decode_true_exact {true_exact:.3f}  (n_test={len(te)})")

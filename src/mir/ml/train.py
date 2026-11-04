@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 from torch import nn
 
 from mir.ml.encoder import SequenceEncoder
-from mir.ml.tokenize import N_TOKENS, encode_indices, encode_onehot
+from mir.ml.tokenize import FIXED_LEN, N_TOKENS, encode_indices, encode_onehot
 
 
 def pick_device(device: str | None = None, *, threads: int = 1) -> torch.device:
@@ -98,6 +98,34 @@ def _batch_size(batch):
     if batch < 1:
         raise ValueError('batch must be positive')
     return batch
+
+
+def _training_tokens(seqs, batch):
+    """One compact host representation; only a batch uses the int64 tokenizer scratch."""
+    tokens = np.empty((len(seqs), FIXED_LEN), dtype=np.uint8)
+    for start in range(0, len(seqs), batch):
+        tokens[start:start + batch] = encode_indices(seqs[start:start + batch])
+    return tokens
+
+
+def _transform_batches(values, transform, batch):
+    """Prepare host targets once, avoiding a full transformed temporary and split copies."""
+    output = None
+    for start in range(0, len(values), batch):
+        block = np.asarray(transform(values[start:start + batch]), dtype=np.float32)
+        if output is None:
+            output = np.empty((len(values), *block.shape[1:]), dtype=np.float32)
+        output[start:start + len(block)] = block
+    return output
+
+
+def _training_batches(tokens, values, rows, device, batch):
+    """Stage only selected rows; one-hot expansion belongs to the native device kernel."""
+    for start in range(0, len(rows), batch):
+        ids = rows[start:start + batch]
+        tb = torch.from_numpy(tokens[ids]).to(device=device, dtype=torch.long)
+        vb = torch.from_numpy(values[ids]).to(device)
+        yield ids, tb, vb
 
 
 @torch.no_grad()
@@ -192,6 +220,7 @@ def train_forward_encoder(
     """
     from sklearn.decomposition import PCA
 
+    batch = _batch_size(batch)
     seed_everything(seed)
     dev = pick_device(device)
     cdr3s = list(cdr3s)
@@ -209,20 +238,13 @@ def train_forward_encoder(
         transform = StandardScaler().fit(raw[tr])
         is_pca = False
         n_comp = dim0
-    Y = transform.transform(raw).astype(np.float32)
+    Y = _transform_batches(raw, transform.transform, batch)
     dim = Y.shape[1]
     if verbose:
         _tag = f"{dim0} -> {n_comp} PCs ({target_pca:.0%} var)" if is_pca else f"{dim0} (raw)"
         print(f"torch {torch.__version__} | device={dev} | n={n} | target {_tag}")
 
-    X = encode_onehot(cdr3s)
-
-    def _dev(idx):
-        return torch.from_numpy(X[idx]).to(dev), torch.from_numpy(Y[idx]).to(dev)
-
-    Xtr, Ytr = _dev(tr)
-    Xva, Yva = _dev(va)
-    Xte, Yte = _dev(te)
+    tokens = _training_tokens(cdr3s, batch)
 
     model = SequenceEncoder(dim).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
@@ -231,15 +253,20 @@ def train_forward_encoder(
     best_val, best_state = float("inf"), None
     for ep in range(epochs):
         model.train()
-        order = torch.randperm(len(tr), device=dev)
-        for i in range(0, len(tr), batch):
-            j = order[i:i + batch]
+        order = torch.randperm(len(tr), device=dev).cpu().numpy()
+        for _, tb, yb in _training_batches(tokens, Y, tr[order], dev, batch):
             opt.zero_grad()
-            loss_fn(model(Xtr[j]), Ytr[j]).backward()
+            xb = nn.functional.one_hot(tb, N_TOKENS).float()
+            loss_fn(model(xb), yb).backward()
             opt.step()
         model.eval()
         with torch.no_grad():
-            vl = loss_fn(model(Xva), Yva).item()
+            total, count = 0, 0
+            for _, tb, yb in _training_batches(tokens, Y, va, dev, batch):
+                prediction = model(nn.functional.one_hot(tb, N_TOKENS).float())
+                total = total + nn.functional.mse_loss(prediction, yb, reduction='sum')
+                count += yb.numel()
+            vl = (total / count).item()
         if vl < best_val:
             best_val = vl
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -249,11 +276,13 @@ def train_forward_encoder(
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
+    # Reduce original-space cosine per held-out batch; do not retain full predictions.
+    cosine = 0.0
     with torch.no_grad():
-        pred_code = model(Xte).cpu().numpy()
-    # reconstruction cosine in the ORIGINAL embedding space (what downstream uses)
-    pred_orig = transform.inverse_transform(pred_code)
-    cos = _mean_cosine(pred_orig, raw[te])
+        for ids, tb, _ in _training_batches(tokens, Y, te, dev, batch):
+            code = model(nn.functional.one_hot(tb, N_TOKENS).float()).cpu().numpy()
+            cosine += len(ids) * _mean_cosine(transform.inverse_transform(code), raw[ids])
+    cos = cosine / len(te)
     if verbose:
         print(f"test mean cosine {cos:.4f} (original space, n_test={len(te)})")
     encoder = ForwardEncoder(model, transform, dev, is_pca)
@@ -298,45 +327,39 @@ def train_inverse_decoder(
     """
     from mir.ml.decoder import SequenceDecoder, tokens_to_seqs
 
+    batch = _batch_size(batch)
     seed_everything(seed)
     dev = pick_device(device)
     cdr3s = list(cdr3s)
     codes = np.asarray(codes, dtype=np.float32)
     n = len(cdr3s)
-    tgt = encode_indices(cdr3s)  # (n, 40) int64
+    tokens = _training_tokens(cdr3s, batch)
 
     te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     cs = StandardScaler().fit(codes[tr])
-    Z = cs.transform(codes).astype(np.float32)
-
-    def _dev(idx):
-        return torch.from_numpy(Z[idx]).to(dev), torch.from_numpy(tgt[idx]).to(dev)
-
-    Ztr, Ttr = _dev(tr)
-    Zva, Tva = _dev(va)
-    Zte, Tte = _dev(te)
+    Z = _transform_batches(codes, cs.transform, batch)
 
     model = SequenceDecoder(codes.shape[1]).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.CrossEntropyLoss()
 
-    def _tok_acc(logits, T):
-        return (logits.argmax(dim=-1) == T).float().mean().item()
-
     best_acc, best_state = -1.0, None
     for ep in range(epochs):
         model.train()
-        order = torch.randperm(len(tr), device=dev)
-        for i in range(0, len(tr), batch):
-            j = order[i:i + batch]
+        order = torch.randperm(len(tr), device=dev).cpu().numpy()
+        for _, tb, zb in _training_batches(tokens, Z, tr[order], dev, batch):
             opt.zero_grad()
-            logits = model(Ztr[j])
-            loss_fn(logits.reshape(-1, N_TOKENS), Ttr[j].reshape(-1)).backward()
+            logits = model(zb)
+            loss_fn(logits.reshape(-1, N_TOKENS), tb.reshape(-1)).backward()
             opt.step()
         model.eval()
         with torch.no_grad():
-            va_acc = _tok_acc(model(Zva), Tva)
+            correct, count = 0, 0
+            for _, tb, zb in _training_batches(tokens, Z, va, dev, batch):
+                correct = correct + (model(zb).argmax(-1) == tb).sum()
+                count += tb.numel()
+            va_acc = correct.item() / count
         if va_acc > best_acc:
             best_acc = va_acc
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -346,11 +369,16 @@ def train_inverse_decoder(
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
+    correct, count, exact_count = 0, 0, 0
     with torch.no_grad():
-        pred = model(Zte).argmax(dim=-1).cpu().numpy()
-    token_acc = float((pred == tgt[te]).mean())
-    recon = tokens_to_seqs(pred)
-    exact = float(np.mean([r == cdr3s[i] for r, i in zip(recon, te)]))
+        for ids, tb, zb in _training_batches(tokens, Z, te, dev, batch):
+            pred = model(zb).argmax(-1)
+            correct = correct + (pred == tb).sum()
+            count += tb.numel()
+            recon = tokens_to_seqs(pred.cpu().numpy())
+            exact_count += sum(r == cdr3s[i] for r, i in zip(recon, ids))
+    token_acc = correct.item() / count
+    exact = exact_count / len(te)
     if verbose:
         print(f"test exact-match {exact:.3f}  token-acc {token_acc:.3f}  (n_test={len(te)})")
     return InverseDecoder(model, cs, dev), {"exact_match": exact, "token_acc": token_acc, "n": n}
@@ -392,6 +420,7 @@ def train_pgen_regressor(
     Returns the fitted :class:`PgenRegressor` and metrics (``pearson``, ``rmse`` in
     log10 units, ``n``). Targets standardized on the train split only.
     """
+    batch = _batch_size(batch)
     seed_everything(seed)
     dev = pick_device(device)
     cdr3s = list(cdr3s)
@@ -401,15 +430,8 @@ def train_pgen_regressor(
     te, va, tr = train_val_test_split(n, test_frac, val_frac, seed)
 
     scaler = StandardScaler().fit(y[tr])
-    Y = scaler.transform(y).astype(np.float32)
-    X = encode_onehot(cdr3s)
-
-    def _dev(idx):
-        return torch.from_numpy(X[idx]).to(dev), torch.from_numpy(Y[idx]).to(dev)
-
-    Xtr, Ytr = _dev(tr)
-    Xva, Yva = _dev(va)
-    Xte, _ = _dev(te)
+    Y = _transform_batches(y, scaler.transform, batch)
+    tokens = _training_tokens(cdr3s, batch)
 
     model = SequenceEncoder(1).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
@@ -418,15 +440,20 @@ def train_pgen_regressor(
     best_val, best_state = float("inf"), None
     for ep in range(epochs):
         model.train()
-        order = torch.randperm(len(tr), device=dev)
-        for i in range(0, len(tr), batch):
-            j = order[i:i + batch]
+        order = torch.randperm(len(tr), device=dev).cpu().numpy()
+        for _, tb, yb in _training_batches(tokens, Y, tr[order], dev, batch):
             opt.zero_grad()
-            loss_fn(model(Xtr[j]), Ytr[j]).backward()
+            xb = nn.functional.one_hot(tb, N_TOKENS).float()
+            loss_fn(model(xb), yb).backward()
             opt.step()
         model.eval()
         with torch.no_grad():
-            vl = loss_fn(model(Xva), Yva).item()
+            total, count = 0, 0
+            for _, tb, yb in _training_batches(tokens, Y, va, dev, batch):
+                prediction = model(nn.functional.one_hot(tb, N_TOKENS).float())
+                total = total + nn.functional.mse_loss(prediction, yb, reduction='sum')
+                count += yb.numel()
+            vl = (total / count).item()
         if vl < best_val:
             best_val = vl
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -436,8 +463,13 @@ def train_pgen_regressor(
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
+    pred = np.empty(len(te), dtype=np.float32)
+    start = 0
     with torch.no_grad():
-        pred = scaler.inverse_transform(model(Xte).cpu().numpy()).ravel()
+        for ids, tb, _ in _training_batches(tokens, Y, te, dev, batch):
+            values = model(nn.functional.one_hot(tb, N_TOKENS).float()).cpu().numpy()
+            pred[start:start + len(ids)] = scaler.inverse_transform(values).ravel()
+            start += len(ids)
     true = y[te].ravel()
     pearson = float(np.corrcoef(pred, true)[0, 1])
     rmse = float(np.sqrt(np.mean((pred - true) ** 2)))
