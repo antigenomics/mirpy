@@ -394,3 +394,12 @@ For CLI extraction, pass the bundle's ``feature-vocabulary.json`` through
 weights and coverage target. The saved vocabulary is required when the reference
 models only selected loci; matching feature names alone does not establish an
 identical raw feature space.
+
+Numerical CPU budgets
+---------------------
+
+Clonotype scaler/PCA fitting, density projection and PCA denoising accept
+``threads=0`` for automatic numerical budgets (up to 16 allocated CPUs),
+``1`` for serial work, or an explicit count within the allocation. Automatic
+calls inherit an enclosing numerical phase; sample workers remain serial.
+Reference builds complete sample mapping before numerical fitting.

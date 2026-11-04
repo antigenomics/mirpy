@@ -12,7 +12,7 @@ import shutil
 
 import mir  # noqa: F401 — set runtime limits before numerical imports
 import numpy as np
-from vdjtools.cores import kernel_threads, numerical_threads
+from vdjtools.cores import kernel_threads
 from vdjtools.signature import raw_columns, raw_features_cohort
 from vdjtools.signature.features import gene_vocab
 from vdjtools.signature.layout import LOCI, NO_LOCUS
@@ -38,7 +38,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=0, components=1024,
     validate_feature_definition(feature_definition)
     readers, loci = list(readers), tuple(loci)
     jobs = kernel_threads(jobs)
-    threads = numerical_threads(threads)
+    kernel_threads(threads)  # Validate without resolving automatic caller inheritance.
     ids = [sid for sid, _ in readers]
     if (len(readers) < 2 or len(set(ids)) != len(ids)
             or not loci or len(set(loci)) != len(loci)):
@@ -84,7 +84,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=0, components=1024,
     if spaces is None:
         models = {loc: TCREmp.from_defaults('human', loc, threads=jobs) for loc in loci}
         spaces = fit_sample_spaces(readers, models, pca_fit_cap=fit_cap,
-                                   n_rff=n_rff, n_rff_second=0, seed=seed)
+                                   n_rff=n_rff, n_rff_second=0, seed=seed, threads=threads)
     for space in spaces.values():
         space.clono.model.threads = 0
     basis = out / 'basis'

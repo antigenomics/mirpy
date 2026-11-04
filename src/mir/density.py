@@ -56,7 +56,7 @@ Typical usage::
 
 from __future__ import annotations
 
-from vdjtools.cores import kernel_threads
+from vdjtools.cores import kernel_threads, numerical_kernels
 
 _WEIGHTED_MAX_EDGES = 1_000_000
 
@@ -117,7 +117,7 @@ def _embed(model, df: pl.DataFrame, space: str) -> np.ndarray:
 
 
 def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
-                             chunk_size: int, dtype=np.float64) -> np.ndarray:
+                             chunk_size: int, dtype=np.float64, *, threads=0) -> np.ndarray:
     """Embed *df* and project it into ``scaler``+``pca``, ``chunk_size`` rows at a time.
 
     Only ``chunk_size × n_features`` of raw embedding is ever resident: each chunk is embedded,
@@ -133,7 +133,8 @@ def _embed_transform_chunked(model, df: pl.DataFrame, space: str, scaler, pca,
     for start in range(0, df.height, chunk_size):
         stop = min(start + chunk_size, df.height)
         raw = _embed(model, df.slice(start, stop - start), space)
-        out[start:stop] = pca.transform(scaler.transform(raw, copy=False))
+        with numerical_kernels(threads):
+            out[start:stop] = pca.transform(scaler.transform(raw, copy=False))
         del raw
     return out
 
@@ -154,7 +155,7 @@ class DensitySpace:
     pca: PCA
     chunk_size: int = 200_000   # rows per embed+project batch; see transform
 
-    def transform(self, df: pl.DataFrame) -> np.ndarray:
+    def transform(self, df: pl.DataFrame, *, threads=0) -> np.ndarray:
         """Embed *df* and project it into this fitted coordinate system (float32).
 
         Chunked at ``chunk_size`` rows, so the ``(len(df), n_features)`` raw embedding — 6000
@@ -165,7 +166,7 @@ class DensitySpace:
         Frames at or under ``chunk_size`` take exactly one pass and are bit-identical to it.
         """
         return _embed_transform_chunked(self.model, df, self.space, self.scaler, self.pca,
-                                        self.chunk_size, dtype=np.float32)
+                                        self.chunk_size, dtype=np.float32, threads=threads)
 
 
 @dataclass
@@ -210,6 +211,7 @@ def fit_density_space(
     seed: int = 0,
     pca_fit_cap: int | None = None,
     chunk_size: int | None = None,
+    threads: int = 0,
 ) -> tuple[DensitySpace, np.ndarray, np.ndarray]:
     """Embed observed + background frames into one shared PCA coordinate system.
 
@@ -227,6 +229,7 @@ def fit_density_space(
             or ``"junction"`` (CDR3 sub-block only, mimicking pure-CDR3 TCRNET/ALICE and a
             third of the memory at whole-repertoire scale).
         seed: RNG / PCA solver seed.
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
         pca_fit_cap: Fit the ``StandardScaler`` + PCA on at most this many randomly-sampled
             pooled rows (then transform *all* rows). ``None`` fits on everything. NB on its own
             this caps the **fit**, not the memory: without ``chunk_size`` the full raw matrix for
@@ -255,7 +258,7 @@ def fit_density_space(
         return _fit_density_space_chunked(
             model, obs_df, bg_df, n_components=n_components, space=space, seed=seed,
             pca_fit_cap=pca_fit_cap if pca_fit_cap is not None else 200_000,
-            chunk_size=chunk_size,
+            chunk_size=chunk_size, threads=threads,
         )
     obs = _embed(model, obs_df, space)
     bg = _embed(model, bg_df, space)
@@ -273,16 +276,18 @@ def fit_density_space(
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
 
-    scaler = StandardScaler().fit(fit_rows)
-    k = min(n_components, fit_rows.shape[0], n_feat)
-    pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
+    with numerical_kernels(threads):
+        scaler = StandardScaler().fit(fit_rows)
+        k = min(n_components, fit_rows.shape[0], n_feat)
+        pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
     ds = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
-    return ds, pca.transform(scaler.transform(obs)), pca.transform(scaler.transform(bg))
+    with numerical_kernels(threads):
+        return ds, pca.transform(scaler.transform(obs)), pca.transform(scaler.transform(bg))
 
 
 def _fit_density_space_chunked(
     model, obs_df: pl.DataFrame, bg_df: pl.DataFrame, *, n_components: int, space: str,
-    seed: int, pca_fit_cap: int, chunk_size: int,
+    seed: int, pca_fit_cap: int, chunk_size: int, threads=0,
 ) -> tuple[DensitySpace, np.ndarray, np.ndarray]:
     """``fit_density_space`` without ever holding a full raw matrix.
 
@@ -308,15 +313,16 @@ def _fit_density_space_chunked(
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
 
-    scaler = StandardScaler().fit(fit_rows)
-    k = min(n_components, fit_rows.shape[0], fit_rows.shape[1])
-    pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
+    with numerical_kernels(threads):
+        scaler = StandardScaler().fit(fit_rows)
+        k = min(n_components, fit_rows.shape[0], fit_rows.shape[1])
+        pca = PCA(n_components=k, random_state=seed).fit(scaler.transform(fit_rows))
     del fit_rows
 
     ds = DensitySpace(model=model, space=space, scaler=scaler, pca=pca)
     return (ds,
-            _embed_transform_chunked(model, obs_df, space, scaler, pca, chunk_size),
-            _embed_transform_chunked(model, bg_df, space, scaler, pca, chunk_size))
+            _embed_transform_chunked(model, obs_df, space, scaler, pca, chunk_size, threads=threads),
+            _embed_transform_chunked(model, bg_df, space, scaler, pca, chunk_size, threads=threads))
 
 
 def _mutate1(seq: str, rng) -> str:

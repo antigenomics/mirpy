@@ -86,7 +86,7 @@ def fit_sample_spaces(samples, models, *, pca_fit_cap=200_000, seed=0, **kwargs)
                     del part
                 del frames, df
             offset += count
-        fit_options = {key: kwargs[key] for key in ('n_components','space') if key in kwargs}
+        fit_options = {key: kwargs[key] for key in ('n_components','space','threads') if key in kwargs}
         clono = _fit_repertoire_coordinates(model, X, seed=seed, **fit_options)
         del X
         rff_options = {key: value for key,value in kwargs.items() if key not in fit_options}

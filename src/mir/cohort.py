@@ -230,7 +230,7 @@ def missingness_report(labels, mask) -> dict:
     }
 
 
-def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
+def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None, threads=0) -> dict:
     """How much of an embedding's **leading geometry** is explained by sampling depth.
 
     The companion to :func:`missingness_report`: that one asks whether a grouping tracks *which*
@@ -317,16 +317,18 @@ def depth_report(X, stats: dict, *, n_pc: int = 5, subset=None) -> dict:
         k = min(n_pc, n_rows - 1, X.shape[1])
         if k < 1:
             return np.array([]), np.array([])
-        pca = PCA(n_components=k, random_state=0).fit(X[rows])
-        P = pca.transform(X[rows])
-        A = np.column_stack([np.ones(int(rows.sum())), S[rows]])
-        out = []
-        for j in range(k):
-            y = P[:, j]
-            res = y - A @ np.linalg.lstsq(A, y, rcond=None)[0]
-            ss = float(((y - y.mean()) ** 2).sum())
-            out.append(1.0 - float(res @ res) / ss if ss > 0 else 0.0)
-        return np.array(out), pca.explained_variance_ratio_
+        from vdjtools.cores import numerical_kernels
+        with numerical_kernels(threads):
+            pca = PCA(n_components=k, random_state=0).fit(X[rows])
+            P = pca.transform(X[rows])
+            A = np.column_stack([np.ones(int(rows.sum())), S[rows]])
+            out = []
+            for j in range(k):
+                y = P[:, j]
+                res = y - A @ np.linalg.lstsq(A, y, rcond=None)[0]
+                ss = float(((y - y.mean()) ** 2).sum())
+                out.append(1.0 - float(res @ res) / ss if ss > 0 else 0.0)
+            return np.array(out), pca.explained_variance_ratio_
 
     r2, ev = r2s(np.ones(n, dtype=bool))
     rep = {
@@ -378,7 +380,7 @@ def _locus_blocks(spaces, donor_frames, *, min_clones):
     return means, div, cov
 
 
-def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
+def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0, threads=0):
     """``(n, id_pca)`` identity block: PCA-reduce the per-donor kernel means (``nan`` where absent).
 
     Fits a ``StandardScaler`` → ``PCA`` when ``pca is None`` (and enough donors carry the chain);
@@ -402,8 +404,12 @@ def _identity_matrix(means_c, n, id_pca, *, pca=None, seed=0):
                 stacklevel=3)
             return out, None                       # too few to reduce; leave holes (imputed)
         from vdjtools.signature.corpus import fit_pca
-        pca = fit_pca(M, id_pca, seed=seed)
-    Mr = pca.transform(M)
+        from vdjtools.cores import numerical_kernels
+        with numerical_kernels(threads):
+            pca = fit_pca(M, id_pca, seed=seed)
+    from vdjtools.cores import numerical_kernels
+    with numerical_kernels(threads):
+        Mr = pca.transform(M)
     for j, i in enumerate(idxs):
         out[i] = Mr[j]
     return out, pca

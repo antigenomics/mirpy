@@ -231,7 +231,7 @@ def cmd_clonotypes(a: argparse.Namespace) -> None:
         del tables
         cols = [c for c in table.columns if c.startswith('e') and c[1:].isdigit()]
         X = table.select(cols).to_numpy().copy()
-        scores = pca_denoise(X, n_components=a.pca)
+        scores = pca_denoise(X, n_components=a.pca, threads=a.threads)
         del X
         batches = [table.drop(cols).hstack(pl.from_numpy(np.asarray(scores),
                     schema=[f'e{i}' for i in range(scores.shape[1])]))]
@@ -272,12 +272,12 @@ def cmd_repertoires(a: argparse.Namespace) -> None:
         if not spaces:
             raise ValueError('no saved RFF spaces in --basis directory')
     else:
-        models = _embedding_models(a, sample_workers=True)
-        from vdjtools.cores import serial_kernels
-        with serial_kernels():
-            spaces = fit_sample_spaces(items, models, n_rff=a.n_rff,
-                                       n_rff_second=a.n_rff_second if 'second' in blocks else 0,
-                                       n_components=a.n_components, seed=a.seed)
+        models = _embedding_models(a, sample_workers=False)
+        spaces = fit_sample_spaces(items, models, n_rff=a.n_rff,
+                                   n_rff_second=a.n_rff_second if 'second' in blocks else 0,
+                                   n_components=a.n_components, seed=a.seed, threads=a.threads)
+        for model in models.values():
+            model.threads = 0  # Sample workers resolve their own serial native budget.
     if a.save_basis:
         dest = pathlib.Path(a.save_basis)
         dest.mkdir(parents=True, exist_ok=True)
