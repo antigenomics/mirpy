@@ -163,7 +163,8 @@ class DensitySpace:
         caller takes (:func:`~mir.repertoire.sample_embedding`, ``naive_reference``,
         ``class_witness``, ``sample_descriptor``, ``rarefy_embedding``), one deep sample at a time,
         so the single-shot version could blow past the working-set budget on a single sample.
-        Frames at or under ``chunk_size`` take exactly one pass and are bit-identical to it.
+        Frames at or under ``chunk_size`` take exactly one pass and are bit-identical
+        to it under the same numerical CPU budget.
         """
         return _embed_transform_chunked(self.model, df, self.space, self.scaler, self.pca,
                                         self.chunk_size, dtype=np.float32, threads=threads)
