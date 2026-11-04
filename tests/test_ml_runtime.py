@@ -122,3 +122,24 @@ def test_seeded_fits_serialize_before_seeding(monkeypatch, kind):
 
     with pytest.raises(ValueError, match='epochs'):
         fit(11, epochs=0)
+
+
+def test_torch_auto_saturates_at_eight_and_explicit_budget_is_preserved(monkeypatch):
+    import torch
+    from mir.ml.train import _torch_runtime
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 32)
+    previous = torch.get_num_threads()
+    for request, expected in [(0, 8), (16, 16), (32, 32)]:
+        with _torch_runtime(request):
+            assert torch.get_num_threads() == expected
+        assert torch.get_num_threads() == previous
+
+
+@pytest.mark.parametrize('invalid', [False, True, -1, 1.5])
+def test_torch_automatic_cap_keeps_thread_validation(invalid):
+    from mir.ml.train import _torch_runtime, pick_device
+    with pytest.raises((TypeError, ValueError)):
+        with _torch_runtime(invalid):
+            pytest.fail('invalid CPU budget entered compute')
+    with pytest.raises((TypeError, ValueError)):
+        pick_device('cpu', threads=invalid)

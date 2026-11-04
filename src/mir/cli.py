@@ -507,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--filter-functional", action=argparse.BooleanOptionalAction, default=True,
                    help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
                         "before embedding (default: on)")
-    c.add_argument("--threads", type=int, default=0, help="0 = all cores")
+    c.add_argument("--threads", type=int, default=0, help="0 = automatic, up to 16 allocated cores")
     c.add_argument('--pca', type=int, help='optional PCA for a single locus clonotype table')
     c.set_defaults(func=cmd_clonotypes)
 
@@ -527,7 +527,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--filter-functional", action=argparse.BooleanOptionalAction, default=True,
                    help="drop non-coding clonotypes (stop codon / out-of-frame junction_aa) "
                         "before embedding (default: on)")
-    r.add_argument("--threads", type=int, default=0, help="0 = all cores")
+    r.add_argument("--threads", type=int, default=0, help="0 = automatic, up to 16 allocated cores")
     r.add_argument('--blocks', default='mean,diversity', help='mean,diversity[,second] channels')
     r.add_argument('--n-rff', type=int, default=1024)
     r.add_argument('--n-rff-second', type=int, default=128)
@@ -552,7 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     rotation.add_argument('--rotation', metavar='ROTATION.npz', help='apply an existing rotation')
     pc.add_argument('--n-components', type=int, default=256)
     pc.add_argument('--seed', type=int, default=0)
-    pc.add_argument('--threads', type=int, default=0, help='PCA CPU budget (0: allocated cores)')
+    pc.add_argument('--threads', type=int, default=0, help='PCA CPU budget (0: automatic, up to 16 allocated cores)')
     pc.add_argument('--cohort', help='fit using this compatible cohort RFF table')
     pc.set_defaults(func=cmd_pca)
 
@@ -601,7 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--columns", default=None, metavar="FILE",
                    help="file of column names (one per line) to restrict the output to")
     s.add_argument("--jobs", "-j", type=int, default=0,
-                   help="worker threads over samples (default: 0 = allocated cores, 1 = serial). "
+                   help="worker threads over samples (default: 0 = automatic, up to 16 allocated cores, 1 = serial). "
                         "Each worker uses one kernel thread; explicit counts are "
                         "clamped to allocation and sample count")
     s.add_argument("--on-duplicate", choices=("error", "sum"), default="error",
@@ -675,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
     c2.add_argument("--smoke", action="store_true",
                     help="reduced build (200 samples of 1000) for tests and the cmp check")
     c2.add_argument("-j", "--jobs", type=int, default=0,
-                    help="pool-generation processes, then sample-map threads (serial inner kernels): 0 = allocated cores, "
+                    help="pool-generation processes, then sample-map threads (serial inner kernels): 0 = automatic, up to 16 allocated cores, "
                          "1 = in-process. The artifact is identical at any value")
     c2.set_defaults(func=cmd_corpus)
 

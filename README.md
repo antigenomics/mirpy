@@ -158,3 +158,8 @@ Use `olga-legacy` (`olga` alias) for frozen OLGA parameters and reference sample
 streams. `learned` and `arda` alias fresh isalgo; old fitted weights require a
 pinned previous release. Existing corpus, prototype and embedding artifacts remain
 unchanged; changing a default does not refit a saved reference.
+
+CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs
+(eight for Torch training/inference). Use `1` for serial work or a positive
+count to override the automatic cap within the scheduler/container allocation.
+Sample workers keep their inner numerical kernels serial.

@@ -211,10 +211,25 @@ def test_cli_passes_explicit_worker_budget_without_a_sample_heuristic(monkeypatc
         cli.cmd_signature(args)
 
 
-def test_signature_embedder_uses_one_native_thread():
+def test_signature_embedder_adapts_native_budget_inside_sample_workers(monkeypatch):
     from mir.signature.signature import _model
-
-    assert _model('human', 'TRB').threads == 1
+    from mir.embedding import tcremp
+    from vdjtools.signature.cohort import parallel_rows
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
+    model = _model('human', 'TRB')
+    assert model.threads == 0
+    actual = tcremp.junction_distance_matrix
+    seen = []
+    def capture(*args, **kwargs):
+        seen.append(kwargs['threads'])
+        return actual(*args, **kwargs)
+    monkeypatch.setattr(tcremp, 'junction_distance_matrix', capture)
+    seqs = ['CASSQYF', 'CASSLGQYF']
+    expected = model._junction_distances(seqs)
+    batches = parallel_rows([seqs, seqs], model._junction_distances, 2)
+    assert seen == [2, 1, 1]
+    for batch in batches:
+        np.testing.assert_array_equal(batch, expected)
 
 
 def test_cold_signature_model_is_loaded_once_across_workers(monkeypatch):

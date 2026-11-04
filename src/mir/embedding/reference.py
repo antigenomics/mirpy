@@ -12,7 +12,7 @@ import shutil
 
 import mir  # noqa: F401 — set runtime limits before numerical imports
 import numpy as np
-from vdjtools.cores import kernel_threads
+from vdjtools.cores import kernel_threads, numerical_threads
 from vdjtools.signature import raw_columns, raw_features_cohort
 from vdjtools.signature.features import gene_vocab
 from vdjtools.signature.layout import LOCI, NO_LOCUS
@@ -22,8 +22,8 @@ from mir.embedding.tcremp import TCREmp
 from mir.repertoire import RepertoireSpace
 
 
-def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024, n_rff=1024,
-          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None, feature_definition=None, threads=1):
+def build_reference_rotations(readers, loci, output, *, jobs=0, components=1024, n_rff=1024,
+          fit_cap=200_000, coverage=0.8, seed=20261012, reuse_basis=None, feature_definition=None, threads=0):
     """Build a new bundle; refuse to overwrite an existing output directory.
 
     Each bundle has its own shared clonotype basis. To apply its RFF rotation,
@@ -32,13 +32,13 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     ``reuse_basis`` copies an existing basis directory byte-for-byte and skips
     clonotype fitting. Both sample-table PCAs are fitted from fresh reader outputs.
     ``jobs`` budgets sample workers; ``threads`` budgets BLAS after they join
-    (1 serial, 0 allocated cores). The phases never run concurrently.
+    (1 serial, 0 up to 16 allocated cores). The phases never run concurrently.
     """
     from vdjtools.signature.layout import validate_feature_definition, _configured
     validate_feature_definition(feature_definition)
     readers, loci = list(readers), tuple(loci)
     jobs = kernel_threads(jobs)
-    threads = kernel_threads(threads)
+    threads = numerical_threads(threads)
     ids = [sid for sid, _ in readers]
     if (len(readers) < 2 or len(set(ids)) != len(ids)
             or not loci or len(set(loci)) != len(loci)):
@@ -73,7 +73,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
                                     feature_definition=feature_definition)
         rotation = TablePCA.fit(table, columns=columns, n_components=components, seed=seed, threads=threads)
     rotation.save(out / 'features-pca.npz')
-    _check(rotation, table, out / 'features-pca.npz')
+    _check(rotation, table, out / 'features-pca.npz', threads=threads)
     variance = {'features': _variance(rotation)}
     (out / 'feature-columns.txt').write_text('\n'.join(columns) + '\n')
     if _configured(feature_definition):
@@ -86,7 +86,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
         spaces = fit_sample_spaces(readers, models, pca_fit_cap=fit_cap,
                                    n_rff=n_rff, n_rff_second=0, seed=seed)
     for space in spaces.values():
-        space.clono.model.threads = 1
+        space.clono.model.threads = 0
     basis = out / 'basis'
     basis.mkdir()
     for loc, space in spaces.items():
@@ -97,7 +97,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     table = sample_embeddings(readers, spaces, n_jobs=jobs)
     rotation = TablePCA.fit(table, n_components=components, seed=seed, threads=threads)
     rotation.save(out / 'rff-pca.npz')
-    _check(rotation, table, out / 'rff-pca.npz')
+    _check(rotation, table, out / 'rff-pca.npz', threads=threads)
     variance['rff'] = _variance(rotation)
     restored = {loc: RepertoireSpace.load(basis / f'{loc}.pkl') for loc in spaces}
     again = sample_embeddings(readers[:2], restored, n_jobs=1)
@@ -124,15 +124,15 @@ def build_reference_rotations(readers, loci, output, *, jobs=1, components=1024,
     }, indent=2) + '\n')
 
 
-def _check(rotation, table, path):
+def _check(rotation, table, path, *, threads=0):
     """Reload and project a small view without allocating a second cohort matrix."""
     rows = table.head(2)
     restored = TablePCA.load(path)
     assert restored.columns == rotation.columns and restored.space == rotation.space
     for name in ('fill', 'mean', 'scale', 'center', 'components', 'explained_variance_ratio'):
         np.testing.assert_array_equal(getattr(restored, name), getattr(rotation, name))
-    expected = rotation.transform(rows)
-    actual = restored.transform(rows)
+    expected = rotation.transform(rows, threads=threads)
+    actual = restored.transform(rows, threads=threads)
     assert actual['sample_id'].to_list() == rows['sample_id'].to_list()
     pcs = [c for c in actual.columns if c.startswith('pc')]
     scores = expected.select(pcs).to_numpy()

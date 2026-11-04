@@ -164,7 +164,7 @@ multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[an
 ``examples/density.py``.
 
 Isalgo calls use the native sampler by default, with ``threads=0`` selecting
-the allocated CPUs for one batched draw. Frozen OLGA sources retain reference
+up to 16 allocated CPUs for one batched draw. Frozen OLGA sources retain reference
 sampling by default. Set ``engine="reference"`` explicitly for historical streams;
 ``engine="native"`` also works with explicitly selected legacy parameters.
 Reference points distinguish model source and the resolved sampler engine; repeated
@@ -470,3 +470,7 @@ edge buffers hold at most one million candidates per block (or one complete
 neighborhood if it exceeds that size). Counts and weighted sums retain their exact
 per-row order. Sample pools share one interpreter and its frozen resources;
 use an explicit ``n_jobs`` to bound concurrent sample buffers.
+
+Torch CPU training and inference default to at most eight allocated CPUs.
+Explicit positive ``threads`` values may exceed this automatic cap within the
+allocation; BLAS and Torch inter-op pools remain serial during the Torch phase.

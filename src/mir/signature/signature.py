@@ -122,10 +122,10 @@ def _model(species: str, locus: str):
 
 @functools.lru_cache(maxsize=16)
 def _cached_model(species: str, locus: str):
-    """One immutable prototype panel per locus; parallelism is across samples."""
+    """One prototype panel per locus; automatic kernels become serial in sample workers."""
     from mir.embedding.tcremp import TCREmp
 
-    return TCREmp.from_defaults(species, locus, n_prototypes=F.K, threads=1)
+    return TCREmp.from_defaults(species, locus, n_prototypes=F.K, threads=0)
 
 
 def _clr(shares: dict[str, float], keep: tuple[str, ...], m: int) -> dict[str, float]:
@@ -350,7 +350,7 @@ def synthesize(corpus_name: str, *, loci: "tuple[str, ...]" = L.LOCI, n_samples:
                size: "int | str | None" = None, seed: int = C.SEED,
                n_components: "int | float" = C.DEFAULT_COMPONENTS, mode: str = "features",
                winsor_p: float = 0.01, source: str = "isalgo", species: str = "human",
-               progress=None, n_jobs: int = 1, depth_spread: "float | str | None" = None):
+               progress=None, n_jobs: int = 0, depth_spread: "float | str | None" = None):
     """Build and fit an ``rsig`` corpus on the same synthetic repertoires ``vsig`` uses.
 
     The receptors, the seeds and the drawn depths are all

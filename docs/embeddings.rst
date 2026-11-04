@@ -79,7 +79,7 @@ only sample vectors survive the reduction. ``--threads 1`` starts no worker pool
 Workers write directly into one preallocated columnar output matrix, which Polars
 wraps without a second feature-table copy.
 The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
-allocated cores, capped by the number of samples.
+up to 16 allocated cores, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -93,7 +93,7 @@ rotation stores feature names and the shared basis fingerprint, and refuses a
 mismatch. It is a NumPy artifact with no executable pickle payload.
 
 Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
-uses allocated BLAS cores for fitting and application; a positive value sets an
+uses up to 16 allocated BLAS cores for fitting and application; a positive value sets an
 explicit budget. Omitting the flag also uses the allocation; two CPUs is only
 an example budget, not a recommended limit. The command owns native thread
 configuration, so users need not implement BLAS controls. A ceiling does not
@@ -253,7 +253,7 @@ provide an RFF basis for BCR or the other TCR loci.
 
 Reference fitting accepts separate phase budgets: ``jobs`` for sample workers,
 ``threads`` for BLAS after those workers join. ``threads=1`` preserves serial
-PCA; ``threads=0`` uses allocated cores. The shared ``TablePCA.fit`` accepts
+PCA; ``threads=0`` uses up to 16 allocated cores. The shared ``TablePCA.fit`` accepts
 the same fitting-only budget and restores caller BLAS limits afterwards.
 
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
