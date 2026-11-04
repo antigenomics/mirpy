@@ -150,8 +150,8 @@ Step 5 -- the same thing from the shell
    mir embed clonotypes cohort/*.tsv.gz -o clonotypes.tsv
 
    # one RFF embedding row per sample; sample PCA is optional
-   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o sample_embeddings.tsv --threads 1
-   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_embeddings.tsv --threads 1
+   mir embed repertoires cohort/*.tsv.gz --save-basis basis -o sample_embeddings.tsv
+   mir embed repertoires held_out/*.tsv.gz --basis basis -o held_out_embeddings.tsv
    mir pca sample_embeddings.tsv --fit rotation.npz -o sample_pcs.tsv
    mir pca held_out_embeddings.tsv --rotation rotation.npz -o held_out_pcs.tsv
 

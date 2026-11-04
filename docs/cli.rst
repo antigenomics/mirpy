@@ -53,7 +53,7 @@ Embedding and PCA commands
 
 .. code-block:: bash
 
-   mir embed repertoires samples/*.tsv --save-basis basis --threads 1 -o rff.tsv
+   mir embed repertoires samples/*.tsv --save-basis basis -o rff.tsv
    mir pca rff.tsv --fit rotation.npz --n-components 32 -o pcs.tsv
 
 Inline sample PCA uses ``--pca``, ``--pca-cohort`` or ``--rotation``. Keep its RFF
@@ -114,7 +114,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``
-     - Worker threads over samples, default ``1``; ``0`` for allocated cores.
+     - Sample workers: ``0`` (default) selects up to 16 allocated CPUs.
 
 Which corpus to choose, and what the columns mean, are in :doc:`signature` and :doc:`channels`.
 

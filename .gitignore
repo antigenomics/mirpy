@@ -234,3 +234,6 @@ __marimo__/
 
 # Private retired branches, notes and scratch; never package or publish.
 /attic/
+
+# Public API skill
+!skills/mirpy/SKILL.md

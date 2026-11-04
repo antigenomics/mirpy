@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc"><title id="title">From receptor sequences to comparable coordinates</title><desc id="desc">Choose the scale: a receptor, a repertoire or a cohort. Illustrations are schematic, not measured results.</desc><!-- Editable schematic, not measured observations. PNG: rsvg-convert assets/workflow-light.svg -o assets/workflow.png -->
+<rect width="1200" height="760" fill="#1a2332"/><g font-family="Arial, Helvetica, sans-serif">
+<text x="56" y="72" font-size="32" fill="#eef2f7" font-weight="700">From receptor sequences to comparable coordinates</text>
+<text x="56" y="110" font-size="19" fill="#9cadbf" font-weight="400">Choose the scale: a receptor, a repertoire or a cohort.</text>
+<path d="M56 142 H1144" fill="none" stroke="#354254" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="95" cy="240" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="120" cy="220" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="138" cy="250" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="108" cy="267" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="159" cy="229" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="172" cy="267" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="192" cy="245" r="6" fill="#25c39d" stroke="#25c39d" stroke-width="2"/>
+<circle cx="205" cy="288" r="6" fill="#83b5e7" stroke="#83b5e7" stroke-width="2"/>
+<circle cx="230" cy="268" r="6" fill="#83b5e7" stroke="#83b5e7" stroke-width="2"/>
+<circle cx="248" cy="298" r="6" fill="#83b5e7" stroke="#83b5e7" stroke-width="2"/>
+<circle cx="218" cy="315" r="6" fill="#83b5e7" stroke="#83b5e7" stroke-width="2"/>
+<circle cx="269" cy="277" r="6" fill="#83b5e7" stroke="#83b5e7" stroke-width="2"/>
+<rect x="462" y="282" width="18" height="38" fill="#83b5e7" opacity="1"/>
+<rect x="491" y="245" width="18" height="75" fill="#25c39d" opacity="1"/>
+<rect x="520" y="273" width="18" height="47" fill="#83b5e7" opacity="1"/>
+<rect x="549" y="225" width="18" height="95" fill="#25c39d" opacity="1"/>
+<rect x="578" y="256" width="18" height="64" fill="#83b5e7" opacity="1"/>
+<rect x="607" y="290" width="18" height="30" fill="#25c39d" opacity="1"/>
+<rect x="636" y="262" width="18" height="58" fill="#83b5e7" opacity="1"/>
+<path d="M450 325 H690" fill="none" stroke="#9cadbf" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="842" y="207" width="29" height="17" fill="#25c39d" opacity="0.22"/>
+<rect x="878" y="207" width="29" height="17" fill="#25c39d" opacity="0.37"/>
+<rect x="914" y="207" width="29" height="17" fill="#25c39d" opacity="0.52"/>
+<rect x="950" y="207" width="29" height="17" fill="#83b5e7" opacity="0.6699999999999999"/>
+<rect x="986" y="207" width="29" height="17" fill="#83b5e7" opacity="0.82"/>
+<rect x="1022" y="207" width="29" height="17" fill="#83b5e7" opacity="0.22"/>
+<rect x="842" y="230" width="29" height="17" fill="#25c39d" opacity="0.6699999999999999"/>
+<rect x="878" y="230" width="29" height="17" fill="#25c39d" opacity="0.82"/>
+<rect x="914" y="230" width="29" height="17" fill="#25c39d" opacity="0.22"/>
+<rect x="950" y="230" width="29" height="17" fill="#83b5e7" opacity="0.37"/>
+<rect x="986" y="230" width="29" height="17" fill="#83b5e7" opacity="0.52"/>
+<rect x="1022" y="230" width="29" height="17" fill="#83b5e7" opacity="0.6699999999999999"/>
+<rect x="842" y="253" width="29" height="17" fill="#25c39d" opacity="0.37"/>
+<rect x="878" y="253" width="29" height="17" fill="#25c39d" opacity="0.52"/>
+<rect x="914" y="253" width="29" height="17" fill="#25c39d" opacity="0.6699999999999999"/>
+<rect x="950" y="253" width="29" height="17" fill="#83b5e7" opacity="0.82"/>
+<rect x="986" y="253" width="29" height="17" fill="#83b5e7" opacity="0.22"/>
+<rect x="1022" y="253" width="29" height="17" fill="#83b5e7" opacity="0.37"/>
+<rect x="842" y="276" width="29" height="17" fill="#25c39d" opacity="0.82"/>
+<rect x="878" y="276" width="29" height="17" fill="#25c39d" opacity="0.22"/>
+<rect x="914" y="276" width="29" height="17" fill="#25c39d" opacity="0.37"/>
+<rect x="950" y="276" width="29" height="17" fill="#83b5e7" opacity="0.52"/>
+<rect x="986" y="276" width="29" height="17" fill="#83b5e7" opacity="0.6699999999999999"/>
+<rect x="1022" y="276" width="29" height="17" fill="#83b5e7" opacity="0.82"/>
+<rect x="842" y="299" width="29" height="17" fill="#25c39d" opacity="0.52"/>
+<rect x="878" y="299" width="29" height="17" fill="#25c39d" opacity="0.6699999999999999"/>
+<rect x="914" y="299" width="29" height="17" fill="#25c39d" opacity="0.82"/>
+<rect x="950" y="299" width="29" height="17" fill="#83b5e7" opacity="0.22"/>
+<rect x="986" y="299" width="29" height="17" fill="#83b5e7" opacity="0.37"/>
+<rect x="1022" y="299" width="29" height="17" fill="#83b5e7" opacity="0.52"/>
+<path d="M355 258 h40 m-8 -7 8 7 -8 7" fill="none" stroke="#9cadbf" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M745 258 h40 m-8 -7 8 7 -8 7" fill="none" stroke="#9cadbf" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="56" y="386" font-size="24" fill="#eef2f7" font-weight="700">Clonotype coordinates</text>
+<text x="56" y="420" font-size="17" fill="#9cadbf" font-weight="400">V, J and junction distances</text>
+<text x="56" y="447" font-size="17" fill="#9cadbf" font-weight="400">One shared prototype panel</text>
+<text x="446" y="386" font-size="24" fill="#eef2f7" font-weight="700">Repertoire vectors</text>
+<text x="446" y="420" font-size="17" fill="#9cadbf" font-weight="400">Shared basis → RFF → weighted mean</text>
+<text x="446" y="447" font-size="17" fill="#9cadbf" font-weight="400">One vector per sample</text>
+<text x="836" y="386" font-size="24" fill="#eef2f7" font-weight="700">Cohort analysis</text>
+<text x="836" y="420" font-size="17" fill="#9cadbf" font-weight="400">Saved PCA or frozen rsig corpus</text>
+<text x="836" y="447" font-size="17" fill="#9cadbf" font-weight="400">Preserve sample and feature identities</text>
+<path d="M56 483 H1144" fill="none" stroke="#354254" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="56" y="522" width="27" height="4" fill="#83b5e7" opacity="1"/>
+<text x="56" y="566" font-size="23" fill="#eef2f7" font-weight="700">Local structure</text>
+<text x="56" y="603" font-size="16" fill="#9cadbf" font-weight="400">Density, enrichment and motif witnesses.</text>
+<text x="56" y="629" font-size="16" fill="#9cadbf" font-weight="400">Distances share the same receptor space.</text>
+<rect x="446" y="522" width="27" height="4" fill="#25c39d" opacity="1"/>
+<text x="446" y="566" font-size="23" fill="#eef2f7" font-weight="700">Whole repertoires</text>
+<text x="446" y="603" font-size="16" fill="#9cadbf" font-weight="400">Compare weighted receptor distributions.</text>
+<text x="446" y="629" font-size="16" fill="#9cadbf" font-weight="400">Save and reuse the basis for every sample.</text>
+<rect x="836" y="522" width="27" height="4" fill="#ffbd59" opacity="1"/>
+<text x="836" y="566" font-size="23" fill="#eef2f7" font-weight="700">Separate representations</text>
+<text x="836" y="603" font-size="16" fill="#9cadbf" font-weight="400">Raw RFF and corpus rsig are distinct.</text>
+<text x="836" y="629" font-size="16" fill="#9cadbf" font-weight="400">Reuse the matching fitted transformation.</text>
+<path d="M56 678 H1144" fill="none" stroke="#354254" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="56" y="719" font-size="17" fill="#9cadbf" font-weight="400">Python API + CLI</text>
+<text x="735" y="719" font-size="16" fill="#9cadbf" font-weight="400">Batch APIs · shared resources · automatic CPU budgets</text>
+</g></svg>

@@ -43,7 +43,7 @@ sample. No PCA is fitted unless ``--pca K --locus LOC`` is requested.
 
 .. code-block:: bash
 
-   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv --threads 1
+   mir embed clonotypes cohort/*.tsv -o clonotypes.tsv
    pip install "mirpy-lib[parquet]"
    mir embed clonotypes cohort/*.tsv -o clonotypes.parquet
 
@@ -66,8 +66,8 @@ are retained; a missing locus is a hole, not a zero-valued embedding.
 
 .. code-block:: bash
 
-   mir embed repertoires cohort/*.tsv --save-basis basis -o rff.tsv --threads 1
-   mir embed repertoires control/*.tsv --basis basis -o control_rff.tsv --threads 1
+   mir embed repertoires cohort/*.tsv --save-basis basis -o rff.tsv
+   mir embed repertoires control/*.tsv --basis basis -o control_rff.tsv
 
 ``--basis`` reuses saved ``RepertoireSpace`` models; load only trusted model files.
 Without it, the established seeded clonotype fit is performed one locus at a time,
@@ -75,11 +75,11 @@ reading samples in passes instead of retaining the whole cohort. ``--n-component
 controls that clonotype basis. ``--n-rff`` controls the RFF width (default 1024).
 ``--blocks mean,diversity`` is the default; add ``second`` when needed. All samples
 share the same mapping. Each worker retains one sample and bounded numerical blocks;
-only sample vectors survive the reduction. ``--threads 1`` starts no worker pool.
+only sample vectors survive the reduction. Inner numerical pools are managed automatically.
 Workers write directly into one preallocated columnar output matrix, which Polars
 wraps without a second feature-table copy.
-The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use the
-up to 16 allocated cores, capped by the number of samples.
+The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use
+up to 16 allocated CPUs, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -94,18 +94,16 @@ mismatch. It is a NumPy artifact with no executable pickle payload.
 
 Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
 uses up to 16 allocated BLAS cores for fitting and application; a positive value sets an
-explicit budget. Omitting the flag also uses the allocation; two CPUs is only
-an example budget, not a recommended limit. The command owns native thread
+explicit budget. Omitting the flag uses the same automatic budget. The command owns native thread
 configuration, so users need not implement BLAS controls. A ceiling does not
 guarantee CPU occupancy or bound the number of idle OS threads. Inline sample PCA reuses ``mir embed repertoires --threads``
 after the sample workers have joined. The library's ``TablePCA.transform`` takes
-the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
+the same ``threads`` convention, with an automatic default matching ``TablePCA.fit``.
 
 On Apple Accelerate, the CLI sets the BLAS ceiling from ``--threads`` before
-numerical imports. In Python, call
-``vdjtools.cores.configure_runtime(blas_threads=2)`` before importing NumPy/SciPy
-to select a two-CPU ceiling; use ``threads=2`` for fitting and ``threads=1`` for
-serial phases. The ceiling is fixed after initialization. A conflicting or
+numerical imports. In Python, import ``mir`` before NumPy/SciPy so the library can establish
+the automatic CPU budget. Explicit budgets are optional; they are not a workaround
+for nested numerical pools. The ceiling is fixed after initialization. A conflicting or
 unverified initialized ceiling raises, with instructions to start a fresh process;
 sample workers still use Accelerate's native serial policy. Other BLAS backends
 with runtime controls retain their dynamic per-phase budgets.
@@ -318,7 +316,7 @@ coverage ``0.8``. See `vdjtools' feature guide
 <https://docs.isalgo.dev/vdjtools/features.html>`_. A rotation refuses a different
 feature identity. Extract with the frozen vocabulary, then apply its rotation::
 
-   vdjtools features samples/*.tsv --coverage 0.8 --threads 1 \
+   vdjtools features samples/*.tsv --coverage 0.8 \
        --feature-vocabulary reference/feature-vocabulary.json -o features.tsv
    vdjtools pca features.tsv --rotation reference/features-pca.npz -o feature_pcs.tsv
 

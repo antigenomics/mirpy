@@ -4,6 +4,16 @@
    :width: 340
    :alt: mirpy
 
+.. image:: ../assets/workflow-light.svg
+   :alt: mirpy workflow overview: inputs, processing and outputs.
+   :width: 100%
+   :class: only-light
+
+.. image:: ../assets/workflow-dark.svg
+   :alt: mirpy workflow overview: inputs, processing and outputs.
+   :width: 100%
+   :class: only-dark
+
 .. image:: _static/mirpy_dark.png
    :class: only-dark
    :align: center
