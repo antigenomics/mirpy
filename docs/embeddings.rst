@@ -94,7 +94,10 @@ mismatch. It is a NumPy artifact with no executable pickle payload.
 
 Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
 uses allocated BLAS cores for fitting and application; a positive value sets an
-explicit budget. Inline sample PCA reuses ``mir embed repertoires --threads``
+explicit budget. Omitting the flag also uses the allocation; two CPUs is only
+an example budget, not a recommended limit. The command owns native thread
+configuration, so users need not implement BLAS controls. A ceiling does not
+guarantee CPU occupancy or bound the number of idle OS threads. Inline sample PCA reuses ``mir embed repertoires --threads``
 after the sample workers have joined. The library's ``TablePCA.transform`` takes
 the same ``threads`` convention, with a serial default matching ``TablePCA.fit``.
 
