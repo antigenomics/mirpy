@@ -16,7 +16,7 @@ from torch import nn
 from mir.ml.decoder import SequenceDecoder, tokens_to_seqs
 from mir.ml.encoder import SequenceEncoder
 from mir.ml.tokenize import N_TOKENS
-from mir.ml.train import (_batch_size, _decode_batches, _mean_cosine, _predict_batches,
+from mir.ml.train import (_torch_call, _training_call, _batch_size, _decode_batches, _mean_cosine, _predict_batches,
                           _training_batches, _training_tokens, pick_device, seed_everything,
                           train_val_test_split)
 
@@ -29,16 +29,19 @@ class UnifiedCodec:
         self.decoder = decoder.eval()
         self.device = device
 
-    def encode(self, cdr3s, batch: int = 1024) -> np.ndarray:
+    @_torch_call
+    def encode(self, cdr3s, batch: int = 1024, *, threads: int = 0) -> np.ndarray:
         return _predict_batches(self.encoder, cdr3s, self.device, batch)
 
-    def decode(self, codes, batch: int = 1024) -> list[str]:
+    @_torch_call
+    def decode(self, codes, batch: int = 1024, *, threads: int = 0) -> list[str]:
         return _decode_batches(self.decoder, codes, self.device, batch)
 
-    def roundtrip(self, cdr3s, batch: int = 1024) -> list[str]:
-        return self.decode(self.encode(cdr3s, batch), batch)
+    def roundtrip(self, cdr3s, batch: int = 1024, *, threads: int = 0) -> list[str]:
+        return self.decode(self.encode(cdr3s, batch, threads=threads), batch, threads=threads)
 
 
+@_training_call
 def train_unified_codec(
     cdr3s,
     codes: np.ndarray,
@@ -51,6 +54,7 @@ def train_unified_codec(
     test_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
 ) -> tuple[UnifiedCodec, dict]:
     """Jointly train encoder+decoder to reconstruct *cdr3s* while matching *codes*.

@@ -13,6 +13,7 @@ def test_training_prepares_only_current_batch(monkeypatch, kind):
     from mir.ml.decoder import SequenceDecoder
     from mir.ml.diffusion import DiffusionMLP, train_diffusion
 
+    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
     n, batch = 80, 8
     seqs = ['CASS' + 'ACDEFGHIKLMNPQRSTVWY'[i % 20] + 'QYF' for i in range(n)]
     codes = np.random.default_rng(7).normal(size=(n, 3)).astype(np.float32)
@@ -39,6 +40,7 @@ def test_training_prepares_only_current_batch(monkeypatch, kind):
         forward = cls.forward
         def checked(self, x, *args, _forward=forward, **kwargs):
             assert len(x) <= batch, 'held-out model call ignored batch'
+            assert torch.get_num_threads() == 2
             return _forward(self, x, *args, **kwargs)
         monkeypatch.setattr(cls, 'forward', checked)
     for module in [train, codec]:

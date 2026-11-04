@@ -97,6 +97,16 @@ except RuntimeError as e:
     assert 'fresh interpreter' in str(e)
 else:
     raise AssertionError('conflicting one-shot Torch pool accepted')
+from mir.ml.train import ForwardEncoder
+previous = torch.get_num_threads()
+encoder = ForwardEncoder(torch.nn.Flatten(), None, torch.device('cpu'), False)
+try:
+    encoder.code(['CASSQYF'])
+except RuntimeError as e:
+    assert 'fresh interpreter' in str(e)
+else:
+    raise AssertionError('high-level call accepted a conflicting inter-op pool')
+assert torch.get_num_threads() == previous
 """
     subprocess.run([sys.executable, '-c', code], check=True, timeout=30)
 

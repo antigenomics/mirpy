@@ -448,9 +448,17 @@ this does not destroy their idle OS threads.
 
 The ANN backend keeps its Numba pool for the interpreter's lifetime and uses serial
 KD-tree queries afterwards. Select its thread count on the first ANN call and retain
-that count; a conflicting initialized pool raises an error. Neural training defaults
-to one intra-op and one inter-op CPU thread; ``pick_device(threads=...)`` controls the
-intra-op budget explicitly.
+that count; a conflicting initialized pool raises an error. Neural trainers and
+trained-model inference accept ``threads=0`` (allocated CPUs, the default), ``1``
+(serial), or a positive count within the allocation. Torch owns the intra-op layer;
+BLAS and inter-op work stay serial. Calls reuse VDJtools' numerical phase control
+and restore caller limits on success or failure. Outer sample workers retain one
+Torch thread and refuse inner parallel requests; configure Torch serially before
+starting those workers if an external caller changed its persistent setting.
+Seeded fits share framework RNGs and therefore serialize within one interpreter;
+use separate processes for independent concurrent fits. ``pick_device()`` selects
+a device without resetting the intra-op count; its explicit ``threads=`` option
+remains a process-wide setup operation before compute.
 
 Weighted density reduces exact neighbor lists in bounded blocks rather than retaining
 all edges at once. A dense graph still requires quadratic total work, but temporary

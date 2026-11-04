@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from mir.ml.train import pick_device, seed_everything
+from mir.ml.train import _torch_call, _training_call, pick_device, seed_everything
 
 
 class SetEncoder(nn.Module):
@@ -64,7 +64,8 @@ class SetEncoderModel:
     task: str                                              # "regression" | "classification"
 
     @torch.no_grad()
-    def predict(self, clouds) -> np.ndarray:
+    @_torch_call
+    def predict(self, clouds, *, threads: int = 0) -> np.ndarray:
         """Predict for a list of ``(Z, w)`` clonotype clouds (probabilities if classification)."""
         self.model.eval()
         out = []
@@ -85,6 +86,7 @@ def _subsample(Z, w, rng, min_frac=0.2):
     return Z[idx], wk / wk.sum()
 
 
+@_training_call
 def train_set_encoder(
     clouds,
     y: np.ndarray,
@@ -98,6 +100,7 @@ def train_set_encoder(
     augment: bool = True,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
 ) -> tuple[SetEncoderModel, dict]:
     """Train the set encoder on ``(clouds, y)`` (clouds = list of ``(Z, w)`` per sample).

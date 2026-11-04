@@ -11,6 +11,9 @@ from __future__ import annotations
 import os
 import operator
 import random
+import threading
+from contextlib import contextmanager
+from functools import wraps
 
 import numpy as np
 import torch
@@ -21,14 +24,17 @@ from mir.ml.encoder import SequenceEncoder
 from mir.ml.tokenize import FIXED_LEN, N_TOKENS, encode_indices, encode_onehot
 
 
-def pick_device(device: str | None = None, *, threads: int = 1) -> torch.device:
+def pick_device(device: str | None = None, *, threads: int | None = None) -> torch.device:
     """Best available accelerator: explicit ``device`` override, else CUDA, else Apple ``mps``, else ``cpu``.
 
     Set ``MIR_DEVICE`` (e.g. ``cuda:1``) to override without threading ``device=`` through every call.
+    Device selection preserves the intra-op budget unless ``threads`` is explicit.
+    High-level training/inference calls own a scoped ``threads=0`` (allocated CPU) budget.
     """
     from vdjtools.cores import kernel_threads
 
-    torch.set_num_threads(kernel_threads(threads))
+    if threads is not None:
+        torch.set_num_threads(kernel_threads(threads))
     if torch.get_num_interop_threads() != 1:
         try:
             torch.set_num_interop_threads(1)
@@ -44,6 +50,54 @@ def pick_device(device: str | None = None, *, threads: int = 1) -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
+
+
+# ponytail: seeded fits share framework RNGs; use separate processes for independent fits.
+_TRAINING_LOCK = threading.RLock()
+
+
+@contextmanager
+def _torch_runtime(threads):
+    """Borrow vdjtools phase ownership; one Torch intra-op layer, serial BLAS/inter-op."""
+    from threadpoolctl import threadpool_limits
+    from vdjtools.cores import kernel_threads, numerical_kernels
+
+    budget = kernel_threads(threads)
+    with numerical_kernels(1):
+        if kernel_threads(0) == 1:
+            # Outer workers share Torch's process-wide setting and must never resize it.
+            if torch.get_num_threads() != 1:
+                raise RuntimeError("Torch was configured with multiple intra-op threads; "
+                                   "restore one thread before starting sample workers")
+            with _TRAINING_LOCK:
+                pick_device('cpu')  # Initialize the one-shot inter-op pool before compute.
+            with threadpool_limits(limits=1, user_api='openmp'):
+                yield
+            return
+        previous = torch.get_num_threads()
+        with threadpool_limits(limits=budget, user_api='openmp'):
+            try:
+                with _TRAINING_LOCK:
+                    pick_device('cpu', threads=budget)
+                yield
+            finally:
+                torch.set_num_threads(previous)
+
+
+def _torch_call(func):
+    @wraps(func)
+    def call(*args, threads=0, **kwargs):
+        with _torch_runtime(threads):
+            return func(*args, threads=threads, **kwargs)
+    return call
+
+
+def _training_call(func):
+    @wraps(func)
+    def call(*args, **kwargs):
+        with _TRAINING_LOCK:
+            return func(*args, **kwargs)
+    return _torch_call(call)
 
 
 def seed_everything(seed: int) -> None:
@@ -185,15 +239,18 @@ class ForwardEncoder:
     def _predict(self, cdr3s, batch: int, transform=None) -> np.ndarray:
         return _predict_batches(self.model, cdr3s, self.device, batch, transform)
 
-    def code(self, cdr3s, batch: int = 1024) -> np.ndarray:
+    @_torch_call
+    def code(self, cdr3s, batch: int = 1024, *, threads: int = 0) -> np.ndarray:
         """Return the compact code the model predicts (PCA coords, or normalized target)."""
         return self._predict(cdr3s, batch)
 
-    def encode(self, cdr3s, batch: int = 1024) -> np.ndarray:
+    @_torch_call
+    def encode(self, cdr3s, batch: int = 1024, *, threads: int = 0) -> np.ndarray:
         """Predict embeddings in the original space (inverse PCA / scaler)."""
         return self._predict(cdr3s, batch, self.transform.inverse_transform)
 
 
+@_training_call
 def train_forward_encoder(
     cdr3s,
     targets: np.ndarray,
@@ -206,6 +263,7 @@ def train_forward_encoder(
     test_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
 ) -> tuple[ForwardEncoder, dict]:
     """Train a :class:`SequenceEncoder` to predict *targets* from *cdr3s*.
@@ -303,10 +361,12 @@ class InverseDecoder:
         self.code_scaler = code_scaler
         self.device = device
 
-    def decode(self, codes, batch: int = 1024) -> list[str]:
+    @_torch_call
+    def decode(self, codes, batch: int = 1024, *, threads: int = 0) -> list[str]:
         return _decode_batches(self.model, codes, self.device, batch, self.code_scaler.transform)
 
 
+@_training_call
 def train_inverse_decoder(
     codes: np.ndarray,
     cdr3s,
@@ -318,6 +378,7 @@ def train_inverse_decoder(
     test_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
 ) -> tuple[InverseDecoder, dict]:
     """Train a :class:`SequenceDecoder` to reconstruct *cdr3s* from *codes*.
@@ -398,11 +459,13 @@ class PgenRegressor:
         self.scaler = scaler
         self.device = device
 
-    def predict(self, cdr3s, batch: int = 1024) -> np.ndarray:
+    @_torch_call
+    def predict(self, cdr3s, batch: int = 1024, *, threads: int = 0) -> np.ndarray:
         return _predict_batches(self.model, cdr3s, self.device, batch,
                                 self.scaler.inverse_transform).ravel()
 
 
+@_training_call
 def train_pgen_regressor(
     cdr3s,
     log_pgen,
@@ -414,6 +477,7 @@ def train_pgen_regressor(
     test_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
 ) -> tuple[PgenRegressor, dict]:
     """Train the shared sequence encoder to predict ``log10 Pgen`` from CDR3.

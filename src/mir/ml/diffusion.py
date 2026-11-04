@@ -43,7 +43,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from mir.ml.train import _batch_size, pick_device, seed_everything
+from mir.ml.train import _torch_call, _training_call, _batch_size, pick_device, seed_everything
 
 
 def cosine_beta_schedule(T: int, s: float = 0.008) -> torch.Tensor:
@@ -135,7 +135,8 @@ class DiffusionModel:
         torch.save({"state_dict": self.model.state_dict(), "betas": self.betas, "meta": self.meta}, path)
 
     @classmethod
-    def load(cls, path: str | Path, device: str | None = None) -> "DiffusionModel":
+    @_training_call
+    def load(cls, path: str | Path, device: str | None = None, *, threads: int = 0) -> "DiffusionModel":
         """Rebuild a saved :class:`DiffusionModel` (weights on CPU unless ``device`` given)."""
         d = torch.load(path, weights_only=False)
         meta = d["meta"]
@@ -152,9 +153,10 @@ class DiffusionModel:
         return cls(model=model, betas=d["betas"], meta=meta)
 
     @torch.no_grad()
+    @_torch_call
     def sample(
         self, n: int = 1, *, condition=None, steps: int = 50, guidance_scale: float = 1.0,
-        seed: int = 0, device: str | None = None,
+        seed: int = 0, device: str | None = None, threads: int = 0,
     ) -> np.ndarray:
         """Draw ``n`` synthetic vectors via deterministic DDIM (Song et al. 2021, ``eta=0``).
 
@@ -235,6 +237,7 @@ class DiffusionModel:
         return (x * sd + mu).cpu().numpy()
 
 
+@_training_call
 def train_diffusion(
     X: np.ndarray,
     condition=None,
@@ -250,6 +253,7 @@ def train_diffusion(
     val_frac: float = 0.1,
     seed: int = 0,
     device: str | None = None,
+    threads: int = 0,
     verbose: bool = True,
     meta: dict | None = None,
 ) -> tuple[DiffusionModel, dict]:
