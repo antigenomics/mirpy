@@ -40,12 +40,12 @@ license = { text = "ISALGO LAB Academic and Non-Commercial Research License v1.0
 [project.optional-dependencies]
 # Bounded per-clonotype Parquet row-group output; TSV streaming needs no extra.
 parquet = ["pyarrow"]
-# VDJdb annotation / E-values for the benchmark harness.
-annotate = ["vdjmatch"]
+# Compatibility alias: VDJmatch is already installed through the core vdjtools dependency.
+annotate = []
 # Build-time only: regenerate region_annotations.txt (arda) and the baked
 # germline distance matrices (BioPython). Runtime needs neither. arda comes
 # via vdjtools; the explicit build floor keeps asset generation on the tested release.
-build = ["vdjtools[model]>=5.9.0", "arda-mapper>=2.38.2", "biopython"]
+build = ["vdjtools>=5.9.0", "arda-mapper>=2.38.2", "biopython"]
 # Part 2: neural codecs and density methods.
 ml = ["torch"]
 # Benchmark harness: DBSCAN eps selection + plotting + HuggingFace dataset fetch +

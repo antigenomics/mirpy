@@ -61,10 +61,11 @@ jobs:
           path: dist/
       - name: Install wheel and test dependencies
         run: |
-          python -m pip install dist/*.whl
-          python -m pip install pytest kneed matplotlib lifelines biopython
+          for wheel in dist/*.whl; do
+            python -m pip install "${wheel}[dev,bench,build]"
+          done
       - name: Test installed artifact
-        run: pytest tests/ -q -m "not integration and not benchmark" --durations=25
+        run: python -c 'import mir, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/ -q -m "not integration and not benchmark" --durations=25
 
   publish:
     if: >-

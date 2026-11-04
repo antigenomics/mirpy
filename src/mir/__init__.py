@@ -5,7 +5,7 @@ sibling packages rather than duplicated:
 
 * alignment → ``seqtree`` (``seqtree.gapblock``),
 * VDJ-rearrangement / Pgen model + sampling → ``vdjtools.model`` (core dependency),
-* VDJdb annotation / E-values → ``vdjmatch`` (extra ``[annotate]``),
+* VDJdb annotation / E-values → companion ``vdjmatch`` (installed through vdjtools),
 * build-time germline region annotation → ``arda`` (extra ``[build]``).
 
 The classical repertoire toolkit lives on the ``legacy-v2`` branch (``mirpy-lib`` 2.x).
