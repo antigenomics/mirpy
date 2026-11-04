@@ -28,6 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # Filenames whose content is internal by design. Matched against the basename, case-insensitively.
 PRIVATE = re.compile(r"^(?!readme\.md$).*\.md$", re.IGNORECASE)
 
+# Reviewed public API guide; other skill files and working notes remain private.
+PUBLIC_GUIDES = {"skills/mirpy/SKILL.md"}
+
 
 # Every working-note name, as the sdist exclude and the gitignore must both spell them.
 NAMES = ("SOURCES.md", "CLAUDE.md", "TODO.md", "NOTES.md", "ROADMAP.md", "STATUS.md",
@@ -42,7 +45,7 @@ def _git(*args: str) -> str:
 
 def test_no_working_note_is_tracked_by_git():
     tracked = [p for p in _git("ls-files").split("\n") if p]
-    leaked = sorted(p for p in tracked if PRIVATE.match(Path(p).name))
+    leaked = sorted(p for p in tracked if p not in PUBLIC_GUIDES and PRIVATE.match(Path(p).name))
     assert not leaked, (
         f"working notes are tracked and would be published: {leaked}. "
         f"Run `git rm --cached <file>` and confirm .gitignore covers it."

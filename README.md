@@ -32,6 +32,12 @@ Turn T- and B-cell receptor tables into clonotype coordinates, sample RFF vector
 or published corpus signatures. PyPI package **mirpy-lib**, Python import **mir**.
 Native alignment and repertoire IO come from seqtree and vdjtools.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/antigenomics/mirpy/master/assets/workflow-dark.svg">
+  <source srcset="https://raw.githubusercontent.com/antigenomics/mirpy/master/assets/workflow-light.svg">
+  <img alt="mirpy workflow: inputs, batched processing and outputs. Schematic illustrations." src="https://raw.githubusercontent.com/antigenomics/mirpy/master/assets/workflow.png" width="100%">
+</picture>
+
 ## Install
 
 ```bash
@@ -52,9 +58,9 @@ marimo notebooks. See [installation and first steps](https://docs.isalgo.dev/mir
 | `mir embeddings` / `mir signature` | Corpus-standardised rsig PCs and pass-through channels |
 
 ```bash
-mir embed clonotypes samples/*.tsv -o clonotypes.tsv --threads 1
-mir embed repertoires samples/*.tsv --save-basis basis -o rff.tsv --threads 1
-mir embed repertoires held_out/*.tsv --basis basis -o held_out_rff.tsv --threads 1
+mir embed clonotypes samples/*.tsv -o clonotypes.tsv
+mir embed repertoires samples/*.tsv --save-basis basis -o rff.tsv
+mir embed repertoires held_out/*.tsv --basis basis -o held_out_rff.tsv
 mir pca rff.tsv --fit rotation.npz --n-components 32 -o pcs.tsv
 mir pca held_out_rff.tsv --rotation rotation.npz -o held_out_pcs.tsv
 ```
@@ -106,10 +112,36 @@ coordinates = model.embed(sample)  # interleaved V, J, junction distances per pr
 Import `mir` before numerical libraries in a fresh interpreter. Sample workers use
 serial inner kernels and retain one sample each; only compact RFF rows survive.
 The final table still grows with cohort size and RFF width, and a deep input sample
-can dominate memory. Use `--threads 1` for serial sample processing or a positive
-count within your allocation. Known large allocations check container memory.
+can dominate memory. The default uses up to 16 allocated CPUs (eight for Torch) and manages inner kernels automatically.
+An explicit positive count overrides the automatic budget within your allocation. Known large allocations check container memory.
 See the [resource contract](https://docs.isalgo.dev/mirpy/usage.html#mir-resource-limits)
 and [embedding memory guide](https://docs.isalgo.dev/mirpy/embeddings.html#memory-use).
+
+<details>
+<summary>Advanced models and fitted references</summary>
+
+Reference bundles can opt into vdjtools' `basic` or `joint` statistical features
+and their IMGT11/BLOSUM62 motif variants via `feature_definition=`. The bundle
+records the definition and vocabulary for compatible saved-PCA application.
+Configured fitting delegates to vdjtools' sparse `TablePCA.fit_features`, preserving
+raw median-impute/StandardScaler coordinates without a dense training table.
+Sample workers join before the BLAS phase. Existing rsig and sample RFF behavior
+stays unchanged; see the embedding guide.
+
+New synthetic reference/background calls default to vdjtools' `isalgo` family.
+Use `olga-legacy` (`olga` alias) for frozen OLGA parameters and reference sampler
+streams. `learned` and `arda` alias fresh isalgo; old fitted weights require a
+pinned previous release. Existing corpus, prototype and embedding artifacts remain
+unchanged; changing a default does not refit a saved reference.
+
+
+</details>
+
+## Agent skill
+
+The [mirpy skill](skills/mirpy/SKILL.md) routes embedding, density and signature
+workflows to the public APIs and guides. Copy `skills/mirpy` into your agent’s
+skill directory or read it in this checkout.
 
 ## Development
 
@@ -142,24 +174,3 @@ GLIPH — is frozen on the [`legacy-v2`](https://github.com/antigenomics/mirpy/t
 (`mirpy-lib` 2.x); its functionality lives on in
 [vdjtools](https://github.com/antigenomics/vdjtools) and
 [vdjmatch](https://github.com/antigenomics/vdjmatch).
-
-### Configured statistical references
-
-Reference bundles can opt into vdjtools' `basic` or `joint` statistical features
-and their IMGT11/BLOSUM62 motif variants via `feature_definition=`. The bundle
-records the definition and vocabulary for compatible saved-PCA application.
-Configured fitting delegates to vdjtools' sparse `TablePCA.fit_features`, preserving
-raw median-impute/StandardScaler coordinates without a dense training table.
-Sample workers join before the BLAS phase. Existing rsig and sample RFF behavior
-stays unchanged; see the embedding guide.
-
-New synthetic reference/background calls default to vdjtools' `isalgo` family.
-Use `olga-legacy` (`olga` alias) for frozen OLGA parameters and reference sampler
-streams. `learned` and `arda` alias fresh isalgo; old fitted weights require a
-pinned previous release. Existing corpus, prototype and embedding artifacts remain
-unchanged; changing a default does not refit a saved reference.
-
-CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs
-(eight for Torch training/inference). Use `1` for serial work or a positive
-count to override the automatic cap within the scheduler/container allocation.
-Sample workers keep their inner numerical kernels serial.
