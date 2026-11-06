@@ -36,10 +36,11 @@ def test_codec_owns_default_explicit_and_outer_worker_budgets(monkeypatch):
     seen.clear()
     parallel_rows([seqs, seqs], encoder.code, 2)
     assert seen == [(1, 1), (1, 1)]
-    with pytest.raises(ValueError, match='threads'):
-        encoder.code(seqs, threads=3)
-    with pytest.raises(ValueError, match='threads'):
-        parallel_rows([seqs, seqs], lambda rows: encoder.code(rows, threads=2), 2)
+    encoder.code(seqs, threads=3)
+    assert seen[-1] == (2, 1)
+    seen.clear()
+    parallel_rows([seqs, seqs], lambda rows: encoder.code(rows, threads=2), 2)
+    assert seen == [(1, 1), (1, 1)]
     class Broken(torch.nn.Module):
         def forward(self, x):
             assert torch.get_num_threads() == 2
