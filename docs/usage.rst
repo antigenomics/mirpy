@@ -471,6 +471,6 @@ neighborhood if it exceeds that size). Counts and weighted sums retain their exa
 per-row order. Sample pools share one interpreter and its frozen resources;
 use an explicit ``n_jobs`` to bound concurrent sample buffers.
 
-Torch CPU training and inference default to at most eight allocated CPUs.
-Explicit positive ``threads`` values may exceed this automatic cap within the
+Torch CPU training and inference default to allocated physical cores.
+Explicit positive ``threads`` values may use logical CPUs within the
 allocation; BLAS and Torch inter-op pools remain serial during the Torch phase.
