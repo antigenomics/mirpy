@@ -179,8 +179,7 @@ def test_radius_search_owns_and_restores_native_budget(monkeypatch):
     assert seen == [2]
     monkeypatch.setattr(metrics, 'NearestNeighbors', original)
     assert radius == pytest.approx(metrics.estimate_dbscan_eps(x, threads=1), rel=1e-12)
-    with pytest.raises(ValueError):
-        metrics.estimate_dbscan_eps(x, threads=3)
+    assert radius == pytest.approx(metrics.estimate_dbscan_eps(x, threads=3), rel=1e-12)
 
 
 @pytest.mark.parametrize('method', ['dbscan', 'hdbscan', 'optics'])
