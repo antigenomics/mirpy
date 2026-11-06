@@ -1,4 +1,6 @@
 """Exercise the installed Windows wheel through batched receptor embedding and PCA."""
+import subprocess
+
 import mir
 import numpy as np
 import polars as pl
@@ -6,6 +8,7 @@ from mir.embedding.tcremp import TCREmp
 from vdjtools.cores import available_cores, physical_cores
 from vdjtools.signature.corpus import TablePCA
 
+subprocess.run(["mir", "--help"], check=True, capture_output=True, text=True)
 assert 1 <= physical_cores() <= available_cores()
 sample = pl.DataFrame({
     "v_call": ["TRBV10-3*01", "TRBV20-1*01", "TRBV10-3*01"],
