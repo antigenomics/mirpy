@@ -24,7 +24,7 @@ def pca_denoise(
         n_components: Target dimensionality (clamped to ``min(n_samples, n_features)``).
         scale: Standardize each coordinate to zero mean / unit variance first.
         random_state: Seed for the (randomized) SVD solver.
-        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects allocated physical cores.
 
     Returns:
         ``(n_clonotypes, k)`` float array of principal-component scores,

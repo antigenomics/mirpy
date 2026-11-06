@@ -164,7 +164,7 @@ multicore); at whole-repertoire scale pass ``backend="ann"`` (approximate, ``[an
 ``examples/density.py``.
 
 Isalgo calls use the native sampler by default, with ``threads=0`` selecting
-up to 16 allocated CPUs for one batched draw. Frozen OLGA sources retain reference
+allocated physical cores for one batched draw. Frozen OLGA sources retain reference
 sampling by default. Set ``engine="reference"`` explicitly for historical streams;
 ``engine="native"`` also works with explicitly selected legacy parameters.
 Reference points distinguish model source and the resolved sampler engine; repeated

@@ -34,7 +34,7 @@ def pick_device(device: str | None = None, *, threads: int | None = None) -> tor
     from vdjtools.cores import kernel_threads
 
     if threads is not None:
-        torch.set_num_threads(min(kernel_threads(threads), 8) if threads == 0 else kernel_threads(threads))
+        torch.set_num_threads(kernel_threads(threads))
     if torch.get_num_interop_threads() != 1:
         try:
             torch.set_num_interop_threads(1)
@@ -62,7 +62,7 @@ def _torch_runtime(threads):
     from threadpoolctl import threadpool_limits
     from vdjtools.cores import kernel_threads, numerical_kernels
 
-    budget = min(kernel_threads(threads), 8) if threads == 0 else kernel_threads(threads)
+    budget = kernel_threads(threads)
     with numerical_kernels(1):
         if kernel_threads(0) == 1:
             # Outer workers share Torch's process-wide setting and must never resize it.

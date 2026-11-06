@@ -109,10 +109,15 @@ coordinates = model.embed(sample)  # interleaved V, J, junction distances per pr
 
 ## Resource budgets
 
+Logical CPUs are hardware threads, not physical cores: a 40-logical-CPU node may
+have 20 physical cores. Automatic sizing uses visible topology and respects affinity,
+SLURM and container limits; unknown topology falls back to the logical allocation.
+Explicit positive budgets may use SMT threads within that allocation.
+
 Import `mir` before numerical libraries in a fresh interpreter. Sample workers use
 serial inner kernels and retain one sample each; only compact RFF rows survive.
 The final table still grows with cohort size and RFF width, and a deep input sample
-can dominate memory. The default uses up to 16 allocated CPUs (eight for Torch) and manages inner kernels automatically.
+can dominate memory. Automatic budgets use the physical cores visible within the CPU allocation and manage inner kernels automatically.
 An explicit positive count overrides the automatic budget within your allocation. Known large allocations check container memory.
 See the [resource contract](https://docs.isalgo.dev/mirpy/usage.html#mir-resource-limits)
 and [embedding memory guide](https://docs.isalgo.dev/mirpy/embeddings.html#memory-use).

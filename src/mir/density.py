@@ -230,7 +230,7 @@ def fit_density_space(
             or ``"junction"`` (CDR3 sub-block only, mimicking pure-CDR3 TCRNET/ALICE and a
             third of the memory at whole-repertoire scale).
         seed: RNG / PCA solver seed.
-        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects allocated physical cores.
         pca_fit_cap: Fit the ``StandardScaler`` + PCA on at most this many randomly-sampled
             pooled rows (then transform *all* rows). ``None`` fits on everything. NB on its own
             this caps the **fit**, not the memory: without ``chunk_size`` the full raw matrix for

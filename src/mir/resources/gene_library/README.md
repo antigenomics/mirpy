@@ -1,4 +1,4 @@
-# mir/resources/segments
+# src/mir/resources/gene_library
 
 Gene segment library files and generation scripts for the `mir` package.
 
@@ -47,21 +47,21 @@ in `mir`. The IMGT library provides a broader, network-fresh reference.
 
 ```bash
 # Both libraries + consistency check (IMGT requires network)
-python mir/resources/segments/build_gene_library.py
+python src/mir/resources/gene_library/build_gene_library.py
 
 # OLGA only (no network needed)
-python mir/resources/segments/build_gene_library.py --olga
+python src/mir/resources/gene_library/build_gene_library.py --olga
 
 # IMGT only
-python mir/resources/segments/build_gene_library.py --imgt
+python src/mir/resources/gene_library/build_gene_library.py --imgt
 
 # Consistency check only (reads existing files from disk)
-python mir/resources/segments/build_gene_library.py --check
+python src/mir/resources/gene_library/build_gene_library.py --check
 ```
 
 The OLGA builder searches two paths in priority order:
 
-1. `mir/resources/segments/olga/default_models/` — local model copies
+1. `src/mir/resources/olga/default_models/` — local model copies
 2. The installed `olga` package's `default_models/` directory
 
 Note: mouse B-cell (IGH/IGK/IGL) OLGA models use synthetic non-IMGT allele names

@@ -394,7 +394,7 @@ def fit_repertoire_space(
         space: ``"full"`` (V+J+junction) or ``"junction"`` (CDR3 sub-block only).
         pca_fit_cap: Fit the scaler + PCA on at most this many randomly-sampled pooled rows.
         seed: RNG seed (PCA solver + RFF draws).
-        threads: Numerical CPU budget; 0 inherits a caller phase or selects up to 16 cores.
+        threads: Numerical CPU budget; 0 inherits a caller phase or selects allocated physical cores.
 
     Returns:
         A :class:`RepertoireSpace` ready for :func:`sample_embedding`.

@@ -114,7 +114,7 @@ half** of the portable signature. The statistics half is ``vdjtools signature``,
    * - ``--columns``
      - Restrict the output to a file of column names.
    * - ``-j/--jobs``
-     - Sample workers: ``0`` (default) selects up to 16 allocated CPUs.
+     - Sample workers: ``0`` (default) selects allocated physical cores.
 
 Which corpus to choose, and what the columns mean, are in :doc:`signature` and :doc:`channels`.
 

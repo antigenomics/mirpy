@@ -79,7 +79,7 @@ only sample vectors survive the reduction. Inner numerical pools are managed aut
 Workers write directly into one preallocated columnar output matrix, which Polars
 wraps without a second feature-table copy.
 The library's ``sample_embeddings(..., n_jobs=0)`` and the CLI default use
-up to 16 allocated CPUs, capped by the number of samples.
+allocated physical cores, capped by the number of samples.
 
 ``mir pca`` and optional inline PCA
 -----------------------------------
@@ -93,7 +93,7 @@ rotation stores feature names and the shared basis fingerprint, and refuses a
 mismatch. It is a NumPy artifact with no executable pickle payload.
 
 Application converts bounded row blocks to dense arrays. ``mir pca --threads 0``
-uses up to 16 allocated BLAS cores for fitting and application; a positive value sets an
+uses allocated physical cores for BLAS for fitting and application; a positive value sets an
 explicit budget. Omitting the flag uses the same automatic budget. The command owns native thread
 configuration, so users need not implement BLAS controls. A ceiling does not
 guarantee CPU occupancy or bound the number of idle OS threads. Inline sample PCA reuses ``mir embed repertoires --threads``
@@ -251,7 +251,7 @@ provide an RFF basis for BCR or the other TCR loci.
 
 Reference fitting accepts separate phase budgets: ``jobs`` for sample workers,
 ``threads`` for BLAS after those workers join. ``threads=1`` preserves serial
-PCA; ``threads=0`` uses up to 16 allocated cores. The shared ``TablePCA.fit`` accepts
+PCA; ``threads=0`` uses allocated physical cores. The shared ``TablePCA.fit`` accepts
 the same fitting-only budget and restores caller BLAS limits afterwards.
 
 ``mir.embedding.reference.build_reference_rotations`` fits repeatable raw-sample
@@ -397,7 +397,7 @@ Numerical CPU budgets
 ---------------------
 
 Clonotype scaler/PCA fitting, density projection and PCA denoising accept
-``threads=0`` for automatic numerical budgets (up to 16 allocated CPUs),
+``threads=0`` for automatic numerical budgets (allocated physical cores),
 ``1`` for serial work, or an explicit count within the allocation. Automatic
 calls inherit an enclosing numerical phase; sample workers remain serial.
 Reference builds complete sample mapping before numerical fitting.

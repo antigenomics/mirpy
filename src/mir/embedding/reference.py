@@ -32,7 +32,7 @@ def build_reference_rotations(readers, loci, output, *, jobs=0, components=1024,
     ``reuse_basis`` copies an existing basis directory byte-for-byte and skips
     clonotype fitting. Both sample-table PCAs are fitted from fresh reader outputs.
     ``jobs`` budgets sample workers; ``threads`` budgets BLAS after they join
-    (1 serial, 0 up to 16 allocated cores). The phases never run concurrently.
+    (1 serial, 0 allocated physical cores). The phases never run concurrently.
     """
     from vdjtools.signature.layout import validate_feature_definition, _configured
     validate_feature_definition(feature_definition)
