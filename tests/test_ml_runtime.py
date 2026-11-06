@@ -127,8 +127,7 @@ def test_seeded_fits_serialize_before_seeding(monkeypatch, kind):
 def test_torch_auto_uses_resolved_budget_and_explicit_budget_is_preserved(monkeypatch):
     import torch
     from mir.ml.train import _torch_runtime
-    monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 32)
-    monkeypatch.setattr('vdjtools.cores.physical_cores', lambda: 20)
+    monkeypatch.setattr('vdjtools.cores.kernel_threads', lambda threads=0: threads or 20)
     previous = torch.get_num_threads()
     for request, expected in [(0, 20), (16, 16), (32, 32)]:
         with _torch_runtime(request):
