@@ -113,6 +113,7 @@ assert torch.get_num_threads() == previous
 def test_cluster_relative_worker_budget(monkeypatch, jobs, expected):
     import mir.bench.metrics as metrics
     monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 4)
+    monkeypatch.setattr('vdjtools.cores.physical_cores', lambda: 4)
     class Estimator:
         def __init__(self, **kw):
             assert kw['n_jobs'] == expected

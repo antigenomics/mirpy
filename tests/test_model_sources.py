@@ -119,7 +119,7 @@ def test_prepared_release_metadata_requires_published_parent_contracts():
     import mir
 
     project = tomllib.loads((Path(__file__).parents[1] / 'pyproject.toml').read_text())['project']
-    assert mir.__version__ == '4.10.1'
-    assert 'vdjtools>=5.9.1' in project['dependencies']
-    assert 'vdjtools>=5.9.1' in project['optional-dependencies']['build']
-    assert 'arda-mapper>=2.38.3' in project['optional-dependencies']['build']
+    assert mir.__version__ == '4.10.3'
+    assert 'vdjtools>=5.9.2' in project['dependencies']
+    assert 'vdjtools>=5.9.2' in project['optional-dependencies']['build']
+    assert 'arda-mapper>=2.38.4' in project['optional-dependencies']['build']
