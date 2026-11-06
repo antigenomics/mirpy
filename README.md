@@ -48,6 +48,10 @@ Optional extras: `[parquet]` for streaming clonotype Parquet, `[ann]` for approx
 neighbours, `[ml]` for Torch codecs, `[bench]` for evaluation, and `[examples]` for
 marimo notebooks. See [installation and first steps](https://docs.isalgo.dev/mirpy/getting-started.html).
 
+Native Windows installation uses the same `pip install` command; WSL is not required.
+The [Windows workflow](.github/workflows/windows.yml) builds and installs a wheel,
+then checks batched receptor embedding and sample PCA with the native dependencies.
+
 ## Choose your output
 
 | Command | Output |
