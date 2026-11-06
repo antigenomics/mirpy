@@ -16,21 +16,19 @@ def test_embedding_and_distances_respect_restricted_allocation(monkeypatch):
     expected = model.embed(frame)
     with serial_kernels():
         np.testing.assert_array_equal(model.embed(frame), expected)
-    with pytest.raises(ValueError):
-        TCREmp.from_defaults('human', 'TRB', threads=3)
+    TCREmp.from_defaults('human', 'TRB', threads=3)
     seqs = ['CASSLGQETQYF', 'CASSLGQETQFF']
     np.testing.assert_array_equal(junction_distance_matrix(seqs, seqs, threads=0),
                                   junction_distance_matrix(seqs, seqs, threads=1))
-    with pytest.raises(ValueError):
-        junction_distance_matrix(seqs, seqs, threads=3)
+    np.testing.assert_array_equal(junction_distance_matrix(seqs, seqs, threads=3),
+                                  junction_distance_matrix(seqs, seqs, threads=2))
 
 
-def test_density_rejects_excessive_threads(monkeypatch):
+def test_density_caps_excessive_threads(monkeypatch):
     from mir.density import neighbor_enrichment
     monkeypatch.setattr('vdjtools.cores.available_cores', lambda: 2)
     x = np.arange(60, dtype=float).reshape(20, 3)
-    with pytest.raises(ValueError):
-        neighbor_enrichment(x, x, radius=1, threads=3)
+    neighbor_enrichment(x, x, radius=1, threads=3)
 
 
 def test_ann_fresh_runtime_owns_requested_budget():
